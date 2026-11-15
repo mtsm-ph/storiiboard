@@ -3,7 +3,7 @@ import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
-import { isOpening, OPENING_WIDTH, planFields, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
+import { isIcon, isWallFields, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
 import type { SbdRecord } from '../../../core/model/record';
@@ -40,7 +40,7 @@ import {
   chooseRoom,
   type PlanView,
 } from './planActions';
-import { openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, viewKey } from './planItems';
+import { iconCentre, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, viewKey, wallAtPoint } from './planItems';
 import { DOOR_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
@@ -404,10 +404,12 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   }, []);
   // What the plan holds, in metres, as plain data for the end-to-end tests (the canvas is pixels).
   const data = useMemo(() => {
-    const walls = new Map(shown.flatMap((item) => (isOpening(item.fields) ? [] : [[item.record.id, item.fields] as const])));
+    const walls = new Map(shown.flatMap((item) => (isWallFields(item.fields) ? [[item.record.id, item.fields] as const] : [])));
     return JSON.stringify(
       shown.map(({ record, fields, level }) => {
-        if (!isOpening(fields)) {
+        // An icon (6.3): its box, its middle and its layer, worked out from its group.
+        if (isIcon(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields) };
+        if (isWallFields(fields)) {
           const [start, end] = wallEnds(fields);
           return { id: record.id, level, ...fields, start, end };
         }
@@ -478,9 +480,11 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
               showInfo(t('plan.selectOneWall'));
               return false;
             }
-            const at = by === 'key' && walls[0] ? openingSpotInWall(shown, walls[0], placing) : openingSpot(shown, { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 }, placing, toMetres(scale.grid.step));
+            const point = { x: geometry.x + geometry.width / 2, y: geometry.y + geometry.height / 2 };
+            const at = by === 'key' && walls[0] ? openingSpotInWall(shown, walls[0], placing) : openingSpot(shown, point, placing, toMetres(scale.grid.step));
             if (!at) {
-              showInfo(t(by === 'key' ? 'selection.openingRefused' : 'plan.pointAtWall'));
+              // Over a wall with no room left in it: it doesn't fit (6.2b review); over none: point at one.
+              showInfo(t(by === 'key' || wallAtPoint(shown, point) ? 'selection.openingRefused' : 'plan.pointAtWall'));
               return false;
             }
             setHover(null);

@@ -4,9 +4,9 @@ import { createProjectStore } from '../../../app/projectStore';
 import { setLocale, t } from '../../../core/i18n';
 import { openingFields, planItemFields, sceneRoomId, shownItems, startRoomChanges, trashPlanChanges, wallBetween, wallEnds, wallProps, wallsAlong } from '../../../core/model/plan';
 import { openingFrame } from '../../../core/model/openings';
-import { copySetupChanges, itemLevel, separateCopyChanges, setupOnlyChanges } from '../../../core/model/planRooms';
+import { copySetupChanges, deleteRoomChanges, itemLevel, separateCopyChanges, setupOnlyChanges } from '../../../core/model/planRooms';
 import type { SbdRecord } from '../../../core/model/record';
-import { log, loadRecords, purgeIds, trashedRoots } from '../../../core/ops/ops';
+import { log, loadRecords, purgeIds, trashedRoots, type Change } from '../../../core/ops/ops';
 import { nodeDriver } from '../../../core/storage/nodeDriver';
 import { createProject, openProject, type Project } from '../../../core/storage/project';
 import { noticeStore } from '../../../app/notice';
@@ -31,11 +31,14 @@ import {
   planItemsBuilder,
   planNudgeChanges,
   planPasteChanges,
+  planPasteInView,
   pasteTarget,
   reorderPlanChanges,
   shownItemsKeeper,
   shownWalls,
   trashPlanItemsChanges,
+  wallAtPoint,
+  wallNeedIn,
   wallNeedOf,
   wallPatchChanges,
   wallsTakeLength,
@@ -654,7 +657,7 @@ describe('what a view shows, and walls resized from their start (6.2b review)', 
     expect(records()[twin]).toBeUndefined();
   });
 
-  it('puts a door where the Door tool previews it, and lets a wall be shortened past a door only another scene shows', async () => {
+  it('puts a door where the Door tool previews it, and never lets a wall be shortened past a door only another scene shows', async () => {
     const s = await shared();
     await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.door], true));
     const seven = { sceneId: s.other, setupId: null };
@@ -663,11 +666,13 @@ describe('what a view shows, and walls resized from their start (6.2b review)', 
     if (!spot) throw new Error('no spot');
     expect(placeOpeningChanges(records(), spot, 'window', 'w', seven)).toHaveLength(1);
     expect(placeOpeningChanges(records(), spot, 'window', 'w')).toEqual([]);
-    // SC 07 shows no door: its wall can be 1 m; SC 04's setup still has its door, read inside the wall, never rewritten.
-    expect(wallsTakeLength(records(), [s.first], 1, seven)).toBe(true);
-    expect(wallsTakeLength(records(), [s.first], 1, { sceneId: s.sceneId, setupId: s.u1 })).toBe(false);
-    await store.getState().apply(wallPatchChanges(records(), [s.first], { length: 1 }, seven));
-    expect(fieldsOf(s.first)?.width).toBe(1);
+    // Second review: SC 07 shows no door, but SC 04's setup has one, so the wall's least length counts it everywhere.
+    expect(wallsTakeLength(records(), [s.first], 1)).toBe(false);
+    expect(wallPatchChanges(records(), [s.first], { length: 1 })).toEqual([]);
+    expect(wallNeedIn(records(), [s.first], seven)).toEqual({ length: 1.45, hidden: { kind: 'door', place: 'SC 04 · Setup 1' } });
+    expect(wallNeedIn(records(), [s.first], { sceneId: s.sceneId, setupId: s.u1 })).toEqual({ length: 1.45, hidden: null });
+    // A wall that arrives shorter (an import, a History put-back) still reads its door inside it, never rewritten.
+    await store.getState().apply([{ kind: 'update', id: s.first, set: { width: 1 } }]);
     expect(openingOf(s.door)?.along).toBe(1);
     const read = shownItems(records(), s.sceneId, s.u1).find((i) => i.record.id === s.door)?.fields;
     expect(read).toMatchObject({ along: 0.55, width: 0.9 });
@@ -770,5 +775,231 @@ describe('a wall’s words (6.2a review)', () => {
     const spanish = label(build(keep(records(), sceneId, null), 'metres', '#16150F', 'es'));
     expect(spanish).toBe(t('plan.announce.wall', { length: '3.50 m' }));
     expect(spanish).not.toBe('Wall, 3.50 m');
+  });
+});
+
+// The second 6.2b review: a room restored brings back the scene's own doors trashed with its walls; a wall is never
+// shortened past any plan's door, from either end, and a resize from its start keeps every door's place in the room
+// (at a slant, by a corner, turned too); a door read inside a shorter wall keeps what is stored; pastes keep levels.
+
+describe('rooms, walls and doors across plans (6.2b second review)', () => {
+  /** SC 04 (the L and its door, two setups) and SC 07 in one room. */
+  async function shared() {
+    const made = await withDoor();
+    const other = crypto.randomUUID();
+    const u1 = crypto.randomUUID();
+    const u2 = crypto.randomUUID();
+    await store.getState().apply([
+      { kind: 'create', record: { id: other, type: 'scene', parentId: project.projectId, sortKey: 'b', props: { number: '7', room_id: made.roomId } } },
+      { kind: 'create', record: { id: u1, type: 'setup', parentId: made.sceneId, sortKey: 'a', props: { name: '' } } },
+      { kind: 'create', record: { id: u2, type: 'setup', parentId: made.sceneId, sortKey: 'b', props: { name: '' } } },
+    ]);
+    return { ...made, other, u1, u2, first: made.walls[0] ?? '', second: made.walls[1] ?? '' };
+  }
+  const centreOf = (id: string) => {
+    const o = openingOf(id);
+    const wall = o ? fieldsOf(o.wallId) : null;
+    if (!o || !wall) throw new Error('no opening');
+    return openingFrame(wall, o).centre;
+  };
+  const canvasBox = (g: { x: number; y: number; width: number; height: number; rotation: number }) => ({ x: toCanvas(g.x), y: toCanvas(g.y), width: toCanvas(g.width), height: toCanvas(g.height), rotation: g.rotation });
+
+  it('restores a deleted room with the scene’s own door in its wall, shown in its setup again', async () => {
+    const { sceneId, roomId, walls, door } = await withDoor();
+    const first = walls[0] ?? '';
+    const u1 = crypto.randomUUID();
+    await store.getState().apply([{ kind: 'create', record: { id: u1, type: 'setup', parentId: sceneId, sortKey: 'a', props: { name: '' } } }]);
+    await store.getState().apply(setupOnlyChanges(records(), sceneId, u1, [door], true));
+    await store.getState().apply(deleteRoomChanges(records(), sceneId));
+    expect(records()[door]?.trashedAt).not.toBeNull();
+    // The Trash lists the room alone: the door went with its wall.
+    expect(trashItems(records(), project.projectId).map((row) => row.id)).toEqual([roomId]);
+    await store.getState().apply(restoreChanges(records(), project.projectId, roomId));
+    expect([records()[roomId]?.trashedAt, records()[first]?.trashedAt, records()[door]?.trashedAt]).toEqual([null, null, null]);
+    expect(shownItems(records(), sceneId, u1).find((i) => i.record.id === door)?.level).toBe('setup');
+  });
+
+  it('stops a start-handle drag at another scene’s setup-only door and keeps its place in the room there and back, one undo each', async () => {
+    const s = await shared();
+    await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.door], true));
+    const seven = { sceneId: s.other, setupId: null };
+    const was = centreOf(s.door);
+    const before = await groups();
+    // In SC 07, which shows no door, the start handle dragged 1.5 m in: it stops at the door's edge, 0.55 m in.
+    await store.getState().apply(planGeometryChanges(records(), [{ id: s.first, x: 150, y: -5, width: 200, height: 10, rotation: 0 }], undefined, seven));
+    expect(await groups()).toBe(before + 1);
+    expect(wallEnds(fieldsOf(s.first) as never)[0].x).toBeCloseTo(0.55, 4);
+    expect(openingOf(s.door)?.along).toBeCloseTo(0.45, 4);
+    expect(centreOf(s.door).x).toBeCloseTo(was.x, 4);
+    // Dragged back out to 0: the door is where it was, not 0.5 m off.
+    await store.getState().apply(planGeometryChanges(records(), [{ id: s.first, x: 0, y: -5, width: 350, height: 10, rotation: 0 }], undefined, seven));
+    expect(openingOf(s.door)?.along).toBeCloseTo(1, 4);
+    expect(centreOf(s.door).x).toBeCloseTo(was.x, 4);
+    // One undo takes back one resize, the door's shift with it.
+    await store.getState().undo();
+    expect(openingOf(s.door)?.along).toBeCloseTo(0.45, 4);
+    await store.getState().undo();
+    expect(openingOf(s.door)?.along).toBe(1);
+    expect(fieldsOf(s.first)?.width).toBe(3.5);
+  });
+
+  it('refuses a typed length past a door another scene shows, saying where it is', async () => {
+    const s = await shared();
+    await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.door], true));
+    const seven = { sceneId: s.other, setupId: null };
+    expect(wallPatchChanges(records(), [s.first], { length: 1.2 })).toEqual([]);
+    const need = wallNeedIn(records(), [s.first], seven);
+    expect(need.hidden).toEqual({ kind: 'door', place: 'SC 04 · Setup 1' });
+    expect(t('selection.wallTooShortDoorIn', { place: need.hidden?.place ?? '', length: '1.45 m' })).toBe('A door in SC 04 · Setup 1 needs this wall to be at least 1.45 m.');
+    // At the limit it takes the length.
+    expect(wallPatchChanges(records(), [s.first], { length: 1.45 })).toHaveLength(1);
+    setLocale('es');
+    expect(wallNeedIn(records(), [s.first], seven).hidden?.place).toBe(`${t('scene.label', { number: '04' })} · ${t('setup.label', { number: 1 })}`);
+    setLocale('en');
+  });
+
+  it('keeps every opening’s place in the room when a 37° wall is resized from its start', async () => {
+    const { roomId } = await room();
+    const turn = (37 * Math.PI) / 180;
+    const made = wallsAlong(records(), roomId, [
+      { x: 0, y: 10 },
+      { x: 4 * Math.cos(turn), y: 10 + 4 * Math.sin(turn) },
+    ]);
+    await store.getState().apply(made.changes);
+    const wall = made.ids[0] ?? '';
+    const f = fieldsOf(wall);
+    if (!f) throw new Error('no wall');
+    const door = crypto.randomUUID();
+    const window = crypto.randomUUID();
+    await store.getState().apply(placeOpeningChanges(records(), { wallId: wall, wall: f, along: 1.5 }, 'door', door));
+    await store.getState().apply(placeOpeningChanges(records(), { wallId: wall, wall: f, along: 3 }, 'window', window));
+    const was = [centreOf(door), centreOf(window)];
+    // The start pulled 0.6 m in along the wall, the end where it was.
+    const [start, end] = wallEnds(f);
+    const dir = { x: Math.cos(turn), y: Math.sin(turn) };
+    const next = wallBetween({ x: start.x + dir.x * 0.6, y: start.y + dir.y * 0.6 }, end, f.height);
+    await store.getState().apply(planGeometryChanges(records(), [{ id: wall, ...canvasBox(next) }]));
+    expect(fieldsOf(wall)?.width).toBeCloseTo(3.4, 3);
+    [centreOf(door), centreOf(window)].forEach((p, i) => {
+      expect(p.x).toBeCloseTo(was[i]?.x ?? 0, 3);
+      expect(p.y).toBeCloseTo(was[i]?.y ?? 0, 3);
+    });
+  });
+
+  it('keeps the door’s place when a corner handle resizes the wall from its start', async () => {
+    const { sceneId, walls, door } = await withDoor();
+    const first = walls[0] ?? '';
+    const was = centreOf(door);
+    // The top left corner: 0.5 m in along the wall and 5 cm thicker.
+    await store.getState().apply(planGeometryChanges(records(), [{ id: first, x: 50, y: -10, width: 300, height: 15, rotation: 0 }], undefined, { sceneId, setupId: null }));
+    expect(fieldsOf(first)).toMatchObject({ width: 3, height: 0.15 });
+    expect(openingOf(door)?.along).toBeCloseTo(0.5, 4);
+    expect(centreOf(door).x).toBeCloseTo(was.x, 4);
+  });
+
+  it('shifts the doors by the start’s move along the new direction when a turn and a resize arrive together', async () => {
+    const { walls, door } = await withDoor();
+    const first = walls[0] ?? '';
+    const f = fieldsOf(first);
+    if (!f) throw new Error('no wall');
+    const [, end] = wallEnds(f);
+    const turn = (5 * Math.PI) / 180;
+    // The end stays; the wall turned 5° and 3 m long.
+    const next = wallBetween({ x: end.x - 3 * Math.cos(turn), y: end.y - 3 * Math.sin(turn) }, end, f.height);
+    await store.getState().apply(planGeometryChanges(records(), [{ id: first, ...canvasBox(next) }]));
+    expect(fieldsOf(first)?.rotation).toBeCloseTo(5, 4);
+    expect(openingOf(door)?.along).toBeCloseTo(1 - (3.5 * Math.cos(turn) - 3), 3);
+  });
+
+  it('writes no place, width or wall for a name, hinge or height on a door read inside a shorter wall, nor for edits elsewhere', async () => {
+    const { sceneId, walls, door } = await withDoor();
+    const [first = '', second = ''] = walls;
+    const other = crypto.randomUUID();
+    await store.getState().apply(placeOpeningChanges(records(), { wallId: second, wall: fieldsOf(second) as never, along: 1.5 }, 'door', other));
+    // As an import may leave it: the wall 0.8 m, the door stored 0.9 m wide at 1 m, read 0.8 m wide at 0.4 m.
+    await store.getState().apply([{ kind: 'update', id: first, set: { width: 0.8 } }]);
+    const stored = { ...records()[door]?.props };
+    const untouched = (changes: readonly Change[]) => {
+      for (const c of changes) if (c.kind === 'update' && c.id === door) for (const key of ['along_m', 'width_m', 'wall_id']) expect(c.set ?? {}).not.toHaveProperty(key);
+    };
+    for (const patch of [{ hinge: 'end' as const }, { swing: 'right' as const }, { name: 'Kitchen door' }, { heightM: 2.1 }]) {
+      const changes = openingPatchChanges(records(), [door], patch, { sceneId, setupId: null }) ?? [];
+      expect(changes).toHaveLength(1);
+      untouched(changes);
+    }
+    untouched(flipDoorsChanges(records(), [door], 'hinge'));
+    const f = fieldsOf(first);
+    if (!f) throw new Error('no wall');
+    // The wall moved, the other wall nudged, the other door patched: the clamped door's record is as it was.
+    await store.getState().apply(planGeometryChanges(records(), [{ id: first, x: toCanvas(f.x) + 20, y: toCanvas(f.y) + 30, width: toCanvas(f.width), height: toCanvas(f.height), rotation: 0 }]));
+    await store.getState().apply(planNudgeChanges(records(), [second], 10, 0));
+    await store.getState().apply(openingPatchChanges(records(), [other], { fromStart: 0.2 }) ?? []);
+    expect(records()[door]?.props).toEqual(stored);
+  });
+
+  it('fit-checks a narrowed door dragged onto another wall at the width it is stored with', async () => {
+    const { walls, door } = await withDoor();
+    const [first = '', second = ''] = walls;
+    // Two windows on the second wall leave a gap of 0.85 m: room for 0.8 m, not the door's stored 0.9 m.
+    await store.getState().apply(placeOpeningChanges(records(), { wallId: second, wall: fieldsOf(second) as never, along: 0.6 }, 'window', crypto.randomUUID()));
+    const b = crypto.randomUUID();
+    await store.getState().apply(placeOpeningChanges(records(), { wallId: second, wall: fieldsOf(second) as never, along: 2.65 }, 'window', b));
+    await store.getState().apply([{ kind: 'update', id: first, set: { width: 0.8 } }]);
+    const wall2 = fieldsOf(second);
+    const o = openingOf(door);
+    if (!wall2 || !o) throw new Error('no door');
+    const box = (along: number) => ({ id: door, ...canvasBox(openingFrame(wall2, { ...o, along, width: 0.8 }).box) });
+    expect(planGeometryChanges(records(), [box(1.625)])).toEqual([]);
+    // With room for 0.9 m, it moves there, its stored width kept.
+    await store.getState().apply([{ kind: 'trash', id: b }]);
+    expect(planGeometryChanges(records(), [box(1.7)])).toEqual([{ kind: 'update', id: door, set: { along_m: 1.7, wall_id: second } }]);
+  });
+
+  it('pastes a setup’s own wall into a setup with no plan by making one in the same group, and leaves it out with no setup', async () => {
+    const s = await shared();
+    const u1View = { sceneId: s.sceneId, setupId: s.u1 };
+    await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.second], true));
+    const clip = planClipOf(records(), [s.second], u1View);
+    const made = planPasteInView(records(), { sceneId: s.sceneId, setupId: s.u2 }, clip, null, 'plan-u2');
+    expect(made.leftOut).toBe(0);
+    expect(made.changes[0]).toMatchObject({ kind: 'create', record: { id: 'plan-u2', type: 'plan', parentId: s.u2 } });
+    expect(made.changes.slice(1).map((c) => (c.kind === 'create' ? c.record.parentId : ''))).toEqual(['plan-u2']);
+    const before = await groups();
+    await store.getState().apply(made.changes);
+    expect(await groups()).toBe(before + 1);
+    expect(shownItems(records(), s.sceneId, s.u2).map((i) => i.level)).toEqual(['room', 'room', 'setup']);
+    // Into the scene with no setup shown: left out, nothing written.
+    expect(planPasteInView(records(), { sceneId: s.sceneId, setupId: null }, clip, null)).toMatchObject({ leftOut: 1, changes: [], ids: [] });
+  });
+
+  it('drops copied_from on a paste and on a Duplicate', async () => {
+    const s = await shared();
+    await store.getState().apply(setupOnlyChanges(records(), s.sceneId, s.u1, [s.second], true));
+    await store.getState().apply(copySetupChanges(records(), s.u1, s.u2));
+    const u2View = { sceneId: s.sceneId, setupId: s.u2 };
+    const copy = shownItems(records(), s.sceneId, s.u2).find((i) => i.level === 'setup')?.record.id ?? '';
+    expect(records()[copy]?.props.copied_from).toBe(s.second);
+    const clip = planClipOf(records(), [copy], u2View);
+    // A paste at the pointer, and a Duplicate (a paste with no pointer).
+    for (const at of [{ x: 500, y: 500 }, null]) {
+      const creates = planPasteInView(records(), u2View, clip, at).changes.flatMap((c) => (c.kind === 'create' ? [c.record.props ?? {}] : []));
+      expect(creates).toHaveLength(1);
+      expect(creates[0]).not.toHaveProperty('copied_from');
+    }
+  });
+
+  it('tells a wall with no room left from no wall at all', async () => {
+    const { roomId, sceneId } = await room();
+    const made = wallsAlong(records(), roomId, [
+      { x: 0, y: 5 },
+      { x: 0.9, y: 5 },
+    ]);
+    await store.getState().apply(made.changes);
+    const short = made.ids[0] ?? '';
+    await store.getState().apply(placeOpeningChanges(records(), { wallId: short, wall: fieldsOf(short) as never, along: 0.45 }, 'door'));
+    const shown = shownItems(records(), sceneId, null);
+    expect(openingSpot(shown, { x: 45, y: 500 }, 'door', 0.5)).toBeNull();
+    expect(wallAtPoint(shown, { x: 45, y: 500 })).toBe(true);
+    expect(wallAtPoint(shown, { x: 45, y: 300 })).toBe(false);
   });
 });

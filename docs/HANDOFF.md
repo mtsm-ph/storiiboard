@@ -378,8 +378,10 @@ Lows deferred (noted, not planned yet):
 - **Status line (keep current):** checkpoint 43544879092 passed every job (installers for Kevin's by-hand pass).
   Open, stacked, each reviewed with nothing high or medium left: #152 (5.11), #153 (5.12 and the audit), #154 (6.0;
   60 baselines, Kevin compares), #155 (6.1, schema 14; it also holds 6.0's second-round fixes; 40 baselines). #156 (6.2a;
-  20 baselines), #157 (6.2b). Next: 6.3 from docs/briefs/6.3-library.md (branch `phase6/6.3-library` off 6.2b's),
-  then 6.4 from docs/briefs/6.4-cameras.md; briefs for 6.5 on are not written yet. Flaky once each, cause not
+  20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes). Next: 6.4 from docs/briefs/6.4-cameras.md
+  (branch `phase6/6.4-cameras` off 6.3's), then 6.5 from docs/briefs/6.5-lights.md; briefs for 6.6 on are not
+  written yet. For Kevin's eye: icons are stretched to their real footprint (a sofa's drawing is distorted); the
+  kit's Parking "P" is SVG text, so it draws in a system font; Spanish icon names are the builder's. Flaky once each, cause not
   proven (the test server on port 1421 refused a page load under a full parallel run): plan.spec "two scenes at
   one location share a room…" and liveCards.spec "a board linked to a scene, a character and a location…"; if a
   third appears, diagnose the server before going on (docs/briefs/

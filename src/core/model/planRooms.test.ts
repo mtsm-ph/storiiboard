@@ -19,6 +19,7 @@ import {
   setupHasItems,
   setupOnlyChanges,
   setupOnlyHeld,
+  setupOnlyOthers,
 } from './planRooms';
 import type { Props, SbdRecord } from './record';
 
@@ -329,5 +330,86 @@ describe('the switch’s limits (6.2b review)', () => {
     const records = { ...withSetups, ...of(own, wall('sw', 'own1', 'a')) };
     const changes = copySetupChanges(records, 'u1', 'u2', 'own2');
     expect(changes.flatMap((c) => (c.kind === 'create' && c.record.type === 'plan_item' ? [c.record.props?.copied_from] : []))).toEqual(['sw']);
+  });
+});
+
+// The second 6.2b review: a separate copy re-points everything of the scene's own in the copied walls (a trashed setup's,
+// a trashed door, a kind this version doesn't know), leaving a room keeps what's in the Trash as it is and never touches
+// another scene's doors, the switch is held for a wall other places' doors sit in, and a name that only looks like a copy's.
+
+describe('a separate copy and leaving a room, the Trash’s too (6.2b second review)', () => {
+  const trashed = (r: SbdRecord): SbdRecord => ({ ...r, trashedAt: at, trashedBy: 'local' });
+  const u3 = trashed(record('u3', 'setup', 'sc4', { name: '' }, 'c'));
+  const own1 = record('own1', 'plan', 'u1', { kind: 'setup', name: '' });
+  const own3 = record('own3', 'plan', 'u3', { kind: 'setup', name: '' });
+  const blocking = record('blk4', 'plan', 'sc4', { kind: 'blocking', name: '' });
+  const inTrashedSetup = door('d3', 'own3', 'w1');
+  const trashedDoor = trashed(door('d4', 'own1', 'w1', 'o'));
+  const unknown = record('h1', 'plan_item', 'blk4', { kind: 'hologram', wall_id: 'w1', glow: 2 });
+  const records = { ...withSetups, ...of(u3, own1, own3, blocking, inTrashedSetup, trashedDoor, unknown) };
+
+  it('re-points a trashed setup’s door, a door in the Trash and an item of an unknown kind at the copied wall', () => {
+    const changes = separateCopyChanges(records, 'p', 'sc4', 'copy');
+    const after = applied(records, changes);
+    const copiedWall = Object.values(after).find((r) => r.parentId === 'copy' && r.props.kind === 'wall');
+    expect(copiedWall).toBeDefined();
+    for (const id of ['d3', 'd4', 'h1']) expect(after[id]?.props.wall_id).toBe(copiedWall?.id);
+    // The trashed door stays in the Trash, now pointing at the wall this scene shows; the unknown item keeps its props.
+    expect(after.d4?.trashedAt).not.toBeNull();
+    expect(after.h1?.props).toEqual({ kind: 'hologram', wall_id: copiedWall?.id, glow: 2 });
+    // The room's own door stays in the room's wall for SC 02.
+    expect(after.d1?.props.wall_id).toBe('w1');
+  });
+
+  it('trashes a trashed setup’s door and an unknown item on leaving the room, and leaves the Trash’s door as it is', () => {
+    const changes = setRoomChanges(records, 'sc4', 'r2');
+    const trashedIds = changes.flatMap((c) => (c.kind === 'trash' ? [c.id] : [])).sort();
+    expect(trashedIds).toEqual(['d3', 'h1']);
+    expect(changes.at(-1)).toEqual({ kind: 'update', id: 'sc4', set: { room_id: 'r2' } });
+  });
+
+  it('never trashes another scene’s own door in the same room when this scene uses another room', () => {
+    const s2setup = record('v1', 'setup', 'sc2', { name: '' });
+    const s2plan = record('own-v1', 'plan', 'v1', { kind: 'setup', name: '' });
+    const theirs = door('d2', 'own-v1', 'w1', 'p');
+    const both = { ...doorInSetup(), ...of(s2setup, s2plan, theirs) };
+    const changes = setRoomChanges(both, 'sc4', 'r2');
+    expect(changes.flatMap((c) => (c.kind === 'trash' ? [c.id] : []))).toEqual(['d1']);
+    const after = applied(both, changes);
+    expect(after.d2?.trashedAt).toBeNull();
+    expect(shownItems(after, 'sc2', 'v1').map((i) => i.record.id)).toEqual(['w1', 'd2']);
+  });
+});
+
+describe('the switch held for a wall others’ doors sit in (6.2b second review)', () => {
+  it('names another scene whose own door is in the wall, and moves nothing', () => {
+    const s2setup = record('v1', 'setup', 'sc2', { name: '' });
+    const s2plan = record('own-v1', 'plan', 'v1', { kind: 'setup', name: '' });
+    const records = { ...withSetups, ...of(s2setup, s2plan, door('d2', 'own-v1', 'w1', 'p')) };
+    expect(setupOnlyHeld(records, 'sc4', 'u1', ['w1'])).toBe('others');
+    expect(setupOnlyOthers(records, 'sc4', 'u1', ['w1'])).toEqual([{ scene: 'SC 02', setup: null }]);
+    expect(setupOnlyChanges(records, 'sc4', 'u1', ['w1'], true)).toEqual([]);
+  });
+
+  it('names this scene’s other setup whose own door is in the wall, and not this setup’s own', () => {
+    const own2 = record('own2', 'plan', 'u2', { kind: 'setup', name: '' });
+    const own1 = record('own1', 'plan', 'u1', { kind: 'setup', name: '' });
+    const records = { ...withSetups, ...of(own1, own2, door('mine', 'own1', 'w1', 'p'), door('theirs', 'own2', 'w1', 'q')) };
+    expect(setupOnlyOthers(records, 'sc4', 'u1', ['w1'])).toEqual([{ scene: 'SC 04', setup: 2 }]);
+    expect(setupOnlyHeld(records, 'sc4', 'u1', ['w1'])).toBe('others');
+    // Only this setup's own door (and the room's, which goes with the wall): the switch turns on.
+    const alone = { ...withSetups, ...of(own1, door('mine', 'own1', 'w1', 'p')) };
+    expect(setupOnlyHeld(alone, 'sc4', 'u1', ['w1'])).toBeNull();
+    expect(setupOnlyChanges(alone, 'sc4', 'u1', ['w1'], true).filter((c) => c.kind === 'move').map((c) => c.id)).toEqual(['w1', 'd1']);
+  });
+});
+
+describe('a copy’s name (6.2b second review)', () => {
+  it('replaces only a suffix the app wrote, never one that is part of the name', () => {
+    expect(copyName('Stage (SC 1 pickups)', '4')).toBe('Stage (SC 1 pickups) (SC 04)');
+    expect(copyName('Stage (SC 1)', '4')).toBe('Stage (SC 1) (SC 04)');
+    expect(copyName('Stage (SC 04)', '7')).toBe('Stage (SC 07)');
+    expect(copyName('Stage (SC 12A)', '7')).toBe('Stage (SC 07)');
+    expect(copyName('Stage (SC A1)', '7')).toBe('Stage (SC 07)');
   });
 });

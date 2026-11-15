@@ -10,20 +10,24 @@ import type { GeometryChange, Point, ReorderMode } from '../../../ui/canvas/type
 import {
   drawWallsChanges,
   flipDoorsChanges,
+  iconPatchChanges,
+  iconRefusal,
   openingPatchChanges,
   openingsLeftOut,
-  pasteTarget,
+  placeIconChanges,
   placeOpeningChanges,
   planClipOf,
   planGeometryChanges,
   planNudgeChanges,
-  planPasteChanges,
+  planPasteInView,
   reorderPlanChanges,
   runRoomId,
   shownWalls,
   trashPlanItemsChanges,
   viewKey,
   wallPatchChanges,
+  type IconPatch,
+  type IconRefusal,
   type OpeningPatch,
   type OpeningSpot,
   type WallPatch,
@@ -184,16 +188,20 @@ export async function cutPlanSelection(view: PlanView): Promise<void> {
 
 /**
  * Paste, each copy into the plan its original sits in (a setup's only wall stays that setup's), or the view's plan of
- * that level; at the pointer or 16 cm from the originals; the pasted are selected.
+ * that level; at the pointer or 16 cm from the originals; the pasted are selected. A setup's icon pasted into a scene
+ * with no setup shown is left out, and said.
  */
 export async function pastePlan(view: PlanView, at: Point | null, clip = planStore.getState().clipboard): Promise<void> {
   if (clip.length === 0) return;
   let ids: string[] = [];
+  const out = { count: 0 };
   const written = await projectStore.getState().applyWith((records) => {
-    const made = planPasteChanges(records, pasteTarget(records, view), clip, at);
+    const made = planPasteInView(records, view, clip, at);
     ids = made.ids;
+    out.count = made.leftOut;
     return { changes: made.changes };
   });
+  if (out.count > 0) showInfo(t('library.noSetup'));
   if (written) select(view, ids);
 }
 
@@ -205,9 +213,9 @@ export async function duplicatePlanSelection(view: PlanView): Promise<void> {
   await pastePlan(view, null, planClipOf(records, ids, view));
 }
 
-/** A field changed in the Selection tile, on every selected wall it fits: one op group. */
-export async function changeWalls(ids: readonly string[], patch: WallPatch, view?: PlanView): Promise<boolean> {
-  return projectStore.getState().applyWith((records) => ({ changes: wallPatchChanges(records, ids, patch, view) }));
+/** A field changed in the Selection tile, on every selected wall it fits (every plan's doors counted): one op group. */
+export async function changeWalls(ids: readonly string[], patch: WallPatch): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: wallPatchChanges(records, ids, patch) }));
 }
 
 /** A field changed on the selected doors and windows: one op group, nothing when it doesn't fit. */
@@ -218,4 +226,32 @@ export async function changeOpenings(ids: readonly string[], patch: OpeningPatch
 /** F and Shift+F: the selected doors' swing or hinge flipped, one op group. */
 export async function flipDoors(ids: readonly string[], what: 'swing' | 'hinge'): Promise<boolean> {
   return projectStore.getState().applyWith((records) => ({ changes: flipDoorsChanges(records, ids, what) }));
+}
+
+/** Why a placement wrote nothing: a refusal the Library says, or the drag or key ended in another project than it began. */
+export type PlaceOutcome = IconRefusal | 'otherProject' | null;
+
+/**
+ * A library icon placed in a view (6.3), its middle at `centre` (metres): one op group, the setup's plan made in it
+ * when needed; the new icon is selected. Refused, nothing is written and the refusal comes back for the Library to say.
+ * Only into the open project the drag or key began in (`madeIn`, as drawWalls has it): one dropped after a switch (to a
+ * version or a backup sharing its ids) writes nothing anywhere.
+ */
+export async function placeIcon(view: PlanView, icon: string, centre: { x: number; y: number }, madeIn: Project | null, store: StoreApi<ProjectState> = projectStore): Promise<PlaceOutcome> {
+  // Checked before the edit is queued: applyWith takes the project open when it's called as the one the edit is for.
+  if (madeIn === null || store.getState().project !== madeIn) return 'otherProject';
+  const id = crypto.randomUUID();
+  const refused: { why: IconRefusal | null } = { why: null };
+  const written = await store.getState().applyWith((records) => {
+    refused.why = iconRefusal(records, view, icon);
+    return { changes: refused.why === null ? placeIconChanges(records, view, icon, centre, id) : [] };
+  });
+  if (refused.why !== null) return refused.why;
+  if (written && store.getState().project === madeIn) select(view, [id]);
+  return null;
+}
+
+/** A field changed on the selected icons in the Selection tile: one op group. */
+export async function changeIcons(ids: readonly string[], patch: IconPatch): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => ({ changes: iconPatchChanges(records, ids, patch) }));
 }
