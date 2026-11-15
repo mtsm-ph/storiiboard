@@ -547,8 +547,15 @@ export function printItems(records: Records, view: PlanView, unit: PlanUnit, zon
   // department's print (they are the room), and they cut there too.
   const sights = sightsKeeper()(shown, shown, looks, lights, blocking.marks);
   const items = planItemsBuilder()(shown, unit, INK, undefined, looks, lights, sunLooks(records, shown, zones, none), blocking, undefined, underlayPictures(records, shown), sights);
-  // Layers are this computer's focus view (6.8): none is read; the underlay is drawn dimmed, as a traced plan prints.
-  return items.map((item) => (shown.find((s) => s.record.id === item.id)?.fields.kind === 'underlay' ? { ...item, dim: true } : item));
+  // Layers are this computer's focus view (6.8): none is read; the underlay is drawn dimmed, as a traced plan prints. On a
+  // department's print (Kevin, Nov 15) the cameras and the cast marks another department's page shows as context are
+  // dimmed too, by the canvas core's one dim (DIM_OPACITY), cones, paths and labels with them.
+  const byId = new Map(shown.map((s) => [s.record.id, s]));
+  return items.map((item) => {
+    const own = byId.get(item.id);
+    const dimmed = own !== undefined && (own.fields.kind === 'underlay' || isDimmedContext(records, own, view.department));
+    return dimmed ? { ...item, dim: true } : item;
+  });
 }
 
 /** The days a view's frames are in, in the days' order ("Day 2 · Tue, Nov 17"); the packet's own day alone for a day's packet. */
@@ -750,26 +757,47 @@ export const PRINT_DEPARTMENTS: readonly PlanLayer[] = LAYER_ORDER;
 
 /**
  * The room a department's print always shows, as context: its walls, doors and windows, its underlay, north and the
- * sun path. Everything else prints only on its own department's page.
+ * sun path; with them its set pieces (isContext). Everything else prints only on its own department's page, but the
+ * cameras and cast marks, which every page shows dimmed (DIMMED_CONTEXT).
  */
 const ROOM_CONTEXT: ReadonlySet<string> = new Set(['wall', 'door', 'window', 'underlay', 'north', 'sun']);
 
 const isRoomContext = (item: ShownItem): boolean => ROOM_CONTEXT.has(item.fields.kind);
 
 /**
- * An item every department's print shows as context: the room's, and (6.17 review) an item with no layer (layerOfItem
- * null: an icon a newer version wrote), which the screen always draws, so no page leaves it out.
+ * An item every department's print shows as context, in full: the room's, its set pieces too (the set and art layer,
+ * wherever they sit, room plan or one setup only: the room is walls, doors, windows, set pieces, underlay and north;
+ * 6.20 review), and (6.17 review) an item with no layer (layerOfItem null: an icon a newer version wrote), which the
+ * screen always draws, so no page leaves it out. Context never gives a department a page (departmentHasItems), and the
+ * legend of another department's print lists none of it (legendEntries keeps to the department's own group).
  */
-const isContext = (records: Records, item: ShownItem): boolean => isRoomContext(item) || layerOfItem(records, item.record) === null;
+const isContext = (records: Records, item: ShownItem): boolean => {
+  if (isRoomContext(item)) return true;
+  const layer = layerOfItem(records, item.record);
+  return layer === null || layer === 'set-art';
+};
 
 /**
- * A view's items for a department's print: the context (isContext), and the items whose layer is the department's, by
- * the very function the Layers tile goes by (layerOfItem); the others left out entirely, never dimmed. No department:
- * all of them.
+ * The layers every department's print shows as dimmed context (Kevin, Nov 15): the cameras with their cones and the cast
+ * marks with their paths. On their own department's print they are its items, in full.
+ */
+const DIMMED_CONTEXT: ReadonlySet<string> = new Set<PlanLayer>(['camera', 'cast']);
+
+/** Whether an item prints dimmed on a department's print: a camera or a cast mark on another department's page. */
+function isDimmedContext(records: Records, item: ShownItem, department: PlanLayer | undefined): boolean {
+  if (department === undefined || isRoomContext(item)) return false;
+  const layer = layerOfItem(records, item.record);
+  return layer !== null && layer !== department && DIMMED_CONTEXT.has(layer);
+}
+
+/**
+ * A view's items for a department's print: the context (isContext), the cameras and cast marks as dimmed context
+ * (isDimmedContext), and the items whose layer is the department's, by the very function the Layers tile goes by
+ * (layerOfItem); the others left out entirely. No department: all of them.
  */
 export function departmentItems(records: Records, shown: readonly ShownItem[], department: PlanLayer | undefined): readonly ShownItem[] {
   if (department === undefined) return shown;
-  return shown.filter((item) => isContext(records, item) || layerOfItem(records, item.record) === department);
+  return shown.filter((item) => isContext(records, item) || isDimmedContext(records, item, department) || layerOfItem(records, item.record) === department);
 }
 
 /** Whether a department has anything of its own in a view (the room's items aside): a department with nothing is skipped. */

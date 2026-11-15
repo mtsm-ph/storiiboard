@@ -58,10 +58,11 @@ export interface CanvasItem extends Geometry {
   /** What a person calls it, for the live region: "Rectangle". */
   label: string;
   /**
-   * Draws the item in its own box, 0 to width by 0 to height. Without one, a rectangle in the raised surface. It must give the
-   * same drawing for the same item object and the same context: the canvas keeps what it drew (5.7) and calls this again only
-   * for a new item object or a changed context, so whatever the drawing reads has to be in the item (a host makes a new item
-   * object when it changes).
+   * Draws the item in its own box, 0 to width by 0 to height. Without one, a rectangle in the raised surface. The canvas
+   * keeps what it drew (5.7; 6.18 last review) while this function, the item's size, the colours, the zoom, `inView` and
+   * the screen's pixel ratio are the same: a new item object with the same `draw` (an item moved by a drag) is not drawn
+   * again. So a host must hand a NEW `draw` function whenever what the drawing shows changes; a `draw` that reads changing
+   * state at call time (a store, a closure over mutable data) goes stale.
    */
   draw?: (context: DrawContext) => ReactNode;
   /** Whether Enter or a double-click edits it in place (text and sticky notes); the host does the editing. */

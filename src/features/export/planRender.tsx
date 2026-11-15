@@ -13,6 +13,7 @@ import { deckFontLoader } from './deckFonts';
 import { snapshot } from './deckRender';
 import { FACE_FONTS, FOOT_BAND, fontMeasure, HEADER_HEIGHT, SHEET, LEGEND_TITLE, PAGE_MARGIN, type Measure, type PlanArea, type PlanFace, type PlanPage } from './planPages';
 import { t } from '../../core/i18n';
+import { WATERMARK_FONT } from './renderFrame';
 
 // A plan's page drawn (6.10): the plan through the canvas's own renderer (PageStage) with the plan's own drawings, the
 // same ones the screen draws, in print mode, read back from Konva as vector display operations (deckDisplay.ts); then the
@@ -84,6 +85,18 @@ export function printWeights(ops: readonly DisplayOp[]): DisplayOp[] {
 export async function preparePlanFonts(): Promise<void> {
   await Promise.all(Object.values(FACE_FONTS).map((face) => ensureFont(face.family, face.weight, false)));
   await document.fonts.ready;
+}
+
+/**
+ * The watermark's face for a plan's PNG (6.20 review): Inter Tight at 600, the bundled face, loaded the way the page's
+ * other faces are (ensureFont), then asked of the page by the very font string the stamp is measured and painted in,
+ * so the canvas never measures it in a fallback while the face is still on its way. Never throws.
+ */
+export async function preparePlanStampFont(text: string): Promise<void> {
+  // A page with no font loading to ask (a test's stand-in document) measures with what it has.
+  if (typeof document === 'undefined' || typeof (document as Partial<Document>).fonts?.load !== 'function') return;
+  await ensureFont('Inter Tight', 600, false);
+  await document.fonts.load(WATERMARK_FONT(24), text).catch(() => undefined);
 }
 
 /**
@@ -281,7 +294,9 @@ export function planPrintPage(page: PlanPage, drawing: readonly DisplayOp[] | nu
   const ops: DisplayOp[] = [...headerOps(page, measure)];
   if (page.plan) ops.push(...planBoxOps(page.plan, drawing ?? [], words, measure));
   ops.push(...legendOps(page, words.legend));
-  return { format: page.paper, orientation: 'landscape', width: page.size.width, height: page.size.height, background: WHITE, ops };
+  // A watermark goes inside the plan box (Kevin, Nov 15: planStamp.ts), above its foot band; a legend's own page has none.
+  const watermarkRoom = page.plan ? { box: page.plan.box, footTop: footBand(page.plan).y } : null;
+  return { format: page.paper, orientation: 'landscape', width: page.size.width, height: page.size.height, background: WHITE, ops, watermarkRoom };
 }
 
 /** Where a world point of a plan page lands on the page, points (for the tests: a wall's ends on paper). */

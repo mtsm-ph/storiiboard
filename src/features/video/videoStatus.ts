@@ -4,6 +4,7 @@ import { projectStore } from '../../app/projectStore';
 import { videoDriver } from '../../app/video';
 import { resolveSourcePath, videoFields } from '../../core/media/video';
 import type { SbdRecord } from '../../core/model/record';
+import { recordsOfType } from '../../core/model/recordIndex';
 
 // Whether each linked video's file can be read on this computer (2.2b), for the missing flag on frames and in the
 // inspector (CLAUDE.md: flag missing media clearly and offer Relink). Checked when a project opens, when its videos
@@ -21,8 +22,8 @@ export const videoStatusStore = createStore<VideoStatus>()(() => ({ missing: {} 
 /** The live video records and where each one's file should be. */
 function linked(records: Readonly<Record<string, SbdRecord>>, projectPath: string): { id: string; path: string }[] {
   const out: { id: string; path: string }[] = [];
-  for (const record of Object.values(records)) {
-    if (record.type !== 'media' || record.trashedAt !== null) continue;
+  for (const record of recordsOfType(records, 'media')) {
+    if (record.trashedAt !== null) continue;
     const video = videoFields(record.props);
     if (!video || video.sourcePath === '') continue;
     out.push({ id: record.id, path: resolveSourcePath(video.sourcePath, projectPath) });

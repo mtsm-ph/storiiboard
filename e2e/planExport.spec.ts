@@ -626,7 +626,10 @@ test('a plan’s PDF and PNG carry the project’s watermark when Watermark Sett
   const [text] = await pdfTexts(await bytesOf(await save(page)));
   expect(text).toContain('DRAFT STAMP');
   const after = await exportPng();
-  // The stamp changes the bottom right corner, where it goes, and nothing in the top left quarter, far from it.
-  expect(await changedPixels(before, after, { x: 0.7, y: 0.9, width: 0.3, height: 0.1 })).toBeGreaterThan(100);
+  // The stamp changes the plan box's bottom right corner, where it goes (Kevin, Nov 15: inside the plan box, above its
+  // foot band; this plan is wide, so its legend is the band under it), and nothing in the top left quarter, far from it.
+  expect(await changedPixels(before, after, { x: 0.73, y: 0.53, width: 0.2, height: 0.04 })).toBeGreaterThan(100);
+  // Its old place, the page's own bottom right corner, now inside the legend band, is untouched.
+  expect(await changedPixels(before, after, { x: 0.7, y: 0.9, width: 0.3, height: 0.1 })).toBe(0);
   expect(await changedPixels(before, after, { x: 0, y: 0, width: 0.5, height: 0.5 })).toBe(0);
 });

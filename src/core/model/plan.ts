@@ -3,6 +3,7 @@ import type { Change } from '../ops/ops';
 import { keyBetween } from '../ops/order';
 import { wattsOf } from './gear';
 import type { JsonValue, Props, SbdRecord } from './record';
+import { childrenOf, keptFor, recordsOfType } from './recordIndex';
 import { sceneFields, sceneLabel } from './storyboard';
 
 // The bird's-eye plan's records (6.2a, docs/PHASE6_DECISIONS.md 1 and 2; docs/SBD_FORMAT.md, Schema v14). Three
@@ -692,11 +693,46 @@ export const sceneRoom = (records: Records, sceneId: string): SbdRecord | null =
   return id === null ? null : (records[id] ?? null);
 };
 
-/** The live plans of a kind under a parent, by sort key, then when made, then id. */
-const plansUnder = (records: Records, parentId: string, kind: PlanKind): SbdRecord[] =>
-  Object.values(records)
-    .filter((r) => r.type === 'plan' && r.parentId === parentId && r.trashedAt === null && planFields(r.props)?.kind === kind)
-    .sort(byPlanOrder);
+/**
+ * The records indexed once per records object (6.18 last review): the live doors and windows in each wall, from one pass
+ * over the records. A plan gesture asks for them on every pointer move, and a project's records run to thousands (a
+ * sketched storyboard's strokes are records), so a move must read none of them again. Records objects are never changed
+ * in place (each edit makes a new one), so a reading is good for as long as its records object lives.
+ */
+interface RecordsIndex {
+  openings: Map<string, { record: SbdRecord; fields: OpeningFields }[]>;
+}
+const indexes = new WeakMap<Records, RecordsIndex>();
+let indexReadings = 0;
+
+/** How many times the records have been indexed: for tests, which check it is once per records object. */
+export const recordsIndexed = (): number => indexReadings;
+
+function indexOf(records: Records): RecordsIndex {
+  const kept = indexes.get(records);
+  if (kept) return kept;
+  indexReadings += 1;
+  const made: RecordsIndex = { openings: new Map() };
+  for (const record of Object.values(records)) {
+    if (record.trashedAt !== null || record.type !== 'plan_item') continue;
+    const fields = openingFields(record.props);
+    if (fields) made.openings.set(fields.wallId, [...(made.openings.get(fields.wallId) ?? []), { record, fields }]);
+  }
+  indexes.set(records, made);
+  return made;
+}
+
+/**
+ * The live plans of a kind under a parent, by sort key, then when made, then id. Kept per records object, parent and kind
+ * (6.21): the tiles ask for the same few on every edit. A first look-up for a parent still reads the records itself, so
+ * what a reading of N setups' plans costs stays N look-ups (gearOnDay.test.ts counts them). Read-only.
+ */
+const plansUnder = (records: Records, parentId: string, kind: PlanKind): readonly SbdRecord[] =>
+  keptFor(records, `plan.plansUnder:${parentId}:${kind}`, () =>
+    Object.values(records)
+      .filter((r) => r.type === 'plan' && r.parentId === parentId && r.trashedAt === null && planFields(r.props)?.kind === kind)
+      .sort(byPlanOrder),
+  );
 
 /** The first live plan of a kind under a parent, or null. */
 const planUnder = (records: Records, parentId: string, kind: PlanKind): SbdRecord | null => plansUnder(records, parentId, kind)[0] ?? null;
@@ -704,7 +740,7 @@ const planUnder = (records: Records, parentId: string, kind: PlanKind): SbdRecor
 /** The scene's blocking plan: its first live one, where new marks go (two only arrive by an import or History). */
 export const blockingPlanOf = (records: Records, sceneId: string): SbdRecord | null => planUnder(records, sceneId, 'blocking');
 /** Every live blocking plan of a scene, the first first (6.7 review, L8): a view shows all their items, so nothing placed vanishes. */
-export const blockingPlansOf = (records: Records, sceneId: string): SbdRecord[] => plansUnder(records, sceneId, 'blocking');
+export const blockingPlansOf = (records: Records, sceneId: string): SbdRecord[] => [...plansUnder(records, sceneId, 'blocking')];
 export const setupPlanOf = (records: Records, setupId: string): SbdRecord | null => planUnder(records, setupId, 'setup');
 
 /** The live setup, when it is one of this scene's. */
@@ -725,12 +761,41 @@ export interface ShownPlans {
 
 /** The plans a setup's view combines (a scene with no setup: its room and blocking). */
 export function plansShown(records: Records, sceneId: string, setupId: string | null): ShownPlans {
+  // Read once per records object and view (6.18 last review): a door or window dragged asks on every pointer move.
+  let known = plansMemos.get(records);
+  if (!known) {
+    known = new Map();
+    plansMemos.set(records, known);
+  }
+  const key = `${sceneId}:${String(setupId)}`;
+  const kept = known.get(key);
+  if (kept) return kept;
+  const made = readPlansShown(records, sceneId, setupId);
+  known.set(key, made);
+  return made;
+}
+
+const plansMemos = new WeakMap<Records, Map<string, ShownPlans>>();
+
+function readPlansShown(records: Records, sceneId: string, setupId: string | null): ShownPlans {
   const scene = records[sceneId];
   if (scene?.type !== 'scene' || scene.trashedAt !== null) return { room: null, blocking: null, setup: null, blockings: [] };
   const setup = sceneSetup(records, sceneId, setupId);
-  const blockings = blockingPlansOf(records, sceneId);
-  return { room: sceneRoom(records, sceneId), blocking: blockings[0] ?? null, setup: setup ? setupPlanOf(records, setup.id) : null, blockings };
+  // From the index of plans by parent (6.21): what blockingPlansOf and setupPlanOf give, read from no other record.
+  const blockings = [...indexedPlansUnder(records, sceneId, 'blocking')];
+  return { room: sceneRoom(records, sceneId), blocking: blockings[0] ?? null, setup: setup ? (indexedPlansUnder(records, setup.id, 'setup')[0] ?? null) : null, blockings };
 }
+
+/**
+ * plansUnder from the index of plans by parent (6.21), for the views every tile reads on every edit: the same plans in
+ * the same order. plansUnder itself keeps its own look-up, which gearOnDay.test.ts counts per setup.
+ */
+const indexedPlansUnder = (records: Records, parentId: string, kind: PlanKind): readonly SbdRecord[] =>
+  keptFor(records, `plan.indexedPlansUnder:${parentId}:${kind}`, () =>
+    childrenOf(records, parentId, 'plan')
+      .filter((r) => r.trashedAt === null && planFields(r.props)?.kind === kind)
+      .sort(byPlanOrder),
+  );
 
 /** The ids of every plan a view shows: its room, each blocking plan, the setup's own. */
 export const shownPlanIds = (plans: ShownPlans): Set<string> =>
@@ -738,9 +803,14 @@ export const shownPlanIds = (plans: ShownPlans): Set<string> =>
 
 /** A plan's items, back to front: live ones of kinds this version shows (with `withTrashed`, those in the Trash too). */
 export function itemsOfPlan(records: Records, planId: string, withTrashed = false): SbdRecord[] {
-  return Object.values(records)
-    .filter((r) => r.type === 'plan_item' && r.parentId === planId && (withTrashed || r.trashedAt === null) && shownFields(r.props) !== null)
-    .sort(bySortKey);
+  // From the index of items by plan, once per records object, plan and choice (6.21); a fresh list each call.
+  return [
+    ...keptFor(records, `plan.itemsOfPlan:${planId}:${String(withTrashed)}`, () =>
+      childrenOf(records, planId, 'plan_item')
+        .filter((r) => (withTrashed || r.trashedAt === null) && shownFields(r.props) !== null)
+        .sort(bySortKey),
+    ),
+  ];
 }
 
 export interface ShownItem {
@@ -811,11 +881,7 @@ export function keptInWall(o: OpeningFields, wallLength: number): OpeningFields 
 
 /** The live openings in a wall, wherever they sit. */
 export function openingsOf(records: Records, wallId: string): { record: SbdRecord; fields: OpeningFields }[] {
-  return Object.values(records).flatMap((record) => {
-    if (record.type !== 'plan_item' || record.trashedAt !== null) return [];
-    const fields = openingFields(record.props);
-    return fields?.wallId === wallId ? [{ record, fields }] : [];
-  });
+  return [...(indexOf(records).openings.get(wallId) ?? [])];
 }
 
 /** A plan view: the scene, and the setup when one is picked. */
@@ -860,7 +926,7 @@ export function openingTrashedWithWall(records: Records, record: SbdRecord): boo
 
 /** The live scenes set in a room, in no particular order. */
 export function scenesUsingRoom(records: Records, roomId: string): SbdRecord[] {
-  return Object.values(records).filter((r) => r.type === 'scene' && r.trashedAt === null && sceneRoomId(records, r) === roomId);
+  return recordsOfType(records, 'scene').filter((r) => r.trashedAt === null && sceneRoomId(records, r) === roomId);
 }
 
 /** What a new room is called: its scene's location's name, else the scene's name, else its slate label ("SC 04"). */

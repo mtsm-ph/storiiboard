@@ -46,6 +46,10 @@
   the outdated run. A checkpoint run (.github/workflows/checkpoint.yml) adds the end-to-end smoke set
   (e2e/smoke.spec.ts) on Linux, the whole end-to-end suite in WebKit on a Mac (Kevin, Nov 14), and the Mac and
   Windows installers, each listing what its bundle carries.
+- The end-to-end tests run under the installed app's content security policy (6.13): a violation fails the test.
+  src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
+  commands are tested in Rust through tauri's `test` feature (6.16). No HTML5 drag and drop anywhere in the app
+  (lint and src/app/noHtmlDrag.test.ts, 6.15).
 - A failing functional or data-safety test gets fixed, never skipped.
 
 ## Repo layout
@@ -162,6 +166,15 @@
       numbers it, never its drawing order), layers (planLayers.ts: this computer's settings, never the project),
       underlay and measure, plans on paper (src/features/export/planPages.ts, planRender.tsx: to a round scale, every
       layer printed), and the 300-item performance test (e2e/perf.spec.ts, SB_PERF=1).
+    - Built in 6.17 to 6.21 (Kevin, Nov 14 and 15): walls stop cones and beams (src/core/model/planSightlines.ts; a
+      Stop at walls switch per camera and light, `stop_at_walls` stored only when false), and the cut follows a drag,
+      a turn and a resize live, made by the drop's own function (liveSights.ts through the canvas core's optional
+      `liveItems`); an icon with a real footprint is drawn as an outline at true size, a symbol at its own size;
+      a department's print shows the room with its set pieces in full, the cameras with their cones and the cast
+      marks dimmed, and that department's items in full; the watermark on a plan sits inside the plan box
+      (src/features/export/planStamp.ts), never over the legend or the title. The canvas keeps an item's drawing
+      while its `draw` function is the same: a host hands a new `draw` whenever what it shows changes. Readers that
+      tiles call on every edit read an index kept per records object (src/core/model/recordIndex.ts), never a scan.
   - Setups are numbered within the scene (Setup 1, 2, 3), never lettered: shot numbers use the letters (12A). The
     number comes from the order, never stored. Built in 6.0: src/core/model/setup.ts (`frameSetupId` is the one
     reader: a setup in another scene, in the Trash or gone reads as none), the Setups tile

@@ -1,6 +1,7 @@
 import { t } from '../../core/i18n';
 import { DEPARTMENT_LABELS, DEPARTMENTS, isDepartment, type Department } from '../../core/model/department';
 import type { SbdRecord } from '../../core/model/record';
+import { recordsOfType } from '../../core/model/recordIndex';
 import type { Change } from '../../core/ops/ops';
 import { keyBetween } from '../../core/ops/order';
 import { sceneFields, sceneLabel } from '../../core/model/storyboard';
@@ -32,8 +33,8 @@ const byKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.so
 
 /** Every board of the project, in the order they were made; the Trash's included only when asked. */
 export function boardsOf(records: Records, projectId: string, withTrashed = false): SbdRecord[] {
-  return Object.values(records)
-    .filter((r) => r.type === 'board' && r.parentId === projectId && (withTrashed || r.trashedAt === null))
+  return recordsOfType(records, 'board')
+    .filter((r) => r.parentId === projectId && (withTrashed || r.trashedAt === null))
     .sort(byKey);
 }
 

@@ -190,6 +190,7 @@ function rayOut(sight: Sight, angle: number): number {
   const d = { x: Math.sin(angle), y: -Math.cos(angle) };
   const n = sight.points.length;
   let best = Infinity;
+  let touches = false;
   for (let i = 0; i < n; i += 1) {
     const p = sight.points[i] as { x: number; y: number };
     const q = sight.points[(i + 1) % n] as { x: number; y: number };
@@ -201,9 +202,25 @@ function rayOut(sight: Sight, angle: number): number {
     const ay = p.y - sight.apex.y;
     const t = (ax * ey - ay * ex) / den;
     const s = (ax * d.y - ay * d.x) / den;
-    if (t > 1e-12 && s >= -1e-12 && s <= 1 + 1e-12) best = Math.min(best, t);
+    if (s < -1e-12 || s > 1 + 1e-12) continue;
+    if (t > 1e-12) best = Math.min(best, t);
+    else if (t > -1e-9) touches = true;
   }
+  // The apex on the shape's own edge (a light standing on a wall's or a jamb's end, 6.18 last review): a ray that leaves
+  // it into the blocked side meets nothing further, so whether it runs inside the shape at all is read just past the apex.
+  if (touches && !insideShape(sight.points, { x: sight.apex.x + d.x * 1e-6, y: sight.apex.y + d.y * 1e-6 })) return 0;
   return best;
+}
+
+/** Whether a point is inside a ring of corners (even-odd). */
+function insideShape(points: readonly { x: number; y: number }[], at: { x: number; y: number }): boolean {
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+    const a = points[i] as { x: number; y: number };
+    const b = points[j] as { x: number; y: number };
+    if (a.y > at.y !== b.y > at.y && at.x < ((b.x - a.x) * (at.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
 }
 
 /**

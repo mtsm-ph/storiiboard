@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
-import { cameraFields, lightFields, shownItems, startRoomChanges, stopsAtWalls } from '../../../core/model/plan';
+import { cameraFields, lightFields, recordsIndexed, shownItems, startRoomChanges, stopsAtWalls, wallBetween, wallProps } from '../../../core/model/plan';
+import type { SbdRecord } from '../../../core/model/record';
 import { stopAtWallsChanges } from '../../../core/model/planLight';
 import { nextPositionChanges } from '../../../core/model/planBlocking';
 import { copySetupChanges } from '../../../core/model/planRooms';
@@ -465,3 +466,125 @@ function shoelace(points: readonly { x: number; y: number }[]): number {
   }
   return Math.abs(sum) / 2;
 }
+
+describe('the live cut, read cheaply and safely (6.18 last review)', () => {
+  /** The view's live remake made from these records (a proxy, to count what reads them). */
+  function makerOver(recs: Readonly<Record<string, SbdRecord>>, view: { sceneId: string; setupId: string }) {
+    const shown = shownItems(recs, view.sceneId, view.setupId);
+    const looks = cameraLooks(recs, shown, 'metres', []);
+    const lights = lightLooks(recs, shown, 'metres', []);
+    const marks = blockingLooks(recs, view, shown, 'metres', []);
+    const built = planItemsBuilder()(shown, 'metres', '#000', 'en', looks, lights, undefined, marks, undefined, undefined, sightsKeeper()(shown, shown, looks, lights, marks.marks));
+    return { shown, built, maker: liveSights({ records: recs, view, blocking: shown, items: shown, built, looks, lights, marks }) };
+  }
+
+  it('reads the project’s records once at most for 90 moves of 40 walls, however many records it has', async () => {
+    // 40 walls in a run across the room, a camera and a light facing them, and 2,000 strokes under a frame (a sketched
+    // storyboard's): every move of the 40 walls together asks the drop's geometry for all of them, and reads the records'
+    // list (Object.values: the proxy's ownKeys) no more than once over the 90.
+    const s = await scene();
+    await place(s.view, 'camera/camera', { x: 0, y: 3 }, { body_id: 'body', lens_mm: 35 });
+    await place(s.view, 'lighting/fresnel', { x: 4, y: 3 });
+    const run = Array.from({ length: 41 }, (_, i) => ({ x: -1000 + i * 50, y: i % 2 === 0 ? -100 : -150 }));
+    const walls = drawWallsChanges(records(), s.sceneId, run);
+    await apply(walls.changes);
+    await apply([{ kind: 'create', record: { id: 'door', type: 'plan_item', parentId: records()[walls.ids[20] ?? '']?.parentId ?? '', sortKey: 'z', props: openingProps('door', walls.ids[20] ?? '', 0.26) } }]);
+    await apply([{ kind: 'create', record: { id: 'frame', type: 'shot', parentId: s.sceneId, sortKey: 'm', props: { number: '1A' } } }]);
+    await apply(Array.from({ length: 2000 }, (_, i) => ({ kind: 'create' as const, record: { id: `k${String(i)}`, type: 'stroke' as const, parentId: 'frame', sortKey: `a${String(i).padStart(4, '1')}`, props: { tool: 'pen', points: [0, 0, 1, 1], width: 0.004 } } })));
+    expect(walls.ids).toHaveLength(40);
+    let reads = 0;
+    const counted = new Proxy(records(), {
+      ownKeys: (target) => {
+        reads += 1;
+        return Reflect.ownKeys(target);
+      },
+    });
+    const { built, maker } = makerOver(counted, s.view);
+    const boxes = new Map(built.map((item) => [item.id, item]));
+    reads = 0;
+    const indexed = recordsIndexed();
+    for (let step = 1; step <= 90; step += 1) {
+      const live = new Map(
+        walls.ids.map((id) => {
+          const b = boxes.get(id);
+          return [id, { x: (b?.x ?? 0) + step, y: (b?.y ?? 0) - step, width: b?.width ?? 0, height: b?.height ?? 0, rotation: b?.rotation ?? 0 }] as const;
+        }),
+      );
+      expect(maker.items(live, 'drag').size).toBeGreaterThan(0);
+    }
+    expect(reads).toBeLessThanOrEqual(1);
+    expect(recordsIndexed() - indexed).toBeLessThanOrEqual(1);
+  });
+
+  it('never works out a sort key mid-gesture, so a key it can’t read throws nothing there', async () => {
+    // A door in the room's wall across at y = -3 (x -0.45 to 0.45), and a wall at y = -6 placed in this setup only, in a
+    // setup plan whose items' last sort key "~~" isn't one (an imported file's). The door dragged 3 m up lands on that
+    // wall: the drop would carry it into the setup's plan, after its last key, and reading "~~" throws there. Mid-gesture
+    // only where it lands is worked out: no throw, and the camera's cone, at (0, 0) facing up, is cut by the room's wall,
+    // now without a door, at -2.95.
+    const s = await scene();
+    const camera = await place(s.view, 'camera/camera', { x: 0, y: 0 }, { body_id: 'body', lens_mm: 35 });
+    const across = drawWallsChanges(records(), s.sceneId, [
+      { x: -500, y: -300 },
+      { x: 500, y: -300 },
+    ]);
+    await apply(across.changes);
+    const wallId = across.ids[0] ?? '';
+    // The setup's own plan, which placing the camera made.
+    const setupPlan = records()[camera]?.parentId ?? '';
+    await apply([
+      { kind: 'create', record: { id: 'door', type: 'plan_item', parentId: records()[wallId]?.parentId ?? '', sortKey: 'z', props: openingProps('door', wallId, 5) } },
+      { kind: 'create', record: { id: 'own', type: 'plan_item', parentId: setupPlan, sortKey: '~~', props: wallProps(wallBetween({ x: -5, y: -6 }, { x: 5, y: -6 })) } },
+    ]);
+    expect(records()[setupPlan]?.props.kind).toBe('setup');
+    const { built, maker } = makerOver(records(), s.view);
+    const door = built.find((item) => item.id === 'door');
+    if (!door) throw new Error('no door');
+    const live = new Map([['door', { x: door.x, y: door.y - 300, width: door.width, height: door.height, rotation: door.rotation }]]);
+    expect(() => planGeometryChanges(records(), [{ id: 'door', ...(live.get('door') as Geometry) }], shownWalls(shownItems(records(), s.sceneId, s.setupId)), s.view)).toThrow(/sort key/);
+    const made = maker.items(live, 'drag');
+    const summary = maker.summaries(made)?.[camera];
+    expect(summary?.cut).toBe(true);
+    expect(summary?.box?.minY).toBeCloseTo(-2.951, 3);
+  });
+
+  it('prints no glow into the wall a light stands on the end of', () => {
+    // The wall from (0, 0) to (5, 0), 0.1 m thick; a china ball (all round, 4 m) on its end, (0, 0), in the wall's middle:
+    // it stands on that end, and the wall stops every ray into its body, so the shape lies on the left, x ≤ 0. A print band
+    // of 2 m is that half circle, area ½ π 2² = 6.283, less the slivers its 2° steps leave either side of straight up and
+    // down, where the rays turn from leaving by the wall's end to being stopped in its body (a few per cent, never more);
+    // before, each ray into the right met nothing past the apex and took the band's radius (points such as (1.41, ±1.41)).
+    const s = sightline({ apex: { x: 0, y: 0 }, facing: 0, degrees: 360, length: 4, far: 'arc' }, [wallBlocker('w', { kind: 'wall', x: 0, y: -0.05, width: 5, height: 0.1, rotation: 0, heightM: null, name: '' }, [])]);
+    expect(s.empty).toBe(false);
+    for (const p of s.points) expect(p.x).toBeLessThan(1e-3);
+    const band = glowBand(s, 2);
+    for (const p of band) expect(p.x).toBeLessThan(1e-3);
+    expect(shoelace(band)).toBeLessThanOrEqual(2 * Math.PI * 1.001);
+    expect(shoelace(band)).toBeGreaterThan(2 * Math.PI * 0.95);
+  });
+});
+
+describe('the live cut, only where it is seen (6.18 last review)', () => {
+  it('leaves a still item whose drawing is out of view as it is, and remakes the one in view', async () => {
+    // The camera at (0, 1) under the wall across at y = -1; the wall dragged 1 m up. With the view far off (100 m away) the
+    // camera's cone is out of it and is not drawn anew mid-drag; with the view over it, it is.
+    const s = await scene();
+    const camera = await place(s.view, 'camera/camera', { x: 0, y: 1 }, { body_id: 'body', lens_mm: 35 });
+    const wall = drawWallsChanges(records(), s.sceneId, [
+      { x: -500, y: -100 },
+      { x: 500, y: -100 },
+    ]);
+    await apply(wall.changes);
+    const shown = shownItems(records(), s.sceneId, s.setupId);
+    const looks = cameraLooks(records(), shown, 'metres', []);
+    const lights = lightLooks(records(), shown, 'metres', []);
+    const marks = blockingLooks(records(), s.view, shown, 'metres', []);
+    const built = planItemsBuilder()(shown, 'metres', '#000', 'en', looks, lights, undefined, marks, undefined, undefined, sightsKeeper()(shown, shown, looks, lights, marks.marks));
+    const maker = liveSights({ records: records(), view: s.view, blocking: shown, items: shown, built, looks, lights, marks });
+    const w = built.find((item) => item.id === wall.ids[0]);
+    if (!w) throw new Error('no wall');
+    const live = new Map([[w.id, { x: w.x, y: w.y - 100, width: w.width, height: w.height, rotation: w.rotation }]]);
+    expect(maker.items(live, 'drag', { x: 10000, y: 10000, width: 800, height: 600 }).has(camera)).toBe(false);
+    expect(maker.items(live, 'drag', { x: -400, y: -300, width: 800, height: 600 }).has(camera)).toBe(true);
+  });
+});

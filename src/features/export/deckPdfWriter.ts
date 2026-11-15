@@ -47,6 +47,7 @@ import { apply, followed, parseColour, parsePaint, parsePathData, type DisplayOp
 import { embedRule, FALLBACK_FAMILY, fsTypeOfFont } from './deckFontRules';
 import type { Watermark } from './watermark';
 import { watermarkOutline } from './renderFrame';
+import { planStampBox, type WatermarkRoom } from './planStamp';
 
 // A deck as a PDF (5.6a): one page per page frame, in the deck's order, drawn from the display list of what Present shows
 // (deckDisplay.ts). Shapes and connectors are PDF paths; text is real text in its own font, laid out with the line breaks the
@@ -78,6 +79,11 @@ export interface PrintPage {
   /** `#RRGGBB`. */
   background: string;
   ops: readonly DisplayOp[];
+  /**
+   * Where a watermark may go (a plan's page, Kevin, Nov 15: inside its plan box, planStamp.ts); null for a page that
+   * carries none (a plan's legend run on). Left out (a deck's page): the whole page, as before.
+   */
+  watermarkRoom?: WatermarkRoom | null;
 }
 
 /** A font file for a face: what `key` names is one file, embedded once. The faces a file doesn't have are made: bold by a thin outline, italic by a slant. */
@@ -410,7 +416,7 @@ async function drawPage(
   }
   out.push(popGraphicsState());
   flush();
-  if (watermark) await drawWatermark(pdf, page, size, watermark, face);
+  if (watermark && source.watermarkRoom !== null) await drawWatermark(pdf, page, size, watermark, face, source.watermarkRoom === undefined ? undefined : { room: source.watermarkRoom, scale, page: { width: source.width, height: source.height } });
 }
 
 function pathOperators(path: readonly Segment[]): PDFOperator[] {
@@ -592,32 +598,49 @@ function addLink(pdf: PDFDocument, page: PDFPage, url: string, m: Matrix, width:
   page.node.addAnnot(annotation);
 }
 
-/** The watermark: the project's text in Inter Tight, ink with a white outline so it reads over a picture, in its corner or the middle. */
+/**
+ * The watermark: the project's text in Inter Tight, ink with a white outline so it reads over a picture, in its corner or
+ * the middle of the page; on a plan's page (`plan`), in the box planStampBox gives inside its plan box, the PNG's too.
+ */
 async function drawWatermark(
   pdf: PDFDocument,
   page: PDFPage,
   size: { width: number; height: number },
   watermark: Watermark,
   face: (family: string, weight: number, italic: boolean) => Promise<Face>,
+  plan?: { room: WatermarkRoom; scale: number; page: { width: number; height: number } },
 ): Promise<void> {
   const { font } = await face(FALLBACK_FAMILY, 600, false);
-  const short = Math.min(size.width, size.height);
-  const margin = short * 0.03;
-  const room = size.width - 2 * margin;
-  let type = Math.max(8, short * 0.045);
   const widthAt = (s: number) => font.widthOfTextAtSize(watermark.text, s);
-  if (widthAt(type) > room) type = Math.max(1, (type * room) / widthAt(type));
-  const width = widthAt(type);
-  // Inter Tight's hhea metrics, 1984 and 494 of 2048 units an em (pdfStoryboard.ts WATERMARK_METRICS).
-  const ascent = type * (1984 / 2048);
-  const descent = type * (494 / 2048);
-  const x = watermark.position === 'center' ? (size.width - width) / 2 : watermark.position.endsWith('left') ? margin : size.width - margin - width;
-  const y =
-    watermark.position === 'center'
-      ? (size.height - (ascent - descent)) / 2 - 0
-      : watermark.position.startsWith('top')
-        ? size.height - margin - ascent
-        : margin + descent;
+  let type: number;
+  let x: number;
+  let y: number;
+  if (plan) {
+    // In the page's units, y down; the PDF's points, y up. A plan page's units are points (scale 1, LANDSCAPE), but the
+    // width is measured at the printed size and brought back to the page's units all the same, so it holds at any scale.
+    const stamp = planStampBox(plan.room, plan.page, watermark.position, (s) => widthAt(s * plan.scale) / plan.scale);
+    if (!stamp) return;
+    type = stamp.size * plan.scale;
+    x = stamp.textX * plan.scale;
+    y = size.height - stamp.baseline * plan.scale;
+  } else {
+    const short = Math.min(size.width, size.height);
+    const margin = short * 0.03;
+    const room = size.width - 2 * margin;
+    type = Math.max(8, short * 0.045);
+    if (widthAt(type) > room) type = Math.max(1, (type * room) / widthAt(type));
+    const width = widthAt(type);
+    // Inter Tight's hhea metrics, 1984 and 494 of 2048 units an em (pdfStoryboard.ts WATERMARK_METRICS).
+    const ascent = type * (1984 / 2048);
+    const descent = type * (494 / 2048);
+    x = watermark.position === 'center' ? (size.width - width) / 2 : watermark.position.endsWith('left') ? margin : size.width - margin - width;
+    y =
+      watermark.position === 'center'
+        ? (size.height - (ascent - descent)) / 2 - 0
+        : watermark.position.startsWith('top')
+          ? size.height - margin - ascent
+          : margin + descent;
+  }
   const state = page.node.newExtGState('Watermark', pdf.context.obj({ Type: 'ExtGState', CA: watermark.opacity, ca: watermark.opacity }));
   const key = page.node.newFontDictionary(font.name, font.ref);
   const text = font.encodeText(watermark.text);

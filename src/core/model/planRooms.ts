@@ -20,6 +20,7 @@ import {
 import { markLayer, repointCamera, soundOrders, staleLink } from './planBlocking';
 import { withoutFrameLinks } from './planCamera';
 import type { Props, SbdRecord } from './record';
+import { childrenOf, recordsOfType } from './recordIndex';
 import { sceneSetups, type Setup } from './setup';
 import { isSceneNumber, sceneFields, sceneLabel, sceneNumberLabel } from './storyboard';
 
@@ -34,8 +35,9 @@ const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : 
 
 /** A plan's live items of every kind, the ones this version doesn't show too (a copy keeps them), back to front. */
 const liveItemsOf = (records: Records, planId: string): SbdRecord[] =>
-  Object.values(records)
-    .filter((r) => r.type === 'plan_item' && r.parentId === planId && r.trashedAt === null)
+  // From the index of items by plan (6.21), never a pass over every record.
+  childrenOf(records, planId, 'plan_item')
+    .filter((r) => r.trashedAt === null)
     .sort(bySortKey);
 
 export interface RoomChoice {
@@ -63,8 +65,8 @@ export function roomChoices(records: Records, sceneId: string): RoomChoice[] {
   if (scene?.type !== 'scene') return [];
   const own = sceneRoomId(records, scene);
   const at = sceneFields(scene.props).locationId;
-  return Object.values(records)
-    .filter((r) => r.type === 'plan' && r.trashedAt === null && r.id !== own && planFields(r.props)?.kind === 'room')
+  return recordsOfType(records, 'plan')
+    .filter((r) => r.trashedAt === null && r.id !== own && planFields(r.props)?.kind === 'room')
     .map((r) => {
       const fields = planFields(r.props);
       return { record: r, choice: { id: r.id, name: roomTitle(fields), location: locationName(records, fields?.locationId ?? null), scenes: scenesUsingRoom(records, r.id).length, here: at !== null && fields?.locationId === at } };
@@ -155,10 +157,10 @@ export function copyItemsChanges(records: Records, fromPlanId: string, toPlanId:
  * the Trash too (6.2b review: a setup restored later shows what it had, pointing at the walls the scene shows then).
  */
 function scenesOwnPlans(records: Records, sceneId: string): Set<string> {
-  const setups = new Set(Object.values(records).flatMap((r) => (r.type === 'setup' && r.parentId === sceneId ? [r.id] : [])));
+  const setups = new Set(childrenOf(records, sceneId, 'setup').map((r) => r.id));
   return new Set(
-    Object.values(records).flatMap((r) => {
-      if (r.type !== 'plan' || r.parentId === null) return [];
+    recordsOfType(records, 'plan').flatMap((r) => {
+      if (r.parentId === null) return [];
       const kind = planFields(r.props)?.kind;
       return (kind === 'blocking' && r.parentId === sceneId) || (kind === 'setup' && setups.has(r.parentId)) ? [r.id] : [];
     }),
@@ -171,8 +173,8 @@ function scenesOwnPlans(records: Records, sceneId: string): Set<string> {
  */
 function scenesWallItemsIn(records: Records, sceneId: string, roomId: string): SbdRecord[] {
   const own = scenesOwnPlans(records, sceneId);
-  return Object.values(records).filter((r) => {
-    if (r.type !== 'plan_item' || r.parentId === null || !own.has(r.parentId) || typeof r.props.wall_id !== 'string') return false;
+  return recordsOfType(records, 'plan_item').filter((r) => {
+    if (r.parentId === null || !own.has(r.parentId) || typeof r.props.wall_id !== 'string') return false;
     return records[r.props.wall_id]?.parentId === roomId;
   });
 }

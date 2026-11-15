@@ -3,6 +3,7 @@ import { t } from '../../../core/i18n';
 import { imageStatements, mediaFields, mediaProps } from '../../../core/media/store';
 import { lastKeyUnder, scaledUnderlay, underlayFields, type Point, type ShownItem } from '../../../core/model/plan';
 import type { Props, SbdRecord } from '../../../core/model/record';
+import { childrenOf } from '../../../core/model/recordIndex';
 import type { Change } from '../../../core/ops/ops';
 import { keyBetween } from '../../../core/ops/order';
 import type { Statement } from '../../../core/storage/driver';
@@ -96,8 +97,8 @@ export function setScaleChanges(records: Records, underlayId: string, a: Point, 
 /** The live underlays of a room, back to front. */
 export function roomUnderlays(records: Records, roomId: string | null): SbdRecord[] {
   if (roomId === null) return [];
-  return Object.values(records)
-    .filter((r) => r.type === 'plan_item' && r.parentId === roomId && r.trashedAt === null && underlayFields(r.props) !== null)
+  return childrenOf(records, roomId, 'plan_item')
+    .filter((r) => r.trashedAt === null && underlayFields(r.props) !== null)
     .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 

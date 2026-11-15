@@ -318,6 +318,80 @@ test('a selected standing flag moves by its body: a press on its line, or a pixe
   await dragsByItsBody();
 });
 
+test('a standing flag picked alone still resizes from its end anchor, its depth kept; turned 30°, it still moves by its body (6.17 review)', async ({ page }) => {
+  const placed = await placeFlag(page);
+  type Placed = Item & { centre: { x: number; y: number }; rotation: number };
+  const flag = async () => (await frames(page))[0] as Placed | undefined;
+  expect(Number(await canvas(page).getAttribute('data-zoom'))).toBe(1);
+  expect(placed).toMatchObject({ width: 0.91, height: 0.05 });
+  // Its end anchor sits on the middle of its right end (endsOnly keeps the end and corner anchors): dragged half a metre
+  // right, the flag is half a metre longer and as deep as before.
+  const end = await screen(page, placed.centre.x * 100 + (placed.width * 100) / 2, placed.centre.y * 100);
+  const at = { x: Math.round(end.x), y: Math.round(end.y) };
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x + 50, at.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await flag())?.width ?? 0).toBeCloseTo(1.41, 2);
+  expect((await flag())?.height).toBe(0.05);
+  expect((await flag())?.rotation).toBe(0);
+  await expect.poll(() => selection(page)).toEqual([placed.id]);
+
+  // Turned 30° by typing, a press on its middle and a drag of a metre down move it a metre, its size and turn kept.
+  await type(page, 'Rotation', '30');
+  await expect.poll(async () => (await flag())?.rotation).toBe(30);
+  const was = await flag();
+  if (!was) throw new Error('no flag');
+  const middle = await screen(page, was.centre.x * 100, was.centre.y * 100);
+  const press = { x: Math.round(middle.x), y: Math.round(middle.y) };
+  await page.mouse.click(press.x, press.y);
+  await expect.poll(() => selection(page)).toEqual([placed.id]);
+  await page.mouse.move(press.x, press.y);
+  await page.mouse.down();
+  await page.mouse.move(press.x, press.y + 100, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => ((await flag())?.centre.y ?? 0) - was.centre.y).toBeCloseTo(1, 3);
+  const now = await flag();
+  expect(now?.centre.x).toBeCloseTo(was.centre.x, 3);
+  expect(now?.width).toBe(was.width);
+  expect(now?.height).toBe(0.05);
+  expect(now?.rotation).toBe(30);
+});
+
+test('a measure picked alone resizes from its end anchor, its start kept (6.17 review)', async ({ page }) => {
+  await placeFlag(page);
+  // A 3 m measure along the plan, from the keyboard: R, Enter, an arrow for its direction, its length, Enter twice.
+  await canvas(page).focus();
+  await page.keyboard.press('r');
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:measure');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.type('3m');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  type Measure = Item & { start: { x: number; y: number }; end: { x: number; y: number }; rotation: number };
+  const measure = async () => (await items(page)).find((i) => i.kind === 'measure') as Measure | undefined;
+  await expect.poll(async () => (await measure())?.width).toBe(3);
+  const made = await measure();
+  if (!made) throw new Error('no measure');
+  await page.keyboard.press('v');
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'select');
+  await expect.poll(() => selection(page)).toEqual([made.id]);
+  // Its end anchor, on its end: dragged a metre further along, the measure is 4 m from the same start.
+  const end = await screen(page, made.end.x * 100, made.end.y * 100);
+  const at = { x: Math.round(end.x), y: Math.round(end.y) };
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x + 100, at.y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await measure())?.width ?? 0).toBeCloseTo(4, 2);
+  const now = await measure();
+  expect(now?.start.x).toBeCloseTo(made.start.x, 3);
+  expect(now?.start.y).toBeCloseTo(made.start.y, 3);
+  expect(now?.height).toBe(made.height);
+  expect(now?.rotation).toBe(made.rotation);
+});
+
 test('names a typed frame in the Trash and History in the plan’s unit, and again when the setting changes (6.5 second review)', async ({ page }) => {
   await placeFlag(page);
   await type(page, 'Width', '1.5');

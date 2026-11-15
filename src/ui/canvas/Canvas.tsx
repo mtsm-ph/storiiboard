@@ -209,7 +209,7 @@ export interface CanvasProps {
    * has it). Asked on every step of a gesture, and with null when none is under way. Nothing is written: the gesture
    * still ends in one onGeometry. Left out (a board), nothing is drawn anew.
    */
-  liveItems?: (live: ReadonlyMap<string, Geometry> | null, by: LiveBy) => ReadonlyMap<string, CanvasItem>;
+  liveItems?: (live: ReadonlyMap<string, Geometry> | null, by: LiveBy, seen: WorldRect | null) => ReadonlyMap<string, CanvasItem>;
   /** What liveItems drew anew, told after the canvas drew it (null for none): the host's tests read it there. */
   onLiveDrawn?: (made: ReadonlyMap<string, CanvasItem> | null) => void;
 }
@@ -344,7 +344,9 @@ export function Canvas({
   // The handles' live geometry counts only for the selection it was made on.
   const liveBoxes = transforming && transforming.key === selection.join('|') ? transforming.live : null;
   // What the host draws anew for the gesture under way (a plan's cut cones: liveItems), none for a board.
-  const remade = useMemo(() => remadeFor(liveItems, draft, liveBoxes), [liveItems, draft, liveBoxes]);
+  // Told the part of the world in view: an item out of it needn't be drawn anew mid-gesture (6.18 last review).
+  const seen = useMemo(() => visibleWorld(viewport, size), [viewport, size]);
+  const remade = useMemo(() => remadeFor(liveItems, draft, liveBoxes, seen), [liveItems, draft, liveBoxes, seen]);
   // Only an item the gesture moves (or the host draws anew for it) is a new object: the others stay the items they were,
   // so what is drawn for them is kept (5.7).
   const shown = useMemo(() => shownWith(items, draft, remade), [items, draft, remade]);

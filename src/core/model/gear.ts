@@ -1,6 +1,7 @@
 import { formatMoney, labels } from '../i18n';
 import { DEPARTMENTS, isDepartment, type Department } from './department';
 import type { JsonValue, Props, SbdRecord } from './record';
+import { recordsOfType } from './recordIndex';
 
 // The project's gear (3.9, docs/PHASE3_DECISIONS.md 7): a catalogue of `gear_item` records under the project, each
 // named once (a package, a lens set, a camera body) with how many, whose it is (owned, or from a rental house), what it
@@ -72,8 +73,8 @@ const byName = (a: string, b: string): number => (a === b ? 0 : a === '' ? 1 : b
 /** The project's live gear: by department in the call sheet's order (none last), then by name. */
 export function projectGear(records: Readonly<Record<string, SbdRecord>>, projectId: string): { record: SbdRecord; fields: GearFields }[] {
   const rank = (d: Department | null) => (d === null ? DEPARTMENTS.length : DEPARTMENTS.indexOf(d));
-  return Object.values(records)
-    .filter((r) => r.type === 'gear_item' && r.parentId === projectId && r.trashedAt === null)
+  return recordsOfType(records, 'gear_item')
+    .filter((r) => r.parentId === projectId && r.trashedAt === null)
     .map((record) => ({ record, fields: gearFields(record.props) }))
     .sort((a, b) => rank(a.fields.department) - rank(b.fields.department) || byName(a.fields.name, b.fields.name));
 }

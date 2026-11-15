@@ -402,7 +402,7 @@ test('puts a door and a window in a wall, slides and types the door’s place, f
   await expect.poll(() => planData(page)).toEqual(kept);
 });
 
-test('a selected wall moves by its body: a press on its centre line, or half a pixel either side, and a drag of a metre move it a metre, at 100% and zoomed out (6.19c)', async ({ page }) => {
+test('a selected wall moves by its body: a press on its centre line, or a pixel either side, and a drag of a metre move it a metre, at 100% and zoomed out (6.19c)', async ({ page }) => {
   await startRoom(page);
   await drawWall(page);
   const zoom = async () => Number(await canvas(page).getAttribute('data-zoom'));
@@ -418,7 +418,7 @@ test('a selected wall moves by its body: a press on its centre line, or half a p
   // a fraction above 0.3 can graze its edge. Aimed at round(L) (within 0.5 px of L) and round(L) ± 1 (within 1.5 px),
   // delivered as asked in both engines, each press is on the wall with a whole pixel to spare once T/2 - 1 is at least
   // its distance from L: at 100% (T = 10) all three; at 51% (T = 5.12) round(L) always and ± 1 where |round(L) ± 1 - L|
-  // is within 1.56 px, which the test works out from the measured box and skips where it isn't.
+  // is within 1.56 px, which the test works out from the measured box and asserts holds for all three.
   // Measured in Chromium at 1440 × 900: the canvas box is y 152, 557 high, so its centre is at 430.5 and the wall on
   // the plan's middle (y 0) has L = 430.5 at 100%; three drags later (y 3 m) at 51.2%, L = 430.5 + 300 × 0.512 = 584.1,
   // T = 5.12, round(L) = 584, and 583 and 585 are 1.1 and 0.9 px from L, so all six presses are made.
@@ -430,6 +430,8 @@ test('a selected wall moves by its body: a press on its centre line, or half a p
     const line = Math.round(centre.y);
     const presses = [0, -1, 1].filter((off) => Math.abs(line + off - centre.y) <= thick / 2 - 1);
     expect(presses).toContain(0);
+    // All three presses are made, at 100% and zoomed out (6.17 review).
+    expect(presses).toHaveLength(3);
     for (const off of presses) {
       const [was] = await walls(page);
       if (!was) throw new Error('no wall');

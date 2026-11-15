@@ -21,6 +21,7 @@ import {
 } from './plan';
 import { liveCamera } from './planCamera';
 import type { Props, SbdRecord } from './record';
+import { childrenOf, recordsOfType } from './recordIndex';
 
 // Cast blocking and camera moves on the plan (6.7, docs/PHASE6_DECISIONS.md 2 and 9). A mark is a `plan_item` of kind
 // `mark`: a character's (`character_id`, one of the scene's characters) or a plain one (a T-mark on the floor) sits in
@@ -154,14 +155,39 @@ export const itemLayer = (records: Records, record: SbdRecord): PlanLayer | null
 /** Every plan of a scene's own, the Trash's too: its blocking plans and each of its setups' plans. Once per records. */
 function scenePlanIds(records: Records, sceneId: string): ReadonlySet<string> {
   return memo(records, `plans:${sceneId}`, () => {
-    const setups = new Set(Object.values(records).flatMap((r) => (r.type === 'setup' && r.parentId === sceneId ? [r.id] : [])));
+    // From the records by type (6.21), never a pass over all of them.
+    const setups = new Set(childrenOf(records, sceneId, 'setup').map((r) => r.id));
     return new Set(
-      Object.values(records).flatMap((r) => {
-        if (r.type !== 'plan' || r.parentId === null) return [];
+      recordsOfType(records, 'plan').flatMap((r) => {
+        if (r.parentId === null) return [];
         const kind = planFields(r.props)?.kind;
         return (kind === 'blocking' && r.parentId === sceneId) || (kind === 'setup' && setups.has(r.parentId)) ? [r.id] : [];
       }),
     );
+  });
+}
+
+/**
+ * Every plan item that is a mark, the Trash's too, by the id its `character_id` and its `camera_id` name, each list in
+ * Object.values order: once per records object (6.21), so a mark's owner and a camera's positions read no other record.
+ */
+function marksByOwner(records: Records): { character_id: ReadonlyMap<string, readonly SbdRecord[]>; camera_id: ReadonlyMap<string, readonly SbdRecord[]> } {
+  return memo(records, 'marksByOwner', () => {
+    const character_id = new Map<string, SbdRecord[]>();
+    const camera_id = new Map<string, SbdRecord[]>();
+    for (const r of recordsOfType(records, 'plan_item')) {
+      if (r.props.kind !== 'mark') continue;
+      for (const [map, value] of [
+        [character_id, r.props.character_id],
+        [camera_id, r.props.camera_id],
+      ] as const) {
+        if (typeof value !== 'string') continue;
+        const list = map.get(value);
+        if (list) list.push(r);
+        else map.set(value, [r]);
+      }
+    }
+    return { character_id, camera_id };
   });
 }
 
@@ -172,7 +198,7 @@ function scenePlanIds(records: Records, sceneId: string): ReadonlySet<string> {
 export function ownerMarks(records: Records, sceneId: string, owner: MarkOwner): SbdRecord[] {
   const plans = scenePlanIds(records, sceneId);
   const prop = owner.kind === 'character' ? 'character_id' : 'camera_id';
-  return Object.values(records).filter((r) => r.type === 'plan_item' && r.props.kind === 'mark' && r.parentId !== null && plans.has(r.parentId) && r.props[prop] === owner.id);
+  return (marksByOwner(records)[prop].get(owner.id) ?? []).filter((r) => r.parentId !== null && plans.has(r.parentId));
 }
 
 /** An owner's marks in a scene with every `order` sound (soundOrders). */
@@ -312,9 +338,8 @@ export function cameraPositions(records: Records, view: PlanViewOf, cameraId: st
 export function cameraMarks(records: Records, cameraId: string): SbdRecord[] {
   const camera = records[cameraId];
   if (!camera) return [];
-  return Object.values(records)
-    .filter((r) => r.type === 'plan_item' && r.trashedAt === null && r.parentId === camera.parentId && r.props.kind === 'mark' && r.props.camera_id === cameraId)
-    .sort(byPositionOrder);
+  // From the marks by camera (6.21); a fresh list each call.
+  return (marksByOwner(records).camera_id.get(cameraId) ?? []).filter((r) => r.trashedAt === null && r.parentId === camera.parentId).sort(byPositionOrder);
 }
 
 /** The marks that went to the Trash with their camera, in the same group: they come back with it. */

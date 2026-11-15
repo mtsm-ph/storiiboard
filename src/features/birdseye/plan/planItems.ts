@@ -1130,7 +1130,17 @@ export function planGeometryChanges(records: Records, changes: readonly Geometry
   return readableOnly(records, geometryUpdates(records, changes, walls, view));
 }
 
-function geometryUpdates(records: Records, changes: readonly GeometryChange[], walls?: readonly WallChoice[], view?: PlanViewOf | null): Change[] {
+/**
+ * The same updates as planGeometryChanges, without the moves that carry a door or window into a setup's plan (6.18 last
+ * review): where things are, never which plan holds them, so no sort key is worked out. A plan gesture's live cut asks
+ * this on every pointer move, inside the canvas's drawing, where a key that can't be read (an imported file's) must not
+ * throw; and the moves change nothing that is drawn.
+ */
+export function planGeometryUpdates(records: Records, changes: readonly GeometryChange[], walls?: readonly WallChoice[], view?: PlanViewOf | null): Change[] {
+  return readableOnly(records, geometryUpdates(records, changes, walls, view, false));
+}
+
+function geometryUpdates(records: Records, changes: readonly GeometryChange[], walls?: readonly WallChoice[], view?: PlanViewOf | null, moves = true): Change[] {
   const changed = new Set(changes.map((c) => c.id));
   return changes.flatMap((c): Change[] => {
     const opening = liveOpening(records, c.id);
@@ -1146,7 +1156,7 @@ function geometryUpdates(records: Records, changes: readonly GeometryChange[], w
       const move: Change[] = [];
       const wallPlan = records[landed.wallId]?.parentId ?? null;
       const ownPlan = opening.record.parentId;
-      if (wallPlan !== null && wallPlan !== ownPlan && planKindOf(records, ownPlan) !== 'setup' && planKindOf(records, wallPlan) === 'setup') {
+      if (moves && wallPlan !== null && wallPlan !== ownPlan && planKindOf(records, ownPlan) !== 'setup' && planKindOf(records, wallPlan) === 'setup') {
         move.push({ kind: 'move', id: c.id, parentId: wallPlan, sortKey: keyBetween(lastKeyUnder(records, wallPlan, 'plan_item'), null) });
       }
       return [{ kind: 'update', id: c.id, set }, ...move];
