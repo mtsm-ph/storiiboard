@@ -108,7 +108,8 @@ async function everything(file: ProjectFile): Promise<Record<string, Row[]>> {
   const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
   for (const { name } of tables) {
     const table = quote(String(name));
-    const columns = (await file.query('SELECT name FROM pragma_table_info(?) ORDER BY cid', [String(name)])).map((c) => String(c.name));
+    // table_xinfo, not table_info: it lists generated and hidden columns too, which `SELECT *` would have compared.
+    const columns = (await file.query('SELECT name FROM pragma_table_xinfo(?) ORDER BY cid', [String(name)])).map((c) => String(c.name));
     const selected = columns.flatMap((column, i) => [
       `CASE WHEN typeof(${quote(column)}) = 'blob' THEN NULL ELSE ${quote(column)} END AS ${quote(column)}`,
       `typeof(${quote(column)}) = 'blob' AS "__blob_${String(i)}"`,

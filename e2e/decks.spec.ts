@@ -127,6 +127,116 @@ test('reorders the pages in the panel from the keyboard, and adds a 9:16 and a 4
   expect(added[0]?.x).toBe((all[5]?.x ?? 0) + (all[5]?.width ?? 0) + 200);
 });
 
+// 6.15 (docs/DESKTOP_GAPS.md, B1): pages reorder by pointer events from a row's handle, never HTML5 drag and drop, which
+// Tauri's file drop turns off inside the Windows app. The mouse here is page.mouse: real pointer events.
+const pageNames = async (page: Page) => (await rows(page).locator('[data-user-text]').allInnerTexts()).slice(0, 3);
+const dropBar = (page: Page) => page.locator('[data-page-drop-bar]');
+
+/** Presses the first row's handle with the mouse; the handle's box. */
+async function pressFirstHandle(page: Page) {
+  const handle = await panel(page).locator('[data-page-handle]').first().boundingBox();
+  if (!handle) throw new Error('no handle');
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  return handle;
+}
+
+test('reorders the pages by dragging a row’s handle, and one undo puts them back', async ({ page }) => {
+  await openPicker(page);
+  await newDeck(page, 'Pitch', 'Pitch');
+  expect(await pageNames(page)).toEqual(['Title', 'Logline', 'The team']);
+  const third = await rows(page).nth(2).boundingBox();
+  if (!third) throw new Error('no rows');
+  // From Title's handle to below the third row's middle: Title becomes page 3.
+  const handle = await pressFirstHandle(page);
+  await page.mouse.move(handle.x + handle.width / 2, third.y + third.height - 4, { steps: 8 });
+  await expect(dropBar(page)).toBeVisible();
+  await page.mouse.up();
+  await expect(dropBar(page)).toHaveCount(0);
+  await expect.poll(() => pageNames(page)).toEqual(['Logline', 'The team', 'Title']);
+  // The numbers follow the order; the canvas draws the same order.
+  await expect(rows(page).nth(2)).toContainText('3');
+  expect((await pagesOf(page)).map((p) => p.name).slice(0, 3)).toEqual(['Logline', 'The team', 'Title']);
+
+  // One undo puts it back: the move was one step.
+  const mod = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control';
+  await page.keyboard.press(`${mod}+z`);
+  await expect.poll(() => pageNames(page)).toEqual(['Title', 'Logline', 'The team']);
+  expect((await pagesOf(page)).map((p) => p.name).slice(0, 3)).toEqual(['Title', 'Logline', 'The team']);
+});
+
+test('a page drag that ends with Escape, on its own place or outside the list writes no step', async ({ page }) => {
+  await openPicker(page);
+  await newDeck(page, 'Pitch', 'Pitch');
+  await page.getByRole('button', { name: 'History' }).click();
+  const steps = page.getByRole('region', { name: 'History', exact: true }).getByRole('list', { name: 'Steps, newest first' }).getByRole('listitem');
+  await expect(steps.first()).toBeVisible();
+  const count = await steps.count();
+  const order = async () => rows(page).evaluateAll((all) => all.map((row) => row.getAttribute('data-page-row')));
+  const before = await order();
+  const third = async () => {
+    const box = await rows(page).nth(2).boundingBox();
+    if (!box) throw new Error('no rows');
+    return box;
+  };
+
+  // Escape mid-drag cancels it; the release after does nothing.
+  let handle = await pressFirstHandle(page);
+  await page.mouse.move(handle.x + handle.width / 2, (await third()).y + (await third()).height - 4, { steps: 6 });
+  await expect(dropBar(page)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dropBar(page)).toHaveCount(0);
+  await page.mouse.up();
+
+  // Dropped on its own place: past the threshold, still above the next row's middle.
+  handle = await pressFirstHandle(page);
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2 + 8, { steps: 4 });
+  await expect(dropBar(page)).toBeVisible();
+  await page.mouse.up();
+  await expect(dropBar(page)).toHaveCount(0);
+
+  // Released outside the list, out over the canvas: no bar there, and nothing moves.
+  const list = await panel(page).boundingBox();
+  if (!list) throw new Error('no panel');
+  handle = await pressFirstHandle(page);
+  await page.mouse.move(handle.x + handle.width / 2, (await third()).y + 4, { steps: 6 });
+  await expect(dropBar(page)).toBeVisible();
+  await page.mouse.move(list.x + list.width + 120, (await third()).y + 4, { steps: 6 });
+  await expect(dropBar(page)).toHaveCount(0);
+  await page.mouse.up();
+
+  await page.waitForTimeout(300);
+  expect(await order()).toEqual(before);
+  await expect(steps).toHaveCount(count);
+});
+
+test('a pen or a finger drags a page as the mouse does', async ({ page }) => {
+  await openPicker(page);
+  await newDeck(page, 'Pitch', 'Pitch');
+  for (const [pointerType, expected] of [
+    ['pen', ['Logline', 'The team', 'Title']],
+    ['touch', ['The team', 'Title', 'Logline']],
+  ] as const) {
+    const handle = await panel(page).locator('[data-page-handle]').first().boundingBox();
+    const third = await rows(page).nth(2).boundingBox();
+    if (!handle || !third) throw new Error('no rows');
+    const x = handle.x + handle.width / 2;
+    // What a pen or a touchscreen sends: pointer events of that type, the press on the handle, the moves and release
+    // on the window (where the handle's captured pointer would carry them).
+    await page.evaluate(
+      ({ pointerType, x, from, to }) => {
+        const handle = document.querySelector('[data-page-handle]');
+        const at = (type: string, y: number, buttons: number) => new PointerEvent(type, { pointerType, pointerId: 7, isPrimary: true, button: 0, buttons, clientX: x, clientY: y, bubbles: true, cancelable: true });
+        handle?.dispatchEvent(at('pointerdown', from, 1));
+        for (let step = 1; step <= 6; step += 1) window.dispatchEvent(at('pointermove', from + ((to - from) * step) / 6, 1));
+        window.dispatchEvent(at('pointerup', to, 0));
+      },
+      { pointerType, x, from: handle.y + handle.height / 2, to: third.y + third.height - 4 },
+    );
+    await expect.poll(() => pageNames(page), { message: pointerType }).toEqual([...expected]);
+  }
+});
+
 test('shows a change to the logline in Settings on the field card', async ({ page }) => {
   await openPicker(page);
   await newDeck(page, 'Pitch', 'Pitch');

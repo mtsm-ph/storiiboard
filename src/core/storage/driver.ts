@@ -27,9 +27,12 @@ export const QUERY_RETURNED_BYTES = "A query can't return bytes; read them with 
 /** sbd.rs's `read_blob`: the first column of the first row holds text or a number. */
 export const NOT_BYTES = "That column doesn't hold bytes.";
 
-/** A query's rows, refused as sbd.rs refuses them if any value is bytes (SQLite's own type, not the column's). */
-export function refuseBytes<T extends Record<string, unknown>>(rows: T[]): T[] {
-  if (rows.some((row) => Object.values(row).some((value) => value instanceof Uint8Array))) throw new Error(QUERY_RETURNED_BYTES);
+/**
+ * A query's rows, each as its values by position (before they become objects, so a column of the same name can't hide
+ * one), refused as sbd.rs refuses them if any value is bytes (SQLite's own type, not the column's).
+ */
+export function refuseBytes<T extends readonly unknown[]>(rows: T[]): T[] {
+  if (rows.some((values) => values.some((value) => value instanceof Uint8Array))) throw new Error(QUERY_RETURNED_BYTES);
   return rows;
 }
 

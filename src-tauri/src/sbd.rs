@@ -555,6 +555,11 @@ impl SbdFile {
             .ok_or_else(|| "The project has no folder.".to_string())
     }
 
+    /// The project file's path, as it was opened.
+    pub(crate) fn file_path(&self) -> &Path {
+        &self.path
+    }
+
     pub fn backups_dir(&self) -> Result<PathBuf, String> {
         match &self.local_backups {
             Some(dir) => Ok(dir.clone()),
@@ -944,11 +949,7 @@ pub async fn sbd_place_backups(
 ) -> Result<String, String> {
     use tauri::Manager;
     let home = app.path().home_dir().map_err(|error| error.to_string())?;
-    let local_root = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?
-        .join("Backups");
+    let local_root = local_backups_root(&app)?;
     files.with(handle, |file| {
         let synced = crate::synced::service(&file.path, &home).is_some();
         let root = (synced && !next_to_project).then_some(local_root.as_path());
@@ -957,6 +958,17 @@ pub async fn sbd_place_backups(
             .map(str::to_owned)
             .ok_or_else(|| "The backups folder's path isn't valid text.".into())
     })
+}
+
+/// Where a synced project's backups go instead of next to it: a folder of the app's own on this computer, under which
+/// each project has its own (`<Project> <key>`, place_backups).
+pub(crate) fn local_backups_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("Backups"))
 }
 
 /// The folder this project's backups go to.
@@ -973,23 +985,15 @@ pub async fn sbd_backups_folder(
     })
 }
 
-/// Show backups: opens the backups folder in Finder or Explorer, making it first if no backup has been made yet.
+/// Show backups: opens the open project's own backups folder in Finder or Explorer, making it first if no backup has
+/// been made yet. Through open.rs, as everything opened outside the app is (B5, 6.15).
 #[tauri::command]
-pub async fn sbd_show_backups(files: State<'_, OpenFiles>, handle: u32) -> Result<(), String> {
-    let dir = files.with(handle, |file| file.backups_dir())?;
-    fs::create_dir_all(&dir).map_err(text)?;
-    let opener = if cfg!(target_os = "macos") {
-        "open"
-    } else if cfg!(windows) {
-        "explorer"
-    } else {
-        "xdg-open"
-    };
-    std::process::Command::new(opener)
-        .arg(&dir)
-        .spawn()
-        .map(|_| ())
-        .map_err(text)
+pub async fn sbd_show_backups(
+    app: tauri::AppHandle,
+    files: State<'_, OpenFiles>,
+    handle: u32,
+) -> Result<(), String> {
+    crate::open::show_backups(&app, &files, handle)
 }
 
 #[tauri::command]
@@ -1423,6 +1427,56 @@ mod tests {
         );
         assert_eq!(
             file.read_blob("SELECT id, bytes FROM media_files WHERE id = 'full'", &[]),
+            not_bytes
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 6.14's review: columns are read by position, never by name, so the test drivers mirror this exactly.
+    #[test]
+    fn reads_and_refuses_by_column_position_not_name() {
+        let dir = temp_dir("positions");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        file.tx(&[
+            statement("CREATE TABLE media_files (id TEXT, bytes BLOB)", vec![]),
+            statement(
+                "INSERT INTO media_files VALUES ('full', x'0102'), ('text', 'abc')",
+                vec![],
+            ),
+        ])
+        .unwrap();
+        let bytes_in_query: Result<Vec<Row>, String> =
+            Err("A query can't return bytes; read them with readBlob.".into());
+        let not_bytes: Result<Option<Vec<u8>>, String> =
+            Err("That column doesn't hold bytes.".into());
+        // A blob behind a later column of the same name is still refused.
+        for sql in [
+            "SELECT bytes AS v, id AS v FROM media_files WHERE id = 'full'",
+            "SELECT id AS v, bytes AS v FROM media_files WHERE id = 'full'",
+        ] {
+            assert_eq!(file.query(sql, &[]), bytes_in_query);
+        }
+        // Without bytes, the later of two same-named columns is kept.
+        assert_eq!(
+            file.query(
+                "SELECT id AS v, 7 AS v FROM media_files WHERE id = 'text'",
+                &[]
+            )
+            .unwrap()[0]["v"],
+            Json::from(7)
+        );
+        // A blob read takes the first column, whatever the columns are named.
+        for sql in [
+            "SELECT bytes, 1 FROM media_files WHERE id = 'full'",
+            "SELECT bytes AS b, id AS b FROM media_files WHERE id = 'full'",
+        ] {
+            assert_eq!(file.read_blob(sql, &[]), Ok(Some(vec![1, 2])));
+        }
+        assert_eq!(
+            file.read_blob(
+                "SELECT id AS b, bytes AS b FROM media_files WHERE id = 'full'",
+                &[]
+            ),
             not_bytes
         );
         let _ = fs::remove_dir_all(&dir);

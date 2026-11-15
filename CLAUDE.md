@@ -384,6 +384,7 @@
     exists. Rust finds the path from the picture's own record in the open .sbd (src-tauri/src/open.rs, built in 5.9:
     not in the Trash, a picture's file name, checked by metadata alone so nothing is read or downloaded); the page
     never names one.
+  - Show backups: the project's own backups folder, through open.rs (6.15, B5).
 
 ## Code style
 - TypeScript strict; no `any`.

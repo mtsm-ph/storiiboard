@@ -18,6 +18,12 @@ export interface ExportTarget {
   stage?(name: string, bytes: Uint8Array): Promise<void>;
   commit?(): Promise<void>;
   abandon?(): Promise<void>;
+  /**
+   * The export is over, however it ended (B6, 6.15): a folder export's token is given back, so Rust forgets the run and
+   * nothing can be written with it again. Once only; a no-op after commit or abandon, which end the run themselves. A
+   * target without it holds nothing to give back.
+   */
+  end?(): Promise<void>;
 }
 
 /** Packs a header and bytes for export_write: a 4-byte big-endian length, the JSON header, then the bytes. */
@@ -103,6 +109,14 @@ export async function chooseExportFolder(folder: string, desktop: boolean): Prom
   };
   let staged: string[] = [];
   let committed: string[] = [];
+  // Whether Rust has been told the run is over ('finish' or 'remove_folder' end it there): after that the token is
+  // no good, so it is sent once.
+  let ended = false;
+  const finish = async () => {
+    if (ended) return;
+    ended = true;
+    await send('finish').catch(() => undefined);
+  };
   return {
     get label() {
       return label;
@@ -122,7 +136,7 @@ export async function chooseExportFolder(folder: string, desktop: boolean): Prom
         committed.push(name);
       }
       staged = [];
-      await send('finish').catch(() => undefined);
+      await finish();
     },
     abandon: async () => {
       const pending = staged;
@@ -131,7 +145,11 @@ export async function chooseExportFolder(folder: string, desktop: boolean): Prom
       committed = [];
       for (const name of pending) await send('remove_temp', name).catch(() => undefined);
       for (const name of done) await send('remove_file', name).catch(() => undefined);
+      if (ended) return;
+      ended = true;
       await send('remove_folder').catch(() => undefined);
     },
+    // A set written with `write` alone (PNG frames) never commits: without this its token stayed alive for the session.
+    end: finish,
   };
 }

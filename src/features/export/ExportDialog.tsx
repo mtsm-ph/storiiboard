@@ -152,9 +152,10 @@ function ExportDialog() {
     setFailed(null);
     try {
       const chosen = format.output === 'file' ? await chooseExportFile(name, isTauriApp) : await chooseExportFolder(name, isTauriApp);
-      if (!chosen || controller.signal.aborted) return;
-      label = chosen.label;
+      if (!chosen) return;
       opened = chosen;
+      if (controller.signal.aborted) return;
+      label = chosen.label;
       let staged = 0;
       const target: ExportTarget = {
         // As the folder is named once it is made ("Pitch 2" where "Pitch" was taken).
@@ -215,6 +216,8 @@ function ExportDialog() {
         );
       } else setFailed(failureMessage(error, written, total, label));
     } finally {
+      // Done, stopped or failed: a folder export gives its token back (B6), so nothing more is written with it.
+      await opened?.end?.().catch(() => undefined);
       if (stopper.current === controller) stopper.current = null;
       busy.current = false;
       setRunning(null);
