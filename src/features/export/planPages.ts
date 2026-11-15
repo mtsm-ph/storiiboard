@@ -27,6 +27,7 @@ import { groupName } from '../birdseye/plan/library';
 import { lightLooks, wattsLabel } from '../birdseye/plan/lightLooks';
 import { blockingLooks, characterTitle } from '../birdseye/plan/markLooks';
 import { planItemsBuilder } from '../birdseye/plan/planItems';
+import { sightsKeeper } from '../birdseye/plan/planSights';
 import { planScale, UNITS_PER_METRE } from '../birdseye/plan/planScale';
 import { degreesText } from '../birdseye/plan/selectionFields';
 import { sunLooks } from '../birdseye/plan/sunLooks';
@@ -539,18 +540,13 @@ export function printItems(records: Records, view: PlanView, unit: PlanUnit, zon
   const shown: readonly ShownItem[] = underlay ? all : all.filter((item) => item.fields.kind !== 'underlay');
   const none: readonly string[] = [];
   const planView = { sceneId: view.sceneId, setupId: view.setupId };
-  const items = planItemsBuilder()(
-    shown,
-    unit,
-    INK,
-    undefined,
-    cameraLooks(records, shown, unit, none),
-    lightLooks(records, shown, unit, none),
-    sunLooks(records, shown, zones, none),
-    blockingLooks(records, planView, shown, unit, none),
-    undefined,
-    underlayPictures(records, shown),
-  );
+  const looks = cameraLooks(records, shown, unit, none);
+  const lights = lightLooks(records, shown, unit, none);
+  const blocking = blockingLooks(records, planView, shown, unit, none);
+  // Walls stop cones and beams on paper as on the screen (6.18), from the same shapes: the room's walls print in every
+  // department's print (they are the room), and they cut there too.
+  const sights = sightsKeeper()(shown, shown, looks, lights, blocking.marks);
+  const items = planItemsBuilder()(shown, unit, INK, undefined, looks, lights, sunLooks(records, shown, zones, none), blocking, undefined, underlayPictures(records, shown), sights);
   // Layers are this computer's focus view (6.8): none is read; the underlay is drawn dimmed, as a traced plan prints.
   return items.map((item) => (shown.find((s) => s.record.id === item.id)?.fields.kind === 'underlay' ? { ...item, dim: true } : item));
 }

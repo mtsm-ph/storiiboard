@@ -3231,6 +3231,8 @@ export const en = {
   'selection.camera.useFrameLens': 'Use the frame’s lens',
   'selection.camera.fovNeedsLens': 'Link a frame, or type a focal length, to see the field of view.',
   'selection.camera.onSide': 'On its side',
+  // Walls stop cones and beams (6.18): a camera's and a light's switch.
+  'selection.stopAtWalls': 'Stop at walls',
   'selection.camera.heightFromFrame': 'From frame {frame}: change it on the board.',
   'selection.camera.note': 'X and Y are its middle. The comma and period keys, or [ and ], turn it 5° (Shift: 1°).',
   'selection.camera.frames': 'Frames shot from it',
@@ -3277,6 +3279,11 @@ export const en = {
   'history.cameraLensTyped': 'Typed a {lens} lens on {camera}',
   'history.cameraUsesFrameLens': 'Took the typed lens off {camera}: it now uses the frame’s lens',
   'history.cameraLensRemoved': 'Took the lens off {camera}',
+  'history.field.stopAtWalls': 'stops at walls',
+  'history.stopsAtWallsValue': 'Stops at walls',
+  'history.throughWallsValue': 'Goes through walls',
+  'history.stopsAtWalls': 'Set {what} to stop at walls',
+  'history.noLongerStopsAtWalls': 'Set {what} to go through walls',
   // Lights, flags and diffusion (6.5).
   'plan.tool.light': 'Light',
   'plan.light.watts': '{watts} W',

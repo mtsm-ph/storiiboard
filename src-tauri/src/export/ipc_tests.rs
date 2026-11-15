@@ -95,3 +95,32 @@ fn stages_and_commits_a_set_of_files_into_a_new_folder_then_finishes_the_run() {
         "Storiiboard writes exports only where you choose."
     );
 }
+
+/// 6.15 review, through the registered command: a single-file export that stops after the Save dialog sends the header
+/// exportFiles.ts's `end` sends (`{ path, action: 'end' }`, no bytes); the command answers as for a write, writes nothing,
+/// and the file chosen can't be written afterwards.
+#[test]
+fn ends_a_single_file_export_so_the_file_chosen_cant_be_written() {
+    let h = Harness::new("export-end");
+    let path = h.path("Bey County.csv");
+    remember(
+        &h.app.state::<Chosen>().files,
+        &h.dir().join("Bey County.csv"),
+    );
+    assert_eq!(
+        h.call_raw(
+            "export_write",
+            raw_body(&json!({ "path": path, "action": "end" }), b"")
+        ),
+        Ok(json!(""))
+    );
+    assert!(!h.dir().join("Bey County.csv").exists());
+    assert_eq!(
+        refused(h.call_raw(
+            "export_write",
+            raw_body(&json!({ "path": path }), b"scene,shot")
+        )),
+        "Storiiboard writes exports only where you choose."
+    );
+    assert!(!h.dir().join("Bey County.csv").exists());
+}

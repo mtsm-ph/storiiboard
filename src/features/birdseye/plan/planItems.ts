@@ -86,6 +86,7 @@ import { besideBeyond, cameraBeyond, labelsBeyond, type CameraLook } from './cam
 import { heightLabel } from './cameraLooks';
 import { IconShape, NameBelow, NoteShape, UnknownIconShape, ZoneShape } from './iconDraw';
 import { lightBeyond, StandingFrameShape, type LightLook } from './lightDraw';
+import { localSight, type LocalSight, type Sights } from './planSights';
 import { joinBeyond, pathBeyond, type PathLook } from './markDraw';
 import type { BlockingLooks, MarkLook } from './markLooks';
 import { sunBeyond, sunFitExtent, type SunLook } from './sunDraw';
@@ -217,7 +218,7 @@ export const lightAnnounce = (fields: LightFields, unit: PlanUnit, look: LightLo
  * A light for the canvas (6.5): its icon at its real size, keeping its proportions, and past its box its beam (or its
  * soft circle) and its labels (lightDraw.tsx), which the canvas keeps drawn while the box is off screen.
  */
-export function lightItem(id: string, fields: LightFields, unit: PlanUnit, look: LightLook | null): CanvasItem {
+export function lightItem(id: string, fields: LightFields, unit: PlanUnit, look: LightLook | null, cut: LocalSight | null = null): CanvasItem {
   const icon = planIconOf(fields.icon) ?? planIconOf(LIGHT_ICON);
   const g = toCanvasGeometry(fields);
   const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
@@ -226,7 +227,7 @@ export function lightItem(id: string, fields: LightFields, unit: PlanUnit, look:
     return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
   };
   // Its beam leaves the side its icon's drawing shines from (BEAM_FACING), turned with the light.
-  const beyond = look ? { beyond: lightBeyond(g, look, toCanvas(BEAM_LENGTH_M), PLAN_ZOOM.min, beamFacing(fields.icon)) } : {};
+  const beyond = look ? { beyond: lightBeyond(g, look, toCanvas(BEAM_LENGTH_M), PLAN_ZOOM.min, beamFacing(fields.icon), cut) } : {};
   return { id, ...g, label: lightAnnounce(fields, unit, look), keepRatio: true, draw, ...beyond, sameInAndOut: true };
 }
 
@@ -273,6 +274,23 @@ export function gripItem(id: string, fields: GripFields, unit: PlanUnit): Canvas
 const NO_BLOCKING: BlockingLooks = { marks: new Map(), paths: new Map(), moves: new Map() };
 const NO_LAYERS: ReadonlyMap<string, LayerLook> = new Map();
 
+/** No cut shapes worked out (a caller that cuts nothing): every cone and beam whole. */
+const NO_SIGHTS: Sights = new Map();
+
+/** A cut shape's part of an item's key: the shape is kept between calls while nothing it reads changed, so by identity. */
+const sightIds = new WeakMap<object, number>();
+let nextSightId = 0;
+function sightKey(sight: object | undefined): string {
+  if (!sight) return '';
+  let id = sightIds.get(sight);
+  if (id === undefined) {
+    nextSightId += 1;
+    id = nextSightId;
+    sightIds.set(sight, id);
+  }
+  return `|${String(id)}`;
+}
+
 /** A camera with no look worked out yet: no cone, no label. */
 const NO_LOOK: CameraLook = { degrees: null, lines: [], selected: false };
 
@@ -287,7 +305,7 @@ export const cameraAnnounce = (fields: CameraFields, unit: PlanUnit, look: Camer
  * A camera for the canvas (6.4): its icon at its real size, keeping its proportions, and past its box its field of view
  * and its labels (cameraDraw.tsx), which the canvas keeps drawn while the box is off screen.
  */
-export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, look: CameraLook, path: PathLook | null = null): CanvasItem {
+export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, look: CameraLook, path: PathLook | null = null, cut: LocalSight | null = null): CanvasItem {
   const icon = planIconOf(fields.icon) ?? planIconOf(CAMERA_ICON);
   const g = toCanvasGeometry(fields);
   const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
@@ -296,7 +314,7 @@ export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, loo
     return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
   };
   // A camera that moves (6.7) carries its move's path, from it through each later position; Fit all takes them all in.
-  const beyond = joinBeyond(cameraBeyond(g, look, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min), path ? pathBeyond(g, path, PLAN_ZOOM.min) : undefined);
+  const beyond = joinBeyond(cameraBeyond(g, look, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min, cut), path ? pathBeyond(g, path, PLAN_ZOOM.min) : undefined);
   // A track, a slider or a jib's arm (6.7) stretches along its length: its proportions aren't kept.
   return {
     id,
@@ -316,7 +334,7 @@ export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, loo
  * ink so it stays legible), its upright label past its box, a camera's later position's cone as thin edges, and on an
  * owner's first position the path through every position, which the canvas keeps drawn while the box is off screen.
  */
-export function markItem(id: string, fields: MarkFields, unit: PlanUnit, look: MarkLook | null, path: PathLook | null = null): CanvasItem {
+export function markItem(id: string, fields: MarkFields, unit: PlanUnit, look: MarkLook | null, path: PathLook | null = null, cut: LocalSight | null = null): CanvasItem {
   const icon = planIconOf(look?.icon ?? MARK_ICON) ?? planIconOf(MARK_ICON);
   const g = toCanvasGeometry(fields);
   const lines = look?.lines ?? (fields.name !== '' ? [fields.name] : []);
@@ -330,7 +348,7 @@ export function markItem(id: string, fields: MarkFields, unit: PlanUnit, look: M
   const cone = look?.cone ?? null;
   const own =
     ghost && cone !== null
-      ? cameraBeyond(g, { degrees: cone, lines, selected: look.selected, edgesOnly: true }, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min)
+      ? cameraBeyond(g, { degrees: cone, lines, selected: look.selected, edgesOnly: true }, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min, cut)
       : lines.length > 0
         ? labelsBeyond(g, lines, PLAN_ZOOM.min)
         : undefined;
@@ -589,11 +607,12 @@ export function planItemsBuilder(): (
   blocking?: BlockingLooks,
   layers?: ReadonlyMap<string, LayerLook>,
   pictures?: ReadonlyMap<string, string | null>,
+  sights?: Sights,
 ) => readonly CanvasItem[] {
   let built = new Map<string, Built>();
   let layered = new Map<string, { from: CanvasItem; look: string; item: CanvasItem }>();
   let last: readonly CanvasItem[] = [];
-  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map(), suns = new Map(), blocking = NO_BLOCKING, layers = NO_LAYERS, pictures = new Map()) => {
+  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map(), suns = new Map(), blocking = NO_BLOCKING, layers = NO_LAYERS, pictures = new Map(), sights = NO_SIGHTS) => {
     const walls = shown.filter(isWall);
     const lines = walls.map((item) => lineOf(item.record.id, item.fields));
     const records = new Map(walls.map((item) => [item.record.id, item.record]));
@@ -672,10 +691,12 @@ export function planItemsBuilder(): (
       const look = looks.get(item.record.id) ?? NO_LOOK;
       // A camera that moves (6.7) is made again when any of its later positions moves too: it carries their path.
       const path = blocking.paths.get(item.record.id) ?? null;
-      const key = JSON.stringify([look, path]);
+      // Walls cut its cone (6.18): made again when its cut shape is a new one.
+      const sight = sights.get(item.record.id);
+      const key = JSON.stringify([look, path]) + sightKey(sight);
       const same = kept(item, [], key);
       if (same) return same;
-      const made = cameraItem(item.record.id, item.fields, unit, look, path);
+      const made = cameraItem(item.record.id, item.fields, unit, look, path, localSight(sight, toCanvasGeometry(item.fields), 'cone'));
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
       return made;
     });
@@ -690,10 +711,11 @@ export function planItemsBuilder(): (
     });
     const lightItems = shown.filter(isLightItem).map((item): CanvasItem => {
       const look = lights.get(item.record.id) ?? null;
-      const key = JSON.stringify(look);
+      const sight = sights.get(item.record.id);
+      const key = JSON.stringify(look) + sightKey(sight);
       const same = kept(item, [], key);
       if (same) return same;
-      const made = lightItem(item.record.id, item.fields, unit, look);
+      const made = lightItem(item.record.id, item.fields, unit, look, localSight(sight, toCanvasGeometry(item.fields), 'beam'));
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
       return made;
     });
@@ -722,10 +744,11 @@ export function planItemsBuilder(): (
     const markItems = shown.filter(isMarkItem).map((item): CanvasItem => {
       const look = blocking.marks.get(item.record.id) ?? null;
       const path = blocking.paths.get(item.record.id) ?? null;
-      const key = JSON.stringify([look, path]);
+      const sight = sights.get(item.record.id);
+      const key = JSON.stringify([look, path]) + sightKey(sight);
       const same = kept(item, [], key);
       if (same) return same;
-      const made = markItem(item.record.id, item.fields, unit, look, path);
+      const made = markItem(item.record.id, item.fields, unit, look, path, localSight(sight, toCanvasGeometry(item.fields), 'cone'));
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
       return made;
     });

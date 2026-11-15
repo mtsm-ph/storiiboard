@@ -16,7 +16,7 @@ import { RAISED } from '../../ui/canvas/paperColours';
 import type { CanvasItem } from '../../ui/canvas/types';
 import { iconShapesOf } from '../birdseye/plan/iconDraw';
 import { setLayerShow, showAllLayers } from '../birdseye/plan/layersStore';
-import { drawWallsChanges, placeIconChanges } from '../birdseye/plan/planItems';
+import { drawWallsChanges, openingProps, placeIconChanges } from '../birdseye/plan/planItems';
 import { arcCubics, displayOps, parsePathData, parsePaint, wedgeTurn, type DisplayOp, type Matrix, type PrintNode, type Segment } from './deckDisplay';
 import { paintOps } from './displayPaint';
 import { leftOutWords, planDayPdf, planExportName, planPageWarnings, planScenePdf, planSetupPdf, planSetupPng, type PlanTarget } from './planExport';
@@ -1268,5 +1268,71 @@ describe('per-department prints (6.17)', () => {
     expect(text).toContain('Setup 1 · Lighting');
     expect(text).toContain('Fresnel');
     expect(text).not.toContain('Sony FX3');
+  });
+});
+
+// 6.18: walls stop cones and beams on paper, from the same shapes as the screen. furnished()'s camera stands at (0, 1)
+// facing up, its 35 mm on the FX3 about 54° wide; a 10 m wall across at y = -0.5 (its near face at -0.45, 1.45 m from
+// the camera) with a 0.9 m door in its middle stops it there, and the door's strip carries on to the free-standing 4 m
+// wall at y = -3 (face -2.95), as wide there as the rays through the door's far corners (±0.45, -0.55) make it:
+// ±0.45 × 3.95 / 1.55 = ±1.147, inside that wall's ±2.
+describe('walls stop the cone on paper (6.18)', () => {
+  /** The world (metres) to the PDF's points, from two walls' filled outlines: a scale of `s` per metre, maybe flipped in y. */
+  function mapping(paths: readonly { x: number; y: number }[][], s: number) {
+    const near = (a: number, b: number) => Math.abs(a - b) < 0.5;
+    const box = (p: readonly { x: number; y: number }[]) => ({ minX: Math.min(...p.map((q) => q.x)), maxX: Math.max(...p.map((q) => q.x)), minY: Math.min(...p.map((q) => q.y)), maxY: Math.max(...p.map((q) => q.y)) });
+    const across = paths.map(box).find((b) => near(b.maxX - b.minX, 10 * s) && near(b.maxY - b.minY, 0.1 * s));
+    const lower = paths.map(box).find((b) => near(b.maxX - b.minX, 8 * s) && near(b.maxY - b.minY, 0.1 * s));
+    if (!across || !lower) throw new Error('no walls on the page');
+    // The 8 m wall is at y = 3, the 10 m one at y = -0.5: which way is down on the page.
+    const flip = lower.minY < across.minY ? -1 : 1;
+    const midY = (across.minY + across.maxY) / 2;
+    const midX = (across.minX + across.maxX) / 2;
+    return { toWorld: (p: { x: number; y: number }) => ({ x: (p.x - midX) / s, y: -0.5 + (flip * (p.y - midY)) / s }) };
+  }
+
+  it('prints the cone ending at the wall’s face, and through its door to the next wall', async () => {
+    const { sceneId, setupId } = await furnished();
+    const across = drawWallsChanges(records(), sceneId, [
+      { x: -500, y: -50 },
+      { x: 500, y: -50 },
+    ]);
+    await apply(across.changes);
+    const wallId = across.ids[0] ?? '';
+    const roomId = records()[wallId]?.parentId ?? '';
+    await apply([{ kind: 'create', record: { id: 'door', type: 'plan_item', parentId: roomId, sortKey: 'z', props: openingProps('door', wallId, 5) } }]);
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    const s = (page?.plan?.pointsPerUnit ?? 0) * 100;
+    const paths = await pdfFilledPaths((await write([printed(page as PlanPage)])).bytes);
+    const { toWorld } = mapping(paths, s);
+    // The cone: the filled path with a corner at the camera's middle.
+    const cone = paths.map((p) => p.map(toWorld)).find((p) => p.some((q) => Math.hypot(q.x, q.y - 1) < 0.01) && p.length > 3);
+    if (!cone) throw new Error('no cone');
+    const others = cone.filter((q) => Math.hypot(q.x, q.y - 1) > 0.01);
+    // Nothing past the 4 m wall's face; corners on the near wall's face, and through the door on the far one.
+    for (const q of others) expect(q.y).toBeGreaterThan(-2.95 - 0.01);
+    expect(others.some((q) => Math.abs(q.y + 0.45) < 0.01 && Math.abs(q.x) > 0.6)).toBe(true);
+    const through = others.filter((q) => Math.abs(q.y + 2.95) < 0.01);
+    expect(through.length).toBeGreaterThan(1);
+    expect(Math.max(...through.map((q) => Math.abs(q.x)))).toBeCloseTo(1.147, 1);
+    // Past the near wall, only the door's strip.
+    for (const q of others.filter((p) => p.y < -0.55 - 0.01)) expect(Math.abs(q.x)).toBeLessThan(1.147 + 0.02);
+  });
+
+  it('prints the whole cone with Stop at walls off', async () => {
+    const { sceneId, setupId, camera } = await furnished();
+    await apply(drawWallsChanges(records(), sceneId, [
+      { x: -500, y: -50 },
+      { x: 500, y: -50 },
+    ]).changes);
+    await apply([{ kind: 'update', id: camera, set: { stop_at_walls: false } }]);
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
+    const s = (page?.plan?.pointsPerUnit ?? 0) * 100;
+    const paths = await pdfFilledPaths((await write([printed(page as PlanPage)])).bytes);
+    const { toWorld } = mapping(paths, s);
+    // The three corners of the whole cone: the middle and its far ends 6 m out, past both walls.
+    const cone = paths.map((p) => p.map(toWorld)).find((p) => p.length === 3 && p.some((q) => Math.hypot(q.x, q.y - 1) < 0.01));
+    if (!cone) throw new Error('no cone');
+    expect(Math.min(...cone.map((q) => q.y))).toBeLessThan(-4);
   });
 });

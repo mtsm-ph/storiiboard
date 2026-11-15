@@ -4,6 +4,7 @@ import { PAPER } from '../../../ui/canvas/paperColours';
 import { screenSizedRef } from '../../../ui/canvas/screenSized';
 import type { Beyond, CanvasColours, Rect } from '../../../ui/canvas/types';
 import { unionBounds } from '../../../ui/canvas/viewport';
+import type { LocalSight } from './planSights';
 
 // A camera's field of view on the plan (6.4, decision 6): from the camera's middle along its rotation (0 is up the plan,
 // as the icon's lens is), as wide as the angle the project's frame sees, CONE_LENGTH_M long, its far edge open. Plans
@@ -11,7 +12,8 @@ import { unionBounds } from '../../../ui/canvas/viewport';
 // while the camera is selected. design/DESIGN.md's older line, a selected camera's cone in the accent at 10%, is
 // superseded by decision 13. Under it, by the camera, its labels in mono: its name, then its letter, focal length and
 // angle ("A · 50 mm · 51.1°", or what is missing), then a set height. All of it is drawn past the camera's box
-// (CanvasItem.beyond), so the canvas core keeps it drawn while the box is off screen and picks only the box.
+// (CanvasItem.beyond), so the canvas core keeps it drawn while the box is off screen and picks only the box. Walls stop
+// it (6.18): where they cut it, it is drawn as the cut shape (planSights.ts), its sides as lines and none along a wall.
 
 /** What a camera's drawing past its box shows, worked out from the records by the plan (planItems.ts). */
 export interface CameraLook {
@@ -94,6 +96,8 @@ interface ConeProps {
   colours: CanvasColours;
   look: CameraLook;
   length: number;
+  /** Its shape where walls cut it (6.18); null or absent, the whole cone. */
+  cut?: LocalSight | null;
 }
 
 /** JetBrains Mono's advance, in font sizes: every character is this wide, so a label's width is known without measuring. */
@@ -169,10 +173,19 @@ export function UprightLabels({
 }
 
 /** The cone and the labels, in the camera's own box; the labels kept upright whatever way it points. */
-export function CameraBeyond({ width, height, zoom, rotation, colours, look, length }: ConeProps) {
-  const points = look.degrees === null ? null : conePoints(width, height, look.degrees, length);
+export function CameraBeyond({ width, height, zoom, rotation, colours, look, length, cut }: ConeProps) {
+  const points = look.degrees === null || cut ? null : conePoints(width, height, look.degrees, length);
+  const edge = { stroke: colours.ink, strokeWidth: look.selected ? 1.5 : 1, opacity: look.selected ? 1 : EDGE_OPACITY, strokeScaleEnabled: false, listening: false } as const;
   return (
     <>
+      {cut && look.degrees !== null && cut.fill.length >= 6 && (
+        <>
+          {look.edgesOnly !== true && <Line points={cut.fill} closed fill={colours.ink} opacity={FILL_OPACITY} listening={false} />}
+          {cut.strokes.map((run, i) => (
+            <Line key={i} points={run} {...edge} />
+          ))}
+        </>
+      )}
       {points && (
         <>
           {look.edgesOnly !== true && <Line points={points} closed fill={colours.ink} opacity={FILL_OPACITY} listening={false} />}
@@ -196,10 +209,11 @@ export function CameraBeyond({ width, height, zoom, rotation, colours, look, len
  * plan's least zoom, not the view's: a zoom then never makes the item again (its bounds stay as they are), and wherever
  * the view is zoomed its labels reach no further than that, so a label on screen is never culled with its box.
  */
-export function cameraBeyond(box: { x: number; y: number; width: number; height: number; rotation: number }, look: CameraLook, length: number, leastZoom: number): Beyond {
+export function cameraBeyond(box: { x: number; y: number; width: number; height: number; rotation: number }, look: CameraLook, length: number, leastZoom: number, cut: LocalSight | null = null): Beyond {
   return {
+    // The whole cone's reach: a cut shape lies inside it.
     bounds: cameraReach(box, look.degrees, length, 0, labelReach(box, look.lines.length, leastZoom)),
-    draw: (context) => <CameraBeyond width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} look={look} length={length} />,
+    draw: (context) => <CameraBeyond width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} look={look} length={length} cut={cut} />,
   };
 }
 

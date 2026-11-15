@@ -68,8 +68,10 @@ function placeAt(list: RowDragList, group: string, id: string, x: number, y: num
   const anchor = others[Math.min(to, others.length - 1)];
   if (!anchor) return null;
   const box = anchor.getBoundingClientRect();
-  // Kept inside what shows of the list, never drawn over the panel's header or controls.
-  const top = Math.min(Math.max(to < others.length ? box.top - 1.75 : box.bottom - 1.75, area.top), area.bottom - 3.5);
+  const at = to < others.length ? box.top - 1.75 : box.bottom - 1.75;
+  // In a list that scrolls inside a box, kept inside what shows of it, never drawn over the panel's header or controls.
+  // With no such box the bar sits exactly where it always has (the Setups tile, 6.0).
+  const top = list.scroller ? Math.min(Math.max(at, area.top), area.bottom - 3.5) : at;
   return { id, to, bar: { left: box.left, top, width: box.width } };
 }
 
