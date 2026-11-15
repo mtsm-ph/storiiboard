@@ -22,6 +22,16 @@ describe('Settings → App', () => {
     expect(html).toContain('US (°F, mph, in)');
   });
 
+  it('has Plan units (6.2a): by this computer’s region, metres or feet and inches', () => {
+    setLocale('en');
+    const html = render();
+    expect(html).toContain('Plan units');
+    expect(html).toContain('Metres');
+    expect(html).toContain('Feet and inches');
+    setLocale('es');
+    expect(render()).toContain('Unidades de la planta');
+  });
+
   it('has it in Spanish too', () => {
     setLocale('es');
     const html = render();

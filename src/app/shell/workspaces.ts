@@ -118,8 +118,8 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
     defaultLayout: () => layout(stack(['team'])),
   },
   {
-    // Home of the bird's-eye view (CLAUDE.md, Navigation). Live from 6.0, with its Setups tile; the plan, layers,
-    // selection, frames and library tiles stay placeholders until the rest of Phase 6 builds them.
+    // Home of the bird's-eye view (CLAUDE.md, Navigation). Live from 6.0, with its Setups tile, and the Plan and
+    // Selection tiles from 6.2a; the layers, frames and library tiles stay placeholders until the rest of Phase 6.
     id: 'setup',
     get label() {
       return t('workspace.setup');

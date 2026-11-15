@@ -64,6 +64,10 @@ export const isWeekStartChoice = (value: unknown): value is WeekStartChoice => v
 export type WeatherUnitsChoice = 'region' | 'metric' | 'us';
 export const isWeatherUnitsChoice = (value: unknown): value is WeatherUnitsChoice => value === 'region' || value === 'metric' || value === 'us';
 
+/** The units a plan shows (6.2a): by this computer's region (feet and inches in the US), or metres or feet whatever it says. */
+export type PlanUnitsChoice = 'region' | 'metres' | 'feet';
+export const isPlanUnitsChoice = (value: unknown): value is PlanUnitsChoice => value === 'region' || value === 'metres' || value === 'feet';
+
 /** The paper a call sheet's PDF is made for (4.6): by this computer's region, or Letter or A4 whatever it says. */
 export type PaperChoice = 'region' | 'letter' | 'a4';
 export const isPaperChoice = (value: unknown): value is PaperChoice => value === 'region' || value === 'letter' || value === 'a4';
@@ -91,6 +95,8 @@ export interface Settings {
   weekStart: WeekStartChoice;
   /** The forecast's units (4.4, Settings → App); the cache keeps MET's metric values. */
   weatherUnits: WeatherUnitsChoice;
+  /** The units a plan shows (6.2a, Settings → App); the file always holds metres. */
+  planUnits: PlanUnitsChoice;
   /** The paper a call sheet's PDF is made for (4.6, the Call sheet tile's Paper choice). */
   callSheetPaper: PaperChoice;
   /** Directions open in (4.6, Settings → App): the app a call sheet's directions link and QR code open. */
@@ -208,6 +214,7 @@ export const DEFAULT_SETTINGS: Settings = {
   language: DEFAULT_LOCALE,
   weekStart: 'region',
   weatherUnits: 'region',
+  planUnits: 'region',
   callSheetPaper: 'region',
   directionsApp: 'google',
   sidebarHidden: false,
@@ -259,6 +266,7 @@ export function loadSettings(storage: Reader | undefined = browserStorage()): Se
       language: isLocaleId(saved.language) ? saved.language : DEFAULT_LOCALE,
       weekStart: isWeekStartChoice(saved.weekStart) ? saved.weekStart : 'region',
       weatherUnits: isWeatherUnitsChoice(saved.weatherUnits) ? saved.weatherUnits : 'region',
+      planUnits: isPlanUnitsChoice(saved.planUnits) ? saved.planUnits : 'region',
       callSheetPaper: isPaperChoice(saved.callSheetPaper) ? saved.callSheetPaper : 'region',
       directionsApp: isDirectionsApp(saved.directionsApp) ? saved.directionsApp : 'google',
       sidebarHidden: saved.sidebarHidden === true,

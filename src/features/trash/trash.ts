@@ -16,6 +16,7 @@ import { headingOf } from '../storyboard/ScenesView';
 import { labels, t, tn } from '../../core/i18n';
 import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
 import { setupFields } from '../../core/model/setup';
+import { planFields, planItemFields, restorePlanChanges, roomTitle } from '../../core/model/plan';
 import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attachment';
 
 // The Trash (1.20, CLAUDE.md): what's been deleted (frames, scenes, notes and pictures), kept until Empty Trash
@@ -24,7 +25,7 @@ import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attach
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-export type TrashKind = 'scene' | 'frame' | 'setup' | 'note' | 'picture' | 'location' | 'person' | 'day' | 'gear' | 'attachment' | 'board' | 'boardItem';
+export type TrashKind = 'scene' | 'frame' | 'setup' | 'note' | 'picture' | 'location' | 'person' | 'day' | 'gear' | 'attachment' | 'board' | 'boardItem' | 'plan' | 'planItem';
 
 export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   scene: 'trash.kind.scene',
@@ -39,6 +40,8 @@ export const TRASH_KIND_LABEL: Readonly<Record<TrashKind, string>> = labels({
   attachment: 'trash.kind.attachment',
   board: 'trash.kind.board',
   boardItem: 'trash.kind.boardItem',
+  plan: 'trash.kind.plan',
+  planItem: 'trash.kind.planItem',
 });
 
 /** The Type filter's choices: every scene, every frame… */
@@ -55,6 +58,8 @@ export const TRASH_KIND_PLURAL: Readonly<Record<TrashKind, string>> = labels({
   attachment: 'trash.kinds.attachment',
   board: 'trash.kinds.board',
   boardItem: 'trash.kinds.boardItem',
+  plan: 'trash.kinds.plan',
+  planItem: 'trash.kinds.planItem',
 });
 
 /** "Restore frame 4A": the kind as it reads inside a sentence. */
@@ -71,6 +76,8 @@ export const TRASH_KIND_IN_SENTENCE: Readonly<Record<TrashKind, string>> = label
   attachment: 'trash.kindLower.attachment',
   board: 'trash.kindLower.board',
   boardItem: 'trash.kindLower.boardItem',
+  plan: 'trash.kindLower.plan',
+  planItem: 'trash.kindLower.planItem',
 });
 
 export interface NamePart {
@@ -115,6 +122,8 @@ function kindOf(record: SbdRecord): TrashKind | null {
   if (record.type === 'gear_item') return 'gear';
   if (record.type === 'board') return 'board';
   if (record.type === 'board_item') return 'boardItem';
+  if (record.type === 'plan') return 'plan';
+  if (record.type === 'plan_item') return 'planItem';
   return null;
 }
 
@@ -184,6 +193,17 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind): NamePart
       // A section is named: "Section 'Act One' on Camera board" (5.3).
       if (fields?.kind === 'section' && fields.name.trim() !== '') return [plain(t('trash.sectionOnBoard', { name: fields.name.trim(), board: where }))];
       return [plain(t('trash.itemOnBoard', { item: kind, board: where }))];
+    }
+    case 'plan':
+      // A room by its name (6.2a).
+      return [plain(t('trash.roomNamed', { name: roomTitle(planFields(record.props)) }))];
+    case 'planItem': {
+      // "Wall in Diner": what it is and the room, or the scene's plan, it was in.
+      const plan = record.parentId ? records[record.parentId] : undefined;
+      const fields = plan?.type === 'plan' ? planFields(plan.props) : null;
+      const item = planItemFields(record.props) ? t('plan.item.wall') : t('trash.planItemUnknown');
+      if (fields?.kind === 'room') return [plain(t('trash.planItemInRoom', { item, room: roomTitle(fields) }))];
+      return [plain(item)];
     }
     case 'gear': {
       const name = typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name : t('gear.unnamed');
@@ -334,6 +354,15 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
         return [...board, ...(have(id) ? [] : [{ kind: 'restore' as const, id }]), ...connectors.filter((c) => c.kind === 'restore' && !have(c.id))];
       }
       return [{ kind: 'restore', id }, ...connectors];
+    }
+    case 'plan':
+      // A room comes back with the items that went to the Trash with it (6.2a), not ones deleted before.
+      return restorePlanChanges(records, id);
+    case 'plan_item': {
+      // An item whose plan is in the Trash brings the plan back whole, or it would come back onto nothing (6.2a).
+      if (parent?.type !== 'plan' || parent.trashedAt === null) return [{ kind: 'restore', id }];
+      const plan = restorePlanChanges(records, parent.id);
+      return plan.some((c) => c.kind === 'restore' && c.id === id) ? plan : [...plan, { kind: 'restore', id }];
     }
     case 'scene':
       // With the frames and notes deleted with it (docs/SBD_FORMAT.md, Trash), not ones deleted before.

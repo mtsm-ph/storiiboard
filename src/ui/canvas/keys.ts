@@ -1,4 +1,4 @@
-import type { AlignMode, CanvasCommand, Point, Side, Tool } from './types';
+import type { AlignMode, CanvasCommand, Point, Side, Tool, ToolSpec } from './types';
 
 // The canvas's keys as pure functions, so the table is tested without a browser.
 
@@ -43,6 +43,21 @@ export function toolForKey(event: KeyLike): Tool | null {
     default:
       return null;
   }
+}
+
+/**
+ * A host's own tool list (6.2a) in place of a board's letters: the tool whose letter was typed, with no modifier; a
+ * letter shown as "⇧S" needs Shift.
+ */
+export function hostToolForKey(event: KeyLike, tools: readonly ToolSpec[]): Tool | null {
+  if (event.altKey || event.metaKey || event.ctrlKey) return null;
+  const typed = event.key.toLowerCase();
+  const found = tools.find((spec) => {
+    const shifted = spec.key.startsWith('⇧');
+    const letter = (shifted ? spec.key.slice(1) : spec.key).toLowerCase();
+    return letter === typed && shifted === event.shiftKey;
+  });
+  return found?.id ?? null;
 }
 
 /** The command a key asks of the selection, or null. `pointer`: where the pointer is in world units, over the canvas. */

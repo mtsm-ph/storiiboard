@@ -14,7 +14,7 @@ import { formatDate, t, tn } from '../../core/i18n';
 // click as one undoable edit. Empty Trash (1.21) deletes it all for good, after a confirm that says it can't be
 // undone. Any workspace can open it from the Layout menu; it's in no default layout (CLAUDE.md).
 
-const KINDS: readonly TrashKind[] = ['scene', 'frame', 'setup', 'note', 'picture', 'location', 'person', 'day', 'gear', 'attachment', 'board', 'boardItem'];
+const KINDS: readonly TrashKind[] = ['scene', 'frame', 'setup', 'note', 'picture', 'location', 'person', 'day', 'gear', 'attachment', 'board', 'boardItem', 'plan', 'planItem'];
 
 /** "Today 14:05", "Yesterday 09:12", or "Nov 2 14:05", in the person's own time. */
 function when(iso: string, now = new Date()): string {

@@ -1,21 +1,23 @@
 import { useState } from 'react';
 import { getLocale, isLocaleId, LOCALES, setLocale, t } from '../../core/i18n';
-import { isDirectionsApp, isWeatherUnitsChoice, isWeekStartChoice, saveSettings } from '../../core/storage/settings';
+import { isDirectionsApp, isPlanUnitsChoice, isWeatherUnitsChoice, isWeekStartChoice, saveSettings } from '../../core/storage/settings';
 import { setDirectionsApp, useDirectionsApp } from '../directionsApp';
 import { setWeekStartChoice, useWeekStartChoice } from '../weekStart';
 import { setWeatherUnitsChoice, useWeatherUnitsChoice } from '../weatherUnits';
+import { setPlanUnitsChoice, usePlanUnitsChoice } from '../planUnits';
 import { Select } from '../../ui/fields';
 import { CompanyProfilesPanel } from '../company/CompanyProfilesPanel';
 
 // Settings → App: what belongs to the person rather than the project. The language changes every screen at once, and
 // the next export; a project opened on another computer shows there in that person's own language. And the company
 // profiles saved on this computer, to attach to projects (3.2). And where the Calendar's week starts (3.17): as this
-// computer's region says, or Sunday or Monday, in every language. And the forecast's units (4.4).
+// computer's region says, or Sunday or Monday, in every language. And the forecast's units (4.4), and a plan's (6.2a).
 
 export function AppTile() {
   const [language, setLanguage] = useState(getLocale);
   const weekStart = useWeekStartChoice();
   const weatherUnits = useWeatherUnitsChoice();
+  const planUnits = usePlanUnitsChoice();
   const directions = useDirectionsApp();
   return (
     <>
@@ -62,6 +64,18 @@ export function AppTile() {
         <option value="region">{t('app.weatherUnits.region')}</option>
         <option value="metric">{t('app.weatherUnits.metric')}</option>
         <option value="us">{t('app.weatherUnits.us')}</option>
+      </Select>
+      <Select
+        label={t('app.planUnits')}
+        value={planUnits}
+        onChange={(event) => {
+          const next = event.currentTarget.value;
+          if (isPlanUnitsChoice(next)) setPlanUnitsChoice(next);
+        }}
+      >
+        <option value="region">{t('app.planUnits.region')}</option>
+        <option value="metres">{t('app.planUnits.metres')}</option>
+        <option value="feet">{t('app.planUnits.feet')}</option>
       </Select>
       <Select
         label={t('app.directionsApp')}

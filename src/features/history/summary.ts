@@ -16,6 +16,8 @@ import { arrangedAs, coveredRows } from '../moodboards/arrangeNames';
 import { itemFields, type ItemKind } from '../moodboards/items';
 import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
+import { formatLength } from '../../core/model/length';
+import { planUnitNow } from '../../app/planUnits';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
@@ -157,6 +159,8 @@ const FIELD: Readonly<Record<string, string>> = labels({
   focal_max_mm: 'history.field.focalMax',
   squeeze: 'history.field.squeeze',
   lens_id: 'history.field.lensId',
+  // A scene's room (6.2a).
+  room_id: 'history.field.room',
 });
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */
@@ -278,6 +282,7 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'shoot_day_id') return t('history.aShootDay');
   if (prop === 'setup_id') return t('history.aSetup');
   if (prop === 'lens_id') return t('history.aLens');
+  if (prop === 'room_id') return t('history.aRoom');
   // What a gear item is (6.1): gear, a camera body or a lens, in words. The values never meet another record's kinds.
   if (prop === 'kind' && (value === 'camera_body' || value === 'lens')) return GEAR_KIND_LABEL[value];
   // A body's sensor and a lens's range, in mm; its squeeze as a factor; the phones entry's mode in the language in use.
@@ -363,6 +368,8 @@ export interface FieldChange {
   sheet?: true;
   /** A board item's (5.0): its x and y are one position and its width and height one size, which a video's width isn't. */
   item?: true;
+  /** A plan item's prop (6.2a), named as the Selection tile names it. */
+  planItem?: true;
   /** A connector's (5.2): its width is a line's, not a size, and its route and heads have words of their own. */
   connector?: true;
 }
@@ -412,6 +419,7 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
   if (after.type === 'callsheet') {
     return changes.map((change) => (SHEET_NOTES.has(change.prop) ? { ...change, sheet: true as const, private: true as const } : { ...change, sheet: true as const }));
   }
+  if (after.type === 'plan_item') return changes.map((change) => ({ ...change, planItem: true as const }));
   if (after.type === 'board_item') {
     return changes.map((change) => ({ ...change, item: true as const, ...(isConnector(after) ? { connector: true as const } : {}) }));
   }
@@ -491,6 +499,17 @@ const BOARD_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   name: 'history.field.sectionName',
 });
 
+/** A plan item's props by the Selection tile's words (6.2a). */
+const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
+  x: 'history.field.position',
+  y: 'history.field.position',
+  width: 'history.field.wallLength',
+  height: 'history.field.wallThickness',
+  height_m: 'history.field.wallHeight',
+  rotation: 'history.field.rotation',
+  name: 'history.field.planName',
+});
+
 /** A connector's props by the words a person uses (5.2). */
 const CONNECTOR_FIELD: Readonly<Record<string, string>> = labels({
   route: 'history.field.route',
@@ -530,6 +549,8 @@ const A_BOARD_ITEM: Readonly<Record<ItemKind, MessageKey>> = {
 export const changeLabel = (change: FieldChange, around?: ReadonlyMap<string, SbdRecord>): string =>
   change.connector === true && Object.hasOwn(CONNECTOR_FIELD, change.prop)
     ? (CONNECTOR_FIELD[change.prop] ?? change.prop)
+    : change.planItem === true && Object.hasOwn(PLAN_ITEM_FIELD, change.prop)
+    ? (PLAN_ITEM_FIELD[change.prop] ?? change.prop)
     : change.item === true && Object.hasOwn(BOARD_ITEM_FIELD, change.prop)
     ? (BOARD_ITEM_FIELD[change.prop] ?? change.prop)
     : change.sheet === true && change.key !== undefined && SHEET_TIMES.has(change.prop)
@@ -557,8 +578,18 @@ const isPrivate = (change: FieldChange): boolean => change.private === true || (
 const privateValue = (change: FieldChange, value: JsonValue | undefined): string =>
   isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');
 
+/** A plan item's lengths in the unit this computer shows (3.50 m, 12' 6"), its rotation in degrees (6.2a); null for its other props. */
+const PLAN_LENGTHS: ReadonlySet<string> = new Set(['x', 'y', 'width', 'height', 'height_m']);
+function planItemValue(change: FieldChange, value: JsonValue | undefined): string | null {
+  if (change.planItem !== true || change.key !== undefined || typeof value !== 'number') return null;
+  if (PLAN_LENGTHS.has(change.prop)) return formatLength(value, planUnitNow());
+  if (change.prop === 'rotation') return t('plan.degrees', { value: String(Math.round(value * 100) / 100) });
+  return null;
+}
+
 export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
-  isPrivate(change)
+  planItemValue(change, value) ??
+  (isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
     ? statusText(value)
@@ -568,10 +599,11 @@ export const changeValue = (change: FieldChange, value: JsonValue | undefined): 
       ? clientValue(change, value, false)
       : isDeliverable(change)
         ? deliverableText(value, false)
-        : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value);
+        : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value));
 /** A change's value in full, for an item's own history and its Put back: never cut short. */
 export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
-  isPrivate(change)
+  planItemValue(change, value) ??
+  (isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
     ? statusText(value)
@@ -581,9 +613,13 @@ export const changeText = (change: FieldChange, value: JsonValue | undefined): s
       ? clientValue(change, value, true)
       : isDeliverable(change)
         ? deliverableText(value, true)
-        : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value);
-const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part =>
-  change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value);
+        : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value));
+const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part => {
+  // A wall's length is a technical value: mono.
+  const planned = planItemValue(change, value);
+  if (planned !== null) return { mono: planned };
+  return change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value);
+};
 
 /** Props that keep another record by id, and what a step calls it when that record can't be named. */
 const KEPT_BY_ID: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>([
@@ -592,6 +628,7 @@ const KEPT_BY_ID: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>(
   ['shoot_day_id', 'history.aShootDay'],
   ['setup_id', 'history.aSetup'],
   ['lens_id', 'history.aLens'],
+  ['room_id', 'history.aRoom'],
 ]);
 
 /** A setup as History names one (6.0), by its name: its number is its place among the scene's setups now, not then. */
@@ -608,6 +645,8 @@ export function namedById(record: SbdRecord | undefined): string | null {
   // A shoot day (3.7) by its date, as History names one.
   if (record?.type === 'shoot_day') return dayDateLabel(shootDayFields(record.props).date) || t('history.undatedDay');
   if (record?.type === 'setup') return setupName(record);
+  // A room (6.2a) by its name, as a location is.
+  if (record?.type === 'plan') return typeof record.props.name === 'string' && record.props.name.trim() !== '' ? record.props.name.trim() : null;
   return record?.type === 'location' && typeof record.props.name === 'string' && record.props.name !== '' ? record.props.name : null;
 }
 
@@ -650,6 +689,51 @@ function cameraGearLine(op: LoggedOp, around: ReadonlyMap<string, SbdRecord>): P
   return null;
 }
 
+/** A room as History names one (6.2a): by its name as the step left it. */
+function roomName(record: SbdRecord | null | undefined): string {
+  const name = typeof record?.props.name === 'string' ? record.props.name.trim() : '';
+  return name === '' ? t('history.aRoom') : t('history.roomCalled', { name });
+}
+
+/**
+ * One line for a plan's step (6.2a), or null when the step isn't only a plan's: a room started (with its scene's
+ * `room_id`) or renamed; walls drawn, moved, turned, resized, changed, reordered, deleted or restored, counted.
+ */
+function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Line | null {
+  const record = (op: LoggedOp) => op.after ?? op.before;
+  const isPlan = (op: LoggedOp) => record(op)?.type === 'plan' || record(op)?.type === 'plan_item';
+  if (!ops.some(isPlan)) return null;
+  const roomLink = (op: LoggedOp) =>
+    op.kind === 'update' && op.before?.type === 'scene' && op.after !== null && changedProps(op.before, op.after).every((prop) => prop === 'room_id');
+  if (!ops.every((op) => isPlan(op) || roomLink(op))) return null;
+  const started = ops.find((op) => op.kind === 'create' && op.after?.type === 'plan');
+  if (started) {
+    const linked = ops.find(roomLink);
+    const scene = linked ? record(linked) : null;
+    return line('history.roomStarted', { scene: nameOf(scene, around) }, { name: roomName(started.after) });
+  }
+  const renamed = ops.find((op) => op.kind === 'update' && op.before?.type === 'plan' && op.after !== null);
+  if (renamed?.before && renamed.after) {
+    const name = typeof renamed.after.props.name === 'string' ? renamed.after.props.name.trim() : '';
+    return [t('history.roomRenamed', { from: roomName(renamed.before), name })];
+  }
+  const items = ops.filter((op) => record(op)?.type === 'plan_item');
+  const n = new Set(items.map((op) => op.recordId)).size;
+  if (n === 0) return null;
+  const all = (kind: LoggedOp['kind']) => items.every((op) => op.kind === kind);
+  if (all('create')) return [tn('history.wallsDrawn', n)];
+  if (all('trash')) return [tn('history.wallsDeleted', n)];
+  if (all('restore')) return [tn('history.wallsRestored', n)];
+  if (all('move')) return [tn('history.planItemsReordered', n)];
+  if (!all('update')) return null;
+  const props = new Set(items.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
+  const only = (allowed: readonly string[]) => props.size > 0 && [...props].every((prop) => allowed.includes(prop));
+  if (only(['x', 'y'])) return [tn('history.wallsMoved', n)];
+  if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [tn('history.wallsRotated', n)];
+  if (only(['x', 'y', 'width', 'height', 'rotation'])) return [tn('history.wallsResized', n)];
+  return [tn('history.wallsChanged', n)];
+}
+
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
 function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord> = new Map()): Part {
   if (!record) return t('history.anItem');
@@ -682,6 +766,10 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
       const day = record.parentId ? around.get(record.parentId) : undefined;
       return day ? t('history.callsheetOf', { day: dayDateLabel(shootDayFields(day.props).date) || t('history.undatedDay') }) : t('history.aCallsheet');
     }
+    case 'plan':
+      return roomName(record);
+    case 'plan_item':
+      return t('history.aWall');
     case 'board':
       return boardTitle(record);
     case 'board_item': {
@@ -733,6 +821,7 @@ const COUNT: Readonly<Partial<Record<SbdRecord['type'], PluralBase>>> = {
   gear_item: 'count.gearItems',
   board: 'count.boards',
   board_item: 'count.rectangles',
+  plan_item: 'count.planItems',
   stroke: 'count.strokes',
   media: 'count.pictures',
 };
@@ -803,6 +892,9 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     op.kind === 'create' && op.after?.type === 'callsheet' ? { ...op, kind: 'update', before: { ...op.after, props: {} } } : op,
   );
   const record = (op: LoggedOp) => op.after ?? op.before;
+  // A plan's steps (6.2a): a room started or renamed, walls drawn, moved, turned, resized, deleted or restored.
+  const planned = planLine(ops, around);
+  if (planned) return planned;
   // An issued call sheet (4.7): one line for the group (the PDF, the call sheet made with it, the scenes it locked),
   // named by its day and version, never by what the PDF holds.
   const issued = ops.find((op) => op.kind === 'create' && op.after?.type === 'media' && typeof op.after.props.issue_version === 'number');

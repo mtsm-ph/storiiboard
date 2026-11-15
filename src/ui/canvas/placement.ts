@@ -1,5 +1,5 @@
 import { boundsOf } from './hitTest';
-import type { Geometry, PlaceTool, Point } from './types';
+import type { Geometry, PlaceTool, Point, Size } from './types';
 import { unionBounds } from './viewport';
 
 // Where things go: a nudge by an arrow key, a paste, a rectangle placed by a click or Enter.
@@ -64,8 +64,8 @@ export const PLACED_SIZE: Readonly<Record<PlaceTool, { width: number; height: nu
   page: { width: 1920, height: 1080 },
 };
 
-/** The default item for a tool, centred on a world point. */
-export function placedAt(point: Point, tool: PlaceTool = 'rect'): Geometry {
-  const { width, height } = PLACED_SIZE[tool];
+/** The default item for a tool, centred on a world point; a host's own tool gives its size (6.2a). */
+export function placedAt(point: Point, tool: PlaceTool = 'rect', size?: Size): Geometry {
+  const { width, height } = size ?? PLACED_SIZE[tool];
   return { x: tidy(point.x - width / 2), y: tidy(point.y - height / 2), width, height, rotation: 0 };
 }

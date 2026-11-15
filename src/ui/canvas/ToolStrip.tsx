@@ -1,11 +1,12 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { t } from '../../core/i18n';
 import { cx } from '../cx';
-import type { Tool } from './types';
+import type { Tool, ToolSpec } from './types';
 
 // The tools in a strip at the top of the tile (decision 11): Select (V), Hand (H), Rectangle (R), Text (T), Sticky (S), Link (L), Connector (C), Section (Shift+S)
 // and Shapes (O draws an ellipse; the button opens the four shapes), as labelled buttons in mono uppercase. The pressed one is an ink fill, as selection is everywhere (DESIGN.md). Anything the host adds
-// (a way back to the picker, a board's name) goes in `children`, at the left.
+// (a way back to the picker, a board's name) goes in `children`, at the left. A host with its own tools (6.2a, a plan)
+// gives them in `tools`: they take the place of the board's, Shapes too.
 
 const TOOLS: readonly { tool: Tool; key: string; aria?: string; label: () => string }[] = [
   { tool: 'select', key: 'V', label: () => t('canvas.tool.select') },
@@ -107,10 +108,16 @@ interface ToolStripProps {
   children?: ReactNode;
   /** Whether the Page tool is offered (a deck's board). */
   pages?: boolean;
+  /** A host's own tools, in place of a board's (and of Shapes). */
+  tools?: readonly ToolSpec[];
 }
 
-export function ToolStrip({ tool, onTool, children, pages = false }: ToolStripProps) {
-  const tools: readonly { tool: Tool; key: string; aria?: string; label: () => string }[] = pages ? [...TOOLS, PAGE_TOOL] : TOOLS;
+export function ToolStrip({ tool, onTool, children, pages = false, tools: own }: ToolStripProps) {
+  const tools: readonly { tool: Tool; key: string; aria?: string; label: () => string }[] = own
+    ? own.map((spec) => ({ tool: spec.id, key: spec.key, ...(spec.aria ? { aria: spec.aria } : {}), label: spec.label }))
+    : pages
+      ? [...TOOLS, PAGE_TOOL]
+      : TOOLS;
   return (
     <div className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b border-border px-2 py-1">
       {children}
@@ -140,7 +147,7 @@ export function ToolStrip({ tool, onTool, children, pages = false }: ToolStripPr
             </button>
           );
         })}
-        <ShapesButton tool={tool} onTool={onTool} />
+        {!own && <ShapesButton tool={tool} onTool={onTool} />}
       </div>
     </div>
   );

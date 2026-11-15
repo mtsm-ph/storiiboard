@@ -342,19 +342,30 @@ unreadable value reads as not set, as every prop does.
   - A lens's `focal_min_mm` and `focal_max_mm` (6.1): mm, above 0 and up to 2000, min ≤ max, equal for a prime (only one
     of them reads as a prime of that length); `squeeze` (6.1): 1 to 2.5, 1 when absent.
   - A light's `watts` (6.5): a number, the light's power.
-- `scene`: `room_id` (6.2): the `plan` of kind `room` the scene is set in.
+- `scene`: `room_id` (6.2): the `plan` of kind `room` the scene is set in. One reader (`sceneRoomId` in
+  src/core/model/plan.ts): an id naming a room in the Trash, a plan that isn't a room, or nothing reads as no room; the
+  scene keeps the id, so a restore brings the room back to it. Trashing a scene leaves its room alone (other scenes
+  may be set in it).
 - `plan` (6.2): `kind`: `room` (under the project), `blocking` (under its scene) or `setup` (under its setup); `name`,
-  text; `location_id`: a room's `location`.
+  text; `location_id`: a room's `location`. Each is made the first time something needs it, never ahead. 6.2a writes
+  rooms only: "Start the room" makes one named after the scene's location (else the scene's name, else its slate label)
+  with that `location_id`, and sets the scene's `room_id`, in one step. A setup's plan shows, back to front, the room's
+  items, then the scene's blocking's, then the setup's own; a scene with no setup shows its room and blocking.
 - `plan_item`: an item's level is the plan it sits in.
   - Geometry reuses `board_item`'s names (see Boards), in metres instead of world units: `x` and `y` (the top left
     corner before rotation), `width` and `height`, `rotation` (degrees clockwise round the centre, 0 up to 360); z order
     is the sibling order of `sort_key`, as on a board; a path or connector's ends are `from` and `to`, as a
-    `connector`'s. `board_item` has no lock of its own, so a locked item (an underlay) is `locked`: true (6.2), the one
-    geometry name that is new.
+    `connector`'s. `board_item` has no lock of its own, so a locked item (an underlay) is `locked`: true (6.8 and 6.9),
+    the one geometry name that is new.
+  - A `wall` (6.2a) is one straight segment stored as a rotated box: `width` its length (above 0; under 1 cm reads as
+    1 cm), `height` its thickness (0.1 m when missing or not above 0), `rotation` its direction from its start to its
+    end; its start and end are its middle line's ends. `height_m`: its real height, kept, not drawn; absent when not
+    set. `name`: text, absent for none. A wall has no `points`. A run drawn point to point is one wall a segment, all
+    in one step.
   - `kind` (6.2 and 6.3): `wall`, `door`, `window`, `set_piece`, `icon`, `camera`, `light`, `flag`, `diffusion`,
     `mark`, `path`, `north`, `sun`, `underlay` or `measure`. An item whose `kind` this version doesn't know is kept and
     not shown.
-  - `icon` (6.2 and 6.3): the plan icon library's id. `points` (6.2 and 6.3): a wall's or a path's points, each
+  - `icon` (6.2 and 6.3): the plan icon library's id. `points` (6.2 and 6.3): a path's points (never a wall's), each
     `{ "x", "y" }` in metres. `height_m` (6.2 and 6.3): metres. `name` (6.2 and 6.3): text. `wall_id`, `along_m` and
     `width_m` (6.2 and 6.3): a door or window in its wall, its distance along it and its width, metres.
   - A camera's `gear_id` (6.4: the `gear_item` it is), `body_id` (6.4: the body it uses, else the default body),
