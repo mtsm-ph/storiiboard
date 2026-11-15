@@ -14,6 +14,7 @@ import {
   unscheduledFrames,
   type ShootDay,
 } from '../../core/model/shootDay';
+import { sceneSetups, setupLabel } from '../../core/model/setup';
 import { sceneFields, sceneLabel, shotFields, specLine } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
@@ -431,13 +432,15 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
         {lacking.length > 0 && (
           <ul aria-labelledby={`${gearId}-missing`} className="flex flex-col gap-1">
             {lacking.map((finding) => {
-              const shot = records[finding.shotId];
-              const frame = shot ? shotFields(shot.props).number : '';
+              const shot = finding.shotId === null ? undefined : records[finding.shotId];
               const names = finding.gearIds.map(gearName);
+              // From a setup's plan (6.5): its lights, flags or diffusion are gear the list lacks.
+              const place = finding.setupId === undefined ? null : planPlace(records, finding.setupId);
+              const frame = shot ? shotFields(shot.props).number : place ? t('plan.placeSetup', { scene: place.scene, setup: place.setup }) : '';
               return (
-                <li key={finding.shotId} className="flex flex-wrap items-center gap-2 text-[13px]">
+                <li key={finding.shotId ?? `plan:${finding.setupId ?? ''}`} className="flex flex-wrap items-center gap-2 text-[13px]" data-gear-from={place ? 'plan' : 'frame'}>
                   <span className="sb-label bg-warning px-[5px] text-paper-fixed">{t('days.notOnList')}</span>
-                  <span>{t('days.frameNeeds', { frame, items: list(names) })}</span>
+                  <span>{place ? t('days.planNeeds', { scene: place.scene, setup: place.setup, items: list(names) }) : t('days.frameNeeds', { frame, items: list(names) })}</span>
                   <Button
                     aria-label={t('days.addGearFor', { frame, day: label })}
                     onClick={() => {
@@ -555,4 +558,14 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
       </div>
     </section>
   );
+}
+
+/** Where a plan's finding comes from (6.5): the setup's scene and its number now ("SC 01", "Setup 2"). */
+function planPlace(records: Readonly<Record<string, SbdRecord>>, setupId: string): { scene: string; setup: string } | null {
+  const setup = records[setupId];
+  const scene = setup?.parentId ? records[setup.parentId] : undefined;
+  if (scene?.type !== 'scene') return null;
+  // Named as setups are everywhere else (setupLabel: its number, and its name when it has one).
+  const live = sceneSetups(records, scene.id).find((s) => s.record.id === setupId);
+  return { scene: sceneLabel(sceneFields(scene.props).number), setup: live ? setupLabel(live) : t('history.aSetup') };
 }

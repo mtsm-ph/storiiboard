@@ -9,6 +9,7 @@ import type { GridSnap } from '../../../ui/canvas/scale';
 import type { Tool } from '../../../ui/canvas/types';
 import { TextField } from '../../../ui/fields';
 import { iconHome } from '../../../core/model/planRooms';
+import { BEAM_ICON } from '../../../core/model/planLight';
 import { IconSvg } from './IconSvg';
 import { TOOL_ICONS } from './iconSizes';
 import { dropAt, groupName, libraryGroups, libraryState, type DropView, type LibraryEntry, type LibraryState } from './library';
@@ -53,9 +54,9 @@ function dropView(view: PlanView, canvas: HTMLElement | null): DropView {
 const snapOf = (event: { altKey: boolean; ctrlKey: boolean; metaKey: boolean }): GridSnap => (event.metaKey || event.ctrlKey ? 'off' : event.altKey ? 'fine' : 'magnet');
 
 /** Why an icon wasn't placed, in words, as a notice; nothing for a drop after the project was switched. */
-function sayRefusal(why: PlaceOutcome, label: string): void {
+function sayRefusal(why: PlaceOutcome, label: string, icon = ''): void {
   if (why === 'coming') showInfo(t('library.comingNotice', { what: label }));
-  else if (why === 'shown') showInfo(t('library.drawnByCamera', { what: label }));
+  else if (why === 'shown') showInfo(t(icon === BEAM_ICON ? 'library.drawnByLight' : 'library.drawnByCamera', { what: label }));
   else if (why === 'noRoom') showInfo(t('library.needsRoom'));
   else if (why === 'noSetup') showInfo(t('library.needsSetup', { what: label }));
   else if (why === 'noScene') showInfo(t('library.pick'));
@@ -164,12 +165,13 @@ function LibraryGroupView({
 }) {
   const headingId = useId();
   const noteId = useId();
+  const shownId = useId();
   const list = useRef<HTMLUListElement>(null);
   // The one icon of the group Tab reaches; the arrows move it.
   const [active, setActive] = useState(0);
   const current = Math.min(active, entries.length - 1);
   const coming = entries.filter((e) => e.use === 'coming').length;
-  // The field of view (6.4): never placed, since each camera draws its own; said under its group.
+  // The field of view (6.4) and the beam (6.5): never placed, since each camera and light draws its own; said under its group.
   const shownOnly = entries.some((e) => e.use === 'shown');
   const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
     const buttons = [...(list.current?.querySelectorAll<HTMLButtonElement>('[data-library-icon]') ?? [])];
@@ -194,9 +196,9 @@ function LibraryGroupView({
           {coming === entries.length ? t('library.coming') : t('library.comingSome')}
         </p>
       )}
-      {coming === 0 && shownOnly && (
-        <p id={noteId} className="text-[11px] text-text-muted">
-          {t('library.shownNote')}
+      {shownOnly && (
+        <p id={shownId} className="text-[11px] text-text-muted">
+          {t(group === 'lighting' ? 'library.shownNoteLight' : 'library.shownNote')}
         </p>
       )}
       <ul ref={list} aria-labelledby={headingId} className="grid grid-cols-[repeat(auto-fill,minmax(68px,1fr))] gap-1.5">
@@ -207,7 +209,7 @@ function LibraryGroupView({
               view={view}
               madeIn={madeIn}
               state={state}
-              describedBy={entry.use === 'coming' || entry.use === 'shown' ? noteId : stateId}
+              describedBy={entry.use === 'coming' ? noteId : entry.use === 'shown' ? shownId : stateId}
               tabStop={i === current}
               onKeyDown={onKeyDown}
               onFocus={() => {
@@ -292,7 +294,7 @@ function IconButton({
   const place = async (centre: { x: number; y: number }, madeIn: Project | null) => {
     if (!view) return;
     const why = await placeIcon(view, entry.icon.id, centre, madeIn);
-    if (why !== null) sayRefusal(why, entry.label);
+    if (why !== null) sayRefusal(why, entry.label, entry.icon.id);
     else focusPlan();
   };
 
@@ -304,7 +306,7 @@ function IconButton({
       return;
     }
     if (refused !== null || !view) {
-      sayRefusal(refused ?? 'noScene', entry.label);
+      sayRefusal(refused ?? 'noScene', entry.label, entry.icon.id);
       return;
     }
     const at = dropView(view, planCanvas());
@@ -443,7 +445,7 @@ function IconButton({
     // The click that follows a drag places nothing more; one that never comes leaves nothing behind.
     settle(now);
     if (refused !== null) {
-      sayRefusal(refused, entry.label);
+      sayRefusal(refused, entry.label, entry.icon.id);
       return;
     }
     const { centre } = follow(event);

@@ -172,6 +172,39 @@ describe('editing a camera', () => {
     expect(turnFor({ code: 'KeyC', key: 'c' })).toBe(0);
   });
 
+  it('turns by the physical key first, never where it types a letter, on QWERTY, Dvorak, AZERTY and Spanish (6.4 review)', () => {
+    // QWERTY, Shift included (< and > on the comma and period keys, { and } on the brackets).
+    expect(turnFor({ code: 'Comma', key: '<' })).toBe(-1);
+    expect(turnFor({ code: 'Period', key: '>' })).toBe(1);
+    expect(turnFor({ code: 'BracketLeft', key: '{' })).toBe(-1);
+    expect(turnFor({ code: 'BracketRight', key: '}' })).toBe(1);
+    // Dvorak: the keys at Period and Comma type v and w, the Select and Wall tools: never a turn. Its own . and , (at
+    // KeyE and KeyW) and [ and ] (at Minus and Equal) turn by what they type.
+    expect(turnFor({ code: 'Period', key: 'v' })).toBe(0);
+    expect(turnFor({ code: 'Comma', key: 'w' })).toBe(0);
+    expect(turnFor({ code: 'Period', key: 'V' })).toBe(0);
+    expect(turnFor({ code: 'KeyE', key: '.' })).toBe(1);
+    expect(turnFor({ code: 'KeyW', key: ',' })).toBe(-1);
+    expect(turnFor({ code: 'Minus', key: '[' })).toBe(-1);
+    expect(turnFor({ code: 'Equal', key: ']' })).toBe(1);
+    // AZERTY: the Comma key types ; and, with Shift, "." — the same way both times; the Period key types : and /.
+    expect(turnFor({ code: 'Comma', key: ';' })).toBe(-1);
+    expect(turnFor({ code: 'Comma', key: '.' })).toBe(-1);
+    expect(turnFor({ code: 'Period', key: ':' })).toBe(1);
+    expect(turnFor({ code: 'Period', key: '/' })).toBe(1);
+    expect(turnFor({ code: 'KeyM', key: ',' })).toBe(-1);
+    // AZERTY's brackets' place types the dead circumflex and $: by the key's place.
+    expect(turnFor({ code: 'BracketLeft', key: 'Dead' })).toBe(-1);
+    expect(turnFor({ code: 'BracketRight', key: '$' })).toBe(1);
+    // Spanish: comma and period in their places, Shift ; and :; the bracket keys type a dead grave and +.
+    expect(turnFor({ code: 'Comma', key: ',' })).toBe(-1);
+    expect(turnFor({ code: 'Period', key: ':' })).toBe(1);
+    expect(turnFor({ code: 'BracketLeft', key: 'Dead' })).toBe(-1);
+    expect(turnFor({ code: 'BracketRight', key: '+' })).toBe(1);
+    // Spanish ñ (at Semicolon) is a letter with no turn of its own.
+    expect(turnFor({ code: 'Semicolon', key: 'ñ' })).toBe(0);
+  });
+
   it('turns by [ and ], pastes without its frames, and goes to the Trash and back', async () => {
     const { sceneId, setupId } = await scene();
     const id = crypto.randomUUID();

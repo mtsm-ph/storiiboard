@@ -373,14 +373,22 @@ Lows deferred (noted, not planned yet):
   high or medium is left, push, PR, PLAN.md and this section updated.
 - **Schema (decision 16, approved):** props only, one version, in 6.1, listing every prop Phase 6 needs in
   SBD_FORMAT.md. A new table or record type waits for Kevin.
+- **For 6.10 (export), what the print path lacks for plans** (PageStage, deckRender.tsx, deckDisplay.ts,
+  deckPdfWriter.ts): icon text is a custom Konva Shape the PDF writer doesn't know; `parsePathData` reads only M, L,
+  C, Z (the icons use A and Q: have the generator emit cubics); `parseColour` takes hex only (rgba paint is
+  dropped); stroke weights are screen px (choose a printed weight in points); `beyond` drawings (cones, beams, the
+  sun, paths, labels) aren't drawn by PageStage; pages fill the paper width, never to scale; no legend or scale bar
+  code. src/core/model/planLegend.ts is the legend's data.
 - **Waiting for Kevin:** the audit's go-aheads (docs/DESKTOP_GAPS.md, "Waiting for Kevin"); merges of the stack.
 - Run npm and npx from PowerShell, or from Bash with the folder spelled `C:/Users/...`.
 - **Status line (keep current):** checkpoint 43544879092 passed every job (installers for Kevin's by-hand pass).
   Open, stacked, each reviewed with nothing high or medium left: #152 (5.11), #153 (5.12 and the audit), #154 (6.0;
   60 baselines, Kevin compares), #155 (6.1, schema 14; it also holds 6.0's second-round fixes; 40 baselines). #156 (6.2a;
-  20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes), #159 (6.4; it also holds 6.3's vector icons). Next: 6.5
-  from docs/briefs/6.5-lights.md (branch `phase6/6.5-lights` off 6.4's), then 6.6 from docs/briefs/
-  6.6-north-sun.md; briefs for 6.7 on are not written yet. Leftovers for Kevin to delete: e2e/zz-probe.spec.ts
+  20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes), #159 (6.4; it also holds 6.3's vector icons), #160 (6.5). Next: 6.6 from docs/briefs/6.6-north-sun.md (branch
+  `phase6/6.6-north-sun` off 6.5's), then 6.7 (6.7-cast-moves.md), 6.8 (6.8-layers.md), 6.9
+  (6.9-underlay-measure.md): all four briefs are written; 6.10 (export) and 6.11 (performance) are not: the
+  print path's gaps for plans are listed in PLAN.md under "For 6.10". The test server's output is in every run's
+  log now ("[WebServer]" lines): a refused page load is diagnosed from them, never just rerun. Leftovers for Kevin to delete: e2e/zz-probe.spec.ts
   (an old emptied probe, excluded from git locally; it is one of the 3 skipped tests), test-results/PlanTile.bak. For Kevin's eye: icons are stretched to their real footprint (a sofa's drawing is distorted); the
   kit's Parking "P" is SVG text, so it draws in a system font; Spanish icon names are the builder's. Flaky once each, cause not
   proven (the test server on port 1421 refused a page load under a full parallel run): plan.spec "two scenes at

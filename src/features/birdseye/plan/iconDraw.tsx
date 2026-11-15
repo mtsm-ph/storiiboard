@@ -13,7 +13,8 @@ import { ICON_BOXES, ICON_SHAPES, type IconBox, type IconPart, type IconPath, ty
 // it keeps the kit's weight in screen pixels at every zoom and size; Konva then lays its dashes out in screen pixels
 // too, so a dash reads as the kit's at any zoom, as it does when the icon is drawn at its own 32 px. A text is drawn at
 // its SVG baseline in the bundled face it names (JetBrains Mono), scaled with the item, and drawn again once the face has
-// loaded. An icon's nodes are made once and shared by every item that draws it: an item only adds its own Group.
+// loaded. An icon's React elements are made once and reused by every item that draws it (React makes each item its own
+// Konva nodes from them): an item only adds its own Group.
 
 const FULL: IconBox = { x: 0, y: 0, width: 32, height: 32 };
 
@@ -93,10 +94,10 @@ function IconTextNode({ part }: { part: IconText }) {
   return <Shape sceneFunc={sceneOf(part)} fontsVersion={fonts} opacity={part.opacity} perfectDrawEnabled={false} listening={false} />;
 }
 
-/** Each icon's nodes, made the first time it is drawn and shared by every item that draws it. */
+/** Each icon's React elements, made the first time it is drawn and reused by every item that draws it (each gets its own Konva nodes). */
 const NODES = new Map<string, readonly ReactElement[]>();
 
-/** An icon's Konva nodes on its grid, shared (the same array every time); null for an id the table doesn't have. */
+/** An icon's React elements on its grid, the same array every time; null for an id the table doesn't have. */
 export function iconNodes(id: string): readonly ReactElement[] | null {
   const had = NODES.get(id);
   if (had) return had;

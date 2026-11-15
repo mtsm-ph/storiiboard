@@ -101,6 +101,12 @@ export interface CanvasItem extends Geometry {
    * items), nothing changes.
    */
   beyond?: Beyond;
+  /**
+   * The least thickness, in screen pixels, a click picks it by (6.5 review: a plan's standing flag, 5 cm deep, is 1 px at
+   * 20%): its box is picked at least this thick on each side, about its middle, at any zoom. Left out (a board's items),
+   * a click picks the box exactly.
+   */
+  pickThickness?: number;
 }
 
 /** An item's drawing past its box: drawn in the item's own box coordinates and turned with it, as `draw` is. */

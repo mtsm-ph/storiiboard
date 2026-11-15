@@ -1,6 +1,6 @@
 import { bodyFields, frameLens, freeLetters, gearKind, isFocal, isSensorSize, isSqueeze, type GearKind } from '../../core/model/cameraGear';
 import { isDepartment } from '../../core/model/department';
-import { gearFields, MAX_QUANTITY } from '../../core/model/gear';
+import { gearFields, MAX_QUANTITY, MAX_WATTS } from '../../core/model/gear';
 import type { JsonValue, SbdRecord } from '../../core/model/record';
 import { SENSOR_MODES } from '../../core/model/sensorModes';
 import { keyBetween } from '../../core/ops/order';
@@ -67,6 +67,21 @@ export function gearRateChange(records: Records, id: string, rate: number | null
   const current = typeof item.props.day_rate === 'number' ? item.props.day_rate : null;
   if (current === cents) return [];
   return cents === null ? [{ kind: 'update', id, unset: ['day_rate'] }] : [{ kind: 'update', id, set: { day_rate: cents } }];
+}
+
+/**
+ * Its watts (6.5, any kind of item: a light's power), to a tenth, or none with null. A light on a plan with none typed
+ * reads them live, so nothing else changes with them. Nothing for one outside 0 to MAX_WATTS, or what it is already.
+ */
+export function gearWattsChange(records: Records, id: string, watts: number | null): Change[] {
+  const item = liveItem(records, id);
+  if (!item || (watts !== null && (!Number.isFinite(watts) || watts <= 0 || watts > MAX_WATTS))) return [];
+  // Stored as this version can't read it (a newer one's): kept, never written over (the field shows it locked).
+  if (item.props.watts !== undefined && typeof item.props.watts !== 'number') return [];
+  const next = watts === null ? null : Math.round(watts * 10) / 10;
+  const current = typeof item.props.watts === 'number' ? item.props.watts : null;
+  if (current === next || (next === null && item.props.watts === undefined)) return [];
+  return next === null ? [{ kind: 'update', id, unset: ['watts'] }] : [{ kind: 'update', id, set: { watts: next } }];
 }
 
 /** An item to the Trash. */
@@ -201,14 +216,14 @@ export function framesOutsideRange(records: Records, lensId: string, min: number
 /**
  * The cameras on a plan (6.4) whose picked lens (`lens_id`) is this one and whose typed focal length sits outside
  * min–max, each with the nearer end, as framesOutsideRange has them: those in the Trash too, marked `trashed`. A camera
- * with no typed focal length keeps none (its own field takes an empty one), and a value this version can't read is
- * never written over.
+ * with no typed focal length keeps none (its own field takes an empty one), and a value this version can't read, or
+ * reads as none (0 or below: cameraFields' rule), is never written over (6.4 review).
  */
 export function camerasOutsideRange(records: Records, lensId: string, min: number, max: number): { id: string; mm: number; trashed: boolean }[] {
   return Object.values(records).flatMap((camera) => {
     if (camera.type !== 'plan_item' || camera.props.kind !== 'camera' || camera.props.lens_id !== lensId) return [];
     const mm = camera.props.lens_mm;
-    if (typeof mm !== 'number' || !Number.isFinite(mm) || (mm >= min && mm <= max)) return [];
+    if (typeof mm !== 'number' || !Number.isFinite(mm) || mm <= 0 || (mm >= min && mm <= max)) return [];
     return [{ id: camera.id, mm: mm < min ? min : max, trashed: camera.trashedAt !== null }];
   });
 }

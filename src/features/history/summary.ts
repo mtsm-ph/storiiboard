@@ -18,14 +18,14 @@ import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
 import { formatLength, type PlanUnit } from '../../core/model/length';
 import { planUnitNow } from '../../app/planUnits';
-import { CAMERA_ICON, iconIdOf, planFields } from '../../core/model/plan';
-import { anIcon } from '../birdseye/plan/iconWords';
+import { CAMERA_ICON, DIFFUSION_ICON, FLAG_ICON, gripFields, iconIdOf, LIGHT_ICON, planFields } from '../../core/model/plan';
+import { aFrame, anIcon } from '../birdseye/plan/iconWords';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
 import type { GroupKind, LoggedOp, OpGroup } from '../../core/ops/ops';
 import { POSITION_LABEL, POSITIONS } from '../export/watermark';
-import { getLocale, labels, t, tn, type MessageKey, type Params, type PluralBase } from '../../core/i18n';
+import { formatNumber, getLocale, labels, t, tn, type MessageKey, type Params, type PluralBase } from '../../core/i18n';
 
 // What each step in History says (1.22): one line for an op group, in the board's words ("Added frame 4C", "4A: lens
 // 35 → 50"), worked out from its ops' before and after. A drag that renumbers a scene is one step, "Moved 4B"; the
@@ -163,6 +163,8 @@ const FIELD: Readonly<Record<string, string>> = labels({
   lens_id: 'history.field.lensId',
   // A scene's room (6.2a).
   room_id: 'history.field.room',
+  // A gear item's power (6.5).
+  watts: 'history.field.watts',
 });
 
 /** Values that are slate and camera data, set in mono wherever a line shows them. */
@@ -288,6 +290,10 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'wall_id') return t('history.aWall');
   if (prop === 'body_id') return t('history.aCameraBody');
   if (prop === 'shown_shot_id') return t('history.aFrame');
+  // A light's, flag's or diffusion frame's gear item (6.5), kept by id; a wattage and a beam angle in their units.
+  if (prop === 'gear_id') return t('history.aGearItem');
+  if (prop === 'watts' && typeof value === 'number') return wattsValue(value);
+  if (prop === 'beam_deg' && typeof value === 'number') return beamValue(value);
   // A camera's frames (6.4), kept by id: said as how many.
   if (prop === 'shot_ids' && Array.isArray(value)) return tn('count.frames', value.filter((id) => typeof id === 'string').length);
   if (prop === 'on_side' && typeof value === 'boolean') return t(value ? 'history.onSideValue' : 'history.uprightValue');
@@ -430,8 +436,8 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
     return changes.map((change) => (SHEET_NOTES.has(change.prop) ? { ...change, sheet: true as const, private: true as const } : { ...change, sheet: true as const }));
   }
   if (after.type === 'plan_item') {
-    // A camera's box (6.4) reads as an icon's: across and deep, its place its middle.
-    const boxed = after.props.kind === 'icon' || after.props.kind === 'camera';
+    // A camera's box (6.4), a light's, a flag's and a diffusion frame's (6.5) read as an icon's: across and deep, its place its middle.
+    const boxed = BOXED_KINDS.has(after.props.kind);
     const marked = changes.map((change) => ({ ...change, planItem: true as const, ...(boxed ? { planIcon: true as const } : {}) }));
     return boxed ? iconMiddles(before, after, marked) : marked;
   }
@@ -545,6 +551,20 @@ const BOARD_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   name: 'history.field.sectionName',
 });
 
+/** The plan items with a box of their own, which History reads as an icon's (6.3, 6.4, 6.5). */
+const BOXED_KINDS: ReadonlySet<unknown> = new Set(['icon', 'camera', 'light', 'flag', 'diffusion']);
+
+/** What a boxed plan item is, as a step names it: "a sofa", "a camera", "a Fresnel" (its kind's own icon when it names none). */
+function aBoxed(props: Props): string {
+  const icon = iconIdOf(props);
+  if (props.kind === 'icon') return icon !== '' ? anIcon(icon) : t('history.aPlanItem');
+  // A flag or diffusion frame by its kind and size, never the icon it was placed as (6.5 review): "a diffusion · 8×8".
+  const frame = props.kind === 'flag' || props.kind === 'diffusion' ? gripFields(props) : null;
+  if (frame) return aFrame(frame, planUnitNow());
+  const fallback = props.kind === 'camera' ? CAMERA_ICON : props.kind === 'light' ? LIGHT_ICON : props.kind === 'flag' ? FLAG_ICON : DIFFUSION_ICON;
+  return anIcon(icon || fallback);
+}
+
 /** A plan item's props by the Selection tile's words (6.2a). */
 const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   x: 'history.field.position',
@@ -567,7 +587,16 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   lens_mm: 'history.field.lensMm',
   lens_id: 'history.field.lensId',
   on_side: 'history.field.onSide',
+  // A light's, flag's or diffusion frame's (6.5).
+  gear_id: 'history.field.planGear',
+  watts: 'history.field.watts',
+  beam_deg: 'history.field.beam',
 });
+
+/** "650 W" (6.5). */
+const wattsValue = (watts: number): string => t('plan.light.watts', { watts: formatNumber(watts) });
+/** "40°", or "all round" for 360 (6.5). */
+const beamValue = (degrees: number): string => (degrees >= 360 ? t('history.allRoundValue') : t('plan.degrees', { value: String(Math.round(degrees * 10) / 10) }));
 
 /** A library icon's own props by the Selection tile's words (6.3); the rest are a wall's. */
 const PLAN_ICON_FIELD: Readonly<Record<string, string>> = labels({
@@ -660,6 +689,8 @@ function planItemValue(change: FieldChange, value: JsonValue | undefined, unit: 
   if (typeof value !== 'number') return null;
   if (PLAN_LENGTHS.has(change.prop)) return formatLength(value, unit);
   if (change.prop === 'lens_mm') return t('history.mmValue', { mm: value });
+  if (change.prop === 'watts') return wattsValue(value);
+  if (change.prop === 'beam_deg') return beamValue(value);
   if (change.prop === 'rotation') return t('plan.degrees', { value: String(Math.round(value * 100) / 100) });
   return null;
 }
@@ -712,6 +743,8 @@ const KEPT_BY_ID: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>(
   // A camera's body and the frame its cone draws (6.4).
   ['body_id', 'history.aCameraBody'],
   ['shown_shot_id', 'history.aFrame'],
+  // A light's, flag's or diffusion frame's gear item (6.5).
+  ['gear_id', 'history.aGearItem'],
 ]);
 
 /** A setup as History names one (6.0), by its name: its number is its place among the scene's setups now, not then. */
@@ -770,6 +803,21 @@ function cameraGearLine(op: LoggedOp, around: ReadonlyMap<string, SbdRecord>): P
     return line('history.lensRange', { who, range: { mono: focalLabel(lensFields(after.props).range) || '—' } });
   }
   return null;
+}
+
+/**
+ * The one lens update of a step that changed a lens's range and, beside it, only plan cameras' `lens_mm` (the cameras
+ * lensRangeChange brings inside the new range); null for any other step.
+ */
+function rangeBesideCameras(updates: readonly LoggedOp[]): LoggedOp | null {
+  const lenses = updates.filter((op) => op.after?.type === 'gear_item');
+  const lens = lenses.length === 1 ? lenses[0] : undefined;
+  if (!lens?.before || !lens.after || lenses.length === updates.length) return null;
+  if (!changedProps(lens.before, lens.after).every((prop) => prop === 'focal_min_mm' || prop === 'focal_max_mm')) return null;
+  const clamped = updates.every(
+    (op) => op === lens || (op.before?.type === 'plan_item' && op.after?.props.kind === 'camera' && changedProps(op.before, op.after).every((prop) => prop === 'lens_mm')),
+  );
+  return clamped ? lens : null;
 }
 
 /** A room as History names one (6.2a): by its name as the step left it. */
@@ -861,7 +909,7 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
     return say('history.openingsChanged');
   }
   // Library icons (6.3), named as what they are: "Placed a sofa in Diner"; several, or mixed with walls, counted.
-  if (kinds.has('icon') || kinds.has('camera')) return cameraLine(items, around) ?? iconLine(items, n, around);
+  if ([...kinds].some((kind) => BOXED_KINDS.has(kind))) return cameraLine(items, around) ?? lightLine(items) ?? iconLine(items, n, around);
   const walls = items.filter((op) => record(op)?.props.kind === 'wall');
   const w = new Set(walls.map((op) => op.recordId)).size;
   if (all('create')) return [tn('history.wallsDrawn', w > 0 ? w : n)];
@@ -892,7 +940,7 @@ function iconLine(items: readonly LoggedOp[], n: number, around: ReadonlyMap<str
   const props = new Set(items.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
   const only = (allowed: readonly string[]) => props.size > 0 && [...props].every((prop) => allowed.includes(prop));
   const first = items[0] ? record(items[0]) : null;
-  if (n > 1 || !first || (first.props.kind !== 'icon' && first.props.kind !== 'camera')) {
+  if (n > 1 || !first || !BOXED_KINDS.has(first.props.kind)) {
     if (all('create')) return [tn('history.planItemsPlaced', n)];
     if (all('trash')) return [tn('history.planItemsDeleted', n)];
     if (all('restore')) return [tn('history.planItemsRestored', n)];
@@ -903,7 +951,7 @@ function iconLine(items: readonly LoggedOp[], n: number, around: ReadonlyMap<str
     if (only(['x', 'y', 'width', 'height', 'rotation', 'along_m', 'width_m'])) return [tn('history.planItemsResized', n)];
     return [tn('history.planItemsChanged', n)];
   }
-  const what = first.props.kind === 'camera' ? anIcon(iconIdOf(first.props) || CAMERA_ICON) : iconIdOf(first.props) !== '' ? anIcon(iconIdOf(first.props)) : t('history.aPlanItem');
+  const what = aBoxed(first.props);
   if (all('create')) {
     const plan = first.parentId ? around.get(first.parentId) : undefined;
     const fields = plan?.type === 'plan' ? planFields(plan.props) : null;
@@ -921,6 +969,25 @@ function iconLine(items: readonly LoggedOp[], n: number, around: ReadonlyMap<str
   if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [t('history.iconTurned', { what })];
   if (only(['x', 'y', 'width', 'height', 'rotation'])) return [t('history.iconResized', { what })];
   return [t('history.iconChanged', { what })];
+}
+
+/**
+ * A light's, flag's or diffusion frame's own step (6.5), or null for one iconLine says: its gear item picked or taken
+ * off, its watts typed or taken off, its beam changed. One item, one prop.
+ */
+function lightLine(items: readonly LoggedOp[]): Line | null {
+  const [op] = items;
+  if (items.length !== 1 || op?.kind !== 'update' || !op.before || !op.after) return null;
+  const kind = op.after.props.kind;
+  if (kind !== 'light' && kind !== 'flag' && kind !== 'diffusion') return null;
+  const props = changedProps(op.before, op.after);
+  if (props.length !== 1) return null;
+  const what = aBoxed(op.after.props);
+  const value = op.after.props[props[0] ?? ''];
+  if (props[0] === 'gear_id') return line(typeof value === 'string' ? 'history.planGearPicked' : 'history.planGearRemoved', { what });
+  if (props[0] === 'watts') return typeof value === 'number' ? line('history.lightWattsTyped', { what, watts: { mono: wattsValue(value) } }) : line('history.lightWattsRemoved', { what });
+  if (props[0] === 'beam_deg' && typeof value === 'number') return line('history.lightBeamChanged', { what, beam: { mono: beamValue(value) } });
+  return null;
 }
 
 /** The ids a camera's step put in its `shot_ids` and took out (6.4). */
@@ -1006,7 +1073,7 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
     case 'plan_item':
       // A library icon (6.3) by what it is: "a sofa".
       if (record.props.kind === 'icon') return iconIdOf(record.props) !== '' ? anIcon(iconIdOf(record.props)) : t('history.aPlanItem');
-      if (record.props.kind === 'camera') return anIcon(iconIdOf(record.props) || CAMERA_ICON);
+      if (BOXED_KINDS.has(record.props.kind)) return aBoxed(record.props);
       return t(record.props.kind === 'door' ? 'history.aDoor' : record.props.kind === 'window' ? 'history.aWindow' : 'history.aWall');
     case 'board':
       return boardTitle(record);
@@ -1328,9 +1395,12 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
   // Frames put into a setup, or taken out of theirs (6.0), together.
   const joining = framesSetupLine(updates, around);
   if (joining) return [...joining, tag];
-  if (updates.length === 1 || new Set(updates.map((op) => op.recordId)).size === 1) {
-    const op = updates[0];
-    const camera = updates.length === 1 && op ? cameraGearLine(op, around) : null;
+  // A lens's range that also brought plan cameras' typed focal lengths inside it (6.4 review): read as the range change.
+  const ranged = rangeBesideCameras(updates);
+  const lead = ranged ? [ranged] : updates;
+  if (lead.length === 1 || new Set(lead.map((op) => op.recordId)).size === 1) {
+    const op = lead[0];
+    const camera = lead.length === 1 && op ? cameraGearLine(op, around) : null;
     if (camera) return [...camera, tag];
     if (op?.before && op.after) {
       const changes = fieldChanges(op.before, op.after);

@@ -32,6 +32,19 @@ export const moved = <T extends Geometry>(g: T, dx: number, dy: number): T => ({
 /** A size no smaller than the least an item can be. */
 export const atLeastMinimum = (value: number): number => Math.max(MIN_SIZE, value);
 
+/**
+ * One side of an item after the handles scaled it by `scale`: an axis the gesture didn't scale (a turn, a resize from
+ * the other side) keeps its size exactly, however thin (6.5 review: a 5 cm flag turned must stay 5 cm, not grow to the
+ * least size); one it did is never under `least` (a board's 8, or what its host gives).
+ */
+export const handledSize = (value: number, scale: number, least: number = MIN_SIZE): number => (Math.abs(scale - 1) < 1e-9 ? value : tidy(Math.max(least, value * scale)));
+
+/**
+ * Whether the handles take a side of the box from `was` to `next` below `least` (screen pixels): only a side made
+ * smaller counts, so a side already under the least (a thin item up close) may still turn and stretch.
+ */
+export const shrunkBelow = (was: number, next: number, least: number): boolean => next < least && next < was - 1e-6;
+
 /** Two decimals are far finer than anyone sees, and keep rotations and sizes from carrying float noise into History. */
 export const tidy = (value: number): number => Math.round(value * 100) / 100;
 

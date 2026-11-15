@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getLocale, labels, list, LOCALES, localizeError, setLocale, t, tn, type MessageKey } from '.';
+import { formatNumber, getLocale, labels, list, LOCALES, localizeError, setLocale, t, tn, type MessageKey } from '.';
 import { en } from './locales/en';
 
 const root = join(import.meta.dirname, '../../..');
@@ -257,5 +257,29 @@ describe('the app’s screens', () => {
       visit(source);
     }
     expect(plain).toEqual([]);
+  });
+});
+
+describe('formatNumber (6.5 review)', () => {
+  afterEach(() => {
+    setLocale('en');
+  });
+
+  it('writes numbers by the app’s language, grouped, whatever the computer’s region', () => {
+    // A German-region computer: Intl's default (no tag given) writes 1.200. The app in English must not.
+    const Real = Intl.NumberFormat;
+    const German = function (this: unknown, tag?: string | string[], options?: Intl.NumberFormatOptions) {
+      return new Real(tag ?? 'de', options);
+    } as unknown as typeof Intl.NumberFormat;
+    Intl.NumberFormat = German;
+    try {
+      setLocale('en');
+      expect(formatNumber(1200)).toBe('1,200');
+      expect(formatNumber(4200.25)).toBe('4,200.3');
+      setLocale('es');
+      expect(formatNumber(1200)).toBe('1,200');
+    } finally {
+      Intl.NumberFormat = Real;
+    }
   });
 });

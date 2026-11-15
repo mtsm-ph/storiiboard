@@ -8,8 +8,8 @@ describe('the icon size table', () => {
   it('covers every placeable icon and no other', () => {
     const placeable = PLAN_ICONS.filter((icon) => iconUse(icon.id) === 'place').map((icon) => icon.id);
     expect(Object.keys(ICON_SIZES).sort()).toEqual([...placeable].sort());
-    // 6.3's 29 and 6.4's nine cameras.
-    expect(placeable).toHaveLength(38);
+    // 6.3's 29, 6.4's nine cameras, and 6.5's ten lights and six flags and frames.
+    expect(placeable).toHaveLength(54);
     for (const id of placeable) {
       const size = iconSize(id);
       expect(size?.width).toBeGreaterThan(0);
@@ -27,13 +27,14 @@ describe('the icon size table', () => {
 
   it('makes wall, door and window the tools, and leaves what comes later unplaced', () => {
     expect(Object.keys(TOOL_ICONS).sort()).toEqual(['set-art/door', 'set-art/wall', 'set-art/window']);
-    for (const id of ['lighting/fresnel', 'cast/cast-mark', 'grip/flag', 'grip/neg-fill', 'production/north', 'production/measure']) {
+    for (const id of ['lighting/sun-path', 'cast/cast-mark', 'production/north', 'production/measure']) {
       expect(iconUse(id)).toBe('coming');
       expect(iconSize(id)).toBeNull();
     }
     expect(iconUse('set-art/wall')).toBe('tool');
     // 6.4: the cameras are placed; the field of view stays the cone's picture, drawn by each camera, never an item.
-    expect(PLAN_ICONS.filter((icon) => iconUse(icon.id) === 'coming')).toHaveLength(26);
+    // 6.5: the lights, flags and frames are placed; the sun path (6.6), cast marks, north and the measure come later.
+    expect(PLAN_ICONS.filter((icon) => iconUse(icon.id) === 'coming')).toHaveLength(9);
     expect(iconUse('camera/field-of-view')).toBe('shown');
     expect(iconSize('camera/field-of-view')).toBeNull();
   });
@@ -49,6 +50,27 @@ describe('the icon size table', () => {
     expect(ICON_SIZES['camera/steadicam']).toEqual({ width: 0.7, depth: 0.7 });
     expect(ICON_SIZES['camera/drone']).toEqual({ width: 0.6, depth: 0.6 });
     for (const icon of PLAN_ICONS.filter((i) => i.group === 'camera' && i.id !== 'camera/field-of-view')) expect(iconUse(icon.id)).toBe('place');
+  });
+
+  it('places every light, flag and frame at the brief’s size, and keeps the beam a picture (6.5)', () => {
+    expect(ICON_SIZES['lighting/fresnel']).toEqual({ width: 0.4, depth: 0.4 });
+    expect(ICON_SIZES['lighting/led-panel']).toEqual({ width: 0.7, depth: 0.4 });
+    expect(ICON_SIZES['lighting/tube']).toEqual({ width: 1.2, depth: 0.1 });
+    expect(ICON_SIZES['lighting/cob-softbox']).toEqual({ width: 0.9, depth: 0.9 });
+    expect(ICON_SIZES['lighting/hmi-par']).toEqual({ width: 0.5, depth: 0.6 });
+    expect(ICON_SIZES['lighting/china-ball']).toEqual({ width: 0.6, depth: 0.6 });
+    expect(ICON_SIZES['lighting/practical']).toEqual({ width: 0.3, depth: 0.3 });
+    expect(ICON_SIZES['lighting/spacelight']).toEqual({ width: 0.8, depth: 0.8 });
+    expect(ICON_SIZES['lighting/rgb-gel']).toEqual({ width: 0.4, depth: 0.4 });
+    expect(ICON_SIZES['lighting/window-light']).toEqual({ width: 1.2, depth: 0.3 });
+    expect(ICON_SIZES['grip/flag']).toEqual({ width: 0.91, depth: 0.05 });
+    expect(ICON_SIZES['grip/floppy']).toEqual({ width: 1.22, depth: 0.05 });
+    expect(ICON_SIZES['grip/neg-fill']).toEqual({ width: 1.22, depth: 0.05 });
+    expect(ICON_SIZES['grip/diffusion-4x4']).toEqual({ width: 1.22, depth: 0.05 });
+    expect(ICON_SIZES['grip/bounce']).toEqual({ width: 1.22, depth: 0.05 });
+    expect(ICON_SIZES['grip/overhead-8x8']).toEqual({ width: 2.44, depth: 2.44 });
+    expect(iconUse('lighting/beam-cone')).toBe('shown');
+    expect(iconSize('lighting/beam-cone')).toBeNull();
   });
 
   it('lets a zone and a note resize freely, and only those', () => {

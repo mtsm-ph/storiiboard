@@ -1,4 +1,4 @@
-import { Group, Line, Text } from 'react-konva';
+import { Group, Line, Rect as KonvaRect, Text } from 'react-konva';
 import { UPRIGHT } from '../../../ui/canvas/ItemNodes';
 import type { Beyond, CanvasColours, Rect } from '../../../ui/canvas/types';
 import { unionBounds } from '../../../ui/canvas/viewport';
@@ -92,13 +92,82 @@ interface ConeProps {
   length: number;
 }
 
-/** The cone and the labels, in the camera's own box; the labels kept upright whatever way it points. */
-export function CameraBeyond({ width, height, zoom, rotation, colours, look, length }: ConeProps) {
-  const points = look.degrees === null ? null : conePoints(width, height, look.degrees, length);
+/** JetBrains Mono's advance, in font sizes: every character is this wide, so a label's width is known without measuring. */
+const MONO_ADVANCE = 0.6;
+const PATCH_PAD_PIXELS = 2;
+
+/**
+ * Labels under an item's middle, in mono, kept upright whatever way it is turned (a camera's, 6.4; a light's and any
+ * item's height, 6.5, decision 11): clear of its box at half its diagonal, as labelReach reckons them. `at: 'middle'`
+ * (a wall's height, 6.5 review) centres them on the item's middle instead, each line on a paper patch so it reads over
+ * the wall's ink; the item draws them itself, over its own drawing.
+ */
+export function UprightLabels({
+  width,
+  height,
+  zoom,
+  rotation,
+  colours,
+  lines,
+  at = 'below',
+}: {
+  width: number;
+  height: number;
+  zoom: number;
+  rotation: number;
+  colours: CanvasColours;
+  lines: readonly string[];
+  at?: 'below' | 'middle';
+}) {
+  if (lines.length === 0) return null;
   const size = LABEL_PIXELS / zoom;
+  if (at === 'middle') {
+    const row = size * LINE_HEIGHT;
+    const top = -(lines.length * row) / 2;
+    const pad = PATCH_PAD_PIXELS / zoom;
+    return (
+      <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false}>
+        {lines.map((text, i) => {
+          const wide = text.length * MONO_ADVANCE * size + 2 * pad;
+          return (
+            <Group key={`${String(i)}:${text}`} y={top + i * row} listening={false}>
+              <KonvaRect x={-wide / 2} width={wide} height={row} fill={colours.paper} listening={false} />
+              <Text text={text} x={-wide / 2} y={(row - size) / 2} width={wide} align="center" fontFamily='"JetBrains Mono"' fontSize={size} fill={colours.ink} wrap="none" listening={false} />
+            </Group>
+          );
+        })}
+      </Group>
+    );
+  }
   // Clear of the box whichever way it is turned: half its diagonal from its middle (labelReach reads the same numbers).
   const below = Math.hypot(width, height) / 2 + LABEL_GAP_PIXELS / zoom;
   const span = Math.max(width, LABEL_SPAN_PIXELS / zoom);
+  return (
+    // Named upright: while the handles turn the item, the canvas turns this back by the live turn (UPRIGHT).
+    <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false}>
+      {lines.map((text, i) => (
+        <Text
+          key={`${String(i)}:${text}`}
+          text={text}
+          x={-span / 2}
+          y={below + i * size * LINE_HEIGHT}
+          width={span}
+          align="center"
+          fontFamily='"JetBrains Mono"'
+          fontSize={size}
+          fill={colours.ink}
+          wrap="none"
+          ellipsis
+          listening={false}
+        />
+      ))}
+    </Group>
+  );
+}
+
+/** The cone and the labels, in the camera's own box; the labels kept upright whatever way it points. */
+export function CameraBeyond({ width, height, zoom, rotation, colours, look, length }: ConeProps) {
+  const points = look.degrees === null ? null : conePoints(width, height, look.degrees, length);
   return (
     <>
       {points && (
@@ -114,25 +183,7 @@ export function CameraBeyond({ width, height, zoom, rotation, colours, look, len
           />
         </>
       )}
-      {/* Named upright: while the handles turn the camera, the canvas turns this back by the live turn (UPRIGHT). */}
-      <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false}>
-        {look.lines.map((text, i) => (
-          <Text
-            key={`${String(i)}:${text}`}
-            text={text}
-            x={-span / 2}
-            y={below + i * size * LINE_HEIGHT}
-            width={span}
-            align="center"
-            fontFamily='"JetBrains Mono"'
-            fontSize={size}
-            fill={colours.ink}
-            wrap="none"
-            ellipsis
-            listening={false}
-          />
-        ))}
-      </Group>
+      <UprightLabels width={width} height={height} zoom={zoom} rotation={rotation} colours={colours} lines={look.lines} />
     </>
   );
 }
@@ -146,5 +197,16 @@ export function cameraBeyond(box: { x: number; y: number; width: number; height:
   return {
     bounds: cameraReach(box, look.degrees, length, 0, labelReach(box, look.lines.length, leastZoom)),
     draw: (context) => <CameraBeyond width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} look={look} length={length} />,
+  };
+}
+
+/**
+ * Labels alone past an item's box (6.5, decision 11): an icon's, a flag's or a diffusion frame's name and height, drawn
+ * and reckoned as a camera's are, so a label on screen is never culled with its box.
+ */
+export function labelsBeyond(box: { x: number; y: number; width: number; height: number; rotation: number }, lines: readonly string[], leastZoom: number): Beyond {
+  return {
+    bounds: cameraReach(box, null, 0, 0, labelReach(box, lines.length, leastZoom)),
+    draw: (context) => <UprightLabels width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} lines={lines} />,
   };
 }

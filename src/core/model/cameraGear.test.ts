@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   cameraLetterChange,
+  camerasOutsideRange,
   framesOutsideRange,
   gearKindChange,
   lensRangeChange,
@@ -309,6 +310,12 @@ describe('a lens’s range and the frames using it', () => {
     const trashed = { ...records, z: { ...records.z, trashedAt: at } as SbdRecord };
     expect(framesOutsideRange(trashed, 'z', 24, 40)).toEqual([]);
     expect(lensRangeChange(trashed, 'z', 24, 40)).toEqual([]);
+  });
+
+  it('clamps a plan camera’s typed focal length, but never one this version reads as none (6.4 review)', () => {
+    const camera = (id: string, lens: number) => record(id, 'plan_item', 'plan', { kind: 'camera', icon: 'camera/camera', x: 0, y: 0, width: 0.4, height: 0.4, lens_id: 'z', lens_mm: lens }, id);
+    const records = frames(camera('c1', 85), camera('c2', 0), camera('c3', -12), camera('c4', 30));
+    expect(camerasOutsideRange(records, 'z', 24, 40)).toEqual([{ id: 'c1', mm: 40, trashed: false }]);
   });
 
   it('says the range in the Inspector’s words', () => {

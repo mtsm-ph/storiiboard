@@ -137,6 +137,9 @@ describe('the shapes the script writes', () => {
       [svg('<text x="1" y="1" font-size="8" font-family="Comic Sans" fill="#16150F" stroke="none">A</text>'), /isn't a bundled face/],
       [svg('<path d="M1 1L1e999 1"/>'), /isn't a number|box isn’t a number/],
       [svg(''), /nothing drawn/],
+      // A canvas's miter limit isn't SVG's (6.4 review): a mitred stroke, said or by default, throws.
+      [svg('<path d="M1 1L9 9L17 1" stroke-linejoin="miter"/>'), /stroke-linejoin "miter" can't be drawn exactly/],
+      [svg('<path d="M1 1L9 9L17 1"/>', 'fill="none" stroke="#16150F" stroke-width="1.5" stroke-linecap="round"'), /stroke-linejoin "miter" can't be drawn exactly/],
     ];
     for (const [text, message] of bad) {
       expect(() => iconDrawings({ 'grip/odd': text }), text).toThrow(message);

@@ -48,6 +48,15 @@ export function gearFields(props: Props): GearFields {
   };
 }
 
+/** The most a gear item's or a light's wattage can be (6.5): 100 kW, past any one head on a set. */
+export const MAX_WATTS = 100000;
+
+/** A wattage as stored: above 0, up to MAX_WATTS; null for none (or one this version can't read). */
+export const wattsOf = (value: JsonValue | undefined): number | null => (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= MAX_WATTS ? value : null);
+
+/** A gear item's `watts` (6.5, any kind of item: a light's power), or null. A light on a plan with none typed reads it live. */
+export const gearWatts = (props: Props): number | null => wattsOf(props.watts);
+
 /**
  * The gear a shot needs, or a shoot day's list (3.9b): the `gear_ids` prop, item ids in the order picked, each once.
  * Anything that isn't an id is left out here, and kept as stored by the edits.

@@ -53,11 +53,24 @@ export function hitsPoint(g: Geometry, point: Point): boolean {
   return Math.abs(local.x) <= g.width / 2 && Math.abs(local.y) <= g.height / 2;
 }
 
+/**
+ * The box a click picks an item by: its own, or for one with a `pickThickness` (screen pixels: 6.5 review, a 5 cm flag
+ * that is 1 px thick at 20%), at least that thick on each side at this zoom, about its middle. Drawing never changes.
+ */
+export function pickBoxOf(g: Geometry & { pickThickness?: number }, zoom: number): Geometry {
+  if (g.pickThickness === undefined || zoom <= 0) return g;
+  const least = g.pickThickness / zoom;
+  if (g.width >= least && g.height >= least) return g;
+  const width = Math.max(g.width, least);
+  const height = Math.max(g.height, least);
+  return { x: g.x + (g.width - width) / 2, y: g.y + (g.height - height) / 2, width, height, rotation: g.rotation };
+}
+
 /** The topmost item at a point; `inOrder` runs back to front, as the items are drawn. */
-export function topmostAt<T extends Geometry>(inOrder: readonly T[], point: Point): T | undefined {
+export function topmostAt<T extends Geometry & { pickThickness?: number }>(inOrder: readonly T[], point: Point, zoom?: number): T | undefined {
   for (let i = inOrder.length - 1; i >= 0; i -= 1) {
     const item = inOrder[i];
-    if (item && hitsPoint(item, point)) return item;
+    if (item && hitsPoint(zoom === undefined ? item : pickBoxOf(item, zoom), point)) return item;
   }
   return undefined;
 }

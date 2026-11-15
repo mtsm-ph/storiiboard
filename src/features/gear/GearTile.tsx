@@ -4,7 +4,8 @@ import { projectStore, useProject } from '../../app/projectStore';
 import { t, tn } from '../../core/i18n';
 import { GEAR_KIND_LABEL, GEAR_KINDS, gearKind, lensFields, lensSpec, projectBodyFields, type GearKind } from '../../core/model/cameraGear';
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '../../core/model/department';
-import { CURRENCIES, currencyDigits, GEAR_SOURCE_LABEL, GEAR_SOURCES, moneyLabel, projectCurrency, projectGear, type GearFields } from '../../core/model/gear';
+import { CURRENCIES, currencyDigits, GEAR_SOURCE_LABEL, GEAR_SOURCES, gearWatts, moneyLabel, projectCurrency, projectGear, type GearFields } from '../../core/model/gear';
+import { isWatts } from '../../core/model/planLight';
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
@@ -18,6 +19,7 @@ import {
   gearKindChange,
   gearQuantityChange,
   gearRateChange,
+  gearWattsChange,
   gearSourceChange,
   gearTextChange,
   newGearItem,
@@ -227,6 +229,7 @@ function GearEditor({ id, projectId, records, props, fields, currency, nameField
   const lockedId = useId();
   const digits = currencyDigits(currency);
   const rateText = fields.dayRate === null ? '' : String(fields.dayRate);
+  const wattsText = String(gearWatts(props) ?? '');
   // Stored, but not as this version reads it (a newer one's): the field shows what it reads and can't be changed here.
   const unreadable = (prop: string) => props[prop] !== undefined && typeof props[prop] !== typeof '';
   // Read-only says why, to everyone: in its title, and read after the field's name.
@@ -357,6 +360,33 @@ function GearEditor({ id, projectId, records, props, fields, currency, nameField
           {t('gear.rateLine', { rate: moneyLabel(fields.dayRate, currency), total: moneyLabel(fields.dayRate * fields.quantity, currency), quantity: fields.quantity })}
         </p>
       )}
+      {/* A light's power (6.5), on any item: a light on a plan that is this item reads it live. */}
+      <TextField
+        key={`watts:${wattsText}`}
+        label={t('gear.watts')}
+        type="number"
+        mono
+        min={0}
+        step="any"
+        defaultValue={wattsText}
+        {...(props.watts !== undefined && typeof props.watts !== 'number' ? lockedProps : {})}
+        onBlur={(event) => {
+          const raw = event.currentTarget.value.trim();
+          const bad = event.currentTarget.validity.badInput;
+          // Untouched, nothing is written.
+          if (!bad && raw === wattsText) return;
+          const watts = raw === '' ? null : Number(raw);
+          if (bad || (watts !== null && !isWatts(watts))) {
+            event.currentTarget.value = wattsText;
+            showInfo(t('gear.wattsRefused'));
+            return;
+          }
+          void edit((now) => gearWattsChange(now, id, watts));
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur();
+        }}
+      />
       {text('notes', t('gear.notes'))}
       <p id={lockedId} hidden>
         {t('gear.unreadable')}

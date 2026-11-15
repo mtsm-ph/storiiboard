@@ -297,3 +297,44 @@ describe('History for cameras (6.4)', () => {
     expect(tell([op('update', camera('c'), camera('c', { on_side: true }))])).toBe('Se puso una cámara de costado');
   });
 });
+
+// 6.5: lights named as the icon they were placed as, flags and diffusion by their kind and size as the step left
+// them (6.5 review); a gear item never by its id.
+describe('History for lights, flags and diffusion (6.5)', () => {
+  const own = record('own', 'plan', 'u1', { kind: 'setup', name: '' });
+  const box = { x: 0, y: 0, width: 0.4, height: 0.4, rotation: 0 };
+  const light = (props: Props = {}, icon = 'lighting/fresnel') => record('l', 'plan_item', 'own', { kind: 'light', icon, ...box, ...props });
+  const frame = (props: Props = {}) => record('f', 'plan_item', 'own', { kind: 'diffusion', icon: 'grip/diffusion-4x4', ...box, width: 1.22, height: 0.05, ...props });
+  const around = new Map<string, SbdRecord>([['sc4', scene], ['own', own]]);
+  const tell = (ops: LoggedOp[]) => lineText(describeEdit(ops, none, around));
+
+  it('says a light was placed, turned, its gear item picked and taken off, its watts typed and taken off, its beam set; a frame resized', () => {
+    expect(tell([op('create', null, light())])).toBe('Placed a Fresnel');
+    // A frame by its kind and size, never the icon it was placed as (6.5 review).
+    expect(tell([op('create', null, frame())])).toBe('Placed a diffusion · 4×4');
+    expect(tell([op('update', light(), light({ rotation: 45 }))])).toBe('Turned a Fresnel');
+    expect(tell([op('update', light(), light({ gear_id: 'k1' }))])).toBe('Picked the gear item for a Fresnel');
+    expect(tell([op('update', light({ gear_id: 'k1' }), light())])).toBe('Took the gear item off a Fresnel');
+    expect(tell([op('update', light(), light({ watts: 650 }))])).toBe('Typed 650 W on a Fresnel');
+    expect(tell([op('update', light({ watts: 650 }), light())])).toBe('Took the typed watts off a Fresnel');
+    expect(tell([op('update', light(), light({ beam_deg: 25 }))])).toBe('Set the beam of a Fresnel to 25°');
+    expect(tell([op('update', light({}, 'lighting/practical'), light({ beam_deg: 360 }, 'lighting/practical'))])).toBe('Set the beam of a practical to all round');
+    expect(tell([op('update', frame(), frame({ x: -0.61, width: 2.44 }))])).toBe('Resized a diffusion · 8×8');
+    expect(tell([op('trash', light(), { ...light(), trashedAt: at })])).toBe('Deleted a Fresnel');
+  });
+
+  it('names a light’s fields, never its gear item’s id', () => {
+    const changes = fieldChanges(light(), light({ gear_id: 'k1', watts: 650, beam_deg: 25 }));
+    expect(changes.map((c) => changeLabel(c))).toEqual(['gear item', 'watts', 'beam angle']);
+    expect(changes.map((c) => changeValue(c, c.after))).toEqual(['a gear item', '650 W', '25°']);
+    expect(valueText('gear_id', 'k1')).toBe('a gear item');
+    expect(valueText('watts', 1200)).toBe('1,200 W');
+    expect(fieldLabel('watts')).toBe('watts');
+  });
+
+  it('says it in Spanish too', () => {
+    setLocale('es');
+    expect(tell([op('update', light(), light({ watts: 650 }))])).toBe('Se escribieron 650 W en un Fresnel');
+    expect(tell([op('update', light(), light({ gear_id: 'k1' }))])).toBe('Se eligió el equipo de un Fresnel');
+  });
+});

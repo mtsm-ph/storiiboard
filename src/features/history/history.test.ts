@@ -435,6 +435,24 @@ describe('Put back', () => {
     expect(records().z?.props.focal_max_mm).toBe(70);
   });
 
+  it('reads a range change that also brings a plan camera inside it as the range change, not "Changed 2 items" (6.4 review)', async () => {
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'z', type: 'gear_item', parentId: project.projectId, sortKey: 'z', props: { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70 } } },
+      { kind: 'create', record: { id: 'plan', type: 'plan', parentId: project.projectId, sortKey: 'p', props: { kind: 'room', name: 'Diner' } } },
+      {
+        kind: 'create',
+        record: { id: 'cam', type: 'plan_item', parentId: 'plan', sortKey: 'c', props: { kind: 'camera', icon: 'camera/camera', x: 0, y: 0, width: 0.4, height: 0.4, lens_id: 'z', lens_mm: 60 } },
+      },
+    ]);
+    await store.getState().applyWith((now) => ({ changes: lensRangeChange(now, 'z', 28, 40) }));
+    expect(records().cam?.props.lens_mm).toBe(40);
+    expect((await lines()).at(-1)).toBe('Zoom: focal length 28–40 mm');
+    // Only its long end changed: the lens's own line for that end.
+    await store.getState().applyWith((now) => ({ changes: lensRangeChange(now, 'z', 28, 30) }));
+    expect(records().cam?.props.lens_mm).toBe(30);
+    expect((await lines()).at(-1)).toBe('Zoom: longest focal length 40 mm → 30 mm');
+  });
+
   it('sets the frames of a scene in the Trash too, so the scene comes back inside the lens’s range; one undo takes it back (6.1)', async () => {
     await store.getState().apply([
       { kind: 'create', record: { id: 'z', type: 'gear_item', parentId: project.projectId, sortKey: 'z', props: { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70 } } },

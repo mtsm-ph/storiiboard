@@ -1,4 +1,7 @@
 import { t, type MessageKey } from '../../../core/i18n';
+import { formatLength, type PlanUnit } from '../../../core/model/length';
+import type { GripFields } from '../../../core/model/plan';
+import { frameSizeOf, liesFlat } from '../../../core/model/planLight';
 import { PLAN_ICONS, type PlanIcon } from '../../../ui/icons/plan/planIcons';
 
 // What each plan icon is called (6.3): the kit's SVG titles are English, so every icon's name is in the translation
@@ -95,4 +98,44 @@ export function iconLabel(id: string): string {
 export function anIcon(id: string): string {
   const words = Object.hasOwn(WORDS, id) ? WORDS[id] : undefined;
   return words ? t(words.a) : t('history.aPlanItem');
+}
+
+/**
+ * A flag's or diffusion frame's plain name (6.5 review, M2), without the size its icon was placed at: a 4×4 diffusion
+ * set to 8×8 is a diffusion, never "Diffusion 4×4". Its size goes beside it (frameLabel).
+ */
+const FRAME_WORDS: Readonly<Record<string, { label: MessageKey; a: MessageKey }>> = {
+  'grip/flag': { label: 'planFrame.grip.flag', a: 'planFrame.a.grip.flag' },
+  'grip/floppy': { label: 'planFrame.grip.floppy', a: 'planFrame.a.grip.floppy' },
+  'grip/neg-fill': { label: 'planFrame.grip.neg-fill', a: 'planFrame.a.grip.neg-fill' },
+  'grip/diffusion-4x4': { label: 'planFrame.grip.diffusion-4x4', a: 'planFrame.a.grip.diffusion-4x4' },
+  'grip/bounce': { label: 'planFrame.grip.bounce', a: 'planFrame.a.grip.bounce' },
+  'grip/overhead-8x8': { label: 'planFrame.grip.overhead-8x8', a: 'planFrame.a.grip.overhead-8x8' },
+};
+
+/** A frame's kind as words: "Diffusion"; an icon without frame words is named as its icon is. */
+export function frameName(icon: string): string {
+  const words = Object.hasOwn(FRAME_WORDS, icon) ? FRAME_WORDS[icon] : undefined;
+  return words ? t(words.label) : iconLabel(icon);
+}
+
+/** The size a frame is, as crews say it: "8×8", "2×3"; else what was typed, in the unit shown ("1.50 m", "2.00 m × 3.00 m" lying flat). */
+export function frameSizeText(fields: Pick<GripFields, 'icon' | 'width' | 'height'>, unit: PlanUnit): string {
+  const size = frameSizeOf(fields);
+  if (size) return t('selection.frame.sizeOption', { across: String(size.feet[0]), long: String(size.feet[1]) });
+  if (!liesFlat(fields.icon)) return formatLength(fields.width, unit);
+  return t('plan.frame.typedFlat', { width: formatLength(fields.width, unit), depth: formatLength(fields.height, unit) });
+}
+
+/** What every label calls a flag or diffusion frame: its kind and size, "Diffusion · 8×8", "Bounce · 1.50 m". */
+export const frameLabel = (fields: Pick<GripFields, 'icon' | 'width' | 'height'>, unit: PlanUnit): string => t('plan.frame.label', { what: frameName(fields.icon), size: frameSizeText(fields, unit) });
+
+/** A frame as the legend lists it: its kind and size, or its own name with its size ("Key bounce · 4×4"). */
+export const frameItemLabel = (fields: Pick<GripFields, 'icon' | 'width' | 'height' | 'name'>, unit: PlanUnit): string =>
+  fields.name === '' ? frameLabel(fields, unit) : t('plan.frame.label', { what: fields.name, size: frameSizeText(fields, unit) });
+
+/** A frame as a line in History names it: "a diffusion · 8×8". */
+export function aFrame(fields: Pick<GripFields, 'icon' | 'width' | 'height'>, unit: PlanUnit): string {
+  const words = Object.hasOwn(FRAME_WORDS, fields.icon) ? FRAME_WORDS[fields.icon] : undefined;
+  return t('plan.frame.label', { what: words ? t(words.a) : anIcon(fields.icon), size: frameSizeText(fields, unit) });
 }
