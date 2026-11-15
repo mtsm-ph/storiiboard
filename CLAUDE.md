@@ -44,7 +44,8 @@
   no console error is ever filtered.
 - CI (Kevin, Nov 4): every PR runs quick checks on Linux (lint, types, unit tests, Rust tests); a newer push cancels
   the outdated run. A checkpoint run (.github/workflows/checkpoint.yml) adds the end-to-end smoke set
-  (e2e/smoke.spec.ts) on Linux and in WebKit on a Mac, and the Mac and Windows installers.
+  (e2e/smoke.spec.ts) on Linux, the whole end-to-end suite in WebKit on a Mac (Kevin, Nov 14), and the Mac and
+  Windows installers, each listing what its bundle carries.
 - A failing functional or data-safety test gets fixed, never skipped.
 
 ## Repo layout
@@ -172,7 +173,9 @@
     lens has its focal range and squeeze.
   - Camera field of view = 2 * atan(width / (2 * focal_length)), where width is what the project's frame sees, not
     the whole sensor: the mode's area after de-squeeze (sensor_width × squeeze, by sensor_height), with the project's
-    `aspect_ratio` fitted inside. "On its side" turns that de-squeezed area (the squeeze turns with the camera). One
+    `aspect_ratio` fitted inside. An anamorphic lens on its side: the squeeze turns with the camera (Kevin, Nov 14),
+    so "On its side" de-squeezes first, then turns the de-squeezed area; on a 35.6 × 20.0 mm mode with a 2× lens
+    and a 2.39:1 frame, 50 mm on its side sees 20.0 mm of width, 22.6°. One
     function: src/core/model/fieldOfView.ts (6.1). Bodies, lenses and a frame's lens (`lens_id`; one reader,
     `frameLens`): src/core/model/cameraGear.ts; the sensor table: sensorModes.ts, each entry with its source.
     A camera reads its lens live from its frame, never a copy.
@@ -449,3 +452,8 @@
 - Never delete anything outside this repo's own build output: node_modules, dist, src-tauri/target, test-results,
   playwright-report. Anything else that should go, Kevin deletes.
 - No git worktrees or directory junctions: removing a worktree once deleted a real node_modules through a junction.
+- Existing tests (Kevin, Nov 14): a builder never weakens, skips or deletes an existing test or assertion to get its
+  work through: it stops and reports. The reviewer treats any changed or removed assertion in an existing test as a
+  finding, unless the brief asked for it, so the reviewer is given the brief with the diff.
+- Tools (Kevin, Nov 14): a builder runs only tools already in the repo's dependencies: nothing fetched through npx.
+- Builders' logs and probes go in test-results/, never the repo root or e2e/ (Kevin, Nov 14).

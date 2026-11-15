@@ -1,12 +1,15 @@
 name: Checkpoint
 
 # Run by hand at a checkpoint (Kevin, Nov 4): the end-to-end smoke set (e2e/smoke.spec.ts) on Linux in Chromium and
-# WebKit, the same set in WebKit on a Mac (the closest stand-in for the Mac app's webview), and the Mac and Windows
+# WebKit, the whole end-to-end suite in WebKit on a Mac (Kevin, Nov 14: the closest stand-in for the Mac app's
+# webview, and until then no test had run Phase 5's or 6's canvas in the Mac's engine), and the Mac and Windows
 # installers, each after its own Rust tests: clones and private sizes exist only on a Mac, and on Windows the
 # step-by-step copy is the only backup path, so Linux alone never runs them.
 # A workflow_dispatch run needs the file on the default branch, which is still main, so pushing a branch named
 # checkpoint/<anything> (git push origin v2:checkpoint/phase1) starts one too. A branch named checkpoint/baselines-<anything>
 # regenerates the screenshot baselines instead, as the update_visual_baselines option does, for the same reason.
+# A branch named checkpoint/e2e-<anything> runs the tests without the installers: for a fix to a test that failed
+# only on the Mac, which needs the Mac's run again but not an hour of builds.
 on:
   push:
     branches: ['checkpoint/**']
@@ -81,11 +84,12 @@ jobs:
           retention-days: 7
 
   smoke-mac:
-    name: Smoke (macOS, WebKit)
+    name: End to end (macOS, WebKit)
     # Pinned like the Linux job: the darwin baselines come from this image (macOS 26), and WebKit and font rendering
     # change between macOS versions. A Mac on another major version may need its own run of the screenshot tests.
     runs-on: macos-26
-    timeout-minutes: 30
+    # The whole suite (Kevin, Nov 14), smoke and screenshots included; the report says how long it took.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -96,9 +100,9 @@ jobs:
       # Chromium too when regenerating: the Mac's local gate runs both browsers, so both need darwin baselines.
       - name: Install Playwright's browsers
         run: npx playwright install webkit ${{ (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) && 'chromium' || '' }}
-      - name: Smoke and screenshot tests
+      - name: The whole end-to-end suite in WebKit
         if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
-        run: npx playwright test e2e/smoke.spec.ts e2e/visual.spec.ts --project=webkit
+        run: npx playwright test --project=webkit
       - name: Regenerate the macOS visual baselines
         if: ${{ (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
         run: npx playwright test e2e/visual.spec.ts --update-snapshots=all
@@ -137,7 +141,7 @@ jobs:
   # stop answering one runner's network for an hour (ffmpeg.org did, from Windows runners, Nov 6) while others reach it.
   sources:
     name: ffmpeg sources
-    if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
+    if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines') || startsWith(github.ref_name, 'checkpoint/e2e-')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -164,7 +168,7 @@ jobs:
   installers:
     name: Installer (${{ matrix.name }})
     needs: sources
-    if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
+    if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines') || startsWith(github.ref_name, 'checkpoint/e2e-')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -247,6 +251,39 @@ jobs:
           $found = Select-String -Path src-tauri/target/release/wix/*/main.wxs, src-tauri/target/release/nsis/*/installer.nsi -Pattern '\bsbd\b'
           if (-not $found) { throw 'Neither installer registers .sbd files.' }
           $found | ForEach-Object { "$($_.Path): $($_.Line.Trim())" }
+      # What the installer carries (the desktop gap audit, B4): a release build looks for ffmpeg and ffprobe only
+      # beside the executable, and nothing else ever looked inside the bundle. The fonts themselves are in the page's
+      # build (dist), which the executable embeds; their licences are bundle resources.
+      - name: List the bundle and check what must be in it (macOS)
+        if: matrix.name == 'macOS'
+        run: |
+          app=src-tauri/target/release/bundle/macos/Storiiboard.app/Contents
+          ls -lR "$app/MacOS" "$app/Resources"
+          for f in ffmpeg ffprobe; do
+            test -x "$app/MacOS/$f" || { echo "Missing beside the executable: $f"; exit 1; }
+          done
+          for f in ffmpeg-LICENSE.txt ffmpeg-LICENSE.md zimg-LICENSE.txt dav1d-LICENSE.txt ffmpeg-SOURCE.txt \
+                   fonts-archivo-OFL.txt fonts-bodonimoda-OFL.txt fonts-intertight-OFL.txt \
+                   fonts-jetbrainsmono-OFL.txt fonts-jost-OFL.txt fonts-outfit-OFL.txt; do
+            test -n "$(find "$app/Resources" -name "$f" -type f -size +0)" || { echo "Missing from Resources: $f"; exit 1; }
+          done
+          test "$(find dist -name '*.ttf' | wc -l)" -gt 0 || { echo 'No fonts in the page build.'; exit 1; }
+      - name: List the bundle and check what must be in it (Windows)
+        if: matrix.name == 'Windows'
+        shell: pwsh
+        run: |
+          $names = 'ffmpeg.exe', 'ffprobe.exe', 'ffmpeg-LICENSE.txt', 'ffmpeg-LICENSE.md', 'zimg-LICENSE.txt',
+            'dav1d-LICENSE.txt', 'ffmpeg-SOURCE.txt', 'fonts-archivo-OFL.txt', 'fonts-bodonimoda-OFL.txt',
+            'fonts-intertight-OFL.txt', 'fonts-jetbrainsmono-OFL.txt', 'fonts-jost-OFL.txt', 'fonts-outfit-OFL.txt'
+          $scripts = @(Get-ChildItem src-tauri/target/release/wix/*/main.wxs) + @(Get-ChildItem src-tauri/target/release/nsis/*/installer.nsi)
+          if ($scripts.Count -lt 2) { throw 'Expected both installers\' scripts.' }
+          foreach ($script in $scripts) {
+            Select-String -Path $script -Pattern 'ffmpeg|ffprobe|LICENSE|OFL|SOURCE' | ForEach-Object { "$($script.Name): $($_.Line.Trim())" }
+            foreach ($name in $names) {
+              if (-not (Select-String -Path $script -SimpleMatch $name -Quiet)) { throw "$($script.Name) doesn't carry $name" }
+            }
+          }
+          if (-not (Get-ChildItem dist -Recurse -Filter *.ttf)) { throw 'No fonts in the page build.' }
       - uses: actions/upload-artifact@v7
         with:
           name: storiiboard-${{ matrix.name }}
