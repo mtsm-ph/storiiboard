@@ -175,16 +175,52 @@ export function ownerMarks(records: Records, sceneId: string, owner: MarkOwner):
   return Object.values(records).filter((r) => r.type === 'plan_item' && r.props.kind === 'mark' && r.parentId !== null && plans.has(r.parentId) && r.props[prop] === owner.id);
 }
 
-/** The last `order` among an owner's marks in a scene (ownerMarks), or null when none has one. */
-export function lastOrderOf(records: Records, sceneId: string, owner: MarkOwner): string | null {
-  return ownerMarks(records, sceneId, owner).reduce<string | null>((key, r) => {
-    const own = orderOf(r);
-    return own !== null && (key === null || own > key) ? own : key;
-  }, null);
+/** An owner's marks in a scene with every `order` sound (soundOrders). */
+export interface SoundOrders {
+  /** The updates that give each mark without a sound `order` its fresh one: the same group as the edit that needs them. */
+  changes: Change[];
+  /** Each of the owner's marks' `order` once they apply. */
+  orders: ReadonlyMap<string, string>;
+  /** The last of them, or null when the owner has no marks. */
+  last: string | null;
 }
 
-/** The `order` of a new position after an owner's last in the scene. */
-export const orderAfterLast = (records: Records, sceneId: string, owner: MarkOwner): string => keyBetween(lastOrderOf(records, sceneId, owner), null);
+/**
+ * The one way to an owner's sound `order`s (6.7 second review), used by every edit that writes one: a mark's `order`
+ * is unique among its owner's marks across the whole scene, Trash included, always. Marks without one (6.7's first
+ * build, an import) or sharing one (the first of a tie, in byPositionOrder, keeps it) take a fresh one after the last
+ * sound one, in byPositionOrder, so their numbers stay as they read; the edit then writes its own after that.
+ */
+export function soundOrders(records: Records, sceneId: string, owner: MarkOwner): SoundOrders {
+  const marks = ownerMarks(records, sceneId, owner).sort(byPositionOrder);
+  const orders = new Map<string, string>();
+  const seen = new Set<string>();
+  const unsound: SbdRecord[] = [];
+  let last: string | null = null;
+  for (const r of marks) {
+    const own = orderOf(r);
+    if (own === null || seen.has(own)) {
+      unsound.push(r);
+      continue;
+    }
+    seen.add(own);
+    orders.set(r.id, own);
+    if (last === null || own > last) last = own;
+  }
+  const changes: Change[] = [];
+  for (const r of unsound) {
+    last = keyBetween(last, null);
+    orders.set(r.id, last);
+    changes.push({ kind: 'update', id: r.id, set: { order: last } });
+  }
+  return { changes, orders, last };
+}
+
+/** A new position after an owner's last in the scene: the updates that make the owner's orders sound, and its `order`. */
+export function orderAfterLast(records: Records, sceneId: string, owner: MarkOwner): { changes: Change[]; order: string } {
+  const sound = soundOrders(records, sceneId, owner);
+  return { changes: sound.changes, order: keyBetween(sound.last, null) };
+}
 
 /** One position: a mark, or a camera's own item (its position 1). */
 export interface Position {
@@ -370,11 +406,14 @@ export function placeMarkChanges(
   const planId = blockingFor(records, view.sceneId, newPlanId, changes);
   const sortKey = frontKey(records, planId, changes.length > 0);
   const props: Props = { kind: 'mark', icon: characterId === null ? MARK_ICON : CAST_MARK_ICON, ...boxAt(centre, size), rotation: 0 };
+  const sound: Change[] = [];
   if (characterId !== null) {
     props.character_id = characterId;
-    props.order = orderAfterLast(records, view.sceneId, { kind: 'character', id: characterId });
+    const next = orderAfterLast(records, view.sceneId, { kind: 'character', id: characterId });
+    props.order = next.order;
+    sound.push(...next.changes);
   }
-  changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props } });
+  changes.push(...sound, { kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props } });
   return changes;
 }
 
@@ -417,23 +456,25 @@ export function nextPositionChanges(
     if (!last) return [];
     const planId = blockingFor(records, view.sceneId, newPlanId, changes);
     const centre = at ?? { x: last.centre.x + 1, y: last.centre.y };
-    const props: Props = { kind: 'mark', icon: NEXT_POSITION_ICON, ...boxAt(centre, size), rotation: 0, character_id: owner.id, order: orderAfterLast(records, view.sceneId, owner) };
-    return [...changes, { kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey: frontKey(records, planId, changes.length > 0), props } }];
+    const next = orderAfterLast(records, view.sceneId, owner);
+    const props: Props = { kind: 'mark', icon: NEXT_POSITION_ICON, ...boxAt(centre, size), rotation: 0, character_id: owner.id, order: next.order };
+    return [...changes, ...next.changes, { kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey: frontKey(records, planId, changes.length > 0), props } }];
   }
   const camera = liveCamera(records, owner.id);
   const planId = camera?.record.parentId ?? null;
   const last = cameraPositions(records, view, owner.id).at(-1);
   if (!camera || planId === null || !last) return [];
   const centre = at ?? { x: last.centre.x + 1, y: last.centre.y };
+  const next = orderAfterLast(records, view.sceneId, owner);
   const props: Props = {
     kind: 'mark',
     icon: NEXT_POSITION_ICON,
     ...boxAt(centre, { width: camera.fields.width, depth: camera.fields.height }),
     rotation: last.fields.rotation,
     camera_id: owner.id,
-    order: orderAfterLast(records, view.sceneId, owner),
+    order: next.order,
   };
-  return [{ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey: frontKey(records, planId, false), props } }];
+  return [...next.changes, { kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey: frontKey(records, planId, false), props } }];
 }
 
 /** Who the Selection tile gives a mark to: no one (a plain mark), one of the scene's characters, or one of the setup's cameras. */
@@ -466,8 +507,12 @@ export function markOwnerChanges(
   // The blocking plan, once: made at most once for all the marks.
   let blocking: string | null = null;
   let blockingMadeNow = false;
-  // The owner's last `order` and each target plan's last sort key, as the marks given so far leave them.
-  let lastOrder = choice.kind === 'plain' ? null : lastOrderOf(records, view.sceneId, choice);
+  // The owner's last `order` (its marks' made sound first, in the same group) and each target plan's last sort key, as
+  // the marks given so far leave them.
+  const sound = choice.kind === 'plain' ? null : soundOrders(records, view.sceneId, choice);
+  let lastOrder = sound?.last ?? null;
+  // The marks given a new `order` here: their own update writes it, so none of the sound ones is needed for them.
+  const reordered = new Set<string>();
   const lastKeys = new Map<string, string>();
   const moveTo = (id: string, planId: string, madeNow: boolean) => {
     const sortKey = keyBetween(lastKeys.get(planId) ?? (madeNow ? null : lastKeyUnder(records, planId, 'plan_item')), null);
@@ -502,6 +547,7 @@ export function markOwnerChanges(
     } else {
       lastOrder = keyBetween(lastOrder, null);
       set.order = lastOrder;
+      reordered.add(id);
     }
     const update = (): Change => ({ kind: 'update', id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) });
     const centre = centreOf(mark.fields);
@@ -534,16 +580,18 @@ export function markOwnerChanges(
     if ((owner === null) !== (choice.kind === 'plain')) Object.assign(set, boxAt(centre, size));
     changes.push(update());
   }
-  return changes;
+  if (changes.length === 0 || !sound) return changes;
+  return [...sound.changes.filter((c) => c.kind !== 'update' || !reordered.has(c.id)), ...changes];
 }
 
 /**
  * A position moved earlier (-1) or later (1) among its owner's positions the view shows (6.7): its `order` set between
- * its new neighbours' (6.7 review: never its sort key, so drawing order is untouched), and below any other of that
- * owner's in the scene that sits between them (a cheated mark of another setup), so no two ever share one. Positions
- * without an `order`, or two sharing one (an import's, or 6.7's first build's), can't be told apart by a key between
- * them: then each of the view's positions takes a fresh `order` after the owner's last, in their new order. A camera's
- * own item is always its position 1: its position 2 never goes earlier. Nothing at either end, or for a plain mark.
+ * its new neighbours' (6.7 review: never its sort key, so drawing order is untouched). Any other of that owner's in the
+ * scene between them (a cheated mark of another setup, one in the Trash) is passed as little as it can be (6.7 second
+ * review, L2): Later lands just after the mark it stepped over, Earlier just before it, so a hidden mark keeps its
+ * place but for that one step. The owner's orders are made sound first (soundOrders, in the same group), so this is
+ * always one key between two neighbours, and no other view is renumbered but for the mark moved. A camera's own item
+ * is always its position 1: its position 2 never goes earlier. Nothing at either end, or for a plain mark.
  */
 export function movePositionChanges(records: Records, view: PlanViewOf, id: string, by: -1 | 1): Change[] {
   const mark = liveMark(records, id);
@@ -559,24 +607,17 @@ export function movePositionChanges(records: Records, view: PlanViewOf, id: stri
   const moved = [...list];
   moved.splice(i, 1);
   moved.splice(j, 0, mark.record);
-  const orders = list.map(orderOf);
-  const keyed = orders.every((o, k) => o !== null && (k === 0 || (orders[k - 1] ?? '') < o));
-  if (!keyed) {
-    let last = lastOrderOf(records, view.sceneId, owner);
-    return moved.map((r): Change => {
-      last = keyBetween(last, null);
-      return { kind: 'update', id: r.id, set: { order: last } };
-    });
+  const sound = soundOrders(records, view.sceneId, owner);
+  const orderIn = (r: SbdRecord | undefined): string | null => (r ? (sound.orders.get(r.id) ?? null) : null);
+  let lo = orderIn(moved[j - 1]);
+  let hi = orderIn(moved[j + 1]);
+  // The owner's other marks the view doesn't show, between the two: passed as few as can be.
+  for (const [other, own] of sound.orders) {
+    if (other === id || (lo !== null && own <= lo) || (hi !== null && own >= hi)) continue;
+    if (by === 1 && (hi === null || own < hi)) hi = own;
+    if (by === -1 && (lo === null || own > lo)) lo = own;
   }
-  const before = moved[j - 1];
-  const after = moved[j + 1];
-  const lo = before ? orderOf(before) : null;
-  let hi = after ? orderOf(after) : null;
-  for (const other of ownerMarks(records, view.sceneId, owner)) {
-    const own = other.id === id ? null : orderOf(other);
-    if (own !== null && (lo === null || own > lo) && (hi === null || own < hi)) hi = own;
-  }
-  return [{ kind: 'update', id, set: { order: keyBetween(lo, hi) } }];
+  return [...sound.changes, { kind: 'update', id, set: { order: keyBetween(lo, hi) } }];
 }
 
 /** What the Selection tile notes about a mark (6.7): a link that no longer reads, and a scene with no characters to give it. */

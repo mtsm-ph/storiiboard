@@ -20,7 +20,7 @@ import {
   viewBlocking,
 } from './planBlocking';
 import { planLegend } from './planLegend';
-import { copySetupChanges, homeOf, separateCopyChanges, setupOnlyChanges } from './planRooms';
+import { copySetupChanges, homeOf, separateCopyChanges, setupOnlyChanges, setupOnlyHeld } from './planRooms';
 import type { Props, SbdRecord } from './record';
 
 // Cast blocking and camera moves (6.7): numbering by plan order across the blocking and a setup's own marks, every
@@ -388,8 +388,12 @@ describe('a position’s own order (6.7 review)', () => {
   });
 
   it('a camera’s mark with the same sort key as another item never ties: numbers by order (H1 a)', () => {
-    // The camera and a cheated mark both "b" in Setup 1's plan, as the first 6.7 build could write them.
+    // The camera and a cheated mark both "b" in Setup 1's plan, as the first 6.7 build could write them; then the mark
+    // given a sort key above ANA 2's and 3's, its order still below theirs, so numbering by sort key would put it last.
     const records: Records = { ...base(), cam: camera('cam', 'own1', 'b'), a1: { ...(base().a1 as SbdRecord), parentId: 'own1' } };
+    const above: Records = { ...records, a1: { ...(records.a1 as SbdRecord), sortKey: 'z' } };
+    expect(numberOf(above, v1, 'a1')).toBe(1);
+    expect(anaIds(above, v1)).toEqual(['a1', 'a2', 'a3']);
     expect(numberOf(records, v1, 'a1')).toBe(1);
     expect(anaIds(records, v1)).toEqual(['a1', 'a2', 'a3']);
   });
@@ -435,7 +439,9 @@ describe('a position’s own order (6.7 review)', () => {
     delete records.own2;
     records = applied(records, copySetupChanges(records, 'u1', 'u2', 'own2'));
     const copy = Object.values(records).find((r) => r.parentId === 'own2' && r.props.kind === 'mark');
-    expect(copy && markFields(copy.props)?.order).toBe('d');
+    // 6.7 second review, M3: a fresh order just after the original's ("d"), below ANA 3's ("e"), never the same one.
+    const order = (copy && markFields(copy.props)?.order) ?? '';
+    expect(order > 'd' && order < 'e').toBe(true);
     expect(numberOf(records, v2, copy?.id ?? '')).toBe(2);
     expect(numberOf(records, v2, 'a3')).toBe(3);
   });
@@ -470,14 +476,17 @@ describe('a position’s own order (6.7 review)', () => {
 });
 
 describe('a mark’s layer and level read its camera link (6.7 review, L1)', () => {
-  it('a mark whose camera is in the Trash is cast blocking’s, with "This setup only" back to the blocking', () => {
+  it('a mark whose camera is in the Trash is cast blocking’s, and "This setup only" is held for it', () => {
     const records: Records = { ...base(), m: mark('m', 'own1', 'b', { camera_id: 'cam', order: 'V' }, 1, 1) };
     expect(markLayer(records, records.m as SbdRecord)).toBe('camera');
     expect(homeOf(records, records.m as SbdRecord)).toBe('setup');
     const trashed: Records = { ...records, cam: { ...(records.cam as SbdRecord), trashedAt: at } };
     expect(markLayer(trashed, trashed.m as SbdRecord)).toBe('cast');
     expect(homeOf(trashed, trashed.m as SbdRecord)).toBe('blocking');
-    expect(setupOnlyChanges(trashed, 's1', 'u1', ['m'], false)).toMatchObject([{ kind: 'move', id: 'm', parentId: 'blk' }]);
+    // 6.7 second review, L3: "This setup only" is held for it (in the blocking its link could never read again).
+    expect(setupOnlyChanges(trashed, 's1', 'u1', ['m'], false)).toEqual([]);
+    expect(setupOnlyHeld(trashed, 's1', 'u1', ['m'])).toBe('staleCamera');
+    expect(setupOnlyHeld(records, 's1', 'u1', ['m'])).toBeNull();
     // A dead camera link and a live character: the character's, on the cast layer.
     const both: Records = { ...trashed, m: { ...(trashed.m as SbdRecord), props: { ...trashed.m?.props, character_id: 'ana' } } };
     expect(markOwner(both, both.m as SbdRecord)).toEqual({ kind: 'character', id: 'ana' });
@@ -489,11 +498,13 @@ describe('a mark’s layer and level read its camera link (6.7 review, L1)', () 
 
 describe('two blocking plans under one scene (6.7 review, L8)', () => {
   it('shows the marks of both, numbers them together, and puts new marks in the first', () => {
+    // The newer plan inserted first, so the older first can't come from insertion order.
     const records: Records = {
-      ...base(),
       blk2: { ...record('blk2', 'plan', 's1', { kind: 'blocking', name: '' }, 'blk'), createdAt: '2026-11-15T10:00:00.000Z' },
+      ...base(),
       a9: mark('a9', 'blk2', 'a', { character_id: 'ana', order: 'c' }, 9, 9),
     };
+    expect(Object.keys(records)[0]).toBe('blk2');
     // Same sort key: the older plan first.
     expect(blockingPlanOf(records, 's1')?.id).toBe('blk');
     expect(anaIds(records, v1)).toEqual(['a1', 'a9', 'a2', 'a3']);
@@ -524,5 +535,121 @@ describe('the Selection tile’s notes and the Trash’s timing (6.7 review, L9)
       m3: { ...mark('m3', 'own1', 'c', { camera_id: 'cam', order: 'l' }), trashedAt: earlier, trashedBy: 'local' },
     };
     expect(trashedWithCamera(records, records.cam as SbdRecord).map((r) => r.id)).toEqual(['m2']);
+  });
+});
+
+// 6.7 second review: a mark's `order` is unique among its owner's positions across the whole scene, Trash included,
+// always. Every edit that writes one makes the owner's sound first (soundOrders), in the same group.
+describe('one sound order per owner across the scene (6.7 second review)', () => {
+  const orders = (records: Records, owner: string) =>
+    Object.values(records)
+      .filter((r) => r.type === 'plan_item' && r.props.kind === 'mark' && r.props.character_id === owner)
+      .map((r) => markFields(r.props)?.order ?? null);
+  const unique = (records: Records, owner: string) => {
+    const all = orders(records, owner);
+    return all.every((o) => o !== null) && new Set(all).size === all.length;
+  };
+  /** The test base without any `order`, as 6.7's first build or a JSON import leaves it. */
+  const unordered = (): Records =>
+    Object.fromEntries(
+      Object.entries(base()).map(([id, r]) => {
+        const props = { ...r.props };
+        delete props.order;
+        return [id, { ...r, props }];
+      }),
+    );
+  const updated = (changes: readonly Change[]) => changes.flatMap((c) => (c.kind === 'update' ? [c.id] : []));
+
+  it('Next position after ANA 3 with no orders lands as position 4, the older marks given theirs in the same group (M1)', () => {
+    const records = unordered();
+    expect(anaIds(records, v1)).toEqual(['a1', 'a2', 'a3']);
+    const changes = nextPositionChanges(records, v1, 'a3', SIZE, null, 'a4');
+    expect(updated(changes)).toEqual(['a1', 'a2', 'a3']);
+    const made = applied(records, changes);
+    expect(anaIds(made, v1)).toEqual(['a1', 'a2', 'a3', 'a4']);
+    expect(anaIds(made, v1).map((id) => numberOf(made, v1, id))).toEqual([1, 2, 3, 4]);
+    expect(unique(made, 'ana')).toBe(true);
+    // Placing and giving a mark do the same: BEN's mark given to ANA is her last.
+    const given = applied(records, markOwnerChanges(records, v1, ['b1'], { kind: 'character', id: 'ana' }, SIZES));
+    expect(anaIds(given, v1)).toEqual(['a1', 'a2', 'a3', 'b1']);
+    expect(unique(given, 'ana')).toBe(true);
+    const placed = applied(records, placeMarkChanges(records, v1, { x: 9, y: 9 }, SIZE, 'ana', 'a9'));
+    expect(anaIds(placed, v1)).toEqual(['a1', 'a2', 'a3', 'a9']);
+    expect(unique(placed, 'ana')).toBe(true);
+  });
+
+  it('a tie keeps the first, in position order; the rest take fresh orders after the last sound one (M1)', () => {
+    const records: Records = { ...base(), a3: { ...(base().a3 as SbdRecord), props: { ...base().a3?.props, order: 'b' } } };
+    // a1 and a3 share "b": a1 first by id.
+    expect(anaIds(records, v1)).toEqual(['a1', 'a3', 'a2']);
+    const changes = nextPositionChanges(records, v1, 'a2', SIZE, null, 'a4');
+    expect(updated(changes)).toEqual(['a3']);
+    const made = applied(records, changes);
+    expect(anaIds(made, v1)).toEqual(['a1', 'a2', 'a3', 'a4']);
+    expect(unique(made, 'ana')).toBe(true);
+  });
+
+  it('Later in Setup 1 never renumbers Setup 2 but for the one mark moved, sound or not (M3)', () => {
+    for (const start of [base(), unordered()]) {
+      // A cheated ANA mark of Setup 2's only, between her 2 and 3 (or, with no orders, after them all).
+      const hidden = mark('h', 'own2', 'z', { character_id: 'ana', ...(start.a1?.props.order ? { order: 'd5' } : {}) }, 9, 9);
+      const records: Records = { ...start, h: hidden };
+      const before = anaIds(records, v2);
+      for (const id of ['a1', 'a2']) {
+        const moved = applied(records, movePositionChanges(records, v1, id, 1));
+        expect(anaIds(moved, v2).filter((m) => m !== id)).toEqual(before.filter((m) => m !== id));
+        expect(unique(moved, 'ana')).toBe(true);
+      }
+    }
+  });
+
+  it('Earlier and Later pass as few hidden marks as they can: Later just after the mark it steps over, Earlier just before it (L2)', () => {
+    // Setup 2's own ANA marks between her 1 and 2 ("c5") and between her 2 and 3 ("d5"); Setup 1 shows neither.
+    const records: Records = {
+      ...base(),
+      h1: mark('h1', 'own2', 'y', { character_id: 'ana', order: 'c5' }, 8, 8),
+      h2: mark('h2', 'own2', 'z', { character_id: 'ana', order: 'd5' }, 9, 9),
+    };
+    expect(anaIds(records, v2)).toEqual(['a1', 'h1', 'a2', 'h2', 'a3']);
+    // Later on ANA 1 in Setup 1: past ANA 2 ("d") only, below h2.
+    const later = applied(records, movePositionChanges(records, v1, 'a1', 1));
+    const one = markFields(later.a1?.props ?? {})?.order ?? '';
+    expect(one > 'd' && one < 'd5').toBe(true);
+    expect(anaIds(later, v1)).toEqual(['a2', 'a1', 'a3']);
+    expect(anaIds(later, v2)).toEqual(['h1', 'a2', 'a1', 'h2', 'a3']);
+    // Earlier on ANA 3 in Setup 1: before ANA 2 ("d") only, above h1.
+    const earlier = applied(records, movePositionChanges(records, v1, 'a3', -1));
+    const three = markFields(earlier.a3?.props ?? {})?.order ?? '';
+    expect(three > 'c5' && three < 'd').toBe(true);
+    expect(anaIds(earlier, v1)).toEqual(['a1', 'a3', 'a2']);
+    expect(anaIds(earlier, v2)).toEqual(['a1', 'h1', 'a3', 'a2', 'h2']);
+    // A mark in the Trash between them counts as hidden too.
+    const trashed: Records = { ...records, h1: { ...(records.h1 as SbdRecord), parentId: 'blk', trashedAt: at, trashedBy: 'local' } };
+    const past = applied(trashed, movePositionChanges(trashed, v1, 'a3', -1));
+    expect((markFields(past.a3?.props ?? {})?.order ?? '') > 'c5').toBe(true);
+  });
+
+  it('a setup copy’s cheated mark, then "This setup only" off on the copy: no tie (M3)', () => {
+    let records = base();
+    records = applied(records, setupOnlyChanges(records, 's1', 'u1', ['a2'], true));
+    delete records.own2;
+    records = applied(records, copySetupChanges(records, 'u1', 'u2', 'own2'));
+    const copy = Object.values(records).find((r) => r.parentId === 'own2' && r.props.kind === 'mark');
+    expect(numberOf(records, v2, copy?.id ?? '')).toBe(2);
+    records = applied(records, setupOnlyChanges(records, 's1', 'u2', [copy?.id ?? ''], false));
+    expect(records[copy?.id ?? '']?.parentId).toBe('blk');
+    expect(unique(records, 'ana')).toBe(true);
+    // Setup 1 shows the original and the copy, one after the other.
+    expect(anaIds(records, v1)).toEqual(['a1', 'a2', copy?.id, 'a3']);
+  });
+
+  it('a setup copy of marks with no order gives them sound ones first (M3)', () => {
+    let records = unordered();
+    records = applied(records, setupOnlyChanges(records, 's1', 'u1', ['a2'], true));
+    delete records.own2;
+    records = applied(records, copySetupChanges(records, 'u1', 'u2', 'own2'));
+    expect(unique(records, 'ana')).toBe(true);
+    const copy = Object.values(records).find((r) => r.parentId === 'own2' && r.props.kind === 'mark');
+    expect(numberOf(records, v2, copy?.id ?? '')).toBe(2);
   });
 });

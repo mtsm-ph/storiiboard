@@ -515,7 +515,8 @@ unreadable value reads as not set, as every prop does.
     and comes back only into a room with no live north (6.6 review): the Trash refuses it while the room has one, so a
     restore never makes a second north nor turns the room's; undo walks back a north placed since first. "This setup
     only" off moves a north out of a setup's plan (only an import puts one there) only into a room with none, and only
-    one. Its layer (6.8) is production's.
+    one. Its layer (6.8) is the set's (art), with the room's walls, though the Library lists its icon with
+    production's.
   - A `sun` (6.6) is a sun path, in a setup's own plan. `icon` `lighting/sun-path` (missing reads so), its box as an
     icon's (placed 0.8 × 0.8 m); its position is the middle of its drawing, and its `rotation` is never used (written
     0; the handles never turn it). `time`: written "12:00" when placed; missing or not a 24-hour "HH:mm" reads as
@@ -540,33 +541,40 @@ unreadable value reads as not set, as every prop does.
     that doesn't read (a `character_id` naming a character in the Trash, gone, or no longer in the scene's characters;
     a `camera_id` naming a camera in the Trash, gone, or in another plan) reads as none: the mark is a plain mark, its
     props kept, so a restore brings the link back. With both set, a `camera_id` that reads wins.
-    `order` (6.7 review): a mark's place among its character's or its camera's positions; unique among that owner's
-    positions; the number is worked out from it and never stored. A key as `sort_key`s are (base-62 digits, never
-    ending in "0"); anything else reads as none. `sort_key` is drawing order only: Bring forward, Send back and a move
-    to another plan never touch `order`, so a position's number never changes with them. Positions are numbered, never
-    stored: a view's marks of one character (blocking and that setup's only, together) are 1, 2, 3 by `order`; a
-    camera's own item is its position 1 and its marks 2, 3… by `order`. A mark with no `order`, or two sharing one (an
-    import's), sorts after those with one, then by `created_at`, then by id. A new position's `order` comes after the
-    owner's last over all of that owner's marks in the scene (the blocking and every setup's plan, the Trash's too), so
-    two setups never make the same. Earlier and Later write an `order` between the new neighbours' among the positions
-    the view shows (below any other of that owner's between them); when those positions lack one or share one, each of
-    them is given a fresh `order` after the owner's last, in the new order. Next position writes a mark 1 m to the
-    right (+x) of the owner's last position, after it in `order`; a camera's at the camera's size, turned as its last
-    position is. The path from each position to the next (a straight dashed line with an arrowhead) and a camera's move
-    length are worked out, never stored; no `path` items are written. Giving a mark to a character or a camera makes it
-    that owner's last position (a new `order`); giving it to a camera moves it into the camera's plan at the camera's
-    size and turn; taking it off a camera moves it back to the blocking at a mark's size; a plain mark has no `order`.
+    `order` (6.7 review): a mark's place among its character's or its camera's positions. The rule (6.7 second
+    review): a mark's `order` is unique among its owner's positions across the whole scene (the blocking plans and
+    every setup's plan), Trash included, always. The number is worked out from it and never stored. A key as
+    `sort_key`s are (base-62 digits, never ending in "0"); anything else reads as none. `sort_key` is drawing order
+    only: Bring forward, Send back and a move to another plan never touch `order`, so a position's number never
+    changes with them. Positions are numbered, never stored: a view's marks of one character (blocking and that
+    setup's only, together) are 1, 2, 3 by `order`; a camera's own item is its position 1 and its marks 2, 3… by
+    `order`. A mark with no `order`, or two sharing one (an import's, or 6.7's first build's), sorts after those with
+    one, then by `created_at`, then by id. Every edit that writes an `order` first makes that owner's sound, in the same
+    op group: each of its marks in the scene with no `order`, or sharing one (the first of a tie, in that sorting, keeps
+    it), takes a fresh one after the last sound one, in that sorting (so marks without one keep the places they read
+    in, and the rest of a tie come after the others); only then does it write its own. A new position's `order` comes after the owner's last in the scene. Earlier and Later write an
+    `order` between the new neighbours' among the positions the view shows, passing as few of that owner's other marks
+    between them (another setup's cheated one, one in the Trash) as they can: Later lands just after the mark it steps
+    over, Earlier just before it. Next position writes a mark 1 m to the right (+x) of the owner's last position,
+    after it in `order`; a camera's at the camera's size, turned as its last position is. The path from each position
+    to the next (a straight dashed line with an arrowhead) and a camera's move length are worked out, never stored; no
+    `path` items are written. Giving a mark to a character or a camera makes it that owner's last position (a new
+    `order`); giving it to a camera moves it into the camera's plan at the camera's size and turn; taking it off a
+    camera moves it back to the blocking at a mark's size; a plain mark has no `order`.
     Trashing a camera trashes its marks in the same step, and restoring the camera brings those back; trashing a
     character leaves its marks, which read as plain marks. Copies: a setup started from another re-points each mark's
     `camera_id` to the camera's copy, or takes it off when its camera isn't copied; a paste or duplicate keeps
     `character_id`, and keeps `camera_id` only when the camera is pasted with it (Copy and Cut of a camera take its
-    marks with it). Each keeps its `order` when its owner comes with it or is the same character, but a pasted or
-    duplicated character's mark in a view that shows that character's positions already is a new position, after the
-    last. A mark that loses its camera in a copy is a plain mark: no `order`, a tape mark's size about its middle,
-    unturned. A room's separate copy never touches marks (they aren't in the room). Its layer (6.8) is the camera
-    department's while its `camera_id` reads, cast blocking's otherwise (a camera in the Trash leaves its marks on cast
-    blocking's layer and at the blocking's level). A scene with two live `blocking` plans (only by an import or History)
-    shows the items of both; new marks go to the first by `sort_key`, then `created_at`, then id. Reach and size as an
+    marks with it). A camera's marks copied with their camera keep their `order` (the copy is a new owner). A pasted
+    or duplicated character's mark in a scene where that character has any mark (the blocking or any setup's plan, the
+    Trash's too) is a new position, after the last; in a scene where it has none it keeps its `order`. A cheated
+    character's mark copied with its setup takes a fresh `order` just after its original's, below the next of that
+    character's in the scene, so it sits at the same number in its own setup. A mark that loses its camera in a copy
+    is a plain mark: no `order`, a tape mark's size about its middle, unturned. A room's separate copy never touches
+    marks (they aren't in the room). Its layer (6.8) is the camera department's while its `camera_id` reads, cast
+    blocking's otherwise (a camera in the Trash leaves its marks on cast blocking's layer). "This setup only" can't
+    be turned off for a camera's mark whose camera link doesn't read: in the blocking it could never read again. A
+    scene with two live `blocking` plans (only by an import or History) shows the items of both; new marks go to the first by `sort_key`, then `created_at`, then id. Reach and size as an
     icon's.
   - A camera placed as `camera/dolly-track`, `camera/slider` or `camera/jib-crane` (6.7) shows its longer side as its
     length ("3.00 m track") and resizes without keeping its proportions. Nothing is stored for it.

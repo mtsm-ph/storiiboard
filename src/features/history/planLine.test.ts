@@ -450,3 +450,33 @@ describe('History for marks, reviewed (6.7 review)', () => {
     expect(tell([op('update', was, earlier)])).toBe('Se movió antes una posición de ANA');
   });
 });
+
+// 6.7 second review, L5: a step that gives an owner's older marks a sound `order` on the way reads as the edit that
+// needed it, never as "Reordered 3 plan items".
+describe('History for marks given a sound order on the way (6.7 second review)', () => {
+  const blk = record('blk', 'plan', 'sc4', { kind: 'blocking', name: '' });
+  const ana = record('ana', 'character', 'p', { name: 'ANA' });
+  const box = { x: 0, y: 0, width: 0.5, height: 0.5, rotation: 0 };
+  const mark = (id: string, props: Props) => record(id, 'plan_item', 'blk', { kind: 'mark', icon: 'cast/next-position', character_id: 'ana', ...box, ...props });
+  const around = new Map<string, SbdRecord>([['sc4', scene], ['blk', blk], ['ana', ana]]);
+  const tell = (ops: LoggedOp[]) => lineText(describeEdit(ops, none, around));
+  const sound = (id: string, order: string) => op('update', mark(id, {}), mark(id, { order }));
+
+  it('a next position after marks with no order reads as the next position', () => {
+    expect(tell([sound('a1', 'V'), sound('a2', 'W'), sound('a3', 'X'), op('create', null, mark('a4', { order: 'Y' }))])).toBe('Added a next position for ANA');
+    setLocale('es');
+    expect(tell([sound('a1', 'V'), sound('a2', 'W'), op('create', null, mark('a4', { order: 'Y' }))])).toBe('Se agregó una siguiente posición para ANA');
+  });
+
+  it('Earlier and Later after marks with no order read as the move, the moved mark’s last op deciding which', () => {
+    const moved = (from: string, to: string) => op('update', mark('a3', { order: from }), mark('a3', { order: to }));
+    expect(tell([sound('a1', 'V'), sound('a2', 'W'), sound('a3', 'X'), moved('X', 'Vk')])).toBe('Moved a position of ANA earlier');
+    // The moved mark had its order already: only the others were given theirs.
+    expect(tell([sound('a1', 'V'), sound('a2', 'W'), moved('U', 'W5')])).toBe('Moved a position of ANA later');
+  });
+
+  it('a mark given to ANA after her older marks were given theirs reads as the gift', () => {
+    const gift = op('update', mark('b1', { character_id: 'ben' }), mark('b1', { order: 'Y' }));
+    expect(tell([sound('a1', 'V'), sound('a2', 'W'), gift])).toBe('Gave a mark to ANA');
+  });
+});

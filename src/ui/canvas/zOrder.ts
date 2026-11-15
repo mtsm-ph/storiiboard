@@ -57,7 +57,10 @@ export function sortKeysFor(
     const id = after[i];
     if (id === undefined) continue;
     if (!moved.has(id)) {
-      previous = keyOf.get(id) ?? previous;
+      // The larger of the two (6.7 second review, L1): an item tied with one before a key just written must never
+      // lower the bound below it, or the next moved item could take the same key.
+      const own = keyOf.get(id);
+      if (own !== undefined && (previous === null || own > previous)) previous = own;
       continue;
     }
     // The next item that stays where its key says.

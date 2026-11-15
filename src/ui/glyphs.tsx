@@ -163,12 +163,32 @@ export function DepartmentStateGlyph({
   );
 }
 
-/** Shot numbers locked: a closed padlock. Open, the shackle lifts. */
-export function LockGlyph({ open = false }: { open?: boolean }) {
+/**
+ * Shot numbers locked: a closed padlock. Open, the shackle lifts. `inherit` draws it in the text colour around it, for
+ * a button whose ink fill shows it pressed (6.8's layer lock).
+ */
+export function LockGlyph({ open = false, inherit = false }: { open?: boolean; inherit?: boolean }) {
+  const stroke = inherit ? 'stroke-current' : 'stroke-text';
+  const fill = inherit ? 'fill-current' : 'fill-text';
   return (
     <svg width="10" height="12" viewBox="0 0 10 12" aria-hidden="true">
-      <path d={open ? 'M2.5 5V3.5a2.5 2.5 0 0 1 5 0' : 'M2.5 5V3.5a2.5 2.5 0 0 1 5 0V5'} fill="none" className="stroke-text" strokeWidth="1.5" />
-      <rect x="0.75" y="5.25" width="8.5" height="6" className={open ? 'fill-none stroke-text' : 'fill-text'} strokeWidth="1.5" />
+      <path d={open ? 'M2.5 5V3.5a2.5 2.5 0 0 1 5 0' : 'M2.5 5V3.5a2.5 2.5 0 0 1 5 0V5'} fill="none" className={stroke} strokeWidth="1.5" />
+      <rect x="0.75" y="5.25" width="8.5" height="6" className={open ? `fill-none ${stroke}` : fill} strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/**
+ * A plan layer's Shown, Dimmed or Hidden (6.8), in the text colour around it so a selected cell's ink fill shows it:
+ * an eye open with its pupil, an eye with its pupil half there, an eye struck through.
+ */
+export function LayerShowGlyph({ show }: { show: 'shown' | 'dimmed' | 'hidden' }) {
+  return (
+    <svg width="12" height="10" viewBox="0 0 12 10" aria-hidden="true" className="shrink-0">
+      <path d="M0.75 5C2.2 2.4 4 1.25 6 1.25S9.8 2.4 11.25 5C9.8 7.6 8 8.75 6 8.75S2.2 7.6 0.75 5z" fill="none" className="stroke-current" strokeWidth="1.5" />
+      {show === 'shown' && <circle cx="6" cy="5" r="1.75" className="fill-current" />}
+      {show === 'dimmed' && <path d="M6 3.25a1.75 1.75 0 0 0 0 3.5z" className="fill-current" />}
+      {show === 'hidden' && <path d="M1.5 9.25l9-8.5" className="stroke-current" strokeWidth="1.5" />}
     </svg>
   );
 }

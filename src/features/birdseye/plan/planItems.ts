@@ -58,7 +58,8 @@ import {
   type SunFields,
   type Swing,
 } from '../../../core/model/plan';
-import { cameraMarks, markLayer, orderAfterLast, repointCamera, viewBlocking, type MarkOwner } from '../../../core/model/planBlocking';
+import type { LayerLook } from '../../../core/model/planLayers';
+import { cameraMarks, markLayer, ownerMarks, repointCamera, soundOrders, type MarkOwner } from '../../../core/model/planBlocking';
 import { CONE_LENGTH_M, isCameraIcon, isTrackIcon, withoutFrameLinks } from '../../../core/model/planCamera';
 import { BEAM_LENGTH_M, beamFacing, frameSizeBox, FRAME_SIZES, gripKindOf, isLightIcon, liesFlat } from '../../../core/model/planLight';
 import { iconHome } from '../../../core/model/planRooms';
@@ -250,6 +251,7 @@ export function gripItem(id: string, fields: GripFields, unit: PlanUnit): Canvas
 
 /** No blocking worked out (a caller that draws no marks' looks): none, and no paths. */
 const NO_BLOCKING: BlockingLooks = { marks: new Map(), paths: new Map(), moves: new Map() };
+const NO_LAYERS: ReadonlyMap<string, LayerLook> = new Map();
 
 /** A camera with no look worked out yet: no cone, no label. */
 const NO_LOOK: CameraLook = { degrees: null, lines: [], selected: false };
@@ -484,10 +486,12 @@ export function planItemsBuilder(): (
   lights?: ReadonlyMap<string, LightLook>,
   suns?: ReadonlyMap<string, SunLook>,
   blocking?: BlockingLooks,
+  layers?: ReadonlyMap<string, LayerLook>,
 ) => readonly CanvasItem[] {
   let built = new Map<string, Built>();
+  let layered = new Map<string, { from: CanvasItem; look: string; item: CanvasItem }>();
   let last: readonly CanvasItem[] = [];
-  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map(), suns = new Map(), blocking = NO_BLOCKING) => {
+  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map(), suns = new Map(), blocking = NO_BLOCKING, layers = NO_LAYERS) => {
     const walls = shown.filter(isWall);
     const lines = walls.map((item) => lineOf(item.record.id, item.fields));
     const records = new Map(walls.map((item) => [item.record.id, item.record]));
@@ -620,7 +624,23 @@ export function planItemsBuilder(): (
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
       return made;
     });
-    const items = [...wallItems, ...openingItems, ...iconItems, ...northItems, ...markItems, ...gripItems, ...lightItems, ...cameraItems, ...sunItems];
+    // Each item's layer (6.8): a dimmed layer's drawn at the core's dim, a locked one's never picked. The state is part
+    // of the key: an item is made again only when it, or its layer's look, changed. A hidden layer's never come here.
+    const nextLayered = new Map<string, { from: CanvasItem; look: string; item: CanvasItem }>();
+    const items = [...wallItems, ...openingItems, ...iconItems, ...northItems, ...markItems, ...gripItems, ...lightItems, ...cameraItems, ...sunItems].map((item) => {
+      const look = layers.get(item.id);
+      if (!look || (!look.dim && !look.locked)) return item;
+      const key = (look.dim ? 'dim' : '') + (look.locked ? 'locked' : '');
+      const was = layered.get(item.id);
+      if (was && was.from === item && was.look === key) {
+        nextLayered.set(item.id, was);
+        return was.item;
+      }
+      const made: CanvasItem = { ...item, ...(look.dim ? { dim: true } : {}), ...(look.locked ? { locked: true } : {}) };
+      nextLayered.set(item.id, { from: item, look: key, item: made });
+      return made;
+    });
+    layered = nextLayered;
     built = next;
     if (items.length === last.length && items.every((item, i) => item === last[i])) return last;
     last = items;
@@ -1407,30 +1427,43 @@ export function placeIconChanges(records: Records, view: PlanViewOf, icon: strin
 }
 
 /**
- * A pasted or duplicated character's mark (6.7 review): a new position, so when the view pasted into shows positions of
- * that character already its `order` goes after the character's last in the scene (several in the order they had);
- * otherwise (a scene where that character has none) it keeps its `order`. A camera's marks pasted with their camera keep
- * theirs: the camera's copy has no other positions. Writes into the changes' new props.
+ * A pasted or duplicated character's mark (6.7 review): a new position. Decided from the scene, never the view (6.7
+ * second review, M2): when that character has any mark in the scene (the blocking or any setup's, the Trash's too), its
+ * `order` goes after the character's last there, the owner's orders made sound first in the same group (soundOrders);
+ * several in the order they had. In a scene where it has none, each keeps its `order` while they stay unique, in
+ * order. A camera's marks pasted with their camera keep theirs: the camera's copy has no other positions. Writes into
+ * the changes' new props, and adds the updates that make the orders sound.
  */
 function freshPositions(records: Records, view: PlanViewOf, changes: Change[]): void {
-  const shown = new Set(viewBlocking(records, view.sceneId, view.setupId).characters.map((c) => c.owner.id));
   const made = changes.flatMap((change) => {
     if (change.kind !== 'create' || change.record.props?.kind !== 'mark') return [];
     const props = change.record.props;
     const character = props.character_id;
-    if (typeof character !== 'string' || typeof props.camera_id === 'string' || !shown.has(character)) return [];
+    if (typeof character !== 'string' || typeof props.camera_id === 'string') return [];
     return [{ props, character, order: markFields(props)?.order ?? null }];
   });
   // In the order they had (one without after those with one), as byPositionOrder reads positions.
   const rank = (o: string | null) => (o === null ? 1 : 0);
   made.sort((a, b) => rank(a.order) - rank(b.order) || (a.order !== null && b.order !== null && a.order !== b.order ? (a.order < b.order ? -1 : 1) : 0));
-  const lasts = new Map<string, string>();
-  for (const { props, character } of made) {
-    const owner: MarkOwner = { kind: 'character', id: character };
-    const was = lasts.get(character);
-    const order = was === undefined ? orderAfterLast(records, view.sceneId, owner) : keyBetween(was, null);
-    lasts.set(character, order);
-    props.order = order;
+  // Per character: the last `order` given so far, and whether each copy takes a fresh one (the scene has its marks).
+  const given = new Map<string, { last: string | null; fresh: boolean }>();
+  for (const { props, character, order } of made) {
+    let state = given.get(character);
+    if (!state) {
+      const owner: MarkOwner = { kind: 'character', id: character };
+      if (ownerMarks(records, view.sceneId, owner).length === 0) state = { last: null, fresh: false };
+      else {
+        const sound = soundOrders(records, view.sceneId, owner);
+        changes.push(...sound.changes);
+        state = { last: sound.last, fresh: true };
+      }
+      given.set(character, state);
+    }
+    // In a scene without its marks, a copy keeps its own `order` while it stays above the one before it.
+    const keep = !state.fresh && order !== null && (state.last === null || order > state.last);
+    const next = keep ? order : keyBetween(state.last, null);
+    props.order = next;
+    state.last = next;
   }
 }
 
@@ -1492,7 +1525,8 @@ export function planPasteInView(
       fromSetup || withCamera || item.fields.kind === 'camera' || isLight(item.fields) || isGrip(item.fields) || isSun(item.fields) || (item.fields.kind === 'icon' && iconHome(item.fields.icon) === 'setup');
     if (!setupLevel || (from !== null && shown.has(from) && fromSetup)) return base(item);
     if (!hasSetup || view.setupId === null) {
-      out.count += 1;
+      // A camera's marks are left out with it, counted once as the camera (6.7 second review, L4).
+      if (!withCamera) out.count += 1;
       return null;
     }
     if (plans.setup) return plans.setup.id;

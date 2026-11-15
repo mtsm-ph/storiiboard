@@ -11,6 +11,7 @@ import { FrameImage } from '../../storyboard/FrameImage';
 import { pictureView } from '../../storyboard/framePictures';
 import { ProjectPictures } from '../../storyboard/ProjectPictures';
 import { iconLabel } from './iconWords';
+import { revealLayersOf } from './layersStore';
 import { assignFrame, showFrame } from './planActions';
 import { viewKey } from './planItems';
 import { planStore, usePlan } from './planStore';
@@ -81,6 +82,8 @@ function FramesOfSetup({ records, projectId, sceneId, setup, number }: { records
                 onClick={() => {
                   if (holder === null) return;
                   void showFrame(holder, shot.id);
+                  // Taken to its camera, which is shown: its layer shown and unlocked first (6.8 review, M1).
+                  revealLayersOf([holder]);
                   planStore.getState().select(key, [holder]);
                 }}
                 className={cx(

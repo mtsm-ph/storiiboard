@@ -126,14 +126,15 @@ test('keeps the layout after a reload, marks it unsaved, and resets', async ({ p
 
 test('opens any built tile in any workspace from the Layout menu, and only built ones', async ({ page }) => {
   await page.getByRole('button', { name: /^Layout/ }).click();
-  // A later phase's placeholder (the plan's layers) isn't offered: what isn't built is hidden (Kevin, Nov 5).
-  await expect(page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name: 'Layers' })).toHaveCount(0);
+  // Only built tiles are offered: what isn't built is hidden (Kevin, Nov 5). Since 6.8 every tile is built, the plan's
+  // Layers, the last placeholder, among them.
+  await expect(page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name: 'Layers', exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'Trash', exact: true }).click();
   await expect(tile(page, 'Trash')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Layout/ })).toBeFocused();
 
-  // With every built tile open, the group offers nothing, though the layers and the rest aren't open.
-  for (const name of ['History', 'Color script', 'Moodboard', 'Locations', 'Cast and crew', 'Team', 'Department', 'Shoot days', 'Calendar', 'Gear', 'Notifications', 'Assets', 'Call sheet', 'Setups', 'Set plan', 'Selection', 'Library', 'Frames in setup']) {
+  // With every built tile open, the group offers nothing.
+  for (const name of ['History', 'Color script', 'Moodboard', 'Locations', 'Cast and crew', 'Team', 'Department', 'Shoot days', 'Calendar', 'Gear', 'Notifications', 'Assets', 'Call sheet', 'Setups', 'Set plan', 'Selection', 'Library', 'Frames in setup', 'Layers']) {
     await page.getByRole('button', { name: /^Layout/ }).click();
     await page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name, exact: true }).click();
   }

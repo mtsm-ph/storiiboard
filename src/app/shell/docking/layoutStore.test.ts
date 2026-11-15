@@ -167,9 +167,10 @@ describe('a tile added to a built-in default since a layout was saved (6.0: Setu
     expect(sameLayout(layouts.saved, workspaceById('setup').defaultLayout())).toBe(true);
     expect(sameLayout(layouts.current, workspaceById('setup').defaultLayout())).toBe(true);
     const column = Object.fromEntries(leftColumn(layouts.current));
-    // The new default's own column (400, 120, 288), not the old ratio between Layers and Library.
+    // The new default's own column (304, 256, 248 since the 6.8 review gave Layers room for its eight rows), not the old
+    // ratio between Layers and Library.
     expect(column.setups).toBeGreaterThanOrEqual(0.3);
-    expect((column.layers ?? 0) / (column.library ?? 1)).toBeCloseTo(120 / 288, 5);
+    expect((column.layers ?? 0) / (column.library ?? 1)).toBeCloseTo(256 / 248, 5);
   });
 
   it('gets its share from the old default changed only in its other columns, Layers and Library keeping their ratio', () => {

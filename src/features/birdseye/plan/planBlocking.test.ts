@@ -599,3 +599,43 @@ describe('the Trash keeps a mark deleted before its camera (6.7 review, L9)', ()
     expect(restored).not.toContain(m3);
   });
 });
+
+// 6.7 second review: a paste decides "a new position" from the scene, never the view (M2); a camera left out with its
+// marks is counted once (L4); a step that gives older marks a sound order reads as the edit (L5).
+describe('paste across setups and the History of renumbering (6.7 second review)', () => {
+  const anaOrders = () =>
+    Object.values(records())
+      .filter((r) => r.type === 'plan_item' && r.props.kind === 'mark' && r.props.character_id === 'ana')
+      .map((r) => markFields(r.props)?.order ?? null);
+
+  it('a cheated ANA mark copied in Setup 1 and pasted in Setup 2 (which shows no ANA) is a new position, never a tie (M2)', async () => {
+    const { sceneId, setupId, otherId } = await scene();
+    const view = { sceneId, setupId };
+    const walk = await anaWalks(view);
+    // Every ANA mark made Setup 1's only: Setup 2 shows none of hers.
+    await store.getState().apply(setupOnlyChanges(records(), sceneId, setupId, walk, true));
+    expect(viewBlocking(records(), sceneId, otherId).characters).toEqual([]);
+    const pasted = planPasteInView(records(), { sceneId, setupId: otherId }, planClipOf(records(), [walk[1] ?? ''], view), null);
+    await store.getState().apply(pasted.changes);
+    const all = anaOrders();
+    expect(all.every((o) => o !== null)).toBe(true);
+    expect(new Set(all).size).toBe(all.length);
+    const copy = markFields(records()[pasted.ids[0] ?? '']?.props ?? {})?.order ?? '';
+    expect(walk.every((id) => (markFields(records()[id]?.props ?? {})?.order ?? '') < copy)).toBe(true);
+  });
+
+  it('a camera with two later positions pasted where no setup is shown is one item left out (L4)', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const cam = crypto.randomUUID();
+    await store.getState().apply(placeIconChanges(records(), view, 'camera/camera', { x: 0, y: 0 }, cam));
+    await nextPosition(view, cam, project, null, store);
+    const [m2] = selected(view);
+    await nextPosition(view, m2 ?? '', project, null, store);
+    const clip = planClipOf(records(), [cam], view);
+    expect(clip).toHaveLength(3);
+    const pasted = planPasteInView(records(), { sceneId, setupId: null }, clip, null);
+    expect(pasted.leftOut).toBe(1);
+    expect(pasted.ids).toEqual([]);
+  });
+});

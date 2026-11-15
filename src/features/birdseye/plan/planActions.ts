@@ -19,6 +19,7 @@ import {
   takeFrameLensChanges,
 } from '../../../core/model/planCamera';
 import { lightBeamChanges, lightWattsChanges, planGearChanges } from '../../../core/model/planLight';
+import { pickableIds } from '../../../core/model/planLayers';
 import type { Change } from '../../../core/ops/ops';
 import type { SbdRecord } from '../../../core/model/record';
 import type { GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
@@ -51,6 +52,7 @@ import {
   type WallPatch,
 } from './planItems';
 import { iconSize } from './iconSizes';
+import { layerStatesNow, revealLayersOf } from './layersStore';
 import { planStore } from './planStore';
 
 // What a person does on a plan (6.2a, 6.2b), as edits through projectStore.applyWith: each is one op group, so one ⌘Z,
@@ -65,14 +67,20 @@ export interface PlanView {
   setupId: string | null;
 }
 
-const select = (view: PlanView, ids: readonly string[]) => {
+/**
+ * What a step made or picked is selected; every placement goes through here, so an item placed on a hidden or locked
+ * layer has that layer shown and unlocked first, and said (6.8): nothing is placed that can't then be seen and picked.
+ */
+const select = (view: PlanView, ids: readonly string[], records: Records = projectStore.getState().records) => {
+  revealLayersOf(ids, records);
   planStore.getState().select(viewKey(view.sceneId, view.setupId), ids);
 };
 
-/** The selected ids that are live items the view shows. */
+/** The selected ids that are live items the view shows, on layers that can be picked (6.8: never a hidden or locked one). */
 export function planSelection(records: Records, view: PlanView): string[] {
   const shown = new Set(shownItems(records, view.sceneId, view.setupId).map((item) => item.record.id));
-  return (planStore.getState().selections[viewKey(view.sceneId, view.setupId)] ?? []).filter((id) => shown.has(id));
+  const picked = (planStore.getState().selections[viewKey(view.sceneId, view.setupId)] ?? []).filter((id) => shown.has(id));
+  return pickableIds(records, picked, layerStatesNow());
 }
 
 /** "Start the room": the room and the scene's `room_id`, one op group. */
@@ -118,11 +126,21 @@ export async function renameRoom(roomId: string, name: string): Promise<boolean>
   return projectStore.getState().applyWith((records) => ({ changes: renamePlanChanges(records, roomId, name) }));
 }
 
-/** "Start from another setup" (6.2b): that setup's items copied into this one, one op group. */
+/**
+ * "Start from another setup" (6.2b): that setup's items copied into this one, one op group. The copies' layers are
+ * shown and unlocked where hidden or locked, with the usual notice (6.8 review, L5), so nothing copied lands unseen.
+ */
 export async function copySetup(view: PlanView, fromSetupId: string): Promise<boolean> {
   const to = view.setupId;
   if (to === null) return false;
-  return projectStore.getState().applyWith((records) => ({ changes: copySetupChanges(records, fromSetupId, to) }));
+  let ids: string[] = [];
+  const written = await projectStore.getState().applyWith((records) => {
+    const changes = copySetupChanges(records, fromSetupId, to);
+    ids = changes.flatMap((c) => (c.kind === 'create' && c.record.id !== undefined ? [c.record.id] : []));
+    return { changes };
+  });
+  if (written) revealLayersOf(ids);
+  return written;
 }
 
 /** "This setup only" on or off (6.2b), for the selected items: moved into the setup's plan, or back to their level. */
@@ -158,7 +176,7 @@ export async function drawWalls(view: PlanView, points: readonly Point[], madeIn
     if (written && points.length >= 2 && store.getState().project === madeIn) showInfo(t('plan.wallsNotDrawn'));
     return false;
   }
-  if (written) select(view, ids);
+  if (written) select(view, ids, store.getState().records);
   return written;
 }
 
@@ -222,9 +240,12 @@ export async function pastePlan(view: PlanView, at: Point | null, clip = planSto
     return { changes: made.changes };
   });
   if (out.count > 0) showInfo(t('library.noSetup'));
-  // One north per room (6.6): a pasted north the room already has is left out, and said.
+  // One north per room (6.6): a pasted north the room already has is left out, and said; the room's own is selected
+  // with what was pasted, and its layer shown and unlocked, as placing a north does (6.8 review, L6).
   if (out.north > 0) showInfo(t('plan.north.notPasted'));
-  if (written) select(view, ids);
+  const records = projectStore.getState().records;
+  const kept = out.north > 0 ? (roomNorthItem(records, plansShown(records, view.sceneId, view.setupId).room?.id ?? null)?.record.id ?? null) : null;
+  if (written) select(view, kept === null ? ids : [...ids, kept]);
 }
 
 /** Duplicate is Copy then Paste offset from the originals, without touching the clipboard. */
@@ -278,10 +299,10 @@ export async function placeIcon(view: PlanView, icon: string, centre: { x: numbe
   });
   if (refused.why !== null) return refused.why;
   if (refused.north !== null) {
-    if (store.getState().project === madeIn) select(view, [refused.north]);
+    if (store.getState().project === madeIn) select(view, [refused.north], store.getState().records);
     return 'hasNorth';
   }
-  if (written && store.getState().project === madeIn) select(view, [id]);
+  if (written && store.getState().project === madeIn) select(view, [id], store.getState().records);
   return null;
 }
 
@@ -311,7 +332,7 @@ async function placeCastMark(view: PlanView, centre: Point, madeIn: Project, sto
   });
   if (what.refused !== null) return what.refused;
   if (written && store.getState().project === madeIn) {
-    select(view, [id]);
+    select(view, [id], store.getState().records);
     if (what.plain) showInfo(t('plan.mark.giveCharacter'));
   }
   return null;
@@ -338,7 +359,7 @@ export async function placeMark(view: PlanView, centre: Point, madeIn: Project |
     return { changes: unreadableAfter(records, changes) ? [] : changes };
   });
   if (why.refused !== null) return why.refused;
-  if (written && store.getState().project === madeIn) select(view, [id]);
+  if (written && store.getState().project === madeIn) select(view, [id], store.getState().records);
   return null;
 }
 
@@ -364,7 +385,7 @@ export async function nextPosition(view: PlanView, fromId: string, madeIn: Proje
     if (store.getState().project === madeIn) showInfo(t(why.refused === 'plainMark' ? 'plan.mark.plainNoNext' : 'plan.mark.selectFirst'));
     return why.refused;
   }
-  if (written && store.getState().project === madeIn) select(view, [id]);
+  if (written && store.getState().project === madeIn) select(view, [id], store.getState().records);
   return null;
 }
 

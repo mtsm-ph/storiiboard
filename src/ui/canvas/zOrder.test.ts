@@ -54,4 +54,25 @@ describe('z order', () => {
   it('writes nothing when the order did not change', () => {
     expect(sortKeysFor(order, order, keys, set('e')).size).toBe(0);
   });
+
+  // 6.7 second review, L1: an item tied with the one before it never lowers the bound below a key just written.
+  it('never writes two moved items the same key around a tie already in the data', () => {
+    const tied = new Map([['a', 'D'], ['x', 'M'], ['y', 'M'], ['z', 'W'], ['b', 'A'], ['c', 'Z']]);
+    const before = ['b', 'a', 'x', 'y', 'z', 'c'];
+    const after = ['a', 'x', 'b', 'y', 'c', 'z'];
+    const written = sortKeysFor(before, after, tied, set('b', 'c'));
+    const b = written.get('b') ?? '';
+    const c = written.get('c') ?? '';
+    expect(b > 'M' && b < 'W').toBe(true);
+    expect(c > b && c < 'W').toBe(true);
+  });
+
+  it('writes the same keys as before with distinct keys', () => {
+    expect([...sortKeysFor(order, reordered(order, set('b'), 'front'), keys, set('b'))]).toEqual([['b', 'l']]);
+    const bd = (mode: 'forward' | 'backward' | 'front' | 'back') => [...sortKeysFor(order, reordered(order, set('b', 'd'), mode), keys, set('b', 'd'))];
+    expect(bd('forward')).toEqual([['b', 'R'], ['d', 'l']]);
+    expect(bd('backward')).toEqual([['b', '7'], ['d', 'I']]);
+    expect(bd('front')).toEqual([['b', 'l'], ['d', 't']]);
+    expect(bd('back')).toEqual([['b', '7'], ['d', 'A']]);
+  });
 });
