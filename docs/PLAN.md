@@ -1985,6 +1985,11 @@ Not built now. Storiiboard never generates images itself.
   Windows Server, so each release's Windows installer is run by hand on a Windows 10 22H2 PC: an install with
   WebView2 already there, one without it and online, and one without it and offline (see "Windows 10" below), then
   the release's checklist.
+- [ ] The real app driven end to end on Windows (tauri-driver over WebDriver; docs/DESKTOP_GAPS.md, cover 5; Kevin,
+  Nov 14): the only thing that proves the whole path from the page to Rust in a built app. About three milestones
+  and 15 to 25 minutes a checkpoint; new dependencies, so asked again when it is planned.
+- [ ] Polish: a double-click on an .sbd shows the window before the page has loaded, a flash of the wrong
+  background (docs/DESKTOP_GAPS.md, A2; Kevin, Nov 14).
 - [ ] Attach the FFmpeg source tarball (`ffmpeg-<version>.tar.xz`, in each ffmpeg CI artifact) to every release beside
   the installers, as the LGPL asks of whoever hands out the binaries (2.1).
 
