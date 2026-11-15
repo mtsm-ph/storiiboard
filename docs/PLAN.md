@@ -27,6 +27,44 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 9 · Web companion | Not started |
 | 10 · 3D set and Blender | Not started |
 
+### Phase 7 milestones (plan, Nov 15, 2026; waits for Kevin)
+
+Plan written Nov 15, 2026, from "AI assistant (MCP)" and "Phase 7 notes" (Kevin, Nov 9) below, "E · Desktop and web
+review", CLAUDE.md's MCP rules and the change-file format in SBD_FORMAT.md. **Nothing is built until Kevin answers
+`docs/PHASE7_DECISIONS.md` (17 questions, each with a recommendation) and has done his by-hand pass on Phases 3 to
+6.** The table below assumes the recommendations; an answer that differs changes it. Built as Phases 4 to 6 were:
+briefs, one builder at a time, one PR per milestone into `v2`, reviewed until nothing high or medium is left.
+
+What exists already (surveyed Nov 15): the change-file format, fully specified (SBD_FORMAT.md, ".sbdchanges");
+`suggestion`, `comment` and `availability` as record type names with no code; six of the seven checks in
+src/core/checks (only "cast called on a day they marked unavailable" is missing, for lack of availability data),
+with `runChecks` covering two of them project-wide; the script parser in src/core/script, free of the page, and
+`nodeDriver` on Node's own SQLite, both written for the MCP; Notifications' reserved `suggestion` and `comment`
+kinds. What doesn't: any `mcp/` code, the review screen, a keychain, a stored script, breakdown fields, an
+AI-generated mark. Asked of Kevin before building: one dependency (the MCP SDK, decision 2), the tool list
+(decision 16), and file-format additions that need no new table (suggestion kinds, `availability` records, a script
+asset, breakdown lists on scenes, two props: decisions 4, 6, 8, 9, 12, 13).
+
+| Milestone | Scope | PR | State |
+|---|---|---|---|
+| 7.0 Suggestions in the model | `suggestion` records: readers, the approve and reject ops, and an apply engine per kind (`trash`, `update`, `create`, `reorder`) limited to a list of record types and fields (decision 4); the review flags (changed since, gone, already trashed); each kind written into SBD_FORMAT.md first. Gear edits move from src/features/gear into core (a handoff note since 3.9) | | Planned |
+| 7.1 Change files in | Reading a `.sbdchanges` file as untrusted input (5 MB, the version rules, another project's file refused, the same file twice adds nothing), one op group per import; File → Import changes and a file dropped on the window (through Tauri's drop on the desktop); the `Suggestions/` folder beside the project brought in when it opens (decision 3). Tested with fixture files | | Planned |
+| 7.2 The review screen | One suggestion at a time: the item, its scene and shot number, who and when, before and after, Approve or Reject; groups per import with "Approve the rest" behind a confirmation for kinds that add (decision 5); an approved deletion is a trash op; a review log; suggestions join Notifications | | Planned |
+| 7.3 Availability and the seventh check | Unavailable dates per person in Cast and crew, as `availability` records (decision 6); the Calendar shows them; the check "cast called on a day they marked unavailable" | | Planned |
+| 7.4 The Checks tile | All seven checks over the whole project from one function, each finding linking to its item (decision 7); the call sheet's strip unchanged | | Planned |
+| 7.5 The MCP server: reading | `mcp/`, stdio, the SDK (decision 2), the project opened read-only through `nodeDriver`; the read tools of decision 16, without trashed items unless asked and without contact details unless the project allows it (decision 14); `get_plan` returns a setup's plan; docs/MCP.md with how to connect Claude Desktop and Claude Code; tests drive the server over stdio against a fixture project | | Planned |
+| 7.6 The MCP server: checking and proposing | `run_checks`; the propose tools, each writing a change file into `Suggestions/` (decision 3), attributed to the assistant by the client's own name; Settings → AI assistant lists the tools and holds the contact-details switch | | Planned |
+| 7.7 The script kept, and the breakdown | The imported script stored as an asset (decision 8) and `read_script`; five breakdown lists on a scene, typed by hand or approved from `suggest_breakdown` (decision 9) | | Planned |
+| 7.8 Coverage | "Suggest coverage" on a scene, by rule, as suggestions (decision 11) | | Planned |
+| 7.9 Image prompts and the AI mark | Copy image prompt from a frame's data plus the project's look line (decision 12); the AI-generated switch on a picture, its tag on the board, in the PDF and the CSV (decision 13) | | Planned |
+| 7.10 Local HTTP | The server on 127.0.0.1 with the Origin check and a token, off until switched on in Settings (decision 15); tests for a wrong Origin, a missing token and a request from another address | | Planned |
+| 7.11 A revised script | A newer script's changed, added and dropped scenes as suggestions (decision 17) | | Planned |
+| Phase 7 gate | A checkpoint and Kevin's checklist: the checks catch a real scheduling or gear mistake on his own material; an assistant reads a real project and its proposals arrive in the review screen | | |
+
+Not in Phase 7: the in-app chat with the person's own key (decision 10: proposed as its own phase after the
+release), the web side that writes change files (Phase 9), `restore` and `comment` suggestions (Phase 9), the
+Blender MCP (Phase 10), packing the server into the installers (Phase 8). Storiiboard never generates images.
+
 ### Phase 6 milestones
 
 Plan written Nov 13, 2026, from "Phase 6 notes" (Kevin, Nov 3) and CLAUDE.md's bird's-eye rules: a top-down plan in
