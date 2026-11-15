@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 
 test('app shell loads with its heading and bundled fonts', async ({ page, baseURL }) => {
@@ -62,4 +64,45 @@ for (const colorScheme of ['light', 'dark'] as const) {
 test('History in the top bar waits for a project', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('banner').getByRole('button', { name: 'History', exact: true })).toBeDisabled();
+});
+
+// The test server sends the installed app's content security policy (6.13; vite.config.ts, scripts/e2eCsp.ts), so
+// what the app refuses fails a test here, not in an installer (docs/DESKTOP_GAPS.md, A1).
+test("the page carries the installed app's content security policy", async ({ page }) => {
+  const tauri = JSON.parse(readFileSync(join(import.meta.dirname, '../src-tauri/tauri.conf.json'), 'utf8')) as {
+    app: { security: { csp: string } };
+  };
+  const connectSrc = tauri.app.security.csp
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith('connect-src '));
+  if (!connectSrc) throw new Error('tauri.conf.json’s CSP has no connect-src');
+  const response = await page.goto('/');
+  const policy = response?.headers()['content-security-policy'] ?? '';
+  expect(policy).toContain(connectSrc);
+  expect(policy).toContain("default-src 'self'");
+});
+
+// A1 in miniature: a fetch of a data: URL, as the company logo once was, is refused by connect-src. (This test's own
+// violation is meant, so the run's log shows one "[csp-violation] connect-src" line from it.)
+test("the policy is live: the page can't fetch a data: URL", async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
+  const outcome = await page.evaluate(async () => {
+    const violation = new Promise<string>((resolve) => {
+      document.addEventListener(
+        'securitypolicyviolation',
+        (event) => {
+          resolve(event.effectiveDirective);
+        },
+        { once: true },
+      );
+    });
+    const fetched = await fetch('data:text/plain,x').then(
+      () => 'fetched',
+      () => 'refused',
+    );
+    return { fetched, directive: await violation };
+  });
+  expect(outcome).toEqual({ fetched: 'refused', directive: 'connect-src' });
 });

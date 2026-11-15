@@ -94,8 +94,9 @@ export function logoFile(logo: string, name: string): Promise<File> {
 }
 
 function decodeLogo(logo: string, name: string): File {
-  // Decoded by hand, never fetched: the installed app's CSP (connect-src) refuses a fetch of a data: URL, and the dev
-  // server sends no CSP, so a fetch here worked in every test and failed for everyone with a logo.
+  // Decoded by hand, never fetched: the installed app's CSP (connect-src) refuses a fetch of a data: URL. A fetch here
+  // once passed every test, as their server then sent no CSP, and failed for everyone with a logo (A1). The tests'
+  // server now sends the app's CSP (6.13); `npm run dev` and `tauri dev` still send none.
   // The English of error.notAnImage, as prepareImage raises it, so localizeError shows it in the person's language.
   const unreadable = 'This file isn’t an image Storiiboard can read. JPEG, PNG and WebP work.';
   const match = /^data:([^;,]*)((?:;[^;,]*)*);base64,(.*)$/s.exec(logo);

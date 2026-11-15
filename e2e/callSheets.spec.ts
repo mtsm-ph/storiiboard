@@ -923,6 +923,18 @@ test('a frame marked Have leaves the call sheet, which says nothing is left to s
 });
 
 test('a company attached in Settings → Project prints its name and logo at the top of the sheet and in the PDF (4.12)', async ({ page }) => {
+  // The probe below reads the logo's bytes from its Blob, kept as each blob: URL is made: the installed app's CSP
+  // refuses a fetch of blob: (connect-src), and the app itself never does one.
+  await page.addInitScript(() => {
+    const blobs = new Map<string, Blob>();
+    (window as { __testBlobs?: Map<string, Blob> }).__testBlobs = blobs;
+    const create = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (object: Blob | MediaSource) => {
+      const url = create(object);
+      if (object instanceof Blob) blobs.set(url, object);
+      return url;
+    };
+  });
   await setUp(page);
   await sheet(page).getByRole('button', { name: 'Add everyone' }).click();
   // A profile saved once with a logo, then attached to this project.
@@ -950,7 +962,9 @@ test('a company attached in Settings → Project prints its name and logo at the
   // pixel check below really tests the PDF's sRGB redraw; where it can't, the logo is sRGB. The profile's name is
   // written in ASCII or UTF-16 (isTaggedP3 looks for both), and the engine's P3 support is probed as media.spec does.
   const { tagged, engineP3 } = await header.locator('img').evaluate(async (img) => {
-    const bytes = new Uint8Array(await (await fetch((img as HTMLImageElement).src)).arrayBuffer());
+    const blob = (window as { __testBlobs?: Map<string, Blob> }).__testBlobs?.get((img as HTMLImageElement).src);
+    if (!blob) throw new Error('the logo is not a blob: URL the page made');
+    const bytes = new Uint8Array(await blob.arrayBuffer());
     const head = new TextDecoder('latin1').decode(bytes.subarray(0, Math.min(bytes.length, 64 * 1024)));
     const probe = new OffscreenCanvas(1, 1).getContext('2d', { colorSpace: 'display-p3' });
     if (!probe) throw new Error('no 2d context');
