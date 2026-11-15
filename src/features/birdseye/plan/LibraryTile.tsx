@@ -60,6 +60,7 @@ function sayRefusal(why: PlaceOutcome, label: string, icon = ''): void {
   else if (why === 'noRoom') showInfo(t('library.needsRoom'));
   else if (why === 'noSetup') showInfo(t('library.needsSetup', { what: label }));
   else if (why === 'noScene') showInfo(t('library.pick'));
+  else if (why === 'hasNorth') showInfo(t('library.hasNorth'));
 }
 
 /** The plan takes the focus after a placement or a tool picked, so the arrows nudge and the tool's keys work. */
@@ -295,7 +296,8 @@ function IconButton({
     if (!view) return;
     const why = await placeIcon(view, entry.icon.id, centre, madeIn);
     if (why !== null) sayRefusal(why, entry.label, entry.icon.id);
-    else focusPlan();
+    // The room's north, selected in place of a second (6.6): the plan takes the focus, so the turn keys turn it.
+    if (why === null || why === 'hasNorth') focusPlan();
   };
 
   /** Enter, Space or a click without a drag: a tool picked, or the icon in the middle of the view. */

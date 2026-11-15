@@ -9,7 +9,9 @@ import {
   isGrip,
   isIcon,
   isLight,
+  isNorth,
   isOpening,
+  isSun,
   keptInWall,
   lastKeyUnder,
   MIN_PLAN_SIZE,
@@ -29,13 +31,17 @@ import {
   wallProps,
   wallsAlong,
   CAMERA_ICON,
+  DEFAULT_SUN_TIME,
   LIGHT_ICON,
+  NORTH_ICON,
+  SUN_ICON,
   type BoxFields,
   type CameraFields,
   type GripFields,
   type Hinge,
   type IconFields,
   type LightFields,
+  type NorthFields,
   type OpeningFields,
   type OpeningKind,
   type PlanGeometry,
@@ -43,11 +49,13 @@ import {
   type PlanViewOf,
   type ShownFields,
   type ShownItem,
+  type SunFields,
   type Swing,
 } from '../../../core/model/plan';
 import { CONE_LENGTH_M, isCameraIcon, withoutFrameLinks } from '../../../core/model/planCamera';
 import { BEAM_LENGTH_M, beamFacing, frameSizeBox, FRAME_SIZES, gripKindOf, isLightIcon, liesFlat } from '../../../core/model/planLight';
 import { iconHome } from '../../../core/model/planRooms';
+import { roomNorthItem } from '../../../core/model/planSun';
 import type { Props, SbdRecord } from '../../../core/model/record';
 import { sceneSetups, setupLabel } from '../../../core/model/setup';
 import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
@@ -57,10 +65,11 @@ import { pasted } from '../../../ui/canvas/placement';
 import type { GridSnap } from '../../../ui/canvas/scale';
 import type { CanvasColours, CanvasItem, Geometry, GeometryChange, Point, ReorderMode } from '../../../ui/canvas/types';
 import { reordered, sortKeysFor } from '../../../ui/canvas/zOrder';
-import { cameraBeyond, labelsBeyond, UprightLabels, type CameraLook } from './cameraDraw';
+import { besideBeyond, cameraBeyond, labelsBeyond, type CameraLook } from './cameraDraw';
 import { heightLabel } from './cameraLooks';
 import { IconShape, NameBelow, NoteShape, UnknownIconShape, ZoneShape } from './iconDraw';
 import { lightBeyond, StandingFrameShape, type LightLook } from './lightDraw';
+import { sunBeyond, sunFitExtent, type SunLook } from './sunDraw';
 import { FREE_RESIZE, iconSize, iconUse } from './iconSizes';
 import { frameLabel, iconLabel, planIconOf } from './iconWords';
 import { PLAN_ZOOM, planScale, toCanvas, toMetres } from './planScale';
@@ -254,6 +263,48 @@ export function cameraItem(id: string, fields: CameraFields, unit: PlanUnit, loo
   return { id, ...g, label: cameraAnnounce(fields, unit, look), keepRatio: true, draw, beyond: cameraBeyond(g, look, toCanvas(CONE_LENGTH_M), PLAN_ZOOM.min) };
 }
 
+/** What the room's north is called aloud: "North, 35°". */
+export const northAnnounce = (fields: NorthFields): string => t('plan.announce.north', { degrees: t('plan.degrees', { value: String(Math.round(fields.rotation * 100) / 100) }) });
+
+/**
+ * The room's north for the canvas (6.6): the kit's north arrow at its real size, turned with the item, whose rotation IS
+ * the room's north; its proportions kept. A set height or a name is a label by it, as an icon's.
+ */
+export function northItem(id: string, fields: NorthFields, unit: PlanUnit): CanvasItem {
+  const icon = planIconOf(fields.icon) ?? planIconOf(NORTH_ICON);
+  const g = toCanvasGeometry(fields);
+  const lines = heightLines(fields, unit);
+  const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
+    const common = { width: g.width, height: g.height, zoom: context.zoom, name: lines.length > 0 ? '' : fields.name, colours: context.colours };
+    return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
+  };
+  return { id, ...g, label: northAnnounce(fields), keepRatio: true, draw, ...(lines.length > 0 ? { beyond: labelsBeyond(g, lines, PLAN_ZOOM.min) } : {}) };
+}
+
+/** What a sun path is called aloud: "Sun path, 14:30 · 212° · 38° high", or what it lacks. */
+export const sunAnnounce = (look: SunLook | null): string => {
+  const what = iconLabel(SUN_ICON);
+  if (!look) return what;
+  return t('plan.announce.sun', { what, says: look.kind === 'missing' ? look.lines.join(' · ') : look.label });
+};
+
+/**
+ * A sun path for the canvas (6.6): its icon at its real size, never turned by the handles (its drawing is the compass's),
+ * its proportions kept, and past its box the sun's day round its middle (sunDraw.tsx), or a label saying what it lacks.
+ */
+export function sunItem(id: string, fields: SunFields, look: SunLook | null): CanvasItem {
+  const icon = planIconOf(fields.icon) ?? planIconOf(SUN_ICON);
+  // Never turned (6.6 review): one imported with a turn of its own is drawn upright, as nothing could turn it back.
+  const g = { ...toCanvasGeometry(fields), rotation: 0 };
+  const draw = (context: { zoom: number; colours: CanvasColours }): ReactNode => {
+    const common = { width: g.width, height: g.height, zoom: context.zoom, name: '', colours: context.colours };
+    return icon ? createElement(IconShape, { icon, ...common }) : createElement(UnknownIconShape, common);
+  };
+  // Fit all takes in its whole circle (sunFitExtent), never the far wider reach kept for culling.
+  const fit = look ? sunFitExtent(g, look) : null;
+  return { id, ...g, label: sunAnnounce(look), keepRatio: true, noTurn: true, draw, ...(look ? { beyond: sunBeyond(g, look, PLAN_ZOOM.min) } : {}), ...(fit ? { fitExtent: fit } : {}) };
+}
+
 /** The walls whose ends meet each wall's (within a cell of a millimetre's join), found through a grid of their ends, not pair by pair. */
 function joinedTo(lines: readonly WallLine[]): Map<string, WallLine[]> {
   // Cells of 1 canvas unit (1 cm), far wider than the 1 mm join: two ends that join are in the same or a neighbouring cell.
@@ -323,12 +374,13 @@ function drawOpening(o: OpeningFields, frame: OpeningFrame, colours: CanvasColou
 export function openingItem(id: string, fields: OpeningFields, wall: PlanItemFields, unit: PlanUnit, preview = false): CanvasItem {
   const frame = openingFrame(wall, fields);
   const g = toCanvasGeometry(frame.box);
-  // A set height (decision 11, 6.5 review): a label by it, upright, as every item's is.
+  // A set height (decision 11, 6.5 reviews): a label beside it, upright, on the side away from its wall's height label
+  // (which sits on the wall's normal side), past its own box, so a door's swing never runs through it.
   const lines = heightLines(fields, unit, false);
   return {
     id,
     ...g,
-    ...(lines.length > 0 ? { beyond: labelsBeyond(g, lines, PLAN_ZOOM.min) } : {}),
+    ...(lines.length > 0 ? { beyond: besideBeyond(g, { lines, side: -1, edge: g.height / 2 }, PLAN_ZOOM.min) } : {}),
     label: openingLabel(fields, unit),
     // It snaps along its wall (planConstrain), never by its box.
     snapPoints: [],
@@ -359,6 +411,8 @@ const isIconItem = (item: ShownItem): item is ShownItem & { fields: IconFields }
 const isCameraItem = (item: ShownItem): item is ShownItem & { fields: CameraFields } => isCamera(item.fields);
 const isLightItem = (item: ShownItem): item is ShownItem & { fields: LightFields } => isLight(item.fields);
 const isGripItem = (item: ShownItem): item is ShownItem & { fields: GripFields } => isGrip(item.fields);
+const isNorthItem = (item: ShownItem): item is ShownItem & { fields: NorthFields } => isNorth(item.fields);
+const isSunItem = (item: ShownItem): item is ShownItem & { fields: SunFields } => isSun(item.fields);
 
 /**
  * A view's items for the canvas, kept between calls (6.2a): a wall's item is made again only when its record, the unit,
@@ -373,10 +427,11 @@ export function planItemsBuilder(): (
   locale?: string,
   looks?: ReadonlyMap<string, CameraLook>,
   lights?: ReadonlyMap<string, LightLook>,
+  suns?: ReadonlyMap<string, SunLook>,
 ) => readonly CanvasItem[] {
   let built = new Map<string, Built>();
   let last: readonly CanvasItem[] = [];
-  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map()) => {
+  return (shown, unit, ink, locale = getLocale(), looks = new Map(), lights = new Map(), suns = new Map()) => {
     const walls = shown.filter(isWall);
     const lines = walls.map((item) => lineOf(item.record.id, item.fields));
     const records = new Map(walls.map((item) => [item.record.id, item.record]));
@@ -399,28 +454,30 @@ export function planItemsBuilder(): (
       }
       return null;
     };
+    const openingsOn = new Map<string, (ShownItem & { fields: OpeningFields })[]>();
+    for (const item of shown.filter(isOpeningItem)) openingsOn.set(item.fields.wallId, [...(openingsOn.get(item.fields.wallId) ?? []), item]);
     const wallItems = walls.map((item, i): CanvasItem => {
       const line = lines[i] as WallLine;
       const near = joined.get(line.id) ?? [];
-      const neighbours = near.flatMap((other) => records.get(other.id) ?? []);
+      const heights = heightLines(item.fields, unit, false);
+      // A wall with a height label is made again when a door or window on it changes too: the label sits past its swing.
+      const openings = heights.length > 0 ? (openingsOn.get(item.record.id) ?? []) : [];
+      const neighbours = [...near.flatMap((other) => records.get(other.id) ?? []), ...openings.map((o) => o.record)];
       const same = kept(item, neighbours);
       if (same) return same;
       const outline = wallOutline(line, [line, ...near]).flatMap((p) => [p.x, p.y]);
       const g = toCanvasGeometry(item.fields);
-      // A set height (decision 11, 6.5 review) is a label at the wall's middle, upright, over its ink.
-      const heights = heightLines(item.fields, unit, false);
+      // A set height (decision 11, 6.5 reviews) is a label beside the wall's middle, on its normal side, upright, past a
+      // door that swings that way (cameraDraw.tsx, besidePlace).
+      const clears = openings.map((o) => ({ from: toCanvas(o.fields.along - o.fields.width / 2), to: toCanvas(o.fields.along + o.fields.width / 2), reach: toCanvas(openingFrame(item.fields, o.fields).hi) }));
       const made: CanvasItem = {
         id: item.record.id,
         ...g,
         label: wallLabel(item.fields, unit),
         // A wall snaps by its middle line's ends, never by its box (a move keeps it on the grid line it was on).
         snapPoints: [line.start, line.end],
-        draw: (context) => {
-          const bar = createElement(Line, { key: 'wall', points: outline, closed: true, fill: ink, listening: false });
-          if (heights.length === 0) return bar;
-          const label = createElement(UprightLabels, { key: 'height', width: g.width, height: g.height, zoom: context.zoom, rotation: g.rotation, colours: context.colours, lines: heights, at: 'middle' });
-          return createElement(Fragment, null, bar, label);
-        },
+        draw: () => createElement(Line, { key: 'wall', points: outline, closed: true, fill: ink, listening: false }),
+        ...(heights.length > 0 ? { beyond: besideBeyond(g, { lines: heights, side: 1, edge: g.height / 2, clears }, PLAN_ZOOM.min) } : {}),
       };
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours, item: made });
       return made;
@@ -473,7 +530,26 @@ export function planItemsBuilder(): (
       next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
       return made;
     });
-    const items = [...wallItems, ...openingItems, ...iconItems, ...gripItems, ...lightItems, ...cameraItems];
+    // The room's north (6.6) with the icons, from its own record; sun paths over everything, each made again when its look
+    // (the setup's frames, their day's date, the location's place and zone, the room's north, the selection, the
+    // language: read from other records) changed.
+    const northItems = shown.filter(isNorthItem).map((item): CanvasItem => {
+      const same = kept(item, []);
+      if (same) return same;
+      const made = northItem(item.record.id, item.fields, unit);
+      next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], item: made });
+      return made;
+    });
+    const sunItems = shown.filter(isSunItem).map((item): CanvasItem => {
+      const look = suns.get(item.record.id) ?? null;
+      const key = JSON.stringify(look);
+      const same = kept(item, [], key);
+      if (same) return same;
+      const made = sunItem(item.record.id, item.fields, look);
+      next.set(item.record.id, { record: item.record, unit, ink, locale, neighbours: [], look: key, item: made });
+      return made;
+    });
+    const items = [...wallItems, ...openingItems, ...iconItems, ...northItems, ...gripItems, ...lightItems, ...cameraItems, ...sunItems];
     built = next;
     if (items.length === last.length && items.every((item, i) => item === last[i])) return last;
     last = items;
@@ -515,7 +591,7 @@ export function runRoomId(records: Records, sceneId: string): string | null {
 }
 
 /** The kinds of plan item an edit here writes: each must still read (shownFields) once the edit is written. */
-const WRITTEN_KINDS: readonly string[] = ['wall', 'door', 'window', 'icon', 'camera', 'light', 'flag', 'diffusion'];
+const WRITTEN_KINDS: readonly string[] = ['wall', 'door', 'window', 'icon', 'camera', 'light', 'flag', 'diffusion', 'north', 'sun'];
 
 /**
  * Whether these changes would leave a wall, door, window, icon or camera unreadable (6.3 review, M5): past the plan's
@@ -1202,6 +1278,8 @@ export function placeIconChanges(records: Records, view: PlanViewOf, icon: strin
   const size = iconSize(icon);
   if (!size || iconRefusal(records, view, icon) !== null) return [];
   const plans = plansShown(records, view.sceneId, view.setupId);
+  // One north per room (6.6): placing it where the room has one already places nothing (placeIcon selects that one).
+  if (icon === NORTH_ICON && roomNorthItem(records, plans.room?.id ?? null) !== null) return [];
   const home = iconHome(icon);
   const changes: Change[] = [];
   let planId: string | null = null;
@@ -1222,9 +1300,10 @@ export function placeIconChanges(records: Records, view: PlanViewOf, icon: strin
   if (planId === null) return [];
   const tidy = (m: number) => Math.round(m * 10000) / 10000;
   // A camera icon is placed as a camera (6.4), a light as a light and a flag or diffusion frame as one (6.5), the icon it
-  // was placed as kept; any other as an icon.
-  const kind = isCameraIcon(icon) ? 'camera' : isLightIcon(icon) ? 'light' : (gripKindOf(icon) ?? 'icon');
+  // was placed as kept; north as the room's north and the sun path as a setup's, at noon (6.6); any other as an icon.
+  const kind = isCameraIcon(icon) ? 'camera' : isLightIcon(icon) ? 'light' : icon === NORTH_ICON ? 'north' : icon === SUN_ICON ? 'sun' : (gripKindOf(icon) ?? 'icon');
   const props: Props = { kind, icon, x: tidy(centre.x - size.width / 2), y: tidy(centre.y - size.depth / 2), width: size.width, height: size.depth, rotation: 0 };
+  if (kind === 'sun') props.time = DEFAULT_SUN_TIME;
   const sortKey = keyBetween(changes.length > 0 ? null : lastKeyUnder(records, planId, 'plan_item'), null);
   changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props } });
   // Placed in a view centred past the plan's reach, it would never show: nothing is placed (the plan made for it neither).
@@ -1236,7 +1315,13 @@ export function placeIconChanges(records: Records, view: PlanViewOf, icon: strin
  * (pasteTarget). An icon that belongs to a setup, or any item copied from a setup's own plan (6.2b review), goes into
  * the setup shown, its plan made now when it has none, in the same group; with no setup shown it is left out.
  */
-export function planPasteInView(records: Records, view: PlanViewOf, clip: readonly PlanClip[], at: Point | null, newPlanId: string = crypto.randomUUID()): { ids: string[]; changes: Change[]; leftOut: number } {
+export function planPasteInView(
+  records: Records,
+  view: PlanViewOf,
+  clip: readonly PlanClip[],
+  at: Point | null,
+  newPlanId: string = crypto.randomUUID(),
+): { ids: string[]; changes: Change[]; leftOut: number; northKept?: number } {
   const base = pasteTarget(records, view);
   const plans = plansShown(records, view.sceneId, view.setupId);
   const shown = new Set([plans.room?.id, plans.blocking?.id, plans.setup?.id].filter((id): id is string => typeof id === 'string'));
@@ -1244,12 +1329,30 @@ export function planPasteInView(records: Records, view: PlanViewOf, clip: readon
   const hasSetup = setup?.type === 'setup' && setup.trashedAt === null && setup.parentId === view.sceneId;
   // Holders, since the target sets them as the paste reads each item.
   const made: { id: string | null } = { id: null };
-  const out = { count: 0 };
+  const out = { count: 0, north: 0 };
+  // One north per room (6.6): a paste never makes a second, into a room that has one or twice in one paste.
+  const northIn = new Set<string>();
+  const roomFor = (planId: string | null): string | null => {
+    // A scene with no room has nowhere for it: left out, as any item with no plan to go to (6.6 review).
+    if (planId === null || planKindOf(records, planId) !== 'room') {
+      out.count += 1;
+      return null;
+    }
+    if (northIn.has(planId) || roomNorthItem(records, planId) !== null) {
+      out.north += 1;
+      return null;
+    }
+    northIn.add(planId);
+    return planId;
+  };
   const target = (item: PlanClip): string | null => {
+    // North is the room's alone: into the room shown, whatever plan it was copied from.
+    if (isNorth(item.fields)) return roomFor(plans.room?.id ?? null);
     const from = item.planId ?? null;
     const fromSetup = planKindOf(records, from) === 'setup';
-    // A setup's icon, or any item copied from a setup's own plan (6.2b review), goes into the setup shown.
-    const setupLevel = fromSetup || item.fields.kind === 'camera' || isLight(item.fields) || isGrip(item.fields) || (item.fields.kind === 'icon' && iconHome(item.fields.icon) === 'setup');
+    // A setup's icon, or any item copied from a setup's own plan (6.2b review), goes into the setup shown; a sun path (6.6) too.
+    const setupLevel =
+      fromSetup || item.fields.kind === 'camera' || isLight(item.fields) || isGrip(item.fields) || isSun(item.fields) || (item.fields.kind === 'icon' && iconHome(item.fields.icon) === 'setup');
     if (!setupLevel || (from !== null && shown.has(from) && fromSetup)) return base(item);
     if (!hasSetup || view.setupId === null) {
       out.count += 1;
@@ -1261,9 +1364,11 @@ export function planPasteInView(records: Records, view: PlanViewOf, clip: readon
   };
   const pasted = planPasteChanges(records, target, clip, at);
   // Nothing pasted (refused past the plan's reach, or all left out): no setup plan made for it either.
-  if (pasted.changes.length === 0) return { ids: [], changes: [], leftOut: out.count };
+  // How many norths were left out, only when some were (the room has its one).
+  const north = out.north > 0 ? { northKept: out.north } : {};
+  if (pasted.changes.length === 0) return { ids: [], changes: [], leftOut: out.count, ...north };
   const changes = made.id !== null && view.setupId !== null ? [newPlanChange(records, view.setupId, 'setup', made.id), ...pasted.changes] : pasted.changes;
-  return { ids: pasted.ids, changes, leftOut: out.count };
+  return { ids: pasted.ids, changes, leftOut: out.count, ...north };
 }
 
 /** What the Selection tile changes on icons (6.3); each field it leaves out stays as it is. */
@@ -1335,10 +1440,11 @@ function iconUpdates(records: Records, ids: readonly string[], patch: IconPatch)
 }
 
 /**
- * Whether the turn keys turn an item: a camera (6.4) or a light (6.5), both of which point, and a flag or diffusion
- * frame (6.5 review), set at an angle to a light.
+ * Whether the turn keys turn an item: a camera (6.4) or a light (6.5), both of which point, a flag or diffusion frame
+ * (6.5 review), set at an angle to a light, and the room's north (6.6), whose turn is the room's north. Never a sun path.
  */
-export const turnsByKey = (fields: ShownFields): boolean => fields.kind === 'camera' || fields.kind === 'light' || fields.kind === 'flag' || fields.kind === 'diffusion';
+export const turnsByKey = (fields: ShownFields): boolean =>
+  fields.kind === 'camera' || fields.kind === 'light' || fields.kind === 'flag' || fields.kind === 'diffusion' || fields.kind === 'north';
 
 /** [ and ] or comma and period (6.4): each selected camera, light or frame turned by `by` degrees from where it points now, round its middle; one group. */
 export function turnChanges(records: Records, ids: readonly string[], by: number): Change[] {

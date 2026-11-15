@@ -3,11 +3,12 @@ import { confirmForGood, sizeLabel } from '../../app/confirm';
 import { emptyTrashConfirmed } from '../../app/deleteForGood';
 import { switchedMessage } from '../../app/forGood';
 import { showInfo, showNotice } from '../../app/notice';
+import { usePlanUnit } from '../../app/planUnits';
 import { projectStore, useProject } from '../../app/projectStore';
 import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
 import { trashFocus, useTrashAsk } from './trashFocus';
-import { oldCompanyLogos, restoreChanges, restoreClash, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
+import { northClash, oldCompanyLogos, restoreChanges, restoreClash, restoredName, TRASH_KIND_IN_SENTENCE, TRASH_KIND_LABEL, TRASH_KIND_PLURAL, trashItems, type TrashKind } from './trash';
 import { formatDate, t, tn } from '../../core/i18n';
 
 // The Trash tile (1.20): what's been deleted, newest first, filtered by type and scene, each brought back with one
@@ -30,6 +31,9 @@ function when(iso: string, now = new Date()): string {
 export function TrashTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
+  // A flag's or diffusion frame's size is named in the plan's unit (6.5 review), read here so a change of the setting
+  // names the rows again.
+  const unit = usePlanUnit();
   const [kind, setKind] = useState<TrashKind | ''>('');
   const [chosenScene, setSceneId] = useState('');
   // A live card on a board that names a frame or scene in the Trash opens this tile on it (5.4): each request applied once.
@@ -57,7 +61,7 @@ export function TrashTile() {
   const captionId = useId();
 
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('trashTile.noProjectOpen')}</p>;
-  const all = trashItems(records, project.projectId);
+  const all = trashItems(records, project.projectId, unit);
   const scenes = [...new Map(all.filter((i) => i.sceneId !== null).map((i) => [i.sceneId ?? '', i.sceneName ?? ''])).entries()].sort((a, b) =>
     a[1].localeCompare(b[1], undefined, { numeric: true }),
   );
@@ -93,6 +97,11 @@ export function TrashTile() {
       showNotice(new Error(t('trash.locationClash', { name: clash })));
       return;
     }
+    // One north per room (6.6 review): never brought back beside the north the room has now.
+    if (northClash(projectStore.getState().records, id)) {
+      showNotice(new Error(t('trash.northClash')));
+      return;
+    }
     restoring.current = true;
     let restored = false;
     void projectStore
@@ -105,7 +114,7 @@ export function TrashTile() {
       .then((written) => {
         if (!written || !restored) return;
         // As it's numbered now: a restore can give a frame or a scene a new number.
-        showInfo(t('trash.restored', { name: restoredName(projectStore.getState().records, id) ?? name }), { step: true });
+        showInfo(t('trash.restored', { name: restoredName(projectStore.getState().records, id, unit) ?? name }), { step: true });
         // Focus stays in the list: on the row that took this one's place, or the one before at the end, or on the
         // message that the list is empty now.
         requestAnimationFrame(() => {

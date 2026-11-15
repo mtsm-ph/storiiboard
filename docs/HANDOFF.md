@@ -384,10 +384,11 @@ Lows deferred (noted, not planned yet):
 - **Status line (keep current):** checkpoint 43544879092 passed every job (installers for Kevin's by-hand pass).
   Open, stacked, each reviewed with nothing high or medium left: #152 (5.11), #153 (5.12 and the audit), #154 (6.0;
   60 baselines, Kevin compares), #155 (6.1, schema 14; it also holds 6.0's second-round fixes; 40 baselines). #156 (6.2a;
-  20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes), #159 (6.4; it also holds 6.3's vector icons), #160 (6.5). Next: 6.6 from docs/briefs/6.6-north-sun.md (branch
-  `phase6/6.6-north-sun` off 6.5's), then 6.7 (6.7-cast-moves.md), 6.8 (6.8-layers.md), 6.9
-  (6.9-underlay-measure.md): all four briefs are written; 6.10 (export) and 6.11 (performance) are not: the
-  print path's gaps for plans are listed in PLAN.md under "For 6.10". The test server's output is in every run's
+  20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes), #159 (6.4; it also holds 6.3's vector icons), #160 (6.5), #161 (6.6; it also holds 6.5's second-round fixes). Next: 6.7 from docs/briefs/6.7-cast-moves.md
+  (branch `phase6/6.7-cast-moves` off 6.6's), then 6.8 (6.8-layers.md), 6.9 (6.9-underlay-measure.md), 6.10
+  (6.10-export.md): all four briefs are written; 6.11 (performance) is not. The print path's gaps for plans are
+  listed below under "For 6.10" and in the 6.10 brief. Screenshots the main session looks at come from a probe
+  spec under test-results/probe (not committed): ask the builder for them after any milestone that draws. The test server's output is in every run's
   log now ("[WebServer]" lines): a refused page load is diagnosed from them, never just rerun. Leftovers for Kevin to delete: e2e/zz-probe.spec.ts
   (an old emptied probe, excluded from git locally; it is one of the 3 skipped tests), test-results/PlanTile.bak. For Kevin's eye: icons are stretched to their real footprint (a sofa's drawing is distorted); the
   kit's Parking "P" is SVG text, so it draws in a system font; Spanish icon names are the builder's. Flaky once each, cause not

@@ -95,12 +95,23 @@ export interface CanvasItem extends Geometry {
    */
   moveOnly?: boolean;
   /**
+   * Never turned by the handles (6.6: a plan's sun path, whose drawing is the compass's, not its box's): with one in the
+   * selection, the rotate handle is hidden; it still moves and resizes. Left out (a board's items), nothing changes.
+   */
+  noTurn?: boolean;
+  /**
    * What the item draws past its box (6.4: a camera's field of view and its labels), under the item, never picked and
    * never part of its handles. `bounds` (world units, absolute, the item where it is now) is how far it reaches, so the
    * canvas keeps drawing it while the item's own box is out of view; picking stays on the box. Left out (a board's
    * items), nothing changes.
    */
   beyond?: Beyond;
+  /**
+   * What the item counts for when the view is fitted to it and in the minimap (6.6 review: a plan's sun path, whose 3 m
+   * circle reaches far past its box), world units, absolute, together with its own box. Not `beyond.bounds`, which is
+   * sized for culling at the least zoom and far too big to fit to. Left out (a board's items), its box alone counts.
+   */
+  fitExtent?: Rect;
   /**
    * The least thickness, in screen pixels, a click picks it by (6.5 review: a plan's standing flag, 5 cm deep, is 1 px at
    * 20%): its box is picked at least this thick on each side, about its middle, at any zoom. Left out (a board's items),

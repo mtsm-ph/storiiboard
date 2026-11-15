@@ -1,5 +1,5 @@
 import { useId, useMemo } from 'react';
-import { t, tn, type MessageKey } from '../../../core/i18n';
+import { t, tn, type PluralBase } from '../../../core/i18n';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
 import { planLegend, type LegendHeight, type RoomLine } from '../../../core/model/planLegend';
 import type { SbdRecord } from '../../../core/model/record';
@@ -9,13 +9,62 @@ import { frameItemLabel, iconLabel } from './iconWords';
 import { groupName } from './library';
 import { wattsLabel } from './lightLooks';
 import type { PlanView } from './planActions';
+import { degreesText } from './selectionFields';
 
 // The plan's legend in the Selection tile while nothing is selected (6.5): planLegend's reading (src/core/model), by
 // department, numbers in mono, and the setup's total watts with the lights whose wattage is unknown.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-const ROOM_WORDS: Readonly<Record<RoomLine['kind'], MessageKey>> = { wall: 'legend.walls', door: 'legend.doors', window: 'legend.windows' };
+// Singular for one, plural for more (6.5 second review): "Wall · 3.00 m", "Walls · 2.40 m ×4".
+const ROOM_WORDS: Readonly<Record<RoomLine['kind'], PluralBase>> = { wall: 'legend.walls', door: 'legend.doors', window: 'legend.windows' };
+
+/** A room's line as printed: its kind, its height in the unit shown, and how many. */
+export interface PrintedRoomLine {
+  kind: RoomLine['kind'];
+  height: string;
+  count: number;
+}
+
+/**
+ * The room's lines as the legend prints them. The model keys them by exact metres (planLegend), so 2.43 m and 2.44 m are
+ * two lines; in feet both print 8' 0", and two lines reading the same would look like a mistake, so lines whose printed
+ * text is the same are one, their counts added.
+ */
+export function printedRoomLines(room: readonly RoomLine[], unit: PlanUnit): PrintedRoomLine[] {
+  const lines = new Map<string, PrintedRoomLine>();
+  for (const line of room) {
+    const height = formatLength(line.metres, unit);
+    const key = `${line.kind}\u0000${height}`;
+    const had = lines.get(key);
+    if (had) had.count += line.count;
+    else lines.set(key, { kind: line.kind, height, count: line.count });
+  }
+  return [...lines.values()];
+}
+
+// Stand-ins for the numbers while the line is filled, so they can be set in mono where the language puts them.
+// Private-use characters: no translation or height ever holds one.
+const HEIGHT_MARK = '';
+const COUNT_MARK = '';
+
+/**
+ * A room line as its parts, the numbers in mono: "Wall · 3.00 m" for one, "Walls · 2.40 m ×4" for more, each language
+ * placing the height and the count where it says them.
+ */
+export function roomLineParts(line: PrintedRoomLine): { text: string; mono: boolean }[] {
+  const filled = tn(ROOM_WORDS[line.kind], line.count, { height: HEIGHT_MARK, count: COUNT_MARK });
+  return filled
+    .split(/([])/)
+    .filter((part) => part !== '')
+    .map((part) => (part === HEIGHT_MARK ? { text: line.height, mono: true } : part === COUNT_MARK ? { text: String(line.count), mono: true } : { text: part, mono: false }));
+}
+
+/** A room line as it reads: "Wall · 3.00 m", "Walls · 2.40 m ×4". */
+export const roomLineText = (line: PrintedRoomLine): string =>
+  roomLineParts(line)
+    .map((part) => part.text)
+    .join('');
 
 const heightText = (height: LegendHeight, unit: PlanUnit): string => ('metres' in height ? formatLength(height.metres, unit) : choiceLabel(HEIGHT_LABEL, height.frame));
 
@@ -37,22 +86,27 @@ export function LegendView({ records, view, unit }: { records: Records; view: Pl
       <h3 id={headingId} className="sb-label">
         {t('legend.title')}
       </h3>
-      {legend.room.length > 0 && (
+      {(legend.room.length > 0 || legend.north !== undefined) && (
         // The room first (6.5 review, decision 11): its walls', doors' and windows' set heights, one line per height.
         <div className="flex flex-col gap-0.5" data-legend-group="room">
           <h4 className="sb-label">{t('legend.room')}</h4>
           <ul className="flex flex-col gap-0.5 text-[13px]">
-            {legend.room.map((line) => (
-              <li key={`${line.kind}:${String(line.metres)}`} data-legend-line="">
-                {t(ROOM_WORDS[line.kind])}
-                <span className="font-mono"> · {formatLength(line.metres, unit)}</span>
-                {line.count > 1 && <span className="font-mono"> {t('legend.count', { count: line.count })}</span>}
+            {legend.north !== undefined && (
+              // The room's north (6.6): "North · 35°".
+              <li data-legend-line="" data-legend-north="">
+                {t('legend.north')}
+                <span className="font-mono"> · {degreesText(legend.north)}</span>
+              </li>
+            )}
+            {printedRoomLines(legend.room, unit).map((line) => (
+              <li key={`${line.kind}:${line.height}`} data-legend-line="">
+                {roomLineParts(line).map((part, i) => (part.mono ? <span key={i} className="font-mono">{part.text}</span> : part.text))}
               </li>
             ))}
           </ul>
         </div>
       )}
-      {legend.groups.length === 0 && legend.room.length === 0 ? (
+      {legend.groups.length === 0 && legend.room.length === 0 && legend.north === undefined ? (
         <p className="text-[12px] text-text-muted">{t('legend.empty')}</p>
       ) : (
         legend.groups.map((group) => (

@@ -1,5 +1,6 @@
-import { Group, Line, Rect as KonvaRect, Text } from 'react-konva';
+import { Group, Line, Text } from 'react-konva';
 import { UPRIGHT } from '../../../ui/canvas/ItemNodes';
+import { PAPER } from '../../../ui/canvas/paperColours';
 import type { Beyond, CanvasColours, Rect } from '../../../ui/canvas/types';
 import { unionBounds } from '../../../ui/canvas/viewport';
 
@@ -94,13 +95,20 @@ interface ConeProps {
 
 /** JetBrains Mono's advance, in font sizes: every character is this wide, so a label's width is known without measuring. */
 const MONO_ADVANCE = 0.6;
-const PATCH_PAD_PIXELS = 2;
+
+/** How wide a label's paper halo is drawn, screen pixels (half of it shows round each letter). */
+export const HALO_PIXELS = 3;
+
+/**
+ * A plan label's paper halo (6.6 review): the text stroked in the fixed paper colour under its ink, so a label stays
+ * legible where it crosses a wall, a cone or a beam, with no box behind it. Plans only; the paper is the fixed one, as a
+ * plan is never themed (decision 13). Spread into a Konva Text.
+ */
+export const LABEL_HALO = { stroke: PAPER, strokeWidth: HALO_PIXELS, strokeScaleEnabled: false, fillAfterStrokeEnabled: true, lineJoin: 'round' } as const;
 
 /**
  * Labels under an item's middle, in mono, kept upright whatever way it is turned (a camera's, 6.4; a light's and any
- * item's height, 6.5, decision 11): clear of its box at half its diagonal, as labelReach reckons them. `at: 'middle'`
- * (a wall's height, 6.5 review) centres them on the item's middle instead, each line on a paper patch so it reads over
- * the wall's ink; the item draws them itself, over its own drawing.
+ * item's height, 6.5, decision 11): clear of its box at half its diagonal, as labelReach reckons them.
  */
 export function UprightLabels({
   width,
@@ -109,7 +117,6 @@ export function UprightLabels({
   rotation,
   colours,
   lines,
-  at = 'below',
 }: {
   width: number;
   height: number;
@@ -117,28 +124,9 @@ export function UprightLabels({
   rotation: number;
   colours: CanvasColours;
   lines: readonly string[];
-  at?: 'below' | 'middle';
 }) {
   if (lines.length === 0) return null;
   const size = LABEL_PIXELS / zoom;
-  if (at === 'middle') {
-    const row = size * LINE_HEIGHT;
-    const top = -(lines.length * row) / 2;
-    const pad = PATCH_PAD_PIXELS / zoom;
-    return (
-      <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false}>
-        {lines.map((text, i) => {
-          const wide = text.length * MONO_ADVANCE * size + 2 * pad;
-          return (
-            <Group key={`${String(i)}:${text}`} y={top + i * row} listening={false}>
-              <KonvaRect x={-wide / 2} width={wide} height={row} fill={colours.paper} listening={false} />
-              <Text text={text} x={-wide / 2} y={(row - size) / 2} width={wide} align="center" fontFamily='"JetBrains Mono"' fontSize={size} fill={colours.ink} wrap="none" listening={false} />
-            </Group>
-          );
-        })}
-      </Group>
-    );
-  }
   // Clear of the box whichever way it is turned: half its diagonal from its middle (labelReach reads the same numbers).
   const below = Math.hypot(width, height) / 2 + LABEL_GAP_PIXELS / zoom;
   const span = Math.max(width, LABEL_SPAN_PIXELS / zoom);
@@ -156,6 +144,7 @@ export function UprightLabels({
           fontFamily='"JetBrains Mono"'
           fontSize={size}
           fill={colours.ink}
+          {...LABEL_HALO}
           wrap="none"
           ellipsis
           listening={false}
@@ -208,5 +197,100 @@ export function labelsBeyond(box: { x: number; y: number; width: number; height:
   return {
     bounds: cameraReach(box, null, 0, 0, labelReach(box, lines.length, leastZoom)),
     draw: (context) => <UprightLabels width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} lines={lines} />,
+  };
+}
+
+// A wall's, a door's and a window's height (6.5 second review): beside the item's middle, never on it. A label drawn on
+// a wall was painted out by a door in its middle (openings paint paper over their wall) and ran past a short wall's
+// ends, so it sits off to one side along the box's normal (its local +y, or -y), always the same side for a given
+// direction, so a room drawn the same way round has all its labels inside or all outside. Upright, through the beyond
+// drawing, so the canvas keeps it upright while the handles turn the item; no paper patch, so nothing is notched.
+
+/** Something on the label's side of the item's middle line it must sit past: along the box's width, canvas units. */
+export interface BesideClear {
+  from: number;
+  to: number;
+  /** How far it reaches from the box's middle line, on the label's side. */
+  reach: number;
+}
+
+export interface BesideSpec {
+  lines: readonly string[];
+  /** Which side of the box's middle line: +1 its local +y (the normal), -1 the other. */
+  side: 1 | -1;
+  /** How far the box's own edge is from its middle line on that side. */
+  edge: number;
+  /** What else it sits past where it overlaps the label along the box (a door swinging to the wall's label side). */
+  clears?: readonly BesideClear[];
+}
+
+/** A beside label's size, upright, in canvas units at `zoom`. */
+function besideSize(lines: readonly string[], zoom: number): { width: number; height: number; size: number; row: number } {
+  const size = LABEL_PIXELS / zoom;
+  const row = size * LINE_HEIGHT;
+  const longest = Math.max(0, ...lines.map((text) => text.length));
+  return { width: longest * MONO_ADVANCE * size, height: lines.length * row, size, row };
+}
+
+/**
+ * Where a beside label's middle is in the item's own box (canvas units), and its upright size: off the box's middle along
+ * its normal, past its edge (and anything in `clears` it overlaps along the box) by a fixed gap of screen pixels, plus as
+ * much of the upright label as falls across the turned box, so it never touches it at any rotation.
+ */
+export function besidePlace(box: { width: number; height: number }, spec: BesideSpec, zoom: number, rotation: number): { x: number; y: number; width: number; height: number } {
+  const { width, height } = besideSize(spec.lines, zoom);
+  const turn = (rotation * Math.PI) / 180;
+  const sin = Math.abs(Math.sin(turn));
+  const cos = Math.abs(Math.cos(turn));
+  const mid = box.width / 2;
+  const along = (cos * width) / 2 + (sin * height) / 2;
+  let reach = spec.edge;
+  for (const clear of spec.clears ?? []) if (clear.to > mid - along && clear.from < mid + along) reach = Math.max(reach, clear.reach);
+  const across = (sin * width) / 2 + (cos * height) / 2;
+  return { x: mid, y: box.height / 2 + spec.side * (reach + LABEL_GAP_PIXELS / zoom + across), width, height };
+}
+
+/** A beside label's lines, upright, centred on where besidePlace puts them. */
+export function BesideLabels({ width, height, zoom, rotation, colours, spec }: { width: number; height: number; zoom: number; rotation: number; colours: CanvasColours; spec: BesideSpec }) {
+  if (spec.lines.length === 0) return null;
+  const place = besidePlace({ width, height }, spec, zoom, rotation);
+  const { size, row } = besideSize(spec.lines, zoom);
+  // A character's slack either side, so a line exactly as wide as the mono advance says is never cut.
+  const span = place.width + 2 * size;
+  return (
+    <Group x={place.x} y={place.y} rotation={-rotation} name={UPRIGHT} listening={false}>
+      {spec.lines.map((text, i) => (
+        <Text
+          key={`${String(i)}:${text}`}
+          text={text}
+          x={-span / 2}
+          y={-place.height / 2 + i * row + (row - size) / 2}
+          width={span}
+          align="center"
+          fontFamily='"JetBrains Mono"'
+          fontSize={size}
+          fill={colours.ink}
+          {...LABEL_HALO}
+          wrap="none"
+          listening={false}
+        />
+      ))}
+    </Group>
+  );
+}
+
+/**
+ * The canvas's drawing of a beside label, and how far it can reach: round the box's middle, as far as the furthest
+ * thing it may sit past plus the whole label, worked out for the plan's least zoom (as a camera's labels are), so a
+ * zoom never makes the item again and the label is never culled on screen.
+ */
+export function besideBeyond(box: { x: number; y: number; width: number; height: number; rotation: number }, spec: BesideSpec, leastZoom: number): Beyond {
+  const { width, height } = besideSize(spec.lines, leastZoom);
+  const reach = Math.max(spec.edge, ...(spec.clears ?? []).map((clear) => clear.reach)) + LABEL_GAP_PIXELS / leastZoom + (width + height) / 2;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  return {
+    bounds: { x: cx - reach - width / 2, y: cy - reach - height / 2, width: 2 * reach + width, height: 2 * reach + height },
+    draw: (context) => <BesideLabels width={context.width} height={context.height} zoom={context.zoom} rotation={context.rotation} colours={context.colours} spec={spec} />,
   };
 }

@@ -659,8 +659,10 @@ test('a wall made this setup’s only leaves the scene’s other setup and the s
   await expect.poll(() => widths(page)).toEqual([4]);
 
   // A narrow tile: the header and the tools wrap, nothing runs out of it. 150 px is narrower than the tool group's own
-  // row (measured here, so the test fails if the tools stop wrapping): they must take more than one row.
-  const strip = planTile(page).locator('[data-plan-tile] > div').first();
+  // row (measured here, so the test fails if the tools stop wrapping): they must take more than one row. The heading
+  // and the room's menu are a row of their own above the tools' strip (6.6 review).
+  const strip = planTile(page).locator('[data-plan-tools] > div').first();
+  const heading = planTile(page).locator('[data-plan-heading]');
   const group = strip.getByRole('group', { name: 'Tools' });
   const row = await group.evaluate((el) => [...el.querySelectorAll('button')].reduce((sum, b) => sum + b.getBoundingClientRect().width, 0));
   await planTile(page).locator('[data-plan-tile]').evaluate((tile) => {
@@ -671,6 +673,7 @@ test('a wall made this setup’s only leaves the scene’s other setup and the s
   const rows = await group.evaluate((el) => new Set([...el.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top))).size);
   expect(rows).toBeGreaterThan(1);
   expect(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  expect(await heading.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   const tools = await strip.evaluate((el) => [...el.querySelectorAll('button')].every((b) => b.getBoundingClientRect().right <= el.getBoundingClientRect().right + 1));
   expect(tools).toBe(true);
 });
@@ -729,4 +732,60 @@ test('the focus after the room’s steps: Delete room to the chooser, a room cho
   await window.getByRole('button', { name: 'Delete room SC 01' }).click();
   await expect(window.locator('[data-room-choice]')).toHaveCount(0);
   await expect(window.getByRole('button', { name: 'New room' })).toBeFocused();
+});
+
+/**
+ * Every tool of the plan's strip on screen and reachable (6.6 review: in the Setup workspace's default layout the strip
+ * had wrapped its tools under the canvas, out of sight): visible, inside the tile, above the canvas, and the topmost
+ * element at its own middle.
+ */
+async function toolsShown(page: Page) {
+  const tile = await planTile(page).boundingBox();
+  const canvasBox = await canvas(page).boundingBox();
+  if (!tile || !canvasBox) throw new Error('no tile');
+  const tools = planTile(page).getByRole('group', { name: 'Tools', exact: true }).getByRole('button');
+  await expect(tools).toHaveCount(7);
+  for (const name of ['Select', 'Hand', 'Wall', 'Door', 'Window', 'Camera', 'Light']) {
+    const button = planTile(page).getByRole('group', { name: 'Tools', exact: true }).getByRole('button', { name: new RegExp(`^${name}`) });
+    await expect(button).toBeVisible();
+    const box = await button.boundingBox();
+    if (!box) throw new Error(`no ${name}`);
+    expect(box.x, name).toBeGreaterThanOrEqual(tile.x - 1);
+    expect(box.x + box.width, name).toBeLessThanOrEqual(tile.x + tile.width + 1);
+    expect(box.y, name).toBeGreaterThanOrEqual(tile.y - 1);
+    expect(box.y + box.height, name).toBeLessThanOrEqual(canvasBox.y + 1);
+    const onTop = await button.evaluate((element) => {
+      const r = element.getBoundingClientRect();
+      const at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return at !== null && element.contains(at);
+    });
+    expect(onTop, `${name} is under something`).toBe(true);
+  }
+  // The heading and the room's menu on a row of their own, above the tools.
+  const heading = await planTile(page).locator('[data-plan-header]').boundingBox();
+  const first = await tools.first().boundingBox();
+  expect((heading?.y ?? 0) + (heading?.height ?? 0)).toBeLessThanOrEqual((first?.y ?? 0) + 1);
+  await expect(planTile(page).getByRole('button', { name: /^Room:/ })).toBeVisible();
+}
+
+test('the plan’s tools are all on screen, in the Setup layout and in a tile 320 px wide', async ({ page }) => {
+  await toSection(page, 'Setup');
+  await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
+  await planTile(page).getByRole('button', { name: 'New room' }).click();
+  await expect(canvas(page)).toBeVisible();
+  await toolsShown(page);
+  // The Plan tile alone and 320 px wide: the window narrowed until it is.
+  await planTile(page).getByRole('button', { name: 'Maximize Set plan' }).click();
+  for (let i = 0; i < 4; i += 1) {
+    const width = (await planTile(page).boundingBox())?.width ?? 0;
+    if (Math.abs(width - 320) <= 1) break;
+    const viewport = page.viewportSize() ?? { width: 1440, height: 900 };
+    await page.setViewportSize({ width: Math.round(viewport.width - (width - 320)), height: viewport.height });
+    await page.waitForTimeout(200);
+  }
+  expect(Math.abs(((await planTile(page).boundingBox())?.width ?? 0) - 320)).toBeLessThanOrEqual(1);
+  await toolsShown(page);
+  // Each tool still works from its button.
+  await planTile(page).getByRole('group', { name: 'Tools', exact: true }).getByRole('button', { name: /^Light/ }).click();
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:light');
 });

@@ -5,6 +5,7 @@ import {
   iconIdOf,
   lastKeyUnder,
   newRoomChanges,
+  NORTH_ICON,
   openingFields,
   planFields,
   plansShown,
@@ -273,9 +274,11 @@ export function kindHome(kind: unknown): PlanLevel {
 
 /**
  * The level a library icon belongs to (6.3, decision 2), by its group: a set piece (set-art) the room's, so every scene
- * and setup in the room shows it; a cast icon the scene's blocking; every other the setup's.
+ * and setup in the room shows it; a cast icon the scene's blocking; every other the setup's. North (6.6) is the room's
+ * whatever its group: every scene and setup set there shares it.
  */
 export function iconHome(icon: string): PlanLevel {
+  if (icon === NORTH_ICON) return 'room';
   const group = iconGroup(icon);
   if (group === 'set-art') return 'room';
   if (group === 'cast') return 'blocking';
@@ -307,11 +310,23 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
     for (const r of Object.values(records)) if (r.type === 'plan_item' && r.trashedAt === null && r.props.wall_id === id && r.parentId === wall.parentId) picked.add(r.id);
   }
   const order: PlanLevel[] = ['room', 'blocking', 'setup'];
+  // One north per room (6.6 review): a north out of a setup's plan (an imported file's) goes to a room with none, and
+  // only one of them; else it stays where it is.
+  const roomId = plans.room?.id ?? null;
+  let roomHasNorth = roomId !== null && Object.values(records).some((r) => r.type === 'plan_item' && r.trashedAt === null && r.parentId === roomId && r.props.kind === 'north');
+  const northFits = (): boolean => {
+    if (roomHasNorth) return false;
+    roomHasNorth = true;
+    return true;
+  };
   const moving = [...picked]
     .flatMap((id) => {
       const r = records[id];
       const level = r?.type === 'plan_item' && r.trashedAt === null ? levelOf(r.parentId) : null;
       if (!r || level === null || (on ? level === 'setup' : level !== 'setup')) return [];
+      // The room's north (6.6) is the room's alone: never one setup's.
+      if (on && r.props.kind === 'north') return [];
+      if (!on && r.props.kind === 'north' && !northFits()) return [];
       // A door or window in a wall that is this setup's only stays with its wall (it would show nowhere else).
       if (!on && openingOnSetupWall(records, plans.setup?.id ?? null, r) && !picked.has(openingFields(r.props)?.wallId ?? '')) return [];
       return [{ record: r, level }];

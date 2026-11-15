@@ -7,7 +7,9 @@ import {
   isGrip,
   isIcon,
   isLight,
+  isNorth,
   isOpening,
+  isSun,
   isWallFields,
   keptInWall,
   openingFields,
@@ -37,6 +39,7 @@ import { AlsoIn, useLiveView } from './PlanTile';
 import { CameraFieldsView } from './CameraSelection';
 import { LegendView } from './LegendView';
 import { GripFieldsView, LightFieldsView } from './LightSelection';
+import { NorthFieldsView, SunFieldsView } from './SunSelection';
 import { degreesText, lengthCommit, shared, TypedField } from './selectionFields';
 
 // The Selection tile (6.2a, 6.2b), in the Setup workspace: the selected plan item's fields as it reads them, each typed
@@ -78,8 +81,11 @@ function SelectionContent() {
     const [camera] = selected.flatMap((s) => (isCamera(s.fields) ? [s] : []));
     const [light] = selected.flatMap((s) => (isLight(s.fields) ? [{ id: s.id, fields: s.fields }] : []));
     const frames = selected.flatMap((s) => (isGrip(s.fields) ? [s.fields] : []));
-    // "This setup only" is for what belongs to the room or the scene (walls, set pieces): a setup's own icons are only its already.
-    const movable = ids.some((id) => itemHome(records[id]?.props ?? {}) !== 'setup');
+    const [north] = selected.flatMap((s) => (isNorth(s.fields) ? [{ id: s.id, fields: s.fields }] : []));
+    const [sun] = selected.flatMap((s) => (isSun(s.fields) ? [{ id: s.id, fields: s.fields }] : []));
+    // "This setup only" is for what belongs to the room or the scene (walls, set pieces): a setup's own icons are only its
+    // already, and the room's north (6.6) is the room's alone.
+    const movable = !north && ids.some((id) => itemHome(records[id]?.props ?? {}) !== 'setup');
     return (
       <div className="flex flex-col gap-3 p-3" data-selection-items={ids.join(' ')}>
         {walls.length === selected.length ? (
@@ -92,6 +98,12 @@ function SelectionContent() {
         ) : light && selected.length === 1 ? (
           // A light (6.5): its gear item, watts, beam and height.
           <LightFieldsView id={light.id} fields={light.fields} unit={unit} records={records} />
+        ) : north && selected.length === 1 ? (
+          // The room's north (6.6): its angle.
+          <NorthFieldsView id={north.id} fields={north.fields} records={records} />
+        ) : sun && selected.length === 1 ? (
+          // A sun path (6.6): its time, what it is drawn for, the sun then.
+          <SunFieldsView id={sun.id} fields={sun.fields} records={records} />
         ) : frames.length === selected.length ? (
           // Flags and diffusion (6.5): their gear item and size.
           <GripFieldsView ids={ids} frames={frames} unit={unit} records={records} />

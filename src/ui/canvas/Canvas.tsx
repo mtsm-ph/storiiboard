@@ -4,7 +4,7 @@ import { Circle, Layer, Line, Rect, Shape, Stage, Transformer } from 'react-konv
 import { t, tn } from '../../core/i18n';
 import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
-import { boundsFor, boundsOf, rectFromCorners, topmostAt } from './hitTest';
+import { boundsFor, boundsOf, fitBoundsOf, rectFromCorners, topmostAt, turnsByHandle } from './hitTest';
 import { arrangeForKey, commandForKey, hostToolForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor, type KeyLike } from './keys';
 import { drawnItems } from './culling';
 import { beyondKey, ItemNodes, UPRIGHT, type RegisterNode } from './ItemNodes';
@@ -406,6 +406,9 @@ export function Canvas({
   const locked = handleIds.some((id) => shown.find((item) => item.id === id)?.keepRatio === true);
   // A door or window (6.2b) takes its shape and turn from its wall: no anchors and no turning while one is picked.
   const moveOnly = handleIds.some((id) => shown.find((item) => item.id === id)?.moveOnly === true);
+  // A plan's sun path (6.6) is never turned, a door or window takes its turn from its wall, and a section is always
+  // upright: no rotate handle while one is picked (turnsByHandle).
+  const turnable = turnsByHandle(shown, handleIds);
 
   // What the handlers read, as it is now: they are set up once and must never act on an old view.
   const latest = useRef({ items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale });
@@ -604,7 +607,8 @@ export function Canvas({
     // Fitting the selection with nothing selected does nothing.
     if (which === 'selection' && pool.length === 0) return;
     const { limits: range } = latest.current;
-    onViewportChange(fitBounds(unionBounds(pool.map(boundsOf)), latest.current.size, FIT_PADDING, range.fitMax, range));
+    // An item's fit extent counts with its box (a plan's sun path, its circle); a board's items have none.
+    onViewportChange(fitBounds(unionBounds(pool.map(fitBoundsOf)), latest.current.size, FIT_PADDING, range.fitMax, range));
   };
 
   const zoomTo = (zoom: number) => {
@@ -1272,6 +1276,8 @@ export function Canvas({
       data-links={lineData}
       data-guides={guideData}
       data-tool={tool}
+      // Whether the handles round the selection offer the rotate handle (6.6 review): none while nothing is selected.
+      data-turnable={handleIds.length > 0 ? String(turnable) : undefined}
       data-path={path ? JSON.stringify(path.points) : undefined}
       style={{ cursor, ...(fixedColours ? { background: fixedColours.paper, outlineColor: fixedColours.ink } : {}) }}
       className="relative h-full min-h-60 w-full touch-none overflow-hidden bg-surface select-none focus-visible:-outline-offset-4"
@@ -1478,8 +1484,7 @@ export function Canvas({
             borderStroke={colours.ink}
             borderStrokeWidth={1.5}
             rotateAnchorOffset={24}
-            // A section is always upright.
-            rotateEnabled={!moveOnly && !handleIds.some((id) => shown.find((item) => item.id === id)?.section)}
+            rotateEnabled={turnable}
             rotationSnaps={shift ? ROTATION_SNAPS : []}
             rotationSnapTolerance={shift ? 7.5 : 0}
             // Only a side the gesture shrinks below the least size is refused: a thin item (a plan's 5 cm flag, thinner than

@@ -1,6 +1,7 @@
 import { isCamera, isGrip, isLight, isOpening, isWallFields, PLAN_LAYERS, planItemLayer, shownItems, type GripFields, type PlanLayer } from './plan';
 import { cameraHeight, cameraTitle } from './planCamera';
 import { lightWatts } from './planLight';
+import { sceneNorth } from './planSun';
 import type { SbdRecord } from './record';
 
 // A setup's legend (6.5, decisions 8 and 11), the one reading that the Selection tile shows and 6.10's export prints:
@@ -42,6 +43,8 @@ export interface PlanLegend {
   groups: LegendGroup[];
   /** The setup's lights: their known watts added up, and how many have none. */
   watts: { lights: number; known: number; unknown: number };
+  /** The room's north (6.6), degrees clockwise from up the plan, when the room has one. Shown with the room. */
+  north?: number;
 }
 
 const heightKey = (h: LegendHeight | null): string => (h === null ? '' : 'metres' in h ? `m:${String(h.metres)}` : `f:${h.frame}`);
@@ -73,6 +76,8 @@ export function planLegend(
       else room.set(key, { kind: fields.kind, metres: fields.heightM, count: 1 });
       continue;
     }
+    // North is the room's line (6.6), and a sun path is a drawing, not a thing on set.
+    if (fields.kind === 'north' || fields.kind === 'sun') continue;
     const layer = planItemLayer(record.props);
     if (layer === null) continue;
     let label: string;
@@ -108,5 +113,6 @@ export function planLegend(
     return group ? [{ layer, lines: [...group.values()] }] : [];
   });
   const roomLines = ROOM_ORDER.flatMap((kind) => [...room.values()].filter((line) => line.kind === kind));
-  return { room: roomLines, groups, watts: { ...watts, known: Math.round(watts.known * 10) / 10 } };
+  const north = sceneNorth(records, sceneId);
+  return { room: roomLines, groups, watts: { ...watts, known: Math.round(watts.known * 10) / 10 }, ...(north === null ? {} : { north }) };
 }

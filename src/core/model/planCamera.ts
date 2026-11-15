@@ -95,15 +95,21 @@ function setupReading(records: Records, setupId: string): SetupReading {
   });
 }
 
-/** The live setup a camera's plan belongs to, or null (a camera in a room or a blocking plan shoots no frame). */
-export function cameraSetupId(records: Records, camera: SbdRecord): string | null {
-  const plan = camera.parentId ? records[camera.parentId] : undefined;
+/**
+ * The live setup a plan item's plan belongs to, or null: an item in a room or a blocking plan, or in a setup's plan that
+ * isn't the one the plan view reads (its first live one). The one rule for a camera's frames (6.4) and a sun path's (6.6).
+ */
+export function itemSetupId(records: Records, item: SbdRecord): string | null {
+  const plan = item.parentId ? records[item.parentId] : undefined;
   if (plan?.type !== 'plan' || plan.trashedAt !== null || planFields(plan.props)?.kind !== 'setup' || !plan.parentId) return null;
   const setup = records[plan.parentId];
   if (setup?.type !== 'setup' || setup.trashedAt !== null) return null;
   // Only the setup's own plan (its first live one), as the plan view reads it.
   return setupReading(records, setup.id).planId === plan.id ? setup.id : null;
 }
+
+/** The live setup a camera's plan belongs to, or null (a camera in a room or a blocking plan shoots no frame). */
+export const cameraSetupId = itemSetupId;
 
 /** A setup's frames in board order (setupFrames), read once per records with its cameras. */
 export function cameraSetupFrames(records: Records, setupId: string): readonly SbdRecord[] {

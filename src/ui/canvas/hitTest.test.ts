@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { boundsFor, boundsOf, cornersOf, hitsPoint, marqueeHolds, marqueeTouches, rectFromCorners, topmostAt } from './hitTest';
+import { boundsFor, boundsOf, cornersOf, fitBoundsOf, hitsPoint, marqueeHolds, marqueeTouches, rectFromCorners, topmostAt, turnsByHandle } from './hitTest';
+import { minimapBounds } from './Minimap';
 import type { Geometry } from './types';
 
 const box = (rotation = 0): Geometry => ({ x: 0, y: 0, width: 100, height: 20, rotation });
@@ -38,6 +39,22 @@ describe('hit tests on rotated rectangles', () => {
     ];
     expect(topmostAt(items, { x: 10, y: 10 })?.id).toBe('front');
     expect(topmostAt(items, { x: 500, y: 500 })).toBeUndefined();
+  });
+
+  it('picks a box under a thin item’s widened band before the band; the band only off every box (6.5 second review)', () => {
+    // At 25% a flag 5 units thick, picked 8 px thick (32 units, 16 either side of its middle line y = 2.5), above a light
+    // whose box starts 2 units under the flag's.
+    const light = { id: 'light', x: 0, y: 7, width: 40, height: 40, rotation: 0 };
+    const flag = { id: 'flag', x: 0, y: 0, width: 100, height: 5, rotation: 0, pickThickness: 8 };
+    const items = [light, flag];
+    // Inside the light's box, within 4 px (16 units) of the flag's line: the light.
+    expect(topmostAt(items, { x: 20, y: 10 }, 0.25)?.id).toBe('light');
+    // Off both boxes, within the band: the flag.
+    expect(topmostAt(items, { x: 70, y: 12 }, 0.25)?.id).toBe('flag');
+    // On the flag's own box: the flag, being on top.
+    expect(topmostAt(items, { x: 20, y: 3 }, 0.25)?.id).toBe('flag');
+    // Past the band: nothing.
+    expect(topmostAt(items, { x: 70, y: 30 }, 0.25)).toBeUndefined();
   });
 
   it('a marquee touches an item it crosses, misses one it does not reach, and one inside it', () => {
@@ -91,5 +108,44 @@ describe('the bounds the canvas keeps (5.7)', () => {
     const second = boundsFor(item);
     expect(second).not.toBe(first);
     expect(second).toEqual(boundsOf(item));
+  });
+});
+
+describe('an item’s fit extent (6.6 review)', () => {
+  // A plan's sun path: a 0.8 m box (80 units) whose 3 m circle (radius 300) reaches far past it.
+  const sun = { x: -40, y: -40, width: 80, height: 80, rotation: 0, fitExtent: { x: -300, y: -300, width: 600, height: 600 } };
+
+  it('counts with the box for fitting; an item without one (a board’s) is its box alone', () => {
+    expect(fitBoundsOf(sun)).toEqual({ x: -300, y: -300, width: 600, height: 600 });
+    const plain = { x: 10, y: 20, width: 30, height: 40, rotation: 0 };
+    expect(fitBoundsOf(plain)).toEqual(boundsOf(plain));
+    // A box reaching past its extent keeps its own reach.
+    expect(fitBoundsOf({ ...plain, fitExtent: { x: 0, y: 0, width: 5, height: 5 } })).toEqual({ x: 0, y: 0, width: 40, height: 60 });
+  });
+
+  it('counts in the minimap’s bounds, which take in the whole circle', () => {
+    const bounds = minimapBounds([sun], { cx: 0, cy: 0, zoom: 1 }, { width: 100, height: 100 });
+    expect(bounds.x).toBeLessThanOrEqual(-300);
+    expect(bounds.y).toBeLessThanOrEqual(-300);
+    expect(bounds.x + bounds.width).toBeGreaterThanOrEqual(300);
+    expect(bounds.y + bounds.height).toBeGreaterThanOrEqual(300);
+  });
+});
+
+describe('the rotate handle (6.6 review)', () => {
+  const items = [
+    { id: 'sun', noTurn: true },
+    { id: 'north' },
+    { id: 'door', moveOnly: true },
+    { id: 'section', section: { tab: { x: 0, y: -24, width: 80, height: 24 } } },
+  ];
+
+  it('is hidden while a never-turned item (a sun path), a moved-only one or a section is among those handled', () => {
+    expect(turnsByHandle(items, ['north'])).toBe(true);
+    expect(turnsByHandle(items, ['sun'])).toBe(false);
+    expect(turnsByHandle(items, ['north', 'sun'])).toBe(false);
+    expect(turnsByHandle(items, ['door'])).toBe(false);
+    expect(turnsByHandle(items, ['section'])).toBe(false);
+    expect(turnsByHandle(items, [])).toBe(true);
   });
 });

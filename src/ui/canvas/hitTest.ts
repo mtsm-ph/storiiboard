@@ -27,6 +27,30 @@ export function boundsOf(g: Geometry): Rect {
   return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
+/**
+ * Whether the handles round these items offer the rotate handle: not while one of them is moved only (a door or window,
+ * 6.2b), never turned (a plan's sun path, 6.6) or a section (always upright). A board's other items always turn.
+ */
+export function turnsByHandle(items: readonly { id: string; moveOnly?: boolean; noTurn?: boolean; section?: unknown }[], ids: readonly string[]): boolean {
+  return !ids.some((id) => {
+    const item = items.find((i) => i.id === id);
+    return item?.moveOnly === true || item?.noTurn === true || Boolean(item?.section);
+  });
+}
+
+/**
+ * What an item counts for when a view is fitted to it, and in the minimap: its box, with its `fitExtent` when it has one
+ * (6.6 review: a sun path's circle). A board's items have none, so theirs is their box, as before.
+ */
+export function fitBoundsOf(g: Geometry & { fitExtent?: Rect }): Rect {
+  const box = boundsOf(g);
+  const extent = g.fitExtent;
+  if (!extent) return box;
+  const x = Math.min(box.x, extent.x);
+  const y = Math.min(box.y, extent.y);
+  return { x, y, width: Math.max(box.x + box.width, extent.x + extent.width) - x, height: Math.max(box.y + box.height, extent.y + extent.height) - y };
+}
+
 const known = new WeakMap<object, { key: string; bounds: Rect }>();
 
 /**
@@ -66,11 +90,20 @@ export function pickBoxOf(g: Geometry & { pickThickness?: number }, zoom: number
   return { x: g.x + (g.width - width) / 2, y: g.y + (g.height - height) / 2, width, height, rotation: g.rotation };
 }
 
-/** The topmost item at a point; `inOrder` runs back to front, as the items are drawn. */
+/**
+ * The topmost item at a point; `inOrder` runs back to front, as the items are drawn. With a zoom, in two passes (6.5
+ * second review): every item's own box first, topmost first, and only where none is hit a thin item's widened band, so
+ * a flag's band never takes a click inside the light under it.
+ */
 export function topmostAt<T extends Geometry & { pickThickness?: number }>(inOrder: readonly T[], point: Point, zoom?: number): T | undefined {
   for (let i = inOrder.length - 1; i >= 0; i -= 1) {
     const item = inOrder[i];
-    if (item && hitsPoint(zoom === undefined ? item : pickBoxOf(item, zoom), point)) return item;
+    if (item && hitsPoint(item, point)) return item;
+  }
+  if (zoom === undefined) return undefined;
+  for (let i = inOrder.length - 1; i >= 0; i -= 1) {
+    const item = inOrder[i];
+    if (item && item.pickThickness !== undefined && hitsPoint(pickBoxOf(item, zoom), point)) return item;
   }
   return undefined;
 }

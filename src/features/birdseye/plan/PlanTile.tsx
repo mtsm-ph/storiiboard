@@ -3,10 +3,12 @@ import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
-import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
+import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isNorth, isSun, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
 import { beamDirection } from '../../../core/model/planLight';
+import { sunReading, sunZonePoint } from '../../../core/model/planSun';
+import { useSunZonesAt, type ZonePoint } from '../../../app/timeZone';
 import type { SbdRecord } from '../../../core/model/record';
 import { sceneSetups } from '../../../core/model/setup';
 import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
@@ -45,6 +47,7 @@ import {
 } from './planActions';
 import { cameraLooks } from './cameraLooks';
 import { lightLooks } from './lightLooks';
+import { sunLooks, sunNumbers } from './sunLooks';
 import { iconLabel } from './iconWords';
 import { heightLines, iconCentre, iconRefusal, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
 import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
@@ -373,17 +376,29 @@ function SetupCopyOffer({ view }: { view: PlanView }) {
 
 const TURN_CODES: Readonly<Record<string, 1 | -1>> = { BracketRight: 1, Period: 1, BracketLeft: -1, Comma: -1 };
 const TURN_KEYS: Readonly<Record<string, 1 | -1>> = { ']': 1, '.': 1, '[': -1, ',': -1 };
+/** What Shift makes of the comma, period and bracket keys (US and Dvorak), read only with Shift down. */
+const SHIFTED_TURN_KEYS: Readonly<Record<string, 1 | -1>> = { '>': 1, '<': -1, '}': 1, '{': -1 };
+/**
+ * What a key types where its unshifted character zooms (+ on German and Spanish BracketRight, * with Shift): that key is
+ * the canvas's zoom key, so it never turns, shifted or not (6.5 second review).
+ */
+const ZOOM_KEY_CHARACTERS: ReadonlySet<string> = new Set(['+', '*']);
 
 /**
  * Which way a turn key turns a camera, light or frame (6.4, 6.5): 1 clockwise (] or period), -1 the other way ([ or
  * comma), 0 for any other key. The physical key (`code`) decides first, so Shift on it (< or : on QWERTY; "." on
  * AZERTY's ; key) turns the same way; but never where that key types a letter (Dvorak's v and w sit there, and are the
- * Select and Wall tools). A key with another code turns by what it types (`key`), as Dvorak's own . and , do.
+ * Select and Wall tools), nor where it is the zoom key. A key with another code turns by what it types (`key`), as
+ * Dvorak's own . and , do, and with Shift by their shifted forms (< > { }), so Shift turns 1° there too; never the
+ * German < key (IntlBackslash), where < is no comma's shift.
  */
-export function turnFor(event: { code: string; key: string }): -1 | 0 | 1 {
+export function turnFor(event: { code: string; key: string; shiftKey?: boolean }): -1 | 0 | 1 {
   const byCode = Object.hasOwn(TURN_CODES, event.code) ? TURN_CODES[event.code] : undefined;
-  if (byCode !== undefined) return /^\p{L}$/u.test(event.key) ? 0 : byCode;
-  return (Object.hasOwn(TURN_KEYS, event.key) ? TURN_KEYS[event.key] : undefined) ?? 0;
+  if (byCode !== undefined) return /^\p{L}$/u.test(event.key) || ZOOM_KEY_CHARACTERS.has(event.key) ? 0 : byCode;
+  const byKey = Object.hasOwn(TURN_KEYS, event.key) ? TURN_KEYS[event.key] : undefined;
+  if (byKey !== undefined) return byKey;
+  if (event.shiftKey === true && event.code !== 'IntlBackslash' && Object.hasOwn(SHIFTED_TURN_KEYS, event.key)) return SHIFTED_TURN_KEYS[event.key] ?? 0;
+  return 0;
 }
 
 const openingKindOf = (tool: string): OpeningKind | null => (tool === DOOR_TOOL ? 'door' : tool === WINDOW_TOOL ? 'window' : null);
@@ -413,7 +428,19 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   // Each light's beam and labels (6.5), read live as a camera's are: its watts may be its gear item's.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t()
   const lights = useMemo(() => lightLooks(records, shown, unit, stored ?? []), [records, shown, unit, stored, locale]);
-  const built = useMemo(() => build(shown, unit, INK, locale, looks, lights), [build, shown, unit, locale, looks, lights]);
+  // Each sun path's day (6.6), read live from the setup's frames, their day, their location's place and zone and the
+  // room's north. A location with a place and no zone of its own has its zone looked up by Rust on the desktop; while that
+  // answer is on its way the path shows its icon alone. The browser build has no lookup and never takes this computer's
+  // zone in its place (6.6 review): there, such a location reads "No time zone".
+  const zonePoints = useMemo(
+    () => shown.flatMap((item): ZonePoint[] => (isSun(item.fields) ? [sunZonePoint(records, item.record.id)].filter((p): p is ZonePoint => p !== null) : [])),
+    [records, shown],
+  );
+  const zones = useSunZonesAt(zonePoints);
+  const zonesKey = JSON.stringify([...zones]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t(); the zones by value
+  const suns = useMemo(() => sunLooks(records, shown, zones, stored ?? []), [records, shown, zonesKey, stored, locale]);
+  const built = useMemo(() => build(shown, unit, INK, locale, looks, lights, suns), [build, shown, unit, locale, looks, lights, suns]);
   const scale = useMemo(() => planScale(unit), [unit]);
   const constrain = useMemo(() => planConstrain(shown, unit), [shown, unit]);
   // Where the pointer is while the Door or Window tool is picked: the opening previews where a click would put it.
@@ -450,6 +477,16 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), beam: look?.degrees ?? null, pointing: beamDirection(fields), labels: look?.lines ?? [] };
         }
         if (isGrip(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), labels: heightLines(fields, unit) };
+        // The room's north (6.6): an icon's, its rotation the room's north.
+        if (isNorth(fields)) return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields) };
+        // A sun path (6.6): what it says (its label, or what it lacks) and, drawn, the sun's bearing and true height at its time.
+        if (isSun(fields)) {
+          const look = suns.get(record.id);
+          const numbers = sunNumbers(sunReading(records, record.id, zones), fields.time);
+          const sun = numbers ? { bearing: numbers.at.bearing, altitude: numbers.at.altitude, up: numbers.at.up, hours: numbers.path.hours.map((h) => h.hour) } : null;
+          const says = look?.kind === 'missing' ? look.lines.join(' · ') : (look?.label ?? '');
+          return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), drawn: look?.kind === 'drawn', says, sun };
+        }
         if (isWallFields(fields)) {
           const [start, end] = wallEnds(fields);
           return { id: record.id, level, ...fields, start, end, labels: heightLines(fields, unit, false) };
@@ -458,7 +495,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         return { id: record.id, level, ...fields, labels: heightLines(fields, unit, false), ...(wall ? { ...openingDistances(wall, fields), centre: openingFrame(wall, fields).centre } : {}) };
       }),
     );
-  }, [shown, looks, lights, unit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the zones by value
+  }, [shown, looks, lights, suns, unit, records, zonesKey]);
   const run = (command: CanvasCommand) => {
     switch (command.kind) {
       case 'copy':
@@ -489,12 +527,23 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   };
   return (
     <div className="flex h-full min-h-80 flex-col" data-plan-tile="">
-      <ToolStrip tool={tool} onTool={planStore.getState().setTool} tools={PLAN_TOOLS}>
+      {/* The heading, the room's menu and the notes on one row, the tools on their own below it, each wrapping in a narrow
+          tile (6.6 review). Sharing one wrapping row, the menu's wrapper (h-full, sized for the top bar) took the row's
+          whole height, and the tools wrapped past the strip's foot, under the canvas, out of sight. Each menu sits in a
+          box of its own height here, so nothing in the row can stretch it. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1" data-plan-heading="">
         {header}
-        <RoomMenu sceneId={view.sceneId} room={room} shared={also.length > 0} />
+        <div className="flex h-7">
+          <RoomMenu sceneId={view.sceneId} room={room} shared={also.length > 0} />
+        </div>
         <AlsoIn scenes={also} />
-        <SetupCopyOffer view={view} />
-      </ToolStrip>
+        <div className="flex h-7 empty:hidden">
+          <SetupCopyOffer view={view} />
+        </div>
+      </div>
+      <div data-plan-tools="">
+        <ToolStrip tool={tool} onTool={planStore.getState().setTool} tools={PLAN_TOOLS} />
+      </div>
       <div ref={holder} className="min-h-0 min-w-0 flex-1" data-plan-data={data} data-plan-unit={unit} data-plan-preview={spot ? JSON.stringify({ wallId: spot.wallId, along: spot.along }) : undefined}>
         <Canvas
           label={t('plan.canvasLabel', { name: roomTitle(planFields(room.props)) })}

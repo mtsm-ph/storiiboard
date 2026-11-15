@@ -105,7 +105,8 @@ describe('placing an icon', () => {
     expect(await groups()).toBe(before + 1);
     const plan = setupPlanOf(records(), setups[0]);
     expect(records()[id]?.parentId).toBe(plan?.id);
-    expect(iconFields(records()[id]?.props ?? {})).toMatchObject({ width: 0.9, height: 0.9, x: -0.45, y: -0.45 });
+    expect(iconFields(records()[id]?.props ?? {})).toMatchObject({ width: 0.9, height: 0.71, x: -0.45 });
+    expect(iconFields(records()[id]?.props ?? {})?.y).toBeCloseTo(-0.355, 6);
     // A second one goes into the plan already there.
     const second = placeIconChanges(records(), view, 'sound/boom', { x: 1, y: 1 });
     expect(second.map((c) => c.kind)).toEqual(['create']);

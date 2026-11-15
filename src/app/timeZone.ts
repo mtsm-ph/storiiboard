@@ -84,3 +84,14 @@ export function useZonesAt(points: readonly ZonePoint[]): ReadonlyMap<string, st
   }
   return answers;
 }
+
+/**
+ * The looked-up zone of each point for a sun path (6.6 review), which never takes a stand-in: on the desktop, Rust's
+ * answer as useZonesAt gives it (no entry while it is on its way); outside it (the browser build, where there is no
+ * finder), null for every point, so a location without its own zone reads "No time zone", never this computer's zone,
+ * which would draw the sun hours off. A call sheet keeps useZonesAt's behaviour (4.3).
+ */
+export function useSunZonesAt(points: readonly ZonePoint[]): ReadonlyMap<string, string | null> {
+  const found = useZonesAt(isTauriApp ? points : []);
+  return isTauriApp ? found : new Map(points.map((p) => [p.id, null]));
+}
