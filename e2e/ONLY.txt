@@ -1,0 +1,6 @@
+e2e/plan.spec.ts
+e2e/perspectiveViews.spec.ts
+e2e/planExport.spec.ts
+e2e/macWebKit.spec.ts
+e2e/palette.spec.ts
+e2e/decks.spec.ts
