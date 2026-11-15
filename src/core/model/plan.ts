@@ -692,6 +692,35 @@ export const sceneRoom = (records: Records, sceneId: string): SbdRecord | null =
   return id === null ? null : (records[id] ?? null);
 };
 
+/**
+ * The records indexed once per records object (6.18 last review): the live doors and windows in each wall, from one pass
+ * over the records. A plan gesture asks for them on every pointer move, and a project's records run to thousands (a
+ * sketched storyboard's strokes are records), so a move must read none of them again. Records objects are never changed
+ * in place (each edit makes a new one), so a reading is good for as long as its records object lives.
+ */
+interface RecordsIndex {
+  openings: Map<string, { record: SbdRecord; fields: OpeningFields }[]>;
+}
+const indexes = new WeakMap<Records, RecordsIndex>();
+let indexReadings = 0;
+
+/** How many times the records have been indexed: for tests, which check it is once per records object. */
+export const recordsIndexed = (): number => indexReadings;
+
+function indexOf(records: Records): RecordsIndex {
+  const kept = indexes.get(records);
+  if (kept) return kept;
+  indexReadings += 1;
+  const made: RecordsIndex = { openings: new Map() };
+  for (const record of Object.values(records)) {
+    if (record.trashedAt !== null || record.type !== 'plan_item') continue;
+    const fields = openingFields(record.props);
+    if (fields) made.openings.set(fields.wallId, [...(made.openings.get(fields.wallId) ?? []), { record, fields }]);
+  }
+  indexes.set(records, made);
+  return made;
+}
+
 /** The live plans of a kind under a parent, by sort key, then when made, then id. */
 const plansUnder = (records: Records, parentId: string, kind: PlanKind): SbdRecord[] =>
   Object.values(records)
@@ -725,6 +754,23 @@ export interface ShownPlans {
 
 /** The plans a setup's view combines (a scene with no setup: its room and blocking). */
 export function plansShown(records: Records, sceneId: string, setupId: string | null): ShownPlans {
+  // Read once per records object and view (6.18 last review): a door or window dragged asks on every pointer move.
+  let known = plansMemos.get(records);
+  if (!known) {
+    known = new Map();
+    plansMemos.set(records, known);
+  }
+  const key = `${sceneId}:${String(setupId)}`;
+  const kept = known.get(key);
+  if (kept) return kept;
+  const made = readPlansShown(records, sceneId, setupId);
+  known.set(key, made);
+  return made;
+}
+
+const plansMemos = new WeakMap<Records, Map<string, ShownPlans>>();
+
+function readPlansShown(records: Records, sceneId: string, setupId: string | null): ShownPlans {
   const scene = records[sceneId];
   if (scene?.type !== 'scene' || scene.trashedAt !== null) return { room: null, blocking: null, setup: null, blockings: [] };
   const setup = sceneSetup(records, sceneId, setupId);
@@ -811,11 +857,7 @@ export function keptInWall(o: OpeningFields, wallLength: number): OpeningFields 
 
 /** The live openings in a wall, wherever they sit. */
 export function openingsOf(records: Records, wallId: string): { record: SbdRecord; fields: OpeningFields }[] {
-  return Object.values(records).flatMap((record) => {
-    if (record.type !== 'plan_item' || record.trashedAt !== null) return [];
-    const fields = openingFields(record.props);
-    return fields?.wallId === wallId ? [{ record, fields }] : [];
-  });
+  return [...(indexOf(records).openings.get(wallId) ?? [])];
 }
 
 /** A plan view: the scene, and the setup when one is picked. */

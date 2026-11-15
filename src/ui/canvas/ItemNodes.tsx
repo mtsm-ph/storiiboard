@@ -1,5 +1,5 @@
 import type Konva from 'konva';
-import { memo, useEffect, useLayoutEffect, useState, type ReactElement } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useState, type ReactElement } from 'react';
 import { Group, Rect } from 'react-konva';
 import { elementsFor, staleFor, type MadeFor } from './itemCache';
 import type { CanvasColours, CanvasItem, Point } from './types';
@@ -34,8 +34,19 @@ interface ItemNodeProps {
 }
 
 /** One item's group (its handles' node), and a section's name tab beside it, drawn in the world. */
-const ItemNode = memo(function ItemNode({ item, colours, zoom, inView, register }: ItemNodeProps) {
+const ItemNode = memo(function ItemNode({ item, colours, zoom, inView, ratio, register }: ItemNodeProps) {
   // `ratio` is not read here: `draw` reads window.devicePixelRatio, and it is a prop only so that a change of it draws again.
+  // The drawing in the box, kept while what it is drawn from is the same (6.18 last review): an item moved by a drag, or
+  // drawn anew past its box only (a plan's cone cut live), is a new object with the same `draw`, and its drawing in the
+  // box (an icon's dozens of shapes) was made again on every pointer move. `draw` reads only its context, so the same
+  // function at the same size, colours and zoom draws the same.
+  const { draw, width, height } = item;
+  const body = useMemo(
+    () => (draw ? draw({ width, height, colours, zoom, inView }) : <Rect width={width} height={height} fill={colours.raised} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} />),
+    // `ratio`: a change of screen draws again, as it always has.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [draw, width, height, colours, zoom, inView, ratio],
+  );
   return (
     <Group opacity={item.dim ? DIM_OPACITY : 1}>
       {item.beyond && (
@@ -67,11 +78,7 @@ const ItemNode = memo(function ItemNode({ item, colours, zoom, inView, register 
         rotation={item.rotation}
         listening={false}
       >
-        {item.draw ? (
-          item.draw({ width: item.width, height: item.height, colours, zoom, inView })
-        ) : (
-          <Rect width={item.width} height={item.height} fill={colours.raised} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} />
-        )}
+        {body}
       </Group>
       {item.section?.drawTab && (
         <Group x={item.x} y={item.y} listening={false}>

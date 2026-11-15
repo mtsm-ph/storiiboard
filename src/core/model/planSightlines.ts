@@ -364,6 +364,13 @@ export function sightline(w: Wedge, blockers: readonly Blocker[], stop = true): 
       }
     }
   }
+  // An apex standing in a solid (on a wall's end, or within the tolerance of a face) sees out of it only where its rays
+  // leave the solid soon enough, which turns at no corner: there the shape is followed every ARC_STEP_DEG all round, as
+  // before the 6.18 review (6.18 last review: a light on a wall's end otherwise drew nothing).
+  if (frames.some((f) => distanceTo(f, w.apex) === 0)) {
+    const grid = Math.max(1, Math.ceil(span / (ARC_STEP_DEG * RAD)));
+    for (let k = 1; k < grid; k += 1) angles.push((span * k) / grid);
+  }
   angles.sort((a, b) => a - b);
   const phis: number[] = [];
   for (const a of angles) if (phis.length === 0 || a - (phis[phis.length - 1] ?? 0) > 1e-10) phis.push(a);

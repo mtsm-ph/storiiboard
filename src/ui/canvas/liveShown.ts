@@ -1,5 +1,5 @@
 import { withDraft } from './placement';
-import type { CanvasItem, Geometry, LiveBy } from './types';
+import type { CanvasItem, Geometry, LiveBy, Rect } from './types';
 
 // What the canvas draws during a gesture (5.7, 6.18 review): the items, a drag's draft put on the ones it moves, and the
 // ones the host draws anew for the gesture (CanvasProps.liveItems, a plan's cut cones) in place of their own. Pure, so a
@@ -7,12 +7,13 @@ import type { CanvasItem, Geometry, LiveBy } from './types';
 
 /** What the host draws anew for the live geometry (none without `liveItems`: a board), and whether it is a draft's. */
 export function remadeFor(
-  liveItems: ((live: ReadonlyMap<string, Geometry> | null, by: LiveBy) => ReadonlyMap<string, CanvasItem>) | undefined,
+  liveItems: ((live: ReadonlyMap<string, Geometry> | null, by: LiveBy, seen: Rect | null) => ReadonlyMap<string, CanvasItem>) | undefined,
   draft: ReadonlyMap<string, Geometry> | null,
   handles: ReadonlyMap<string, Geometry> | null,
+  seen: Rect | null = null,
 ): ReadonlyMap<string, CanvasItem> | null {
   if (!liveItems) return null;
-  return draft ? liveItems(draft, 'drag') : liveItems(handles, 'handles');
+  return draft ? liveItems(draft, 'drag', seen) : liveItems(handles, 'handles', seen);
 }
 
 /**

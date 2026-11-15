@@ -1,11 +1,12 @@
 import { isCamera, isLight, isMark, isOpening, isWallFields, openingFields, planItemFields, stopsAtWalls, type OpeningFields, type PlanItemFields, type PlanViewOf, type ShownItem } from '../../../core/model/plan';
 import { boxesMeet, sightline, wallBlocker, wedgeBox, type Blocker, type Box, type Sight, type Wedge } from '../../../core/model/planSightlines';
 import type { Props, SbdRecord } from '../../../core/model/record';
-import type { CanvasItem, Geometry, LiveBy } from '../../../ui/canvas/types';
+import type { CanvasItem, Geometry, LiveBy, Rect } from '../../../ui/canvas/types';
+import { rectsMeet } from '../../../ui/canvas/viewport';
 import type { CameraLook } from './cameraDraw';
 import type { LightLook } from './lightDraw';
 import type { BlockingLooks } from './markLooks';
-import { cameraBeyondOf, lightBeyondOf, markBeyondOf, metresOf, planGeometryChanges, shownWalls } from './planItems';
+import { cameraBeyondOf, lightBeyondOf, markBeyondOf, metresOf, planGeometryUpdates, shownWalls } from './planItems';
 import { beamWedge, coneWedge, localSight, sightSummary, type SightSummary } from './planSights';
 
 // Walls stop cones and beams at once (6.18, decision 5; review items 3 and, second round, 1): while a camera, a light or
@@ -17,7 +18,8 @@ import { beamWedge, coneWedge, localSight, sightSummary, type SightSummary } fro
 // drop, and Escape puts every shape back. One sightline is well under a frame; only the items a gesture touches get one.
 //
 // Where the walls and their doors and windows are mid-gesture is what the drop will write, by construction: the live
-// boxes go through the drop's own planGeometryChanges (a wall resized from its start keeps its openings where they are
+// boxes go through the drop's own geometry (planGeometryUpdates: planGeometryChanges less the moves into another plan,
+// so no sort key is read mid-drawing) (a wall resized from its start keeps its openings where they are
 // in the room and is held at the length they need; an opening lands on the wall it is over), and the shapes are cut by
 // the walls and openings those changes make. So the cone never jumps at the drop.
 
@@ -38,7 +40,8 @@ export interface LiveSightsFrom {
 
 /** The canvas's `liveItems` for a plan, and what the end-to-end tests read of a remake (its shapes' summaries, by id). */
 export interface LiveSights {
-  items: (live: ReadonlyMap<string, Geometry> | null, by: LiveBy) => ReadonlyMap<string, CanvasItem>;
+  /** `seen`: the part of the world in view (canvas units); a still item whose drawing lies wholly out of it is left as it is. */
+  items: (live: ReadonlyMap<string, Geometry> | null, by: LiveBy, seen?: Rect | null) => ReadonlyMap<string, CanvasItem>;
   summaries: (made: ReadonlyMap<string, CanvasItem> | null) => Record<string, SightSummary | null> | null;
 }
 
@@ -83,10 +86,10 @@ export function liveSights(from: LiveSightsFrom): LiveSights {
     stored ??= new Map(walls.map((wall) => [wall.id, wallBlocker(wall.id, wall.fields, openings.filter((o) => o.fields.wallId === wall.id).map((o) => o.fields))]));
     return stored;
   };
-  // Each remake's summaries, for the tests (read after the canvas has drawn it).
-  const told = new WeakMap<ReadonlyMap<string, CanvasItem>, Record<string, SightSummary | null>>();
+  // Each remake's shapes, summarised for the tests only when asked (a release build never asks).
+  const told = new WeakMap<ReadonlyMap<string, CanvasItem>, ReadonlyMap<string, Sight>>();
 
-  const items = (live: ReadonlyMap<string, Geometry> | null, by: LiveBy): ReadonlyMap<string, CanvasItem> => {
+  const items = (live: ReadonlyMap<string, Geometry> | null, by: LiveBy, seen: Rect | null = null): ReadonlyMap<string, CanvasItem> => {
     if (!live) return NONE;
     const blocks = [...live.keys()].filter((id) => {
       const item = shownById.get(id);
@@ -98,7 +101,7 @@ export function liveSights(from: LiveSightsFrom): LiveSights {
     const openingNow = new Map<string, OpeningFields>(openings.map((o) => [o.id, o.fields]));
     const changed = new Set<string>();
     if (blocks.length > 0) {
-      const changes = planGeometryChanges(
+      const changes = planGeometryUpdates(
         from.records,
         blocks.map((id) => ({ id, ...(live.get(id) as Geometry) })),
         wallChoices,
@@ -141,12 +144,15 @@ export function liveSights(from: LiveSightsFrom): LiveSights {
       reached.push(now.box);
     }
     const out = new Map<string, CanvasItem>();
-    const summaries: Record<string, SightSummary | null> = {};
+    const sights = new Map<string, Sight>();
     for (const item of cones) {
       const id = item.record.id;
       const base = builtById.get(id);
       if (!base) continue;
       const g = live.get(id);
+      // Out of view, a still item is drawn anew at the drop, never in between: every cone and beam a 40-wall drag meets
+      // made again each move cost a dev build 70 ms a move (6.18 last review), most of it for items no one could see.
+      if (!g && seen && base.beyond && !rectsMeet(base.beyond.bounds, seen)) continue;
       const fields = g ? { ...item.fields, ...metresOf(g) } : item.fields;
       const made = wedgeOf(item, fields);
       if (!made) continue;
@@ -173,11 +179,15 @@ export function liveSights(from: LiveSightsFrom): LiveSights {
             : undefined;
       if (!beyond) continue;
       out.set(id, { ...base, beyond });
-      summaries[id] = sightSummary(sight);
+      sights.set(id, sight);
     }
     if (out.size === 0) return NONE;
-    told.set(out, summaries);
+    told.set(out, sights);
     return out;
   };
-  return { items, summaries: (made) => (made ? (told.get(made) ?? null) : null) };
+  const summaries = (made: ReadonlyMap<string, CanvasItem> | null): Record<string, SightSummary | null> | null => {
+    const sights = made ? told.get(made) : undefined;
+    return sights ? Object.fromEntries([...sights].map(([id, sight]) => [id, sightSummary(sight)])) : null;
+  };
+  return { items, summaries };
 }
