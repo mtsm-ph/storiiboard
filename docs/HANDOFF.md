@@ -385,7 +385,7 @@ Lows deferred (noted, not planned yet):
   Open, stacked, each reviewed with nothing high or medium left: #152 (5.11), #153 (5.12 and the audit), #154 (6.0;
   60 baselines, Kevin compares), #155 (6.1, schema 14; it also holds 6.0's second-round fixes; 40 baselines). #156 (6.2a;
   20 baselines), #157 (6.2b), #158 (6.3; it also holds 6.2b's second-round fixes), #159 (6.4; it also holds 6.3's vector icons), #160 (6.5), #161 (6.6; it also holds 6.5's second-round fixes), #162 (6.7; it also holds 6.6's second-round fixes), #163 (6.8; it also holds 6.7's second-round fixes), #164 (6.9; it also holds 6.8's second-round fixes), #165 (6.10; it also holds 6.9's second-round lows), #166 (6.11; it also holds 6.10's second-round fixes).
-  **Phase 6 is built: every milestone has had its review rounds and nothing high or medium is open.** Next: Kevin's
+  **Phase 6 is built: every milestone has had its review rounds and nothing high or medium is open.** The gate checkpoint: `checkpoint/phase6-gate` at d8a2730, run 43665582987, every job green Nov 14 (smoke and screenshots on Linux and in WebKit on the Mac, both installers): Kevin's checklist runs from its installers. Next: Kevin's
   gate (the checklist below, "Phase 6 gate"), his merges, then Phase 7 in plan mode. Local end-to-end runs use 8
   workers since Nov 14 (playwright.config.ts says why).
   Local full runs use 12 workers on this 24-thread computer; tests that start in the first wave pay a slow first
