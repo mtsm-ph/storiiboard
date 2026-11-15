@@ -26,7 +26,8 @@ export interface CameraLook {
   edgesOnly?: boolean;
 }
 
-const FILL_OPACITY = 0.08;
+/** The cone's fill: ink at 8% (exported for the print tests, 6.20 review). */
+export const FILL_OPACITY = 0.08;
 const EDGE_OPACITY = 0.55;
 const LABEL_PIXELS = 11;
 /** The labels' line height, in label sizes. */

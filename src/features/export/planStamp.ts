@@ -28,6 +28,8 @@ export interface StampBox {
 const ASCENT = 1984 / 2048;
 const DESCENT = 494 / 2048;
 const MM = 72 / 25.4;
+/** The smallest type a stamp is set in, points: under it, there is no stamp. */
+const MIN_SIZE = 1;
 
 /** The paper outline round the letters (renderFrame.ts watermarkOutline): half of it shows outside them. */
 const outlineOf = (size: number): number => Math.max(1.5, size / 6);
@@ -42,9 +44,11 @@ export const stampInset = (page: Size): number => Math.max(4 * MM, Math.min(page
  * The stamp's box on a plan page: the size the storyboard's rule gives (4.5% of the page's short edge, at least 8 pt),
  * in its corner or the centre of the plan box less the inset, above the foot band's rule (so a bottom-left stamp sits
  * above the scale bar, never on it). A stamp wider or taller than that room is set smaller until it fits whole: it is
- * never cut. `widthAt` is the text's advance at a size, points.
+ * never cut. `widthAt` is the text's advance at a size, both in the page's units (a plan page's are points, LANDSCAPE:
+ * the callers convert anyway, so a page whose units aren't points still measures right). Null when the room is smaller
+ * than the outline alone: no stamp rather than a speck.
  */
-export function planStampBox(room: WatermarkRoom, page: Size, position: WatermarkPosition, widthAt: (size: number) => number): StampBox {
+export function planStampBox(room: WatermarkRoom, page: Size, position: WatermarkPosition, widthAt: (size: number) => number): StampBox | null {
   const inset = stampInset(page);
   const left = room.box.x + inset;
   const right = room.box.x + room.box.width - inset;
@@ -58,6 +62,8 @@ export function planStampBox(room: WatermarkRoom, page: Size, position: Watermar
     const o = outer(size);
     return o.width <= roomW + 1e-9 && o.height <= roomH + 1e-9;
   };
+  // A room the outline's floor (1.5 pt) alone doesn't fit, nor the smallest stamp: none.
+  if (!fits(MIN_SIZE)) return null;
   // Too big for the room: the largest size that fits, found by halving (the outline's floor of 1.5 pt keeps the stamp's
   // box from growing quite in proportion to its size, so a single ratio would leave it short or over).
   let size = most;
@@ -69,7 +75,7 @@ export function planStampBox(room: WatermarkRoom, page: Size, position: Watermar
       if (fits(mid)) low = mid;
       else high = mid;
     }
-    size = Math.max(low, 0.01);
+    size = Math.max(low, MIN_SIZE);
   }
   const { width, height } = outer(size);
   const x = position === 'center' ? left + (roomW - width) / 2 : position.endsWith('left') ? left : right - width;

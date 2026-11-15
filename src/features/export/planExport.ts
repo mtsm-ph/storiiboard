@@ -22,7 +22,7 @@ import { paintOps } from './displayPaint';
 import { paddedScene, safeName } from './names';
 import { writingStatus } from './pdfStoryboardFormat';
 import { dayPlanViews, departmentViews, planPages, printableViews, projectCandidates, sceneCandidates, scaleWords, type LeftOut, type PlanDepartments, type PlanPage, type PlanView } from './planPages';
-import { bundledMeasure, planDrawing, planPrintPage, preparePlanFonts, preparePlanPictures } from './planRender';
+import { bundledMeasure, planDrawing, planPrintPage, preparePlanFonts, preparePlanPictures, preparePlanStampFont } from './planRender';
 import type { ExportContext, ExportFormat, ExportResult } from './registry';
 import { drawPlanStamp, drawWatermark } from './renderFrame';
 import type { ExportScope } from './scope';
@@ -202,6 +202,8 @@ async function writePlanPdf(format: ExportFormat, context: ExportContext): Promi
  */
 export async function paintPage(page: PrintPage, file: ProjectFile, watermark: Watermark | null = null): Promise<{ bytes: Uint8Array; unprintable: number }> {
   const scale = PNG_DPI / 72;
+  // The stamp's face loaded before the canvas measures it (6.20 review): a fallback's widths would put it off its box.
+  if (watermark && page.watermarkRoom) await preparePlanStampFont(watermark.text);
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(page.width * scale);
   canvas.height = Math.round(page.height * scale);

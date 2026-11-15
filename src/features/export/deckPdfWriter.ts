@@ -616,8 +616,10 @@ async function drawWatermark(
   let x: number;
   let y: number;
   if (plan) {
-    // In the page's units, y down; the PDF's points, y up.
-    const stamp = planStampBox(plan.room, plan.page, watermark.position, widthAt);
+    // In the page's units, y down; the PDF's points, y up. A plan page's units are points (scale 1, LANDSCAPE), but the
+    // width is measured at the printed size and brought back to the page's units all the same, so it holds at any scale.
+    const stamp = planStampBox(plan.room, plan.page, watermark.position, (s) => widthAt(s * plan.scale) / plan.scale);
+    if (!stamp) return;
     type = stamp.size * plan.scale;
     x = stamp.textX * plan.scale;
     y = size.height - stamp.baseline * plan.scale;

@@ -15,13 +15,14 @@ import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { DIM_OPACITY } from '../../ui/canvas/ItemNodes';
 import { RAISED } from '../../ui/canvas/paperColours';
 import type { CanvasItem } from '../../ui/canvas/types';
+import { FILL_OPACITY as CONE_FILL } from '../birdseye/plan/cameraDraw';
 import { iconShapesOf } from '../birdseye/plan/iconDraw';
 import { setLayerShow, showAllLayers } from '../birdseye/plan/layersStore';
 import { drawWallsChanges, openingProps, placeIconChanges } from '../birdseye/plan/planItems';
 import { arcCubics, displayOps, parsePathData, parsePaint, wedgeTurn, type DisplayOp, type Matrix, type PrintNode, type Segment } from './deckDisplay';
 import { paintOps } from './displayPaint';
 import { leftOutWords, planDayPdf, planExportName, planPageWarnings, planScenePdf, planSetupPdf, planSetupPng, type PlanTarget } from './planExport';
-import { writeDeckPdf, type FontLoader, type PictureLoader, type PrintPage } from './deckPdfWriter';
+import { pdfPageSize, writeDeckPdf, type FontLoader, type PictureLoader, type PrintPage } from './deckPdfWriter';
 import {
   chooseScale,
   dayPlanViews,
@@ -1274,7 +1275,7 @@ describe('per-department prints (6.17)', () => {
     expect(pages.map((page) => page.plan?.items.some((item) => item.id === camera))).toEqual([true, true, true]);
   });
 
-  it('writes the lighting print’s PDF with the light’s beam and without the camera’s cone', async () => {
+  it('writes the lighting print’s PDF with the light’s beam and the camera’s cone dimmed', async () => {
     const { sceneId, setupId } = await furnished();
     const [everything] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());
     const [lighting] = planPages(records(), project.projectId, departmentViews(records(), [{ sceneId, setupId }], 'lighting'), options());
@@ -1286,6 +1287,8 @@ describe('per-department prints (6.17)', () => {
     const alphas = await alphasOf(pdf.bytes);
     expect(alphas).toContain(0.18);
     expect(alphas).not.toContain(0.08);
+    // The cone is there, dimmed: its fill at the canvas core's dim (Kevin, Nov 15), as the PDF writer rounds it.
+    expect(alphas).toContain(Math.round(DIM_OPACITY * CONE_FILL * 1000) / 1000);
     const [text] = await pdfText(pdf.bytes);
     expect(text).toContain('Setup 1 · Lighting');
     expect(text).toContain('Fresnel');
@@ -1469,6 +1472,44 @@ describe('what a department print shows (Kevin, Nov 15)', () => {
     expect(Math.max(...itemOpacities(castPage, camera))).toBe(round(DIM_OPACITY));
   });
 
+  it('prints the room’s set pieces in full on lighting’s page, in the room plan or the setup alone, and lists none in its legend (6.20 review)', async () => {
+    const { sceneId, setupId, camera } = await furnished();
+    const view = { sceneId, setupId };
+    await apply(placeIconChanges(records(), view, 'set-art/sofa', { x: 0, y: 2 }, 'sofa'));
+    await apply(placeIconChanges(records(), view, 'set-art/table', { x: -2, y: 1 }, 'table'));
+    // The sofa is the room's; the table is moved into the setup's own plan (a set piece in one setup only).
+    const setupPlan = records()[camera]?.parentId ?? '';
+    expect(records()['sofa']?.parentId).not.toBe(setupPlan);
+    await apply([{ kind: 'move', id: 'table', parentId: setupPlan, sortKey: 'zz' }]);
+    expect(records()['table']?.parentId).toBe(setupPlan);
+    expect(shownItems(records(), sceneId, setupId).map((item) => item.record.id)).toEqual(expect.arrayContaining(['sofa', 'table']));
+    const page = pageOf(sceneId, setupId, 'lighting');
+    for (const id of ['sofa', 'table']) {
+      const item = page.plan?.items.find((i) => i.id === id);
+      expect(item, id).toBeDefined();
+      expect(item?.dim, id).not.toBe(true);
+    }
+    // The legend: lighting's own lines; no set and art line for the sofa or the table.
+    expect(rowsOf(page)).toEqual(['LIGHTING', 'Fresnel · 2.40 m · 650 W', 'Total 650 W']);
+    // They give lighting nothing of its own: the same pages for each department, art's added for its set pieces.
+    expect(departmentViews(records(), [view], 'each').map((v) => v.department)).toEqual(['camera', 'lighting', 'grip', 'set-art']);
+  });
+
+  it('gives a setup whose only items are set pieces a page for art alone', async () => {
+    const p = project.projectId;
+    const sceneId = crypto.randomUUID();
+    const setupId = crypto.randomUUID();
+    await apply([
+      { kind: 'create', record: { id: sceneId, type: 'scene', parentId: p, sortKey: '1', props: { number: '9' } } },
+      { kind: 'create', record: { id: setupId, type: 'setup', parentId: sceneId, sortKey: 'a', props: { name: '' } } },
+    ]);
+    await apply(startRoomChanges(records(), p, sceneId));
+    await apply(drawWallsChanges(records(), sceneId, [{ x: -300, y: -300 }, { x: 300, y: -300 }]).changes);
+    await apply(placeIconChanges(records(), { sceneId, setupId }, 'set-art/sofa', { x: 0, y: 1 }, 'sofa'));
+    expect(departmentViews(records(), [{ sceneId, setupId }], 'each').map((view) => view.department)).toEqual(['set-art']);
+    expect(departmentViews(records(), [{ sceneId, setupId }], 'lighting')).toEqual([]);
+  });
+
   it('gives a department whose setup holds only cameras and marks as context no page', async () => {
     const p = project.projectId;
     const sceneId = crypto.randomUUID();
@@ -1495,6 +1536,12 @@ describe('the watermark inside the plan box (Kevin, Nov 15)', () => {
   /** The text's width as the test's PDF writer measures it: its fonts give Inter Tight Bold for weight 600. */
   const widthAt = (text: string) => (size: number) => measure(text, 'sansBold', size);
   const meets = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  /** The stamp's box where one is expected (planStampBox gives none for a room too small for it). */
+  const stampBox = (...args: Parameters<typeof planStampBox>) => {
+    const box = planStampBox(...args);
+    if (!box) throw new Error('no stamp');
+    return box;
+  };
   /** A plan page on the paper: the legend at the right (a room 8 by 6 m) or as a band at its foot (30 by 4 m). */
   const layout = async (paper: 'a4' | 'letter', wide: boolean) => {
     const { sceneId, setupId } = await sized(wide ? 30 : 8, wide ? 4 : 6);
@@ -1520,7 +1567,7 @@ describe('the watermark inside the plan box (Kevin, Nov 15)', () => {
         const header = { x: PAGE_MARGIN, y: PAGE_MARGIN, width: page.size.width - 2 * PAGE_MARGIN, height: HEADER_HEIGHT };
         const most = Math.max(8, Math.min(page.size.width, page.size.height) * 0.045);
         for (const position of POSITIONS) {
-          const box = planStampBox(room, page.size, position, widthAt('DRAFT STAMP'));
+          const box = stampBox(room, page.size, position, widthAt('DRAFT STAMP'));
           const what = `${paper} ${wide ? 'band' : 'column'} ${position}`;
           expect(box.size, what).toBeCloseTo(most, 9);
           expect(box.x, what).toBeGreaterThanOrEqual(area.box.x + inset - 1e-9);
@@ -1549,7 +1596,7 @@ describe('the watermark inside the plan box (Kevin, Nov 15)', () => {
     const inset = stampInset(page.size);
     const long = 'FOR REVIEW ONLY · NOT FOR DISTRIBUTION · '.repeat(4);
     for (const position of POSITIONS) {
-      const box = planStampBox(room, page.size, position, widthAt(long));
+      const box = stampBox(room, page.size, position, widthAt(long));
       expect(box.size, position).toBeLessThan(Math.min(page.size.width, page.size.height) * 0.045);
       // The whole text and its outline in the box: its width as measured at the size it is set.
       expect(box.width, position).toBeCloseTo(widthAt(long)(box.size) + Math.max(1.5, box.size / 6), 9);
@@ -1559,12 +1606,32 @@ describe('the watermark inside the plan box (Kevin, Nov 15)', () => {
     }
   });
 
+  it('measures on plan pages whose units are the PDF’s points (scale 1) on A4 and Letter, and gives no stamp for a room smaller than its outline', () => {
+    // The PDF writer turns the page's units into points by its width; a plan page's are points already, on both papers.
+    for (const paper of ['a4', 'letter'] as const) {
+      const size = pdfPageSize(paper, 'landscape');
+      expect(size.width / LANDSCAPE[paper].width, paper).toBeCloseTo(1, 9);
+      expect(size.height / LANDSCAPE[paper].height, paper).toBeCloseTo(1, 9);
+    }
+    const page = LANDSCAPE.a4;
+    const inset = stampInset(page);
+    // A box whose room past the inset is a point square: smaller than the 1.5 pt outline, so no stamp at all.
+    const tiny = { box: { x: 100, y: 100, width: 2 * inset + 1, height: 2 * inset + 1 }, footTop: 1000 };
+    for (const position of POSITIONS) expect(planStampBox(tiny, page, position, widthAt('DRAFT STAMP')), position).toBeNull();
+    // A box with room past the inset for a stamp at the smallest size has one, inside it.
+    const small = { box: { x: 100, y: 100, width: 2 * inset + 12, height: 2 * inset + 4 }, footTop: 1000 };
+    const box = planStampBox(small, page, 'center', widthAt('DRAFT STAMP'));
+    expect(box).not.toBeNull();
+    expect(box?.size ?? 0).toBeGreaterThanOrEqual(1);
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(100 + inset + 12 + 1e-9);
+  });
+
   it('sits a bottom-left stamp above the scale bar, never on it', async () => {
     const page = await layout('letter', false);
     const area = page.plan as PlanArea;
     const room = printed(page).watermarkRoom;
     if (!room) throw new Error('no room for the stamp');
-    const box = planStampBox(room, page.size, 'bottom-left', widthAt('DRAFT STAMP'));
+    const box = stampBox(room, page.size, 'bottom-left', widthAt('DRAFT STAMP'));
     const band = footBand(area);
     // The bar is drawn 19 pt into the band, its words above it: all of it under the band's rule.
     const bar = { x: band.x + 8, y: band.y + 19, width: area.bar.length * area.pointsPerUnit, height: 3.5 };
@@ -1583,7 +1650,7 @@ describe('the watermark inside the plan box (Kevin, Nov 15)', () => {
     const texts = await pdfText(bytes);
     expect(texts.map((text) => text.includes('DRAFT STAMP'))).toEqual([true, false, true]);
     // Where pdf.js finds its text: the box's text start and baseline (the PDF's y up), at its size.
-    const box = planStampBox(room, page.size, 'bottom-right', widthAt('DRAFT STAMP'));
+    const box = stampBox(room, page.size, 'bottom-right', widthAt('DRAFT STAMP'));
     const doc = await getDocument({ data: bytes.slice(), disableFontFace: true, useSystemFonts: false }).promise;
     const found = (await (await doc.getPage(1)).getTextContent()).items.flatMap((item) => ('str' in item && item.str.includes('DRAFT') ? [item.transform as number[]] : []));
     await doc.destroy();

@@ -62,7 +62,7 @@ function drawStroke(ctx: Canvas2D, stroke: Stroke, width: number, height: number
   ctx.stroke();
 }
 
-const WATERMARK_FONT = (size: number) => `600 ${String(size)}px "Inter Tight", "Helvetica Neue", Arial, sans-serif`;
+export const WATERMARK_FONT = (size: number) => `600 ${String(size)}px "Inter Tight", "Helvetica Neue", Arial, sans-serif`;
 
 /**
  * The watermark's type size: 4.5% of the frame's short edge, so a tall frame gets the size a wide one does, then
@@ -119,8 +119,9 @@ export function drawPlanStamp(ctx: Canvas2D, watermark: Watermark, room: Waterma
     ctx.font = WATERMARK_FONT(size * scale);
     return ctx.measureText(watermark.text).width / scale;
   };
-  ctx.save();
   const stamp = planStampBox(room, page, watermark.position, measureAt);
+  if (!stamp) return;
+  ctx.save();
   const size = stamp.size * scale;
   ctx.globalAlpha = watermark.opacity;
   ctx.font = WATERMARK_FONT(size);

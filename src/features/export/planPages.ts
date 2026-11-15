@@ -757,18 +757,25 @@ export const PRINT_DEPARTMENTS: readonly PlanLayer[] = LAYER_ORDER;
 
 /**
  * The room a department's print always shows, as context: its walls, doors and windows, its underlay, north and the
- * sun path. Everything else prints only on its own department's page, but the cameras and cast marks, which every page
- * shows dimmed (DIMMED_CONTEXT).
+ * sun path; with them its set pieces (isContext). Everything else prints only on its own department's page, but the
+ * cameras and cast marks, which every page shows dimmed (DIMMED_CONTEXT).
  */
 const ROOM_CONTEXT: ReadonlySet<string> = new Set(['wall', 'door', 'window', 'underlay', 'north', 'sun']);
 
 const isRoomContext = (item: ShownItem): boolean => ROOM_CONTEXT.has(item.fields.kind);
 
 /**
- * An item every department's print shows as context: the room's, and (6.17 review) an item with no layer (layerOfItem
- * null: an icon a newer version wrote), which the screen always draws, so no page leaves it out.
+ * An item every department's print shows as context, in full: the room's, its set pieces too (the set and art layer,
+ * wherever they sit, room plan or one setup only: the room is walls, doors, windows, set pieces, underlay and north;
+ * 6.20 review), and (6.17 review) an item with no layer (layerOfItem null: an icon a newer version wrote), which the
+ * screen always draws, so no page leaves it out. Context never gives a department a page (departmentHasItems), and the
+ * legend of another department's print lists none of it (legendEntries keeps to the department's own group).
  */
-const isContext = (records: Records, item: ShownItem): boolean => isRoomContext(item) || layerOfItem(records, item.record) === null;
+const isContext = (records: Records, item: ShownItem): boolean => {
+  if (isRoomContext(item)) return true;
+  const layer = layerOfItem(records, item.record);
+  return layer === null || layer === 'set-art';
+};
 
 /**
  * The layers every department's print shows as dimmed context (Kevin, Nov 15): the cameras with their cones and the cast
