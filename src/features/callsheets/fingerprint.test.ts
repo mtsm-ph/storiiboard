@@ -113,6 +113,30 @@ describe('changed since issued', () => {
     expect(await changedSince(issue, sheetOf(base({ day: { call_time: '06:30' } })), 'google', 'Bey County')).toBe(true);
   });
 
+  it('stays unchanged for two days tied on date and sort key: they keep the numbers they had, in creation order (6.6 second review)', async () => {
+    // 'a-late' was made after 'd' but its id sorts first: an id tie-break alone would make it Day 1 and flip both issues.
+    const late = (sortKey: string): SbdRecord[] => [
+      { ...record('a-late', 'shoot_day', 'p', { date: '2030-11-16', call_time: '08:00' }, sortKey), createdAt: '2026-11-11T10:00:00.000Z' },
+      { ...record('cs2', 'callsheet', 'a-late', { notes: 'Second unit' }), createdAt: '2026-11-11T10:00:00.000Z' },
+    ];
+    const sheetFor = (records: ReturnType<typeof base>, dayId: string) => {
+      const sheet = callSheet(records, 'p', dayId, undefined, zones);
+      if (!sheet) throw new Error('no sheet');
+      return sheet;
+    };
+    // As issued before the tie-break: told apart by sort key, so numbered as creation order numbered them.
+    const before = base({ extra: late('n') });
+    const issued = { d: await callSheetFingerprint(sheetFor(before, 'd'), 'google', 'Bey County'), late: await callSheetFingerprint(sheetFor(before, 'a-late'), 'google', 'Bey County') };
+    const tied = base({ extra: late('m') });
+    const backwards = recordsOf(...Object.values(tied).reverse());
+    for (const records of [tied, backwards]) {
+      expect(sheetFor(records, 'd').day.number).toBe(1);
+      expect(sheetFor(records, 'a-late').day.number).toBe(2);
+      expect(await changedSince({ fingerprint: issued.d, fingerprintVersion: FINGERPRINT_VERSION }, sheetFor(records, 'd'), 'google', 'Bey County')).toBe(false);
+      expect(await changedSince({ fingerprint: issued.late, fingerprintVersion: FINGERPRINT_VERSION }, sheetFor(records, 'a-late'), 'google', 'Bey County')).toBe(false);
+    }
+  });
+
   it('cannot say for a version this app has no recipe for, or none stored: null, never "unchanged"', async () => {
     const sheet = sheetOf(base());
     expect(hasRecipe(FINGERPRINT_VERSION)).toBe(true);

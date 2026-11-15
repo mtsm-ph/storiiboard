@@ -22,10 +22,11 @@ export function openLocation(workspaceId: WorkspaceId, locationId: string | null
   useShownLocation.setState({ request: { id: locationId, at: Date.now() } });
   const { layouts, change } = layoutStore.getState();
   change(workspaceId, openTile(layoutsOf(layouts, workspaceId).current, 'locations'));
-  focusWhenShown(() => {
+  focusWhenShown((last) => {
     const row = locationId === null ? null : document.querySelector<HTMLElement>(`[data-location-id="${CSS.escape(locationId)}"]`);
-    // With no location asked for, or one that isn't live, the first row; else wait for that location's own row.
+    // With no location asked for, or one that isn't live, the first row; else wait for that location's own row, and
+    // take the first row on the last try if it never shows (a filter hiding it), as before.
     const live = locationId !== null && projectStore.getState().records[locationId]?.trashedAt === null;
-    return row ?? (live ? null : document.querySelector<HTMLElement>('[data-location-id]'));
+    return row ?? (live && !last ? null : document.querySelector<HTMLElement>('[data-location-id]'));
   });
 }

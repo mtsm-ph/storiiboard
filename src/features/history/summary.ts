@@ -18,7 +18,7 @@ import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
 import { formatLength, type PlanUnit } from '../../core/model/length';
 import { planUnitNow } from '../../app/planUnits';
-import { CAMERA_ICON, DIFFUSION_ICON, FLAG_ICON, gripFields, iconIdOf, LIGHT_ICON, NORTH_ICON, planFields, SUN_ICON } from '../../core/model/plan';
+import { CAMERA_ICON, DIFFUSION_ICON, FLAG_ICON, gripFields, iconIdOf, LIGHT_ICON, NEXT_POSITION_ICON, NORTH_ICON, planFields, SUN_ICON } from '../../core/model/plan';
 import { aFrame, anIcon } from '../birdseye/plan/iconWords';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -552,12 +552,14 @@ const BOARD_ITEM_FIELD: Readonly<Record<string, string>> = labels({
 });
 
 /** The plan items with a box of their own, which History reads as an icon's (6.3, 6.4, 6.5). */
-const BOXED_KINDS: ReadonlySet<unknown> = new Set(['icon', 'camera', 'light', 'flag', 'diffusion', 'north', 'sun']);
+const BOXED_KINDS: ReadonlySet<unknown> = new Set(['icon', 'camera', 'light', 'flag', 'diffusion', 'north', 'sun', 'mark']);
 
 /** What a boxed plan item is, as a step names it: "a sofa", "a camera", "a Fresnel" (its kind's own icon when it names none). */
 function aBoxed(props: Props, unit: PlanUnit): string {
   const icon = iconIdOf(props);
   if (props.kind === 'icon') return icon !== '' ? anIcon(icon) : t('history.aPlanItem');
+  // A mark (6.7) where its owner isn't known here: a tape mark.
+  if (props.kind === 'mark') return t('history.aTapeMark');
   // A flag or diffusion frame by its kind and size, never the icon it was placed as (6.5 review): "a diffusion · 8×8".
   const frame = props.kind === 'flag' || props.kind === 'diffusion' ? gripFields(props) : null;
   if (frame) return aFrame(frame, unit);
@@ -594,6 +596,11 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   beam_deg: 'history.field.beam',
   // A sun path's (6.6).
   time: 'history.field.sunTime',
+  // A mark's (6.7).
+  character_id: 'history.field.markCharacter',
+  camera_id: 'history.field.markCamera',
+  // Its place among its owner's positions (6.7 review): a key, never shown as one.
+  order: 'history.field.markOrder',
 });
 
 /** "650 W" (6.5). */
@@ -689,6 +696,8 @@ const OPENING_WORDS: Readonly<Record<string, string>> = labels({
 function planItemValue(change: FieldChange, value: JsonValue | undefined, unit: PlanUnit): string | null {
   if (change.planItem !== true || change.key !== undefined) return null;
   if (typeof value === 'string' && (change.prop === 'hinge' || change.prop === 'swing')) return OPENING_WORDS[`${change.prop}:${value}`] ?? null;
+  // A mark's `order` (6.7 review) is a key that means nothing read aloud: only whether it has one.
+  if (change.prop === 'order') return isBlank(value) ? '—' : t('history.notShown');
   if (typeof value !== 'number') return null;
   if (PLAN_LENGTHS.has(change.prop)) return formatLength(value, unit);
   if (change.prop === 'lens_mm') return t('history.mmValue', { mm: value });
@@ -883,6 +892,9 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
     const made = ops.find((op) => op.recordId === id && op.after?.type === 'plan');
     return (made?.after ?? around.get(id))?.props.kind;
   };
+  // Marks (6.7): placed, given to someone, moved earlier or later, a next position; a camera with its later positions.
+  const marked = markLine(items, around, unit);
+  if (marked) return marked;
   // Moved to another plan (6.2b): into one setup's own, or back to every setup.
   const moves = items.filter((op) => op.kind === 'move' && op.before && op.after && op.before.parentId !== op.after.parentId);
   const rewalled = items.some((op) => op.kind === 'update' && op.before && op.after && changedProps(op.before, op.after).includes('wall_id'));
@@ -933,11 +945,102 @@ function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecor
   return [tn('history.wallsChanged', m)];
 }
 
+/** Who a mark is for in a step (6.7), as it was then: a character by name, a camera as what it is; null for neither. */
+function markWho(props: Props, around: ReadonlyMap<string, SbdRecord>, unit: PlanUnit): Part | null {
+  const camera = typeof props.camera_id === 'string' ? around.get(props.camera_id) : undefined;
+  if (camera) return aBoxed(camera.props, unit);
+  const character = typeof props.character_id === 'string' ? around.get(props.character_id) : undefined;
+  if (character) return nameOf(character, around);
+  return null;
+}
+
+/** What a mark is called in a step (6.7): "ANA's mark", "a position of a dolly track", "a tape mark". */
+function aMark(props: Props, around: ReadonlyMap<string, SbdRecord>, unit: PlanUnit): string {
+  const camera = typeof props.camera_id === 'string' ? around.get(props.camera_id) : undefined;
+  if (camera) return t('history.aCameraPosition', { camera: aBoxed(camera.props, unit) });
+  const character = typeof props.character_id === 'string' ? around.get(props.character_id) : undefined;
+  const name = typeof character?.props.name === 'string' ? character.props.name.trim() : '';
+  return character && name !== '' ? t('history.aMarkOf', { name }) : t('history.aTapeMark');
+}
+
+/**
+ * A step of marks (6.7), or null for one the plan's other lines say: one mark placed (a character's, a next position
+ * for a character or a camera, a tape mark), given to someone or made plain, moved earlier or later among its owner's
+ * positions, deleted or restored; a camera deleted or restored with its later positions, as the camera's step. A move
+ * into one setup's plan or back, alone, is "This setup only"'s line.
+ */
+function markLine(items: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>, unit: PlanUnit): Line | null {
+  const record = (op: LoggedOp) => op.after ?? op.before;
+  const marks = items.filter((op) => record(op)?.props.kind === 'mark');
+  if (marks.length === 0) return null;
+  const others = items.filter((op) => !marks.includes(op));
+  if (others.length > 0) {
+    // Cameras to the Trash, or back, with their later positions: the cameras' step, the marks that went or came with
+    // them not counted as items of their own (6.7 review, L7: "Deleted 2 cameras", never "Deleted 5 plan items").
+    const kind = others[0]?.kind;
+    if ((kind !== 'trash' && kind !== 'restore') || !items.every((op) => op.kind === kind)) return null;
+    const cameras = new Set(others.flatMap((op) => (record(op)?.props.kind === 'camera' ? [op.recordId] : [])));
+    const withCamera = (op: LoggedOp) => {
+      const id = record(op)?.props.camera_id;
+      return typeof id === 'string' && cameras.has(id);
+    };
+    if (cameras.size === 0 || !marks.some(withCamera)) return null;
+    const counted = new Set(items.filter((op) => !marks.includes(op) || !withCamera(op)).map((op) => op.recordId));
+    if (counted.size === 1 && cameras.size === 1) {
+      const camera = others.find((op) => cameras.has(op.recordId));
+      return [t(kind === 'trash' ? 'history.iconDeleted' : 'history.iconRestored', { what: aBoxed((camera && record(camera)?.props) ?? {}, unit) })];
+    }
+    const onlyCameras = [...counted].every((id) => cameras.has(id));
+    if (onlyCameras) return [tn(kind === 'trash' ? 'history.camerasDeleted' : 'history.camerasRestored', counted.size)];
+    return [tn(kind === 'trash' ? 'history.planItemsDeleted' : 'history.planItemsRestored', counted.size)];
+  }
+  // Earlier or Later (6.7 review): only the marks' `order` changed. Several (positions without one, given theirs in
+  // their new order) can't say which moved: counted as a reorder.
+  const orderOnly = marks.every((op) => op.kind === 'update' && op.before && op.after && changedProps(op.before, op.after).every((prop) => prop === 'order'));
+  const ids = new Set(marks.map((op) => op.recordId));
+  if (orderOnly && ids.size > 1) return [tn('history.planItemsReordered', ids.size)];
+  if (ids.size !== 1) return null;
+  const first = marks[0];
+  const last = marks.at(-1);
+  const after = last?.after ?? null;
+  const before = first?.before ?? null;
+  const now = after ?? before;
+  if (!first || !now) return null;
+  const who = (props: Props) => markWho(props, around, unit) ?? t('history.aTapeMark');
+  if (marks.every((op) => op.kind === 'create') && after) {
+    if (after.props.icon === NEXT_POSITION_ICON && markWho(after.props, around, unit) !== null) return line('history.nextPositionFor', { who: who(after.props) });
+    const named = markWho(after.props, around, unit);
+    if (named !== null) return line('history.markPlacedFor', { name: named });
+    return [t('history.iconPlaced', { what: t('history.aTapeMark') })];
+  }
+  if (marks.every((op) => op.kind === 'trash')) return [t('history.iconDeleted', { what: aMark(now.props, around, unit) })];
+  if (marks.every((op) => op.kind === 'restore')) return [t('history.iconRestored', { what: aMark(now.props, around, unit) })];
+  // Earlier or later among its owner's positions: a move within its own plan, its sort key alone changed.
+  if (marks.every((op) => op.kind === 'move') && before && after) {
+    if (before.parentId !== after.parentId) return null;
+    return line(after.sortKey < before.sortKey ? 'history.positionEarlier' : 'history.positionLater', { who: who(after.props) });
+  }
+  if (!before || !after) return null;
+  const changed = marks.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : []));
+  if (changed.includes('character_id') || changed.includes('camera_id')) {
+    const to = markWho(after.props, around, unit);
+    return to === null ? [t('history.markMadePlain')] : line('history.markGiven', { who: to });
+  }
+  if (orderOnly && changed.length > 0) {
+    const was = typeof before.props.order === 'string' ? before.props.order : null;
+    const now = typeof after.props.order === 'string' ? after.props.order : null;
+    return line(was !== null && now !== null && now < was ? 'history.positionEarlier' : 'history.positionLater', { who: who(after.props) });
+  }
+  if (!marks.every((op) => op.kind === 'update')) return null;
+  return iconLine(marks, 1, around, unit, aMark(after.props, around, unit));
+}
+
 /**
  * A step of library icons (6.3), or of icons with walls, doors and windows: one icon by what it is ("Placed a sofa in
- * Diner", the room named when it went into one), several counted as plan items.
+ * Diner", the room named when it went into one), several counted as plan items. `named` says what one item is in place
+ * of its icon's words (a mark, 6.7).
  */
-function iconLine(items: readonly LoggedOp[], n: number, around: ReadonlyMap<string, SbdRecord>, unit: PlanUnit): Line {
+function iconLine(items: readonly LoggedOp[], n: number, around: ReadonlyMap<string, SbdRecord>, unit: PlanUnit, named?: string): Line {
   const record = (op: LoggedOp) => op.after ?? op.before;
   const all = (kind: LoggedOp['kind']) => items.every((op) => op.kind === kind);
   const props = new Set(items.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
@@ -954,7 +1057,7 @@ function iconLine(items: readonly LoggedOp[], n: number, around: ReadonlyMap<str
     if (only(['x', 'y', 'width', 'height', 'rotation', 'along_m', 'width_m'])) return [tn('history.planItemsResized', n)];
     return [tn('history.planItemsChanged', n)];
   }
-  const what = aBoxed(first.props, unit);
+  const what = named ?? aBoxed(first.props, unit);
   if (all('create')) {
     const plan = first.parentId ? around.get(first.parentId) : undefined;
     const fields = plan?.type === 'plan' ? planFields(plan.props) : null;

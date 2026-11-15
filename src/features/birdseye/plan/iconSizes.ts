@@ -4,8 +4,9 @@ import { DOOR_TOOL, WALL_TOOL, WINDOW_TOOL } from './planScale';
 
 // What each library icon is when it is placed (6.3, docs/PHASE6_DECISIONS.md 8): its real default size in metres,
 // width by depth (a symbol's longer side, its other in its drawing's proportions), editable once it's down. Three
-// set-art icons are 6.2's tools instead (the Library picks the tool), and the icons later milestones make live (cameras 6.4, lights, flags and diffusion 6.5, north and the sun path 6.6 are
-// placed now; cast marks 6.7; the measure 6.9) show in the Library but can't be placed yet. Every other icon is placeable and has a size
+// set-art icons are 6.2's tools instead (the Library picks the tool), and the icons later milestones make live (cameras
+// 6.4, lights, flags and diffusion 6.5, north and the sun path 6.6 and cast marks 6.7 are placed now; the measure 6.9)
+// show in the Library but can't be placed yet. Every other icon is placeable and has a size
 // here, and nothing else does (iconSizes.test.ts).
 
 export interface IconSize {
@@ -56,6 +57,14 @@ const STATED_SIZES: Readonly<Record<string, StatedSize>> = {
   // North and the sun path (6.6): placed as `north` (in the room's plan) and `sun` (in the setup's) items.
   'production/north': { side: 0.6 },
   'lighting/sun-path': { side: 0.8 },
+  // Cast blocking (6.7): marks are placed as `mark` items in the scene's blocking, the eyeline and the background as
+  // icons there. All symbols (6.6 review), so each keeps its drawing's proportions: a tape mark 0.30 × 0.28 m, an
+  // eyeline 1.5 m long by its arrow's depth, the background figure 0.5 m across.
+  'cast/cast-mark': { side: 0.5 },
+  'cast/next-position': { side: 0.5 },
+  'cast/tape-mark': { side: 0.3 },
+  'cast/eyeline': { side: 1.5 },
+  'cast/background': { side: 0.5 },
   'set-art/table': { width: 1.5, depth: 0.8 },
   'set-art/chair': { width: 0.5, depth: 0.5 },
   'set-art/sofa': { width: 2.0, depth: 0.9 },
@@ -120,13 +129,15 @@ export const TOOL_ICONS: Readonly<Record<string, string>> = {
 };
 
 /** Whole groups and single icons a later milestone of this phase makes live. */
-const COMING_GROUPS: ReadonlySet<string> = new Set(['cast']);
+const COMING_GROUPS: ReadonlySet<string> = new Set<string>();
 const COMING_ICONS: ReadonlySet<string> = new Set(['production/measure']);
 
 /** The field of view's picture (6.4): every camera draws its own cone, so it is never placed as an item. */
 export const FIELD_OF_VIEW_ICON = 'camera/field-of-view';
+/** A walk path's picture (6.7): the plan draws each character's and camera's path between its positions. */
+export const WALK_PATH_ICON = 'cast/walk-path';
 /** The beam's picture (6.5): every light draws its own beam, so it is never placed either. */
-const SHOWN_ICONS: ReadonlySet<string> = new Set([FIELD_OF_VIEW_ICON, BEAM_ICON]);
+const SHOWN_ICONS: ReadonlySet<string> = new Set([FIELD_OF_VIEW_ICON, BEAM_ICON, WALK_PATH_ICON]);
 
 /** Icons that resize freely, their proportions never kept: a zone's outline and a note. */
 export const FREE_RESIZE: ReadonlySet<string> = new Set(['production/zone', 'production/note']);

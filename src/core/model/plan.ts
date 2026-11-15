@@ -30,9 +30,9 @@ export const PLAN_ITEM_KINDS = ['wall', 'door', 'window', 'icon', 'camera', 'lig
 export type PlanItemKind = (typeof PLAN_ITEM_KINDS)[number];
 /**
  * The kinds this version draws: walls (6.2a), the doors and windows in them (6.2b), the library's icons (6.3), cameras
- * (6.4), lights, flags and diffusion (6.5), the room's north and a setup's sun path (6.6).
+ * (6.4), lights, flags and diffusion (6.5), the room's north and a setup's sun path (6.6), and marks (6.7).
  */
-export type ShownKind = 'wall' | OpeningKind | 'icon' | 'camera' | 'light' | 'flag' | 'diffusion' | 'north' | 'sun';
+export type ShownKind = 'wall' | OpeningKind | 'icon' | 'camera' | 'light' | 'flag' | 'diffusion' | 'north' | 'sun' | 'mark';
 
 /**
  * The plan's departments, the layers of 6.8 (decision 10), as the kit's icon folders name them. An icon's layer is its
@@ -68,7 +68,11 @@ const notHuge = (v: number): boolean => v <= PLAN_MAX_SIZE;
 
 const num = (value: JsonValue | undefined): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
 const text = (value: JsonValue | undefined): string => (typeof value === 'string' ? value : '');
-const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0);
+// Ties (an import's, or keys written before 6.7's review) by id, so the order never depends on how records were read.
+const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+/** Plans of one kind under one parent (6.7 review, L8): by sort key, then when made, then id. */
+const byPlanOrder = (a: SbdRecord, b: SbdRecord) =>
+  a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 
 export interface PlanFields {
   kind: PlanKind;
@@ -453,12 +457,54 @@ export function sunFields(props: Props): SunFields | null {
   return { kind: 'sun', icon: icon === '' ? SUN_ICON : icon, ...box, rotation: 0, time: CLOCK.test(time) ? time : DEFAULT_SUN_TIME };
 }
 
-/** Any item this version shows: a wall, a door, a window, an icon, a camera, a light, a flag, a diffusion frame, north or a sun path. */
-export type ShownFields = PlanItemFields | OpeningFields | IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields;
+/** The icon a plain mark (a T-mark on the floor) is drawn as, and the kit's drawings of a character's positions (6.7). */
+export const MARK_ICON = 'cast/tape-mark';
+export const CAST_MARK_ICON = 'cast/cast-mark';
+export const NEXT_POSITION_ICON = 'cast/next-position';
+
+/**
+ * A mark (6.7, decision 9): a box as an icon's, at the scene's blocking level when it is a character's or a plain one,
+ * at a setup's with its camera when it is one of a camera's later positions. Who it belongs to, as stored: a character
+ * (`character_id`) or a camera of its own plan (`camera_id`); planBlocking.ts reads them live, a stale one as none. Its
+ * place among its owner's positions is its own `order` (6.7 review), a key as sort keys are, apart from drawing order
+ * (`sort_key`), so moving it to another plan or to the front never renumbers it; its number is worked out from `order`,
+ * never stored. `icon` says only what it was placed as: the drawing comes from who it belongs to and its number.
+ */
+export interface MarkFields {
+  kind: 'mark';
+  icon: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  heightM: number | null;
+  name: string;
+  characterId: string | null;
+  cameraId: string | null;
+  /** Its place among its owner's positions (`order`), or null when it has none or one that isn't a key. */
+  order: string | null;
+}
+
+/** A key as src/core/ops/order.ts makes them: base-62 digits, never ending in "0". Anything else reads as no `order`. */
+const ORDER_KEY = /^[0-9A-Za-z]*[1-9A-Za-z]$/;
+
+/** A mark's props, or null when it can't be read. */
+export function markFields(props: Props): MarkFields | null {
+  if (props.kind !== 'mark') return null;
+  const box = boxOf(props);
+  if (!box) return null;
+  const icon = iconIdOf(props);
+  const order = typeof props.order === 'string' && ORDER_KEY.test(props.order) ? props.order : null;
+  return { kind: 'mark', icon: icon === '' ? MARK_ICON : icon, ...box, characterId: idOrNull(props.character_id), cameraId: idOrNull(props.camera_id), order };
+}
+
+/** Any item this version shows: a wall, a door, a window, an icon, a camera, a light, a flag, a diffusion frame, north, a sun path or a mark. */
+export type ShownFields = PlanItemFields | OpeningFields | IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields | MarkFields;
 
 /** An item's fields, whichever kind it is, or null for one this version keeps unseen. */
 export const shownFields = (props: Props): ShownFields | null =>
-  planItemFields(props) ?? openingFields(props) ?? iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props);
+  planItemFields(props) ?? openingFields(props) ?? iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props) ?? markFields(props);
 
 export const isOpening = (fields: ShownFields): fields is OpeningFields => fields.kind === 'door' || fields.kind === 'window';
 export const isIcon = (fields: ShownFields): fields is IconFields => fields.kind === 'icon';
@@ -468,17 +514,20 @@ export const isGrip = (fields: ShownFields): fields is GripFields => fields.kind
 export const isWallFields = (fields: ShownFields): fields is PlanItemFields => fields.kind === 'wall';
 export const isNorth = (fields: ShownFields): fields is NorthFields => fields.kind === 'north';
 export const isSun = (fields: ShownFields): fields is SunFields => fields.kind === 'sun';
+export const isMark = (fields: ShownFields): fields is MarkFields => fields.kind === 'mark';
 
-/** An item with a box of its own that moves, turns and resizes freely: an icon, a camera, a light, a flag, a diffusion frame, north or a sun path. */
-export type BoxFields = IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields;
-export const boxFields = (props: Props): BoxFields | null => iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props);
+/** An item with a box of its own that moves, turns and resizes freely: an icon, a camera, a light, a flag, a diffusion frame, north, a sun path or a mark. */
+export type BoxFields = IconFields | CameraFields | LightFields | GripFields | NorthFields | SunFields | MarkFields;
+export const boxFields = (props: Props): BoxFields | null =>
+  iconFields(props) ?? cameraFields(props) ?? lightFields(props) ?? gripFields(props) ?? northFields(props) ?? sunFields(props) ?? markFields(props);
 
 /**
  * An item's layer (6.8, decision 10), worked out from what it is, never stored: an icon's group; a camera the camera
  * department's; a light lighting's, a flag or diffusion frame grip's; a wall, door or window the set's (art). Null for
- * a kind this version doesn't show.
+ * a kind this version doesn't show. A mark's needs its records (6.7 review): `cameraMark` says whether its camera link
+ * reads, which markLayer (planBlocking.ts) works out; read without it, a mark is cast blocking's.
  */
-export function planItemLayer(props: Props): PlanLayer | null {
+export function planItemLayer(props: Props, cameraMark = false): PlanLayer | null {
   if (props.kind === 'icon') return iconGroup(iconIdOf(props));
   if (props.kind === 'camera') return 'camera';
   if (props.kind === 'light') return 'lighting';
@@ -486,6 +535,8 @@ export function planItemLayer(props: Props): PlanLayer | null {
   // North and the sun path (6.6) by their icons' groups.
   if (props.kind === 'north') return 'production';
   if (props.kind === 'sun') return 'lighting';
+  // A mark (6.7): a camera's later position (its link reading) is the camera department's, any other cast blocking.
+  if (props.kind === 'mark') return cameraMark ? 'camera' : 'cast';
   if (props.kind === 'wall' || props.kind === 'door' || props.kind === 'window') return 'set-art';
   return null;
 }
@@ -512,16 +563,19 @@ export const sceneRoom = (records: Records, sceneId: string): SbdRecord | null =
   return id === null ? null : (records[id] ?? null);
 };
 
-/** The first live plan of a kind under a parent, or null. */
-function planUnder(records: Records, parentId: string, kind: PlanKind): SbdRecord | null {
-  return (
-    Object.values(records)
-      .filter((r) => r.type === 'plan' && r.parentId === parentId && r.trashedAt === null && planFields(r.props)?.kind === kind)
-      .sort(bySortKey)[0] ?? null
-  );
-}
+/** The live plans of a kind under a parent, by sort key, then when made, then id. */
+const plansUnder = (records: Records, parentId: string, kind: PlanKind): SbdRecord[] =>
+  Object.values(records)
+    .filter((r) => r.type === 'plan' && r.parentId === parentId && r.trashedAt === null && planFields(r.props)?.kind === kind)
+    .sort(byPlanOrder);
 
+/** The first live plan of a kind under a parent, or null. */
+const planUnder = (records: Records, parentId: string, kind: PlanKind): SbdRecord | null => plansUnder(records, parentId, kind)[0] ?? null;
+
+/** The scene's blocking plan: its first live one, where new marks go (two only arrive by an import or History). */
 export const blockingPlanOf = (records: Records, sceneId: string): SbdRecord | null => planUnder(records, sceneId, 'blocking');
+/** Every live blocking plan of a scene, the first first (6.7 review, L8): a view shows all their items, so nothing placed vanishes. */
+export const blockingPlansOf = (records: Records, sceneId: string): SbdRecord[] => plansUnder(records, sceneId, 'blocking');
 export const setupPlanOf = (records: Records, setupId: string): SbdRecord | null => planUnder(records, setupId, 'setup');
 
 /** The live setup, when it is one of this scene's. */
@@ -533,17 +587,25 @@ function sceneSetup(records: Records, sceneId: string, setupId: string | null): 
 
 export interface ShownPlans {
   room: SbdRecord | null;
+  /** The scene's first blocking plan, where new marks go. */
   blocking: SbdRecord | null;
   setup: SbdRecord | null;
+  /** Every live blocking plan of the scene, `blocking` first (6.7 review, L8); the view shows them all. */
+  blockings: readonly SbdRecord[];
 }
 
 /** The plans a setup's view combines (a scene with no setup: its room and blocking). */
 export function plansShown(records: Records, sceneId: string, setupId: string | null): ShownPlans {
   const scene = records[sceneId];
-  if (scene?.type !== 'scene' || scene.trashedAt !== null) return { room: null, blocking: null, setup: null };
+  if (scene?.type !== 'scene' || scene.trashedAt !== null) return { room: null, blocking: null, setup: null, blockings: [] };
   const setup = sceneSetup(records, sceneId, setupId);
-  return { room: sceneRoom(records, sceneId), blocking: blockingPlanOf(records, sceneId), setup: setup ? setupPlanOf(records, setup.id) : null };
+  const blockings = blockingPlansOf(records, sceneId);
+  return { room: sceneRoom(records, sceneId), blocking: blockings[0] ?? null, setup: setup ? setupPlanOf(records, setup.id) : null, blockings };
 }
+
+/** The ids of every plan a view shows: its room, each blocking plan, the setup's own. */
+export const shownPlanIds = (plans: ShownPlans): Set<string> =>
+  new Set([plans.room?.id, ...plans.blockings.map((p) => p.id), plans.setup?.id].filter((id): id is string => typeof id === 'string'));
 
 /** A plan's items, back to front: live ones of kinds this version shows (with `withTrashed`, those in the Trash too). */
 export function itemsOfPlan(records: Records, planId: string, withTrashed = false): SbdRecord[] {
@@ -566,12 +628,15 @@ export interface ShownItem {
 export function shownItems(records: Records, sceneId: string, setupId: string | null): ShownItem[] {
   const plans = plansShown(records, sceneId, setupId);
   const all = (['room', 'blocking', 'setup'] as const).flatMap((level) => {
-    const plan = plans[level];
-    if (!plan) return [];
-    return itemsOfPlan(records, plan.id).flatMap((record) => {
-      const fields = shownFields(record.props);
-      return fields ? [{ record, fields, level }] : [];
-    });
+    // Every blocking plan the scene has (6.7 review, L8): blocking is the scene's, so a second one's marks show too.
+    const one = plans[level];
+    const list = level === 'blocking' ? plans.blockings : one ? [one] : [];
+    return list.flatMap((plan) =>
+      itemsOfPlan(records, plan.id).flatMap((record) => {
+        const fields = shownFields(record.props);
+        return fields ? [{ record, fields, level }] : [];
+      }),
+    );
   });
   const walls = new Map(all.flatMap((item) => (item.fields.kind === 'wall' ? [[item.record.id, item.fields.width] as const] : [])));
   return all.flatMap((item): ShownItem[] => {
@@ -620,7 +685,8 @@ export function openingsInView(records: Records, wallId: string, view?: PlanView
   const inside = (list: typeof all) => (length === undefined ? list : list.map((o) => ({ record: o.record, fields: keptInWall(o.fields, length) })));
   if (!view) return inside(all);
   const plans = plansShown(records, view.sceneId, view.setupId);
-  const ids = new Set([wall?.parentId, plans.room?.id, plans.blocking?.id, plans.setup?.id].filter((id): id is string => typeof id === 'string'));
+  const ids = shownPlanIds(plans);
+  if (typeof wall?.parentId === 'string') ids.add(wall.parentId);
   return inside(all.filter((o) => o.record.parentId !== null && ids.has(o.record.parentId)));
 }
 

@@ -83,7 +83,7 @@ describe('a setup’s legend (6.5)', () => {
 
   it('is empty for a setup with no items, and says no watts', () => {
     const empty = recordsOf(record('p', 'project', null, {}), record('sc', 'scene', 'p', { number: '1' }), record('su', 'setup', 'sc', { name: '' }));
-    expect(planLegend(empty, 'sc', 'su', name)).toEqual({ room: [], groups: [], watts: { lights: 0, known: 0, unknown: 0 } });
+    expect(planLegend(empty, 'sc', 'su', name)).toEqual({ room: [], groups: [], watts: { lights: 0, known: 0, unknown: 0 }, cast: [] });
   });
 
   it('names frames by kind and size, so a 4×4 and an 8×8 of one icon are two lines, never "×2" (6.5 review)', () => {

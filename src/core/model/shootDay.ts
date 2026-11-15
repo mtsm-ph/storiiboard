@@ -53,7 +53,8 @@ export interface ShootDay {
   number: number;
 }
 
-const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0);
+const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const bySortKey = (a: SbdRecord, b: SbdRecord) => byText(a.sortKey, b.sortKey);
 
 /** The project's live shoot days, by date (undated last), each numbered. */
 export function projectShootDays(records: Records, projectId: string): ShootDay[] {
@@ -66,9 +67,11 @@ export function projectShootDays(records: Records, projectId: string): ShootDay[
         if (b.fields.date === '') return -1;
         return a.fields.date < b.fields.date ? -1 : 1;
       }
-      // Then the record id (6.6 review): two days an import gave the same date and sort key are numbered the same way
-      // every time, so the day a sun path draws for never depends on the order records were read in.
-      return bySortKey(a.record, b.record) || (a.record.id < b.record.id ? -1 : a.record.id > b.record.id ? 1 : 0);
+      // Then when each was made, then the record id (6.6 review): two days an import gave the same date and sort key are
+      // numbered the same way every time, so the day a sun path draws for never depends on the order records were read
+      // in. Creation order first (6.6 second review), as ties fell before: an issued call sheet's fingerprint holds its
+      // day's number, so renumbering tied days in an existing file would show "Changed since issued" after an upgrade.
+      return bySortKey(a.record, b.record) || byText(a.record.createdAt, b.record.createdAt) || byText(a.record.id, b.record.id);
     })
     .map((day, i) => ({ ...day, number: i + 1 }));
 }

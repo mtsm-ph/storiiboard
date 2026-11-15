@@ -3,7 +3,8 @@ import { showInfo } from '../../../app/notice';
 import { usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
-import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isNorth, isSun, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
+import { itemLayer, viewBlocking } from '../../../core/model/planBlocking';
+import { CAMERA_ICON, isCamera, isGrip, isIcon, isLight, isMark, isNorth, isSun, isWallFields, LIGHT_ICON, MIN_PLAN_SIZE, OPENING_WIDTH, planFields, planItemLayer, roomTitle, sceneRoom, wallEnds, type OpeningKind } from '../../../core/model/plan';
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
 import { beamDirection } from '../../../core/model/planLight';
@@ -34,7 +35,9 @@ import {
   duplicatePlanSelection,
   flipDoors,
   newRoom,
+  nextPosition,
   nudgePlan,
+  placeMark,
   pastePlan,
   placeIcon,
   placeOpening,
@@ -50,7 +53,8 @@ import { lightLooks } from './lightLooks';
 import { sunLooks, sunNumbers } from './sunLooks';
 import { iconLabel } from './iconWords';
 import { heightLines, iconCentre, iconRefusal, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
-import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
+import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, MARK_TOOL, PLAN_TOOLS, PLAN_ZOOM, planScale, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
+import { blockingLooks } from './markLooks';
 import { planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
 
@@ -231,7 +235,18 @@ function RoomMenu({ sceneId, room, shared }: { sceneId: string; room: SbdRecord;
   const name = roomTitle(planFields(room.props));
   return (
     <>
-      <Menu label={<span data-user-text="">{t('plan.roomMenu', { name })}</span>} buttonClassName={MENU_BUTTON}>
+      {/* A long room name is cut short in a narrow tile (6.6 second review); the whole name stays its tooltip and its
+          accessible name (the text is all there, only clipped). */}
+      <Menu
+        label={
+          <span data-user-text="" className="min-w-0 truncate">
+            {t('plan.roomMenu', { name })}
+          </span>
+        }
+        buttonClassName={`${MENU_BUTTON} min-w-0 max-w-full`}
+        buttonTitle={t('plan.roomMenu', { name })}
+        className="min-w-0 max-w-full"
+      >
         {(close) => (
           <>
             <MenuGroup>
@@ -440,7 +455,11 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   const zonesKey = JSON.stringify([...zones]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t(); the zones by value
   const suns = useMemo(() => sunLooks(records, shown, zones, stored ?? []), [records, shown, zonesKey, stored, locale]);
-  const built = useMemo(() => build(shown, unit, INK, locale, looks, lights, suns), [build, shown, unit, locale, looks, lights, suns]);
+  // Each mark's drawing, number and label and each owner's path (6.7), read live: a renamed character, a position moved
+  // or a lens changed on the board changes them with no edit to the plan.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t()
+  const blocking = useMemo(() => blockingLooks(records, view, shown, unit, stored ?? []), [records, view.sceneId, view.setupId, shown, unit, stored, locale]);
+  const built = useMemo(() => build(shown, unit, INK, locale, looks, lights, suns, blocking), [build, shown, unit, locale, looks, lights, suns, blocking]);
   const scale = useMemo(() => planScale(unit), [unit]);
   const constrain = useMemo(() => planConstrain(shown, unit), [shown, unit]);
   // Where the pointer is while the Door or Window tool is picked: the opening previews where a click would put it.
@@ -469,7 +488,42 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         // A camera (6.4): an icon's, with what its cone and labels show.
         if (isCamera(fields)) {
           const look = looks.get(record.id);
-          return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), cone: look?.degrees ?? null, labels: look?.lines ?? [] };
+          // Its move (6.7): its positions' middles in order, from itself, and the move's length.
+          const path = blocking.paths.get(record.id);
+          const move = blocking.moves.get(record.id);
+          return {
+            id: record.id,
+            level,
+            layer: planItemLayer(record.props),
+            ...fields,
+            centre: iconCentre(fields),
+            cone: look?.degrees ?? null,
+            labels: look?.lines ?? [],
+            ...(path ? { path: path.points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })) } : {}),
+            ...(move !== undefined ? { moveM: Math.round(move * 10000) / 10000 } : {}),
+          };
+        }
+        // A mark (6.7): an icon's, with who it is, its number and its labels; an owner's first position carries the path.
+        if (isMark(fields)) {
+          const look = blocking.marks.get(record.id);
+          const of = viewBlocking(records, view.sceneId, view.setupId).numbers.get(record.id);
+          const path = blocking.paths.get(record.id);
+          return {
+            id: record.id,
+            level,
+            // On the camera layer only while its camera link reads (6.7 review: markLayer).
+            layer: itemLayer(records, record),
+            ...fields,
+            centre: iconCentre(fields),
+            owner: of?.owner ?? null,
+            number: of?.number ?? null,
+            count: of?.count ?? null,
+            drawnAs: look?.icon ?? null,
+            ghost: look?.ghost ?? false,
+            cone: look?.cone ?? null,
+            labels: look?.lines ?? [],
+            ...(path ? { path: path.points.map((p) => ({ x: toMetres(p.x), y: toMetres(p.y) })) } : {}),
+          };
         }
         // A light (6.5): an icon's, with its beam and labels; a flag or diffusion frame: an icon's, with its labels.
         if (isLight(fields)) {
@@ -496,7 +550,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
       }),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the zones by value
-  }, [shown, looks, lights, suns, unit, records, zonesKey]);
+  }, [shown, looks, lights, suns, blocking, unit, records, zonesKey]);
   const run = (command: CanvasCommand) => {
     switch (command.kind) {
       case 'copy':
@@ -533,7 +587,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           box of its own height here, so nothing in the row can stretch it. */}
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1" data-plan-heading="">
         {header}
-        <div className="flex h-7">
+        <div className="flex h-7 min-w-0 max-w-full">
           <RoomMenu sceneId={view.sceneId} room={room} shared={also.length > 0} />
         </div>
         <AlsoIn scenes={also} />
@@ -541,7 +595,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           <SetupCopyOffer view={view} />
         </div>
       </div>
-      <div data-plan-tools="">
+      <div className="shrink-0" data-plan-tools="">
         <ToolStrip tool={tool} onTool={planStore.getState().setTool} tools={PLAN_TOOLS} />
       </div>
       <div ref={holder} className="min-h-0 min-w-0 flex-1" data-plan-data={data} data-plan-unit={unit} data-plan-preview={spot ? JSON.stringify({ wallId: spot.wallId, along: spot.along }) : undefined}>
@@ -571,6 +625,13 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
               }
               const centre = { x: toMetres(geometry.x + geometry.width / 2), y: toMetres(geometry.y + geometry.height / 2) };
               return placeIcon(view, icon, centre, madeIn);
+            }
+            if (used === MARK_TOOL) {
+              // A plain mark (6.7) where the click was, or in the middle of the view from the keyboard: the scene's blocking.
+              const centre = { x: toMetres(geometry.x + geometry.width / 2), y: toMetres(geometry.y + geometry.height / 2) };
+              return placeMark(view, centre, madeIn).then((why) => {
+                if (why === 'noRoom') showInfo(t('library.needsRoom'));
+              });
             }
             const placing = openingKindOf(used);
             if (!placing) return undefined;
@@ -610,10 +671,20 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             // the plan (they step frames only in the Player), and on those layouts with no modifier at all.
             const turn = turnFor(event);
             if (turn !== 0 && !event.altKey && !event.metaKey && !event.ctrlKey) {
-              const cameras = selection.filter((id) => shown.some((item) => item.record.id === id && turnsByKey(item.fields)));
+              const cameras = selection.filter((id) => shown.some((item) => item.record.id === id && turnsByKey(item.fields, records, item.record)));
               if (cameras.length === 0) return false;
               const step = event.shiftKey ? 1 : 5;
               void turnCameras(cameras, turn * step);
+              return true;
+            }
+            // Shift+M (6.7): the next position of the one mark or camera selected, selected in its turn.
+            if (event.key.toLowerCase() === 'm' && event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+              const [only] = selection;
+              if (selection.length !== 1 || only === undefined) {
+                showInfo(t('plan.mark.selectFirst'));
+                return true;
+              }
+              if (!event.repeat) void nextPosition(view, only, madeIn);
               return true;
             }
             if (event.key.toLowerCase() !== 'f' || event.altKey || event.metaKey || event.ctrlKey) return false;

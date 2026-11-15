@@ -2,7 +2,7 @@ import { Circle, Group, Line, Text } from 'react-konva';
 import { UPRIGHT } from '../../../ui/canvas/ItemNodes';
 import { GOLDEN_HOUR } from '../../../ui/canvas/paperColours';
 import type { Beyond, CanvasColours, Rect } from '../../../ui/canvas/types';
-import { cameraReach, LABEL_HALO, labelReach, UprightLabels } from './cameraDraw';
+import { cameraReach, labelHalo, labelReach, UprightLabels } from './cameraDraw';
 
 // A sun path on the plan (6.6): round its middle, never turned with its box (its drawing is the compass's), the arc of
 // the sun's bearing from sunrise to sunset 3 m out, ink with its golden-hour stretches in golden hour's fixed colour
@@ -11,7 +11,9 @@ import { cameraReach, LABEL_HALO, labelReach, UprightLabels } from './cameraDraw
 // item's time: a line out to the arc, a small sun there, and a thin dashed line the other way, where shadows fall. Every
 // word sits INSIDE the arc (6.6 review: outside it, they ran past the tile's edges and into each other): the hours just
 // inside their ticks, "Rise" and "Set" a row further in at the arc's ends, the sun's label beside its line near the
-// middle, "shadows" beside its own line. Each word has a paper halo (LABEL_HALO), so it stays legible over a wall. With
+// middle, "shadows" beside its own line. Each word has a paper halo (labelHalo), so it stays legible over a wall. Zoomed
+// out so far that the circle has no room for words (they would pile up on each other and on the icon), it draws only
+// the arc with its golden stretches and the sun's line and mark; the Selection tile still gives the numbers. With
 // something missing it draws none of that: only its icon and a label saying what. All of it is past the item's box
 // (CanvasItem.beyond), in screen-pixel weights and sizes at every zoom, upright.
 
@@ -98,7 +100,7 @@ function MonoText({ x, y, text, size, colours, bold = false }: { x: number; y: n
       fontStyle={bold ? 'bold' : 'normal'}
       fontSize={size}
       fill={colours.ink}
-      {...LABEL_HALO}
+      {...labelHalo(LABEL_PIXELS / size)}
       wrap="none"
       listening={false}
     />
@@ -158,6 +160,8 @@ export function SunBeyond({ width, height, zoom, rotation, colours, look }: SunP
   const away = { x: -look.sun.x, y: -look.sun.y };
   const plain = look.segments.filter((segment) => !segment.golden);
   const golden = look.segments.filter((segment) => segment.golden);
+  // Too small on screen for words between the icon and the arc (6.6 second review): only the arc and the sun.
+  const wordless = edgeRing < iconHalf + size;
   return (
     // Named upright: while a move or resize is under way the canvas keeps it so (it is never turned by the handles).
     <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false}>
@@ -171,13 +175,19 @@ export function SunBeyond({ width, height, zoom, rotation, colours, look }: SunP
           <Line points={[...segment.points]} stroke={GOLDEN_HOUR} strokeWidth={GOLDEN_PIXELS} strokeScaleEnabled={false} lineCap="round" lineJoin="round" name="golden" listening={false} />
         </Group>
       ))}
-      {look.hours.map((hour) => (
+      {wordless && look.sun.up && (
+        <>
+          <Line points={[0, 0, sunPoint.x, sunPoint.y]} strokeWidth={1.5} {...ink} />
+          <Circle x={sunPoint.x} y={sunPoint.y} radius={SUN_PIXELS / zoom} fill={GOLDEN_HOUR} stroke={colours.ink} strokeWidth={1} strokeScaleEnabled={false} listening={false} />
+        </>
+      )}
+      {!wordless && look.hours.map((hour) => (
         <Group key={`h${hour.label}`} listening={false}>
           <Line points={[hour.x * (r - tick), hour.y * (r - tick), hour.x * (r + tick), hour.y * (r + tick)]} strokeWidth={1} {...ink} />
           <MonoText {...insideAt(hour, hourRing, hour.label, size)} text={hour.label} size={size} colours={colours} />
         </Group>
       ))}
-      {[look.rise, look.set].map((edge, i) =>
+      {!wordless && [look.rise, look.set].map((edge, i) =>
         edge ? (
           <Group key={i === 0 ? 'rise' : 'set'} listening={false}>
             <Line points={[edge.x * (r - 2 * tick), edge.y * (r - 2 * tick), edge.x * (r + 2 * tick), edge.y * (r + 2 * tick)]} strokeWidth={2} {...ink} />
@@ -185,7 +195,7 @@ export function SunBeyond({ width, height, zoom, rotation, colours, look }: SunP
           </Group>
         ) : null,
       )}
-      {look.sun.up ? (
+      {wordless ? null : look.sun.up ? (
         <>
           <Line points={[0, 0, sunPoint.x, sunPoint.y]} strokeWidth={1.5} {...ink} />
           <Line points={[0, 0, shadowEnd.x, shadowEnd.y]} strokeWidth={1} dash={[4, 3]} {...ink} />

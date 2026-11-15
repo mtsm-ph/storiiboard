@@ -399,6 +399,81 @@ describe('project data as JSON (2.9)', () => {
     }
   });
 
+  it('carries marks out and back: a character’s, a camera’s later position, a plain one, one in the Trash (6.7)', async () => {
+    const file = project.file;
+    const box = { x: 1, y: 1, width: 0.5, height: 0.5, rotation: 0 };
+    const ana = { kind: 'mark', icon: 'cast/cast-mark', ...box, character_id: 'ch7' };
+    const next = { kind: 'mark', icon: 'cast/next-position', ...box, x: 2, character_id: 'ch7' };
+    const plain = { kind: 'mark', icon: 'cast/tape-mark', ...box, width: 0.3, height: 0.28 };
+    const cam = { kind: 'camera', icon: 'camera/dolly-track', x: 0, y: 0, width: 1, height: 3, rotation: 90 };
+    const later = { kind: 'mark', icon: 'cast/next-position', x: 3, y: 4, width: 1, height: 3, rotation: 90, camera_id: 'cam7' };
+    await apply(
+      file,
+      [
+        { kind: 'create', record: { id: 'ch7', type: 'character', parentId: project.projectId, sortKey: 'c', props: { name: 'ANA' } } },
+        { kind: 'create', record: { id: 'blk7', type: 'plan', parentId: 'sc4', sortKey: 'b', props: { kind: 'blocking', name: '' } } },
+        { kind: 'create', record: { id: 'm1', type: 'plan_item', parentId: 'blk7', sortKey: 'a', props: ana } },
+        { kind: 'create', record: { id: 'm2', type: 'plan_item', parentId: 'blk7', sortKey: 'b', props: next } },
+        { kind: 'create', record: { id: 'm3', type: 'plan_item', parentId: 'blk7', sortKey: 'c', props: plain } },
+        { kind: 'create', record: { id: 'u7', type: 'setup', parentId: 'sc4', sortKey: 'g', props: { name: '' } } },
+        { kind: 'create', record: { id: 'own7', type: 'plan', parentId: 'u7', sortKey: 'a', props: { kind: 'setup', name: '' } } },
+        { kind: 'create', record: { id: 'cam7', type: 'plan_item', parentId: 'own7', sortKey: 'a', props: cam } },
+        { kind: 'create', record: { id: 'm4', type: 'plan_item', parentId: 'own7', sortKey: 'b', props: later } },
+      ],
+      { author: 'Kevin', now: at },
+    );
+    await apply(file, [{ kind: 'trash', id: 'm3' }], { author: 'Kevin', now: at });
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(file, at())));
+    const copy = folder.path('Bey County (marks).sbd');
+    await importProjectJson(nodeDriver, copy, data, at());
+    const imported = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      const after = await everything(imported.file);
+      expect(withoutOwnIds(after).records).toEqual(withoutOwnIds(await everything(file)).records);
+      const row = (id: string) => after.records?.find((r) => r.id === id);
+      expect(JSON.parse(String(row('m1')?.props))).toEqual(ana);
+      expect(JSON.parse(String(row('m2')?.props))).toEqual(next);
+      expect(JSON.parse(String(row('m3')?.props))).toEqual(plain);
+      expect(JSON.parse(String(row('m4')?.props))).toEqual(later);
+      expect(row('m3')?.trashed_at).not.toBeNull();
+    } finally {
+      await imported.close();
+    }
+  });
+
+  it('carries a mark’s `order` out and back, a character’s and a camera’s (6.7 review)', async () => {
+    const file = project.file;
+    const box = { x: 1, y: 1, width: 0.5, height: 0.5, rotation: 0 };
+    const ana = { kind: 'mark', icon: 'cast/cast-mark', ...box, character_id: 'ch8', order: 'V' };
+    const later = { kind: 'mark', icon: 'cast/next-position', ...box, x: 3, camera_id: 'cam8', order: 'l' };
+    await apply(
+      file,
+      [
+        { kind: 'create', record: { id: 'ch8', type: 'character', parentId: project.projectId, sortKey: 'c', props: { name: 'ANA' } } },
+        { kind: 'create', record: { id: 'blk8', type: 'plan', parentId: 'sc4', sortKey: 'b', props: { kind: 'blocking', name: '' } } },
+        { kind: 'create', record: { id: 'o1', type: 'plan_item', parentId: 'blk8', sortKey: 'a', props: ana } },
+        { kind: 'create', record: { id: 'u8', type: 'setup', parentId: 'sc4', sortKey: 'g', props: { name: '' } } },
+        { kind: 'create', record: { id: 'own8', type: 'plan', parentId: 'u8', sortKey: 'a', props: { kind: 'setup', name: '' } } },
+        { kind: 'create', record: { id: 'cam8', type: 'plan_item', parentId: 'own8', sortKey: 'a', props: { kind: 'camera', icon: 'camera/camera', ...box } } },
+        { kind: 'create', record: { id: 'o2', type: 'plan_item', parentId: 'own8', sortKey: 'b', props: later } },
+      ],
+      { author: 'Kevin', now: at },
+    );
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(file, at())));
+    const copy = folder.path('Bey County (order).sbd');
+    await importProjectJson(nodeDriver, copy, data, at());
+    const imported = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      const after = await everything(imported.file);
+      expect(withoutOwnIds(after).records).toEqual(withoutOwnIds(await everything(file)).records);
+      const row = (id: string) => after.records?.find((r) => r.id === id);
+      expect(JSON.parse(String(row('o1')?.props))).toEqual(ana);
+      expect(JSON.parse(String(row('o2')?.props))).toEqual(later);
+    } finally {
+      await imported.close();
+    }
+  });
+
   it('carries camera bodies, lenses and a frame’s lens out and back, every Phase 6 prop as written (6.1)', async () => {
     const file = project.file;
     const body = { name: 'FX3', kind: 'camera_body', sensor_mode: 'Full frame 16:9', sensor_width_mm: 35.6, sensor_height_mm: 20, camera_letter: 'A' };

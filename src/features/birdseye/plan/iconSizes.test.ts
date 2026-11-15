@@ -9,8 +9,9 @@ describe('the icon size table', () => {
   it('covers every placeable icon and no other', () => {
     const placeable = PLAN_ICONS.filter((icon) => iconUse(icon.id) === 'place').map((icon) => icon.id);
     expect(Object.keys(ICON_SIZES).sort()).toEqual([...placeable].sort());
-    // 6.3's 29, 6.4's nine cameras, 6.5's ten lights and six flags and frames, and 6.6's north and sun path.
-    expect(placeable).toHaveLength(56);
+    // 6.3's 29, 6.4's nine cameras, 6.5's ten lights and six flags and frames, 6.6's north and sun path, and 6.7's five
+    // cast icons (the walk path is a picture, drawn by the plan).
+    expect(placeable).toHaveLength(61);
     for (const id of placeable) {
       const size = iconSize(id);
       expect(size?.width).toBeGreaterThan(0);
@@ -29,14 +30,14 @@ describe('the icon size table', () => {
 
   it('makes wall, door and window the tools, and leaves what comes later unplaced', () => {
     expect(Object.keys(TOOL_ICONS).sort()).toEqual(['set-art/door', 'set-art/wall', 'set-art/window']);
-    for (const id of ['cast/cast-mark', 'production/measure']) {
+    for (const id of ['production/measure']) {
       expect(iconUse(id)).toBe('coming');
       expect(iconSize(id)).toBeNull();
     }
     expect(iconUse('set-art/wall')).toBe('tool');
     // 6.4: the cameras are placed; the field of view stays the cone's picture, drawn by each camera, never an item.
-    // 6.5: the lights, flags and frames are placed; 6.6: north and the sun path; cast marks and the measure come later.
-    expect(PLAN_ICONS.filter((icon) => iconUse(icon.id) === 'coming')).toHaveLength(7);
+    // 6.5: the lights, flags and frames are placed; 6.6: north and the sun path; 6.7: the cast group; the measure comes later.
+    expect(PLAN_ICONS.filter((icon) => iconUse(icon.id) === 'coming')).toHaveLength(1);
     expect(iconUse('camera/field-of-view')).toBe('shown');
     expect(iconSize('camera/field-of-view')).toBeNull();
   });
@@ -125,5 +126,18 @@ describe('symbols keep their drawing’s proportions (6.6 review)', () => {
     expect(symbolSize('production/north', 1.2)).toEqual({ width: 0.56, depth: 1.2 });
     expect(symbolSize('lighting/sun-path', 0.8)).toEqual({ width: 0.8, depth: 0.8 });
     expect(symbolSize('no/such-icon', 0.5)).toEqual({ width: 0.5, depth: 0.5 });
+  });
+});
+
+describe('the cast group’s sizes (6.7)', () => {
+  it('places every cast icon as a symbol at its stated side, the walk path never', () => {
+    expect(ICON_SIZES['cast/cast-mark']).toEqual({ width: 0.5, depth: 0.5 });
+    expect(ICON_SIZES['cast/next-position']).toEqual({ width: 0.5, depth: 0.5 });
+    // Symbols keep their drawing's proportions (16 by 15; 25 by 12; 22 by 19).
+    expect(ICON_SIZES['cast/tape-mark']).toEqual({ width: 0.3, depth: 0.28 });
+    expect(ICON_SIZES['cast/eyeline']).toEqual({ width: 1.5, depth: 0.72 });
+    expect(ICON_SIZES['cast/background']).toEqual({ width: 0.5, depth: 0.43 });
+    expect(iconUse('cast/walk-path')).toBe('shown');
+    expect(iconSize('cast/walk-path')).toBeNull();
   });
 });

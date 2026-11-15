@@ -1,11 +1,11 @@
 import { isValidElement, type ReactElement, type ReactNode } from 'react';
-import { Line, Text } from 'react-konva';
+import { Circle, Line, Text } from 'react-konva';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
 import { northFields, sceneRoomId, setupPlanOf, shownItems, startRoomChanges, sunFields } from '../../../core/model/plan';
 import { itemSetupId } from '../../../core/model/planCamera';
-import { setupOnlyChanges } from '../../../core/model/planRooms';
+import { deleteRoomChanges, setupOnlyChanges } from '../../../core/model/planRooms';
 import { roomNorth, sunReading, sunSetupId } from '../../../core/model/planSun';
 import type { SbdRecord } from '../../../core/model/record';
 import { planVector } from '../../../core/model/sunPath';
@@ -14,7 +14,7 @@ import { createProject, type Project } from '../../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolder';
 import { GOLDEN_HOUR, PAPER, PAPER_COLOURS } from '../../../ui/canvas/paperColours';
 import { northClash, restoreChanges, trashItems } from '../../trash/trash';
-import { HALO_PIXELS, UprightLabels } from './cameraDraw';
+import { BesideLabels, HALO_PIXELS, UprightLabels } from './cameraDraw';
 import { iconRefusal, placeIconChanges, planClipOf, planItemsBuilder, planPasteInView, trashPlanItemsChanges, turnChanges, turnsByKey, unreadableAfter } from './planItems';
 import { placeIcon } from './planActions';
 import { planStore } from './planStore';
@@ -325,6 +325,33 @@ describe('one north per room, whatever comes back (6.6 review)', () => {
     expect(liveNorths()).toHaveLength(1);
   });
 
+  it('never brings back a second north through a deleted room; the room itself comes back with its own (6.6 second review)', async () => {
+    const { sceneId, setupId } = await scene();
+    const view = { sceneId, setupId };
+    const roomId = sceneRoomId(records(), records()[sceneId]) ?? '';
+    const a = await place(view, 'production/north');
+    await store.getState().apply([{ kind: 'update', id: a, set: { rotation: 35 } }]);
+    await store.getState().apply(trashPlanItemsChanges(records(), [a]));
+    const b = await place(view, 'production/north');
+    await store.getState().apply([{ kind: 'update', id: b, set: { rotation: 90 } }]);
+    const deleted = deleteRoomChanges(records(), sceneId);
+    expect(deleted.length).toBeGreaterThan(0);
+    await store.getState().apply(deleted);
+    expect(records()[b]?.trashedAt).not.toBeNull();
+    expect(liveNorths()).toHaveLength(0);
+    // Restoring A would bring the room back with B: refused, as the Trash tile's guard says.
+    expect(northClash(records(), a)).toBe(true);
+    expect(restoreChanges(records(), project.projectId, a)).toEqual([]);
+    // The room itself comes back with B alone, A still in the Trash.
+    expect(northClash(records(), roomId)).toBe(false);
+    const room = restoreChanges(records(), project.projectId, roomId);
+    expect(room.some((c) => c.kind === 'restore' && c.id === b)).toBe(true);
+    expect(room.some((c) => c.kind === 'restore' && c.id === a)).toBe(false);
+    await store.getState().apply(room);
+    expect(liveNorths().map((r) => r.id)).toEqual([b]);
+    expect(roomNorth(records(), roomId)).toBe(90);
+  });
+
   it('undo walks back the later north before the delete it followed: never two at once', async () => {
     const { sceneId, setupId } = await scene();
     const view = { sceneId, setupId };
@@ -531,7 +558,7 @@ describe('the sun path’s drawing (6.6 review)', () => {
         for (const [dx, dy] of [[-half, -tall / 2], [half, -tall / 2], [half, tall / 2], [-half, tall / 2]] as const) {
           expect(Math.hypot(cx + dx, cy + dy), `${word} at north ${String(north)}, zoom ${String(zoom)}`).toBeLessThan(look.radius);
         }
-        expect(text.props).toMatchObject({ stroke: PAPER, strokeWidth: HALO_PIXELS, strokeScaleEnabled: false, fillAfterStrokeEnabled: true, fill: PAPER_COLOURS.ink });
+        expect(text.props).toMatchObject({ stroke: PAPER, strokeWidth: HALO_PIXELS / zoom, fillAfterStrokeEnabled: true, fill: PAPER_COLOURS.ink });
       }
       const label = zoom === 1 ? look.label : look.label.split(' · ').join('\n');
       expect(texts.map((t) => t.props.text)).toEqual(expect.arrayContaining([label, look.shadows, look.rise?.label, look.set?.label]));
@@ -557,5 +584,41 @@ describe('the sun path’s drawing (6.6 review)', () => {
     const shown = shownItems(records(), at.sceneId, at.setupId);
     const missing = planItemsBuilder()(shown, 'metres', PAPER_COLOURS.ink, 'en', new Map(), new Map(), sunLooks(records(), shown, ny, [])).find((i) => i.id === at.sun);
     expect(missing?.fitExtent).toBeUndefined();
+  });
+
+  it('keeps every label’s halo HALO_PIXELS wide on screen at every zoom (6.6 second review)', async () => {
+    // Konva scales a text's stroke with the view whatever strokeScaleEnabled says, so the width is in plan units:
+    // strokeWidth × zoom is what shows on screen.
+    const { look } = await drawn(0);
+    for (const zoom of [0.25, 1, 4]) {
+      const camera = partsOf(UprightLabels({ width: 40, height: 40, zoom, rotation: 0, colours: PAPER_COLOURS, lines: ['A · 35 mm'] })).filter((p) => p.type === Text);
+      const beside = partsOf(BesideLabels({ width: 300, height: 10, zoom, rotation: 0, colours: PAPER_COLOURS, spec: { lines: ['2.40 m'], side: 1, edge: 5 } })).filter((p) => p.type === Text);
+      const sun = partsOf(SunBeyond({ width: 80, height: 80, zoom, rotation: 0, colours: PAPER_COLOURS, look }))
+        .filter((p) => typeof p.type === 'function' && 'text' in p.props)
+        .map(drawnText);
+      for (const [what, texts] of [['camera', camera], ['beside', beside], ['sun', sun]] as const) {
+        expect(texts.length, what).toBeGreaterThan(0);
+        for (const text of texts) {
+          expect((text.props.strokeWidth as number) * zoom, `${what} at zoom ${String(zoom)}`).toBeCloseTo(HALO_PIXELS, 9);
+          expect(text.props.strokeScaleEnabled, what).toBeUndefined();
+        }
+      }
+    }
+  });
+
+  it('draws only the arc, its golden stretches and the sun where the circle is too small for words (zoom 0.1)', async () => {
+    const { look } = await drawn(0);
+    const parts = partsOf(SunBeyond({ width: 80, height: 80, zoom: 0.1, rotation: 0, colours: PAPER_COLOURS, look }));
+    expect(parts.filter((p) => 'text' in p.props)).toHaveLength(0);
+    const lines = parts.filter((p) => p.type === Line);
+    expect(lines.filter((p) => p.props.stroke === GOLDEN_HOUR).length).toBe(look.segments.filter((s) => s.golden).length);
+    // The arc's stretches, each golden one over its casing, and the sun's line; no ticks, no shadow line.
+    const golden = look.segments.filter((s) => s.golden).length;
+    expect(lines).toHaveLength(look.segments.length + golden + 1);
+    expect(lines.filter((p) => p.props.dash !== undefined)).toHaveLength(0);
+    expect(parts.filter((p) => p.type === Circle)).toHaveLength(1);
+    // Up close, the words are back.
+    const near = partsOf(SunBeyond({ width: 80, height: 80, zoom: 1, rotation: 0, colours: PAPER_COLOURS, look }));
+    expect(near.filter((p) => typeof p.type === 'function' && 'text' in p.props).length).toBe(look.hours.length + 4);
   });
 });

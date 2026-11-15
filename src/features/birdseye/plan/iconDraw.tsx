@@ -128,9 +128,46 @@ interface ShapeProps {
   colours: CanvasColours;
 }
 
+/**
+ * Text drawn in place of an icon's own (6.7: a character's mark says "B1", not the kit's "A1"): a map from the icon's
+ * text to what to draw, or one replacement for an icon with a single text. The Library's thumbnails pass none.
+ */
+export type IconTexts = string | Readonly<Record<string, string>>;
+
+/** A replaced text part, made once per icon, part and text, so its scene function is shared as the kit's are. */
+const REPLACED = new Map<string, IconText>();
+
+/** What a text part says with `texts` applied: the part itself when nothing replaces it. */
+export function replacedText(id: string, index: number, part: IconText, texts: IconTexts, single: boolean): IconText {
+  const text = typeof texts === 'string' ? (single ? texts : null) : Object.hasOwn(texts, part.text) ? (texts[part.text] ?? null) : null;
+  if (text === null || text === part.text) return part;
+  const key = `${id}\u0000${String(index)}\u0000${text}`;
+  let made = REPLACED.get(key);
+  if (!made) {
+    // A longer text is set smaller, so it stays inside the drawing the kit's fitted (a mono face: width is length).
+    const longer = Math.max(1, Array.from(text).length) / Math.max(1, Array.from(part.text).length);
+    made = { ...part, text, size: longer > 1 ? part.size / longer : part.size };
+    REPLACED.set(key, made);
+  }
+  return made;
+}
+
+/** An icon's React elements with `texts` applied; the shared ones when there is nothing to replace. */
+export function iconNodesWith(id: string, texts: IconTexts | undefined): readonly ReactElement[] | null {
+  const nodes = iconNodes(id);
+  const parts = iconShapesOf(id);
+  if (!nodes || !parts || texts === undefined) return nodes;
+  const single = parts.filter((part) => part.kind === 'text').length === 1;
+  return parts.map((part, i) => {
+    if (part.kind !== 'text') return nodes[i] as ReactElement;
+    const replaced = replacedText(id, i, part, texts, single);
+    return replaced === part ? (nodes[i] as ReactElement) : <IconTextNode key={String(i)} part={replaced} />;
+  });
+}
+
 /** The icon's shapes alone, in the item's box. */
-function IconGroup({ icon, width, height }: { icon: PlanIcon; width: number; height: number }) {
-  const nodes = iconNodes(icon.id);
+function IconGroup({ icon, width, height, texts }: { icon: PlanIcon; width: number; height: number; texts?: IconTexts | undefined }) {
+  const nodes = iconNodesWith(icon.id, texts);
   if (!nodes) return null;
   const fit = iconFit(iconContentBox(icon), width, height);
   return (
@@ -140,12 +177,15 @@ function IconGroup({ icon, width, height }: { icon: PlanIcon; width: number; hei
   );
 }
 
-/** A known icon at its box's size, as vectors, with its name beneath; one the table doesn't have, the "?" outline. */
-export function IconShape({ icon, width, height, zoom, name, colours }: ShapeProps & { icon: PlanIcon }) {
+/**
+ * A known icon at its box's size, as vectors, with its name beneath; one the table doesn't have, the "?" outline.
+ * `texts` replaces the icon's own text (IconTexts).
+ */
+export function IconShape({ icon, width, height, zoom, name, colours, texts }: ShapeProps & { icon: PlanIcon; texts?: IconTexts | undefined }) {
   if (!iconShapesOf(icon.id)) return <UnknownIconShape width={width} height={height} zoom={zoom} name={name} colours={colours} />;
   return (
     <>
-      <IconGroup icon={icon} width={width} height={height} />
+      <IconGroup icon={icon} width={width} height={height} texts={texts} />
       <NameBelow name={name} width={width} height={height} zoom={zoom} colours={colours} />
     </>
   );

@@ -19,7 +19,9 @@ import { setupFields } from '../../core/model/setup';
 import { frameLabel, iconLabel } from '../birdseye/plan/iconWords';
 import { planUnitNow } from '../../app/planUnits';
 import type { PlanUnit } from '../../core/model/length';
-import { isGrip, openingFields, openingTrashedWithWall, planFields, restorePlanChanges, roomTitle, shownFields, trashedWithWall } from '../../core/model/plan';
+import { isGrip, isMark, MARK_ICON, openingFields, openingTrashedWithWall, planFields, restorePlanChanges, roomTitle, shownFields, trashedWithWall } from '../../core/model/plan';
+import { markOwner, markTrashedWithCamera, trashedWithCamera } from '../../core/model/planBlocking';
+import { characterTitle } from '../birdseye/plan/markLooks';
 import { ATTACHMENT_KIND_LABEL, attachmentFields } from '../../core/model/attachment';
 
 // The Trash (1.20, CLAUDE.md): what's been deleted (frames, scenes, notes and pictures), kept until Empty Trash
@@ -211,7 +213,10 @@ function partsOf(records: Records, record: SbdRecord, kind: TrashKind, unit: Pla
       // A camera (6.4) or a light (6.5) by the icon it was placed as: "Dolly track", "Fresnel"; a flag or diffusion
       // frame by its kind and size, never its icon's ("Diffusion · 8×8", in the unit the plan shows: 6.5 review).
       const grip = shown && isGrip(shown) ? shown : null;
-      const item = grip ? frameLabel(grip, unit) : shown && 'icon' in shown ? iconLabel(shown.icon) : kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
+      // A mark (6.7) by whose it is: "ANA's mark", a camera's position, else a tape mark.
+      const owner = shown && isMark(shown) ? markOwner(records, record) : null;
+      const mark = shown && isMark(shown) ? (owner?.kind === 'character' ? t('plan.mark.ofCharacter', { name: characterTitle(records, owner.id) }) : owner?.kind === 'camera' ? t('plan.mark.cameraKind') : iconLabel(MARK_ICON)) : null;
+      const item = mark !== null ? mark : grip ? frameLabel(grip, unit) : shown && 'icon' in shown ? iconLabel(shown.icon) : kind === 'wall' ? t('plan.item.wall') : kind === 'door' ? t('plan.item.door') : kind === 'window' ? t('plan.item.window') : t('trash.planItemUnknown');
       if (fields?.kind === 'room') return [plain(t('trash.planItemInRoom', { item, room: roomTitle(fields) }))];
       return [plain(item)];
     }
@@ -283,8 +288,27 @@ export function restoreClash(records: Records, id: string): string | null {
  */
 export function northClash(records: Records, id: string): boolean {
   const record = records[id];
-  if (record?.type !== 'plan_item' || record.props.kind !== 'north' || record.trashedAt === null || record.parentId === null) return false;
-  return Object.values(records).some((r) => r.type === 'plan_item' && r.id !== id && r.trashedAt === null && r.parentId === record.parentId && r.props.kind === 'north');
+  if (!record || record.trashedAt === null) return false;
+  let top: SbdRecord | undefined = record;
+  while (top?.parentId) top = records[top.parentId];
+  return doublesNorth(records, restoreUnchecked(records, top?.id ?? '', id, NO_SLATE_NUMBERS));
+}
+
+/**
+ * Whether these changes would leave a room with more than one live north (6.6 second review). Worked out from the whole
+ * restore, not the north alone: a north restored while its room is in the Trash brings the room back with whatever
+ * north went with it, so looking only at the room's live items missed a second north coming back through it.
+ */
+function doublesNorth(records: Records, changes: readonly Change[]): boolean {
+  const back = new Set(changes.flatMap((c) => (c.kind === 'restore' ? [c.id] : [])));
+  const gone = new Set(changes.flatMap((c) => (c.kind === 'trash' ? [c.id] : [])));
+  const live = (r: SbdRecord) => !gone.has(r.id) && (r.trashedAt === null || back.has(r.id));
+  const isNorth = (r: SbdRecord | undefined): r is SbdRecord => r?.type === 'plan_item' && r.props.kind === 'north' && r.parentId !== null;
+  const rooms = new Set([...back].map((restoring) => records[restoring]).filter(isNorth).map((r) => r.parentId));
+  if (rooms.size === 0) return false;
+  const counts = new Map<string | null, number>();
+  for (const r of Object.values(records)) if (isNorth(r) && rooms.has(r.parentId) && live(r)) counts.set(r.parentId, (counts.get(r.parentId) ?? 0) + 1);
+  return [...counts.values()].some((count) => count > 1);
 }
 
 /**
@@ -304,6 +328,8 @@ export function trashItems(records: Records, projectId: string, unit: PlanUnit =
     if (trashedWithItem(records, record)) continue;
     // So does a door or window that went with its wall (6.2b): the Trash lists the wall.
     if (record.type === 'plan_item' && openingTrashedWithWall(records, record)) continue;
+    // And a camera's later position that went with its camera (6.7): the Trash lists the camera.
+    if (record.type === 'plan_item' && markTrashedWithCamera(records, record)) continue;
     const scene = sceneOf(records, record);
     // Only this project's records (a file holds one project, but the check is cheap and keeps the list honest).
     let top: SbdRecord | undefined = record;
@@ -334,6 +360,13 @@ export function trashItems(records: Records, projectId: string, unit: PlanUnit =
  * - the project's logo or key image comes back on its own; Settings → Theme makes it the theme's image again.
  */
 export function restoreChanges(records: Records, projectId: string, id: string, slate: SlateNumbers = NO_SLATE_NUMBERS): Change[] {
+  const changes = restoreUnchecked(records, projectId, id, slate);
+  // One north per room (6.6 review): whatever this brings back, never a room with two (northClash; the Trash says so).
+  return doublesNorth(records, changes) ? [] : changes;
+}
+
+/** restoreChanges' op group before the one-north check. */
+function restoreUnchecked(records: Records, projectId: string, id: string, slate: SlateNumbers): Change[] {
   const record = records[id];
   if (!record || record.trashedAt === null) return [];
   const parent = record.parentId ? records[record.parentId] : undefined;
@@ -385,16 +418,14 @@ export function restoreChanges(records: Records, projectId: string, id: string, 
       // A room comes back with the items that went to the Trash with it (6.2a), not ones deleted before.
       return restorePlanChanges(records, id);
     case 'plan_item': {
-      // A north whose room has one now stays in the Trash (northClash): never a second north.
-      if (northClash(records, id)) return [];
       // An item whose plan is in the Trash brings the plan back whole, or it would come back onto nothing (6.2a).
       const own: Change[] = parent?.type !== 'plan' || parent.trashedAt === null ? [{ kind: 'restore', id }] : restorePlanChanges(records, parent.id);
       // A wall comes back with the doors and windows that went with it; a door or window whose wall is in the Trash
       // brings the wall back too, or it would come back into nothing (6.2b).
-      const openings = trashedWithWall(records, record).map((r): Change => ({ kind: 'restore', id: r.id }));
+      const openings = [...trashedWithWall(records, record), ...trashedWithCamera(records, record)].map((r): Change => ({ kind: 'restore', id: r.id }));
       const wallId = openingFields(record.props)?.wallId;
       const wall = wallId ? records[wallId] : undefined;
-      const withWall = wall?.type === 'plan_item' && wall.trashedAt !== null ? restoreChanges(records, projectId, wall.id, slate) : [];
+      const withWall = wall?.type === 'plan_item' && wall.trashedAt !== null ? restoreUnchecked(records, projectId, wall.id, slate) : [];
       const seen = new Set<string>();
       return [...withWall, ...own, ...openings, { kind: 'restore' as const, id }].filter((c) => {
         const key = c.kind === 'restore' ? c.id : null;

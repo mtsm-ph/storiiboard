@@ -1,6 +1,8 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { boundsFor, boundsOf, cornersOf, fitBoundsOf, hitsPoint, marqueeHolds, marqueeTouches, rectFromCorners, topmostAt, turnsByHandle } from './hitTest';
-import { minimapBounds } from './Minimap';
+import { boundsFor, boundsOf, cornersOf, fitBoundsOf, fitViewOf, hitsPoint, marqueeHolds, marqueeTouches, rectFromCorners, topmostAt, turnsByHandle } from './hitTest';
+import { Minimap, MINIMAP_HEIGHT, MINIMAP_WIDTH, minimapBounds } from './Minimap';
 import type { Geometry } from './types';
 
 const box = (rotation = 0): Geometry => ({ x: 0, y: 0, width: 100, height: 20, rotation });
@@ -129,6 +131,35 @@ describe('an item’s fit extent (6.6 review)', () => {
     expect(bounds.y).toBeLessThanOrEqual(-300);
     expect(bounds.x + bounds.width).toBeGreaterThanOrEqual(300);
     expect(bounds.y + bounds.height).toBeGreaterThanOrEqual(300);
+  });
+
+  it('fits all to the whole circle, not the box alone (6.6 second review: the fit the canvas calls)', () => {
+    const size = { width: 800, height: 600 };
+    const limits = { min: 0.02, max: 20, fitMax: 4 };
+    const view = fitViewOf([sun], size, limits);
+    // The view's world takes in the circle: half its width and height, from its middle, reach 300 each way.
+    expect(size.width / 2 / view.zoom).toBeGreaterThanOrEqual(300);
+    expect(size.height / 2 / view.zoom).toBeGreaterThanOrEqual(300);
+    expect(view).toMatchObject({ cx: 0, cy: 0 });
+    // Without its extent the box alone would be fitted, far closer.
+    const bare = { x: sun.x, y: sun.y, width: sun.width, height: sun.height, rotation: sun.rotation };
+    expect(fitViewOf([bare], size, limits).zoom).toBeGreaterThan(view.zoom);
+  });
+
+  it('draws each item in the minimap by its own box, even one with a fit extent; only the bounds widen', () => {
+    const plain = { id: 'chair', x: 100, y: 100, width: 80, height: 80, rotation: 0 };
+    const markup = renderToStaticMarkup(createElement(Minimap, { items: [{ id: 'sun', ...sun }, plain], view: { cx: 0, cy: 0, zoom: 1 }, size: { width: 100, height: 100 }, onCentre: () => undefined }));
+    const rect = (id: string) => {
+      const found = new RegExp(`<rect[^>]*data-minimap-item="${id}"[^>]*>`).exec(markup)?.[0] ?? '';
+      const attr = (name: string) => Number(new RegExp(` ${name}="([^"]+)"`).exec(found)?.[1]);
+      return { width: attr('width'), height: attr('height') };
+    };
+    const bounds = minimapBounds([sun, plain], { cx: 0, cy: 0, zoom: 1 }, { width: 100, height: 100 });
+    const scale = Math.min(MINIMAP_WIDTH / bounds.width, MINIMAP_HEIGHT / bounds.height);
+    // The sun path's box is 80 units, as the chair's: drawn the same size, never as its 600-unit circle.
+    expect(rect('sun').width).toBeCloseTo(80 * scale, 6);
+    expect(rect('sun').height).toBeCloseTo(80 * scale, 6);
+    expect(rect('sun')).toEqual(rect('chair'));
   });
 });
 

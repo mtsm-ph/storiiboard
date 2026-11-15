@@ -61,6 +61,21 @@ describe('shoot days', () => {
     expect(dayLabel({ number: 3, fields: shootDayFields({}) })).toBe('Day 3');
   });
 
+  it('keep two days with one date and one sort key in the order they were made, whatever their ids (6.6 second review)', () => {
+    // As ties fell before the id tie-break: an existing file's tied days keep their numbers.
+    const made = (id: string, createdAt: string): SbdRecord => ({ ...record(id, 'shoot_day', 'p', { date: '2026-11-20' }, 'k'), createdAt });
+    for (const [first, second] of [['z-day', 'b-day'], ['b-day', 'z-day']] as const) {
+      const earlier = made(first, '2026-11-01T10:00:00.000Z');
+      const later = made(second, '2026-11-02T10:00:00.000Z');
+      for (const records of [recordsOf(record('p', 'project', null, {}), earlier, later), recordsOf(record('p', 'project', null, {}), later, earlier)]) {
+        expect(projectShootDays(records, 'p').map((d) => [d.record.id, d.number])).toEqual([[first, 1], [second, 2]]);
+      }
+    }
+    // Made at the same moment, the id settles it.
+    const same = recordsOf(record('p', 'project', null, {}), made('z-day', at), made('b-day', at));
+    expect(projectShootDays(same, 'p').map((d) => d.record.id)).toEqual(['b-day', 'z-day']);
+  });
+
   it('give a frame its day for the Inspector: number and date, or none when unset, trashed or gone (5.11)', () => {
     const records = base();
     const day = (id: string) => frameShootDay(records, 'p', records[id] as SbdRecord);

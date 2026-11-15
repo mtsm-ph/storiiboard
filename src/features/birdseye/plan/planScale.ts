@@ -54,7 +54,13 @@ export const CAMERA_TOOL = 'host:camera';
 /** The Light tool's id (6.5): a click on the setup's plan puts a fresnel there; L picks it, free among the plan's letters. */
 export const LIGHT_TOOL = 'host:light';
 
-/** The plan's tools (6.2a, 6.2b, 6.4, 6.5): Select, Hand, Wall, Door, Window, Camera and Light; the rest of the library is a tile (6.3). */
+/**
+ * The Mark tool's id (6.7): a click puts a plain mark in the scene's blocking; M picks it, free among the plan's letters.
+ * Shift+M is "Next position" (N is the window's), read by the plan before the tool letters.
+ */
+export const MARK_TOOL = 'host:mark';
+
+/** The plan's tools (6.2a, 6.2b, 6.4, 6.5, 6.7): Select, Hand, Wall, Door, Window, Camera, Light and Mark; the rest of the library is a tile (6.3). */
 export const PLAN_TOOLS: readonly ToolSpec[] = [
   { id: 'select', key: 'V', label: () => t('canvas.tool.select') },
   { id: 'hand', key: 'H', label: () => t('canvas.tool.hand') },
@@ -67,4 +73,6 @@ export const PLAN_TOOLS: readonly ToolSpec[] = [
   { id: CAMERA_TOOL, key: 'C', label: () => t('plan.tool.camera'), size: { width: 40, height: 40 } },
   // A fresnel's own size (0.4 m), as the camera's.
   { id: LIGHT_TOOL, key: 'L', label: () => t('plan.tool.light'), size: { width: 40, height: 40 } },
+  // A tape mark's own size (0.3 m), so the click's middle is where it goes.
+  { id: MARK_TOOL, key: 'M', label: () => t('plan.tool.mark'), size: { width: 30, height: 28 } },
 ];

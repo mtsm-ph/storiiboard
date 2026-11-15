@@ -2,7 +2,7 @@ import { t } from '../../../core/i18n';
 import { oneDecimal } from '../../../core/model/fieldOfView';
 import { formatLength, type PlanUnit } from '../../../core/model/length';
 import type { ShownItem } from '../../../core/model/plan';
-import { cameraCone, cameraHeight, liveCamera, type CameraCone, type CameraHeight } from '../../../core/model/planCamera';
+import { cameraCone, cameraHeight, isTrackIcon, liveCamera, type CameraCone, type CameraHeight } from '../../../core/model/planCamera';
 import type { SbdRecord } from '../../../core/model/record';
 import { choiceLabel, HEIGHT_LABEL } from '../../../core/model/storyboard';
 import type { CameraLook } from './cameraDraw';
@@ -31,12 +31,17 @@ export function heightLabel(height: CameraHeight, unit: PlanUnit): string | null
   return height.from === 'frame' ? choiceLabel(HEIGHT_LABEL, height.value) : formatLength(height.metres, unit);
 }
 
+/** A track's, slider's or jib's length (6.7), its longer side: "3.00 m track"; null for any other camera. */
+export function trackLabel(fields: { icon: string; width: number; height: number }, unit: PlanUnit): string | null {
+  return isTrackIcon(fields.icon) ? t('plan.camera.track', { length: formatLength(Math.max(fields.width, fields.height), unit) }) : null;
+}
+
 /** One camera's look. */
 export function cameraLookOf(records: Records, cameraId: string, unit: PlanUnit, selected: boolean): CameraLook {
   const camera = liveCamera(records, cameraId);
   const cone = cameraCone(records, cameraId);
   const height = heightLabel(cameraHeight(records, cameraId), unit);
-  const lines = [camera?.fields.name ?? '', coneLabel(cone), height ?? ''].filter((line) => line !== '');
+  const lines = [camera?.fields.name ?? '', coneLabel(cone), camera ? (trackLabel(camera.fields, unit) ?? '') : '', height ?? ''].filter((line) => line !== '');
   return { degrees: cone && !('missing' in cone) ? cone.degrees : null, lines, selected };
 }
 

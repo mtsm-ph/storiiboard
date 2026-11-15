@@ -426,8 +426,8 @@ unreadable value reads as not set, as every prop does.
     `icon`, place or size isn't read and is kept unseen. A set piece is an `icon`, never a kind of its own.
   - `kind` (6.2 and 6.3): `wall`, `door`, `window`, `icon`, `camera`, `light`, `flag`, `diffusion`, `mark`, `path`,
     `north`, `sun`, `underlay` or `measure`. An item whose `kind` this version doesn't know is kept and not shown.
-  - Reach and size (6.3 review): a wall's, icon's, camera's, light's, flag's or diffusion frame's (6.5), north's or
-    sun path's (6.6) `x` and `y`
+  - Reach and size (6.3 review): a wall's, icon's, camera's, light's, flag's or diffusion frame's (6.5), north's,
+    sun path's (6.6) or mark's (6.7) `x` and `y`
     are read only within 10 000 m (10 km) of the plan's origin either way, and its `width` and `height` (a wall's
     length and thickness) only up to 1 000 m (1 km); a door's or window's `along_m` only up to 10 000 m and its
     `width_m` up to 1 000 m (src/core/model/plan.ts, `PLAN_REACH` and `PLAN_MAX_SIZE`). Past them (an import's 1e308)
@@ -496,8 +496,8 @@ unreadable value reads as not set, as every prop does.
     `watts` and `beam_deg`.
   - Drawing order (6.5): walls, then doors and windows, then icons, then flags and diffusion, then lights, then
     cameras, whatever the front-to-back order: the plan items' order (`sort_key`) decides only within a kind, so a
-    light, a flag or a camera always draws above the set pieces. North (6.6) draws with the icons, after them; sun
-    paths last, above the cameras.
+    light, a flag or a camera always draws above the set pieces. North (6.6) draws with the icons, after them; marks
+    (6.7) after north, under the flags, lights and cameras; sun paths last, above the cameras.
   - A flag's or diffusion frame's label (6.5 review), everywhere it is named (the legend, History, the Trash, the
     Selection tile, aloud), is its kind and size, never the icon it was placed as: "Diffusion · 8×8", "Flag · 2×3",
     or the typed width in the unit shown when it matches no size ("Bounce · 1.50 m"). Words only: nothing is stored.
@@ -527,7 +527,51 @@ unreadable value reads as not set, as every prop does.
     `rotation` is read as 0 whatever is stored. Lacking one, it draws nothing and says which. The
     arc is drawn 3 m out (a constant). Copies (a setup started from another, a paste, a duplicate) keep `time`. Its
     layer (6.8) is lighting's.
-  - A mark's `character_id` (6.7): the `character` it is for.
+  - A `mark` (6.7, decision 9) is a position on the floor, its box as an icon's. `icon`: what it was placed as
+    (`cast/cast-mark`, `cast/tape-mark`, or `cast/next-position` for one added by Next position; missing reads as
+    `cast/tape-mark`); never what it is drawn as, which comes from its owner and its number: a character's position 1
+    as `cast/cast-mark`, its later ones as `cast/next-position`, a plain mark as `cast/tape-mark` (placed 0.50 × 0.50,
+    0.50 × 0.50 and 0.30 × 0.28 m), a camera's later position as its camera's own icon, dimmed, at the camera's size.
+    `character_id` (6.7): the `character` it is for, one of its scene's (`character_ids`, as sceneCharacters reads them).
+    `camera_id` (6.7): the `camera` item whose later position it is, in the same setup's plan. Its level: a character's
+    mark and a plain mark sit in the scene's `blocking` plan (made in the same step when there is none), so every setup
+    of the scene shows them; "This setup only" moves one into a setup's plan (a cheated mark) and back, at the front
+    of the plan it goes to (a fresh `sort_key`, as any item). A camera's mark sits in the camera's setup plan. A link
+    that doesn't read (a `character_id` naming a character in the Trash, gone, or no longer in the scene's characters;
+    a `camera_id` naming a camera in the Trash, gone, or in another plan) reads as none: the mark is a plain mark, its
+    props kept, so a restore brings the link back. With both set, a `camera_id` that reads wins.
+    `order` (6.7 review): a mark's place among its character's or its camera's positions; unique among that owner's
+    positions; the number is worked out from it and never stored. A key as `sort_key`s are (base-62 digits, never
+    ending in "0"); anything else reads as none. `sort_key` is drawing order only: Bring forward, Send back and a move
+    to another plan never touch `order`, so a position's number never changes with them. Positions are numbered, never
+    stored: a view's marks of one character (blocking and that setup's only, together) are 1, 2, 3 by `order`; a
+    camera's own item is its position 1 and its marks 2, 3… by `order`. A mark with no `order`, or two sharing one (an
+    import's), sorts after those with one, then by `created_at`, then by id. A new position's `order` comes after the
+    owner's last over all of that owner's marks in the scene (the blocking and every setup's plan, the Trash's too), so
+    two setups never make the same. Earlier and Later write an `order` between the new neighbours' among the positions
+    the view shows (below any other of that owner's between them); when those positions lack one or share one, each of
+    them is given a fresh `order` after the owner's last, in the new order. Next position writes a mark 1 m to the
+    right (+x) of the owner's last position, after it in `order`; a camera's at the camera's size, turned as its last
+    position is. The path from each position to the next (a straight dashed line with an arrowhead) and a camera's move
+    length are worked out, never stored; no `path` items are written. Giving a mark to a character or a camera makes it
+    that owner's last position (a new `order`); giving it to a camera moves it into the camera's plan at the camera's
+    size and turn; taking it off a camera moves it back to the blocking at a mark's size; a plain mark has no `order`.
+    Trashing a camera trashes its marks in the same step, and restoring the camera brings those back; trashing a
+    character leaves its marks, which read as plain marks. Copies: a setup started from another re-points each mark's
+    `camera_id` to the camera's copy, or takes it off when its camera isn't copied; a paste or duplicate keeps
+    `character_id`, and keeps `camera_id` only when the camera is pasted with it (Copy and Cut of a camera take its
+    marks with it). Each keeps its `order` when its owner comes with it or is the same character, but a pasted or
+    duplicated character's mark in a view that shows that character's positions already is a new position, after the
+    last. A mark that loses its camera in a copy is a plain mark: no `order`, a tape mark's size about its middle,
+    unturned. A room's separate copy never touches marks (they aren't in the room). Its layer (6.8) is the camera
+    department's while its `camera_id` reads, cast blocking's otherwise (a camera in the Trash leaves its marks on cast
+    blocking's layer and at the blocking's level). A scene with two live `blocking` plans (only by an import or History)
+    shows the items of both; new marks go to the first by `sort_key`, then `created_at`, then id. Reach and size as an
+    icon's.
+  - A camera placed as `camera/dolly-track`, `camera/slider` or `camera/jib-crane` (6.7) shows its longer side as its
+    length ("3.00 m track") and resizes without keeping its proportions. Nothing is stored for it.
+  - `cast/eyeline` and `cast/background` (6.7) are plain `icon` items in the scene's blocking, as every cast icon is;
+    `cast/walk-path` is the path's picture, never placed.
   - An underlay's `media_id` (6.9): the picture under the plan, a `media` record stored as board pictures are.
 
 ## Schema v13: approvals kept through the upgrade (3.18)

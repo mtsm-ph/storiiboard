@@ -40,7 +40,9 @@ export function reordered(order: readonly string[], selected: ReadonlySet<string
 
 /**
  * The new sort keys that give `after` as the order, for the moved ids only: everything else keeps its key, so a reorder
- * of several items writes those items' rows and no others. Empty when the order didn't change.
+ * of several items writes those items' rows and no others. Empty when the order didn't change. Two items that stay put
+ * sharing one key (existing data: a plan's, 6.7 review) leave no key between them: the item moved takes one after the
+ * last key before it, below the next key above that, so a reorder never throws; with distinct keys nothing changes.
  */
 export function sortKeysFor(
   before: readonly string[],
@@ -62,8 +64,10 @@ export function sortKeysFor(
     let next: string | null = null;
     for (let j = i + 1; j < after.length; j += 1) {
       const other = after[j];
-      if (other !== undefined && !moved.has(other)) {
-        next = keyOf.get(other) ?? null;
+      const key = other === undefined || moved.has(other) ? undefined : keyOf.get(other);
+      // A key tied with the one before (or below it) leaves no room: the next one above it bounds the new key instead.
+      if (key !== undefined && (previous === null || key > previous)) {
+        next = key;
         break;
       }
     }

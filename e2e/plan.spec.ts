@@ -744,8 +744,9 @@ async function toolsShown(page: Page) {
   const canvasBox = await canvas(page).boundingBox();
   if (!tile || !canvasBox) throw new Error('no tile');
   const tools = planTile(page).getByRole('group', { name: 'Tools', exact: true }).getByRole('button');
-  await expect(tools).toHaveCount(7);
-  for (const name of ['Select', 'Hand', 'Wall', 'Door', 'Window', 'Camera', 'Light']) {
+  // 6.7 adds the Mark tool.
+  await expect(tools).toHaveCount(8);
+  for (const name of ['Select', 'Hand', 'Wall', 'Door', 'Window', 'Camera', 'Light', 'Mark']) {
     const button = planTile(page).getByRole('group', { name: 'Tools', exact: true }).getByRole('button', { name: new RegExp(`^${name}`) });
     await expect(button).toBeVisible();
     const box = await button.boundingBox();
@@ -773,6 +774,14 @@ test('the plan’s tools are all on screen, in the Setup layout and in a tile 32
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
   await planTile(page).getByRole('button', { name: 'New room' }).click();
   await expect(canvas(page)).toBeVisible();
+  // A long room name (6.6 second review): cut short in the row at 320 px, never past the tile; whole in its tooltip
+  // and its accessible name.
+  const long = 'The Old Bey County Diner Back Kitchen and Loading Dock';
+  await canvas(page).focus();
+  await page.keyboard.press('Escape');
+  await field(page, 'Room name').fill(long);
+  await field(page, 'Room name').press('Enter');
+  await expect(canvas(page)).toHaveAttribute('aria-label', `Plan of ${long}`);
   await toolsShown(page);
   // The Plan tile alone and 320 px wide: the window narrowed until it is.
   await planTile(page).getByRole('button', { name: 'Maximize Set plan' }).click();
@@ -785,6 +794,13 @@ test('the plan’s tools are all on screen, in the Setup layout and in a tile 32
   }
   expect(Math.abs(((await planTile(page).boundingBox())?.width ?? 0) - 320)).toBeLessThanOrEqual(1);
   await toolsShown(page);
+  const roomButton = planTile(page).getByRole('button', { name: `Room: ${long}`, exact: true });
+  await expect(roomButton).toHaveAttribute('title', `Room: ${long}`);
+  const tileBox = await planTile(page).boundingBox();
+  const roomBox = await roomButton.boundingBox();
+  expect((roomBox?.x ?? 0) + (roomBox?.width ?? 0)).toBeLessThanOrEqual((tileBox?.x ?? 0) + (tileBox?.width ?? 0) + 1);
+  // Cut short: its text runs wider than the button shows.
+  expect(await roomButton.locator('span').first().evaluate((span) => span.scrollWidth > span.clientWidth)).toBe(true);
   // Each tool still works from its button.
   await planTile(page).getByRole('group', { name: 'Tools', exact: true }).getByRole('button', { name: /^Light/ }).click();
   await expect(canvas(page)).toHaveAttribute('data-tool', 'host:light');
