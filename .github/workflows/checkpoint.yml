@@ -100,9 +100,16 @@ jobs:
       # Chromium too when regenerating: the Mac's local gate runs both browsers, so both need darwin baselines.
       - name: Install Playwright's browsers
         run: npx playwright install webkit ${{ (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) && 'chromium' || '' }}
+      # Safari's engine on a Mac moves Tab only between text fields and lists unless the system's "Keyboard
+      # navigation" is on; the Mac app's own webview turns that on for itself (wry sets tabFocusesLinks), so the
+      # tests' WebKit is given the same here. Without it, 14 keyboard tests failed on the first whole-suite run.
+      - name: Tab reaches every control, as in the Mac app
+        run: defaults write -g AppleKeyboardUIMode -int 2
+      # A checkpoint/e2e-<name> branch may carry e2e/ONLY.txt (never merged): the specs to run, one per line, for a
+      # second look at tests that failed only here. Without the file, the whole suite.
       - name: The whole end-to-end suite in WebKit
         if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
-        run: npx playwright test --project=webkit
+        run: npx playwright test --project=webkit $(cat e2e/ONLY.txt 2>/dev/null | tr '\n' ' ')
       - name: Regenerate the macOS visual baselines
         if: ${{ (inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
         run: npx playwright test e2e/visual.spec.ts --update-snapshots=all

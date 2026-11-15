@@ -1362,6 +1362,72 @@ mod tests {
         assert!(parse_raw_tx(&short).is_err());
     }
 
+    /// B3 (6.14): what a query and a blob read refuse, edge cases included. The test drivers
+    /// (src/core/storage/memoryDriver.ts, nodeDriver.ts) mirror exactly this, in the same words.
+    #[test]
+    fn refuses_bytes_in_a_query_and_a_blob_read_of_anything_else() {
+        let dir = temp_dir("refusals");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        file.tx(&[
+            statement("CREATE TABLE media_files (id TEXT, bytes BLOB)", vec![]),
+            statement(
+                "INSERT INTO media_files VALUES ('full', x'0102'), ('empty', x''), ('null', NULL), \
+                 ('text', 'abc'), ('number', 35)",
+                vec![],
+            ),
+        ])
+        .unwrap();
+        let query = |id: &str| {
+            file.query(
+                "SELECT id, bytes FROM media_files WHERE id = ?1",
+                &[Json::from(id)],
+            )
+        };
+        let read = |id: &str| {
+            file.read_blob(
+                "SELECT bytes FROM media_files WHERE id = ?1",
+                &[Json::from(id)],
+            )
+        };
+        let bytes_in_query: Result<Vec<Row>, String> =
+            Err("A query can't return bytes; read them with readBlob.".into());
+        let not_bytes: Result<Option<Vec<u8>>, String> =
+            Err("That column doesn't hold bytes.".into());
+        // A query: bytes in any row are refused, an empty blob too; NULL, and text or a number stored in a blob
+        // column, come back as they are (SQLite's type of the value, not the column's); no rows is no refusal.
+        assert_eq!(query("full"), bytes_in_query);
+        assert_eq!(query("empty"), bytes_in_query);
+        assert_eq!(query("null").unwrap()[0]["bytes"], Json::Null);
+        assert_eq!(query("text").unwrap()[0]["bytes"], Json::from("abc"));
+        assert_eq!(query("number").unwrap()[0]["bytes"], Json::from(35));
+        assert_eq!(query("none").unwrap().len(), 0);
+        assert_eq!(
+            file.query("SELECT id, bytes FROM media_files ORDER BY id", &[]),
+            bytes_in_query
+        );
+        // A blob read: bytes, an empty blob as no bytes (which sbd_read_blob sends as nothing, as for no row), NULL
+        // and no row as None; text or a number is refused.
+        assert_eq!(read("full"), Ok(Some(vec![1, 2])));
+        assert_eq!(read("empty"), Ok(Some(vec![])));
+        assert_eq!(read("null"), Ok(None));
+        assert_eq!(read("none"), Ok(None));
+        assert_eq!(read("text"), not_bytes);
+        assert_eq!(read("number"), not_bytes);
+        // Only the first column of the first row counts.
+        assert_eq!(
+            file.read_blob(
+                "SELECT bytes, id FROM media_files WHERE id IN ('full', 'text') ORDER BY id",
+                &[]
+            ),
+            Ok(Some(vec![1, 2]))
+        );
+        assert_eq!(
+            file.read_blob("SELECT id, bytes FROM media_files WHERE id = 'full'", &[]),
+            not_bytes
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn keeps_writing_through_its_own_edits() {
         let dir = temp_dir("own-writes");

@@ -18,6 +18,32 @@ export interface Statement {
  */
 export const CHANGED_ON_DISK = 'The project file changed on disk since Storiiboard last saved it.';
 
+// B3 (docs/DESKTOP_GAPS.md): sbd.rs refuses a query whose rows hold bytes and a blob read of anything but bytes. The
+// test drivers refuse the same inputs in the same words through these two, so code that did either fails in a test
+// and not only on the desktop.
+
+/** sbd.rs's `to_json`: a value stored as a blob, empty or not, in any row of a query. NULL is no blob. */
+export const QUERY_RETURNED_BYTES = "A query can't return bytes; read them with readBlob.";
+/** sbd.rs's `read_blob`: the first column of the first row holds text or a number. */
+export const NOT_BYTES = "That column doesn't hold bytes.";
+
+/** A query's rows, refused as sbd.rs refuses them if any value is bytes (SQLite's own type, not the column's). */
+export function refuseBytes<T extends Record<string, unknown>>(rows: T[]): T[] {
+  if (rows.some((row) => Object.values(row).some((value) => value instanceof Uint8Array))) throw new Error(QUERY_RETURNED_BYTES);
+  return rows;
+}
+
+/**
+ * A blob read's answer from the first column of the first row (undefined: no row), as the page gets it from sbd.rs:
+ * bytes, or null for NULL and for no row. An empty blob is null too, since sbd_read_blob answers no bytes for both and
+ * tauriDriver.ts can't tell them apart. Text or a number is refused.
+ */
+export function blobOf(value: unknown): Uint8Array | null {
+  if (value === undefined || value === null) return null;
+  if (!(value instanceof Uint8Array)) throw new Error(NOT_BYTES);
+  return value.length === 0 ? null : value;
+}
+
 /** Another computer that has a project open now, from the lock file next to it (src-tauri/src/lock.rs). */
 export interface LockHolder {
   computer: string;
@@ -53,8 +79,10 @@ export interface ProjectFile {
   tx(statements: readonly Statement[]): Promise<void>;
   query(sql: string, params?: readonly SqlValue[]): Promise<Row[]>;
   /**
-   * The bytes in the first column of the first row (an image or a thumbnail), or null when there's no such row.
-   * Rows from `query` travel as JSON in the desktop app, which can't carry bytes, so they come this way.
+   * The bytes in the first column of the first row (an image or a thumbnail), or null when there's no such row or
+   * they are NULL or empty; refused (NOT_BYTES) when that column holds text or a number.
+   * Rows from `query` travel as JSON in the desktop app, which can't carry bytes, so they come this way, and a query
+   * whose rows hold bytes is refused (QUERY_RETURNED_BYTES).
    */
   readBlob(sql: string, params?: readonly SqlValue[]): Promise<Uint8Array | null>;
   /**

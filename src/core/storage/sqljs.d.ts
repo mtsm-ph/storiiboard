@@ -7,6 +7,8 @@ declare module 'sql.js' {
     bind(values: readonly SqlJsValue[]): boolean;
     step(): boolean;
     getAsObject(): Record<string, SqlJsValue>;
+    /** The current row's values by column index, so the first column is read even when two share a name. */
+    get(): SqlJsValue[];
     free(): boolean;
   }
 
