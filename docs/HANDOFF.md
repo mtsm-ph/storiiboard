@@ -347,6 +347,92 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
+### Next session: start here (Nov 15: cloud session handed to the PC; Kevin's Nov 14 instructions under way)
+
+Kevin's Nov 14 message is the brief for this run (six items: merge #152 to #166; the audit's go-aheads and the
+Mac's whole suite in WebKit; his Phase 6 answers; walls stop cones and beams; four rules; then a full checkpoint
+and Phase 7 in plan mode). A cloud session did most of it on Nov 15 and stopped here so the work can go on from
+Kevin's PC. **Start the PC chat on the top branch of the stack below, not on `v2`**: builder.md and reviewer.md
+changed on #167, and agent files are read when a chat starts. First builder run: the model check, as always.
+
+- **Merged Nov 15:** #152 to #166 into `v2`, in order (each retargeted to `v2`; `v2` had not moved, so each
+  merged tree was its head's tree, already green). `v2`'s tree is exactly #166's (7d2cd18).
+- **Built since, stacked, each branch on the one before, all pushed; only #167 has a PR (draft). None merged:**
+
+  | Branch | What | Review |
+  |---|---|---|
+  | `chore/nov14-rules-ci` (#167) | Kevin's four rules (builder.md, reviewer.md, CLAUDE.md); checkpoint.yml: the Mac job runs the whole suite in WebKit, with the Mac's Keyboard navigation on; the installers list their bundles (audit cover 3); a `checkpoint/e2e-<name>` branch runs tests without installers and may carry `e2e/ONLY.txt` (never merged) to run a few specs; Phase 7's plan and docs/PHASE7_DECISIONS.md; briefs | mine |
+  | `audit/6.13-csp` | The end-to-end tests run under tauri.conf.json's CSP (plus `'wasm-unsafe-eval'` only); a violation fails the test | done, fixes in 6.19 |
+  | `audit/6.14-contract` | src/app/tauriContract.test.ts (page calls against lib.rs); B3: the test drivers refuse what Rust refuses | done, fixes in 6.15 |
+  | `mac/6.19-webkit` | The Mac's first run: context menus, the menu key, click focus, the Library's cancelled drag, Tab past a colour input; 6.13's review fixes | done, fixes in 6.16 |
+  | `audit/6.15-pointer-reorder` | B1: deck pages reorder by pointer events (src/ui/useRowDrag.ts); lint and a text scan fail on HTML5 drag and drop; B5; B6; 6.14's review fixes | done, fixes in 6.19b |
+  | `audit/6.16-tauri-test` | Rust tests through tauri's `test` feature (dev-dependency only, Cargo.lock unchanged): 49 of 70 commands; commands generic over the runtime; 6.19's review fixes | done, fixes in 6.17 |
+  | `mac/6.19b-second-run` | The Mac's second run: panels that closed on a press, whole-pixel aiming in the canvas specs (e2e/wholePixels.ts), the cross-scene drag's scroll; 6.15's review fixes | done, fixes in 6.18 |
+  | `phase6/6.17-answers` | The FX3 entry checked; symbol icons as a true-size outline; per-department prints; the watermark on plan PDFs and PNGs; 6.19c: a selected wall moves by its body; 6.16's review fixes | done, fixes in the next branch |
+  | `phase6/6.18-walls-stop-cones` | Walls stop cones and beams (src/core/model/planSightlines.ts; `stop_at_walls` stored only as false, no schema change); 6.19b's review fixes | **being reviewed at the handoff** |
+  | `phase6/6.17-review-fixes` | docs/briefs/6.17-review-fixes.md plus two test fixes for the Mac (below) | **a builder was mid-run at the handoff: see the status line** |
+
+- **The Mac's whole suite in WebKit (the job is "End to end (macOS, WebKit)"):** run 1 (v2 as merged): 452 passed,
+  62 failed, 76 min. Run 2 (6.19): 495 passed, 25 failed, 1 flaky, 58 min. Run 3 (6.19b; run 43717235319): 530
+  passed, 1 failed (plan.spec "starts a room…"), 1 flaky (perspectiveViews "a gaffer sees Grip & electric
+  first…", 60 s waiting for a person's row, passed on retry), 55 min. A six-spec trial on 6.17's head (run
+  43725936783): "starts a room…" passes; two tests this run added fail there: plan.spec "a selected wall moves by
+  its body…" (the test's half-pixel presses miss a 2.5 px wall when WebKit drops the fraction) and planExport.spec
+  "a plan's PDF and PNG carry the project's watermark…" (its PNG half counts dark pixels, which the stamp lowers).
+  Both fixes were sent to the builder on `phase6/6.17-review-fixes`. The job takes about 55 minutes on one worker.
+  Artifacts can't be downloaded from a cloud session; a small agent reading the job's log through the GitHub
+  tools gives the failed names and errors.
+- **What the Mac runs found in the app (fixed, each with a test in e2e/macWebKit.spec.ts that shows it in
+  Chromium by pressing buttons as Mac WebKit does, e2e/webkitClicks.ts):** a board's right-click menu closed
+  before its command ran; Shift+F10 and the menu key opened nothing on a frame; a clicked button took no focus;
+  Tab fell out of a window whose last stop is a colour input; a selected wall could hardly be moved without
+  resizing it. In the tests: Tab needs the Mac's Keyboard navigation (set in the job); Playwright's Safari draws
+  at pixel ratio 2 and delivers whole-pixel pointer positions.
+- **Next, in order:**
+  1. Read the 6.18 review's findings if this section's status line has them; otherwise review
+     `phase6/6.18-walls-stop-cones` again (diff against `phase6/6.17-answers`; the brief is
+     docs/briefs/6.18-walls-stop-cones.md). Known departures to judge: the cut is redone when a drag lands, not
+     during it; an apex deep inside a wall draws no cone; walls cut with the art layer hidden. Perf on the cloud
+     container (slow, noisy): pan at fit p95 16.8 ms before, 33 to 50 after; open after reload 1.1 s to 1.35 to
+     1.87 s: measure on the PC (e2e/perf.spec.ts, SB_PERF=1) before merging.
+  2. Finish `phase6/6.17-review-fixes` if the status line says it is unfinished (the brief and the two Mac test
+     fixes: plan.spec's presses on whole pixels with the zoomed-out wall at least 5 px thick; planExport.spec's
+     PNG half comparing the two pictures' corner and a far region).
+  3. **Windows baselines:** the cloud can't make them. 6.15 added a `≡` drag handle to a deck's page rows and 6.17
+     and 6.18 changed plan drawing; e2e/visual.spec.ts shows only the shell, the storyboard board and Settings,
+     so no baseline should change, but run `npx playwright test e2e/visual.spec.ts --project=chromium` on the PC
+     to be sure.
+  4. Open PRs for the stack (one per branch, each based on the one before, as before), merge in order into `v2`
+     as Kevin asked for this set, then a full checkpoint (`git push origin v2:checkpoint/nov15-v2`): first run of
+     the installers' new bundle listing (a wrong path there fails the installer job: fix checkpoint.yml and
+     rerun) and of 6.16's generic commands on the Mac (a Windows type-check passed in the cloud; the Mac was
+     never compiled).
+  5. CLAUDE.md still to gain, once merged: walls stop cones and beams and the Stop at walls switch; the symbol
+     icon rule; per-department prints and the watermark on plans; the tests' CSP; the contract test; no HTML5
+     drag and drop (lint and src/app/noHtmlDrag.test.ts). PLAN.md's status table and a row per milestone 6.12
+     to 6.19c. docs/DESKTOP_GAPS.md already has Kevin's answers.
+  6. Kevin's report (his list): what merged, the checkpoint and its installers, what the Mac's WebKit run found,
+     the failed tests by name, what to test by hand, every decision waiting for him.
+- **Waiting for Kevin:** docs/PHASE7_DECISIONS.md (17 questions; nothing of Phase 7 is built until he answers
+  and has done his by-hand pass on Phases 3 to 6). The watermark on a plan crosses the plan box's frame line and
+  the legend's last rows (it is the storyboard's rule, as asked): keep, or its own placement? A lighting print
+  leaves the camera out entirely: show it faintly? The colour picker in Settings → Theme can't be reached by Tab
+  on a Mac (the Hex field sets the same): add a button? Deck pages drag by a `≡` handle, not the whole row. The
+  icon classes (the builder's close calls are in 6.17's report; ladder and apple box become top-view in the
+  review fixes). Spanish for every new string waits for his glossary pass.
+- **By hand, for Kevin:** Mac app: does Tab reach buttons from a Settings text field (PLAN.md says it skips them
+  with Keyboard navigation off; wry's code says the app turns it on); right-click a board item and choose
+  Duplicate; Shift+F10 on a frame; B2 (Copy link). Windows installer: drag a deck page by its handle (B1); the
+  Menu key on a frame shows only the app's menu. Either: Show backups reveals the Backups folder (never run on a
+  Mac or Windows); the installed app's real CSP header against tauri.conf.json's (Tauri may add to it); a
+  wild wall with Stop at walls off; a department print.
+- **Cloud-only notes:** local end-to-end runs there fail 14 tests for reasons of the container (all 12
+  screenshot tests; callSheets "Export PDF writes the day's sheet…" and "Issue keeps the PDF as sent…"); none of
+  that applies on the PC. Review diffs and builders' logs were under test-results/ (not kept).
+- **Status line (keep current):** at the handoff, `phase6/6.18-walls-stop-cones` (0827a4f) is pushed and under
+  review; a builder is working on `phase6/6.17-review-fixes`; the cloud session pushes what it finishes and
+  updates this line, or says here that it stopped.
+
 ### Next session: start here (Nov 13, second chat: Phase 6 under way)
 
 - **Models checked:** the first builder and reviewer runs of this chat both recorded `claude-opus-5-5` in their
