@@ -9,7 +9,7 @@ import { readOriginal } from '../../core/media/store';
 import { keyBetween } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 import type { Statement } from '../../core/storage/driver';
-import { chooseExportFile } from '../../core/storage/exportFiles';
+import { chooseExportFile, type ExportTarget } from '../../core/storage/exportFiles';
 
 // The edits the Assets tile makes (3.11): PDFs and links added to the project or one of its items, renamed, sent to the
 // Trash. Each is one op group, so one ⌘Z; a PDF's bytes are written with it, by SHA-256, as a picture's are.
@@ -145,12 +145,16 @@ export async function savePdfCopy(sha256: string, name: string): Promise<void> {
   }
   // A name from before names were checked (or a newer version's) is saved under a plain one.
   const saveAs = isPdfName(name) ? name : 'attachment.pdf';
+  let target: ExportTarget | null = null;
   try {
-    const target = await chooseExportFile(saveAs, isTauriApp);
+    target = await chooseExportFile(saveAs, isTauriApp);
     if (!target) return;
     await target.write(saveAs, stored.bytes);
     showInfo(t('assets.pdfSaved', { name: saveAs }));
   } catch (error) {
     showNotice(error);
+  } finally {
+    // The file chosen is let go however it went (6.15 review).
+    await target?.end?.().catch(() => undefined);
   }
 }

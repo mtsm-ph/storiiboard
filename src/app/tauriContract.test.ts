@@ -369,7 +369,10 @@ function scanPage(file: string, text: string, importedWrappers: Set<string> = ne
   for (const statement of source.statements) {
     if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier) && isTauriApi(statement.moduleSpecifier.text)) {
       // `export { invoke } from '@tauri-apps/api/core'`, `export * from …`: a call through the re-export couldn't be read.
-      if (!statement.isTypeOnly) scan.uncovered.push(`${file}: re-exports from ${statement.moduleSpecifier.text}, which this test can't follow`);
+      // Types alone (`export type { … }`, `export { type InvokeArgs }`) carry no call.
+      const clause = statement.exportClause;
+      const typesOnly = statement.isTypeOnly || (clause !== undefined && ts.isNamedExports(clause) && clause.elements.every((element) => element.isTypeOnly));
+      if (!typesOnly) scan.uncovered.push(`${file}: re-exports from ${statement.moduleSpecifier.text}, which this test can't follow`);
       continue;
     }
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
@@ -401,6 +404,10 @@ function scanPage(file: string, text: string, importedWrappers: Set<string> = ne
   const line = (node: ts.Node) => source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
 
   const visit = (node: ts.Node) => {
+    // Tauri's own internals, reached past @tauri-apps/api (6.15 review): a call through them couldn't be read.
+    if ((ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) && node.text === TAURI_INTERNALS) {
+      scan.uncovered.push(`${file}:${String(line(node))}: reaches ${TAURI_INTERNALS}, past @tauri-apps/api, which this test can't follow`);
+    }
     if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
       const from = literalText(node.arguments[0]);
       if (from === null || isTauriApi(from)) scan.uncovered.push(`${file}:${String(line(node))}: imports ${from ?? 'a module named at run time'} dynamically, which this test can't follow`);
@@ -436,12 +443,24 @@ function scanPage(file: string, text: string, importedWrappers: Set<string> = ne
       // An imported wrapper handed on (re-exported, kept, passed), as invoke above.
       const callee = ts.isCallExpression(node.parent) && node.parent.expression === node;
       if (!callee) scan.uncovered.push(`${file}:${String(line(node))}: the wrapper ${node.text} is used other than as a call`);
+    } else if (ts.isIdentifier(node) && ownWrappers.has(node.text) && !isPropertyName(node) && !isDeclaredName(node)) {
+      // The wrapper's own file handing it on (6.15 review): under another name (`export { command as run }`), in an
+      // object (`export const db = { command }`), kept or passed. Exported under its own name, others import it as such.
+      const callee = ts.isCallExpression(node.parent) && node.parent.expression === node;
+      const asItself = ts.isExportSpecifier(node.parent) && node.parent.propertyName === undefined;
+      if (!callee && !asItself) scan.uncovered.push(`${file}:${String(line(node))}: the wrapper ${node.text} is handed on other than by its own name, which this test can't follow`);
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
   return scan;
 }
+
+const TAURI_INTERNALS = '__TAURI_INTERNALS__';
+
+/** The name a function, variable or parameter is declared under, not a use of it. */
+const isDeclaredName = (node: ts.Identifier) =>
+  (ts.isFunctionDeclaration(node.parent) || ts.isVariableDeclaration(node.parent) || ts.isParameter(node.parent)) && node.parent.name === node;
 
 /** A name that is a property's (`x.call`, `{ command: … }`), not a reference to a variable. */
 const isPropertyName = (node: ts.Identifier) =>
@@ -709,6 +728,25 @@ listen(DROPPED, () => {});`,
     expect(scan.listens.map((l) => l.name)).toEqual(['storiiboard://dropped']);
     // The wrapper's own calls are read in files that import it.
     expect(scanPage('src/app/y.ts', `await command('sbd_close', { handle });`, new Set(['command'])).calls).toEqual([{ file: 'src/app/y.ts', line: 1, name: 'sbd_close', keys: ['handle'] }]);
+  });
+
+  // 6.15's review: a wrapper's own file handing it on under another name, Tauri's internals, and a type re-exported.
+  it('refuse a wrapper re-exported by its own file under another name, and Tauri’s internals anywhere', () => {
+    const driver = 'src/core/storage/tauriDriver.ts';
+    const wrapper = `import { invoke } from '@tauri-apps/api/core';\nexport async function command(name: string, args?: Record<string, unknown>) { return invoke(name, args); }\n`;
+    expect(scanPage(driver, `${wrapper}export { command as run };`).uncovered).toEqual([`${driver}:3: the wrapper command is handed on other than by its own name, which this test can't follow`]);
+    expect(scanPage(driver, `${wrapper}export const db = { command };`).uncovered).toHaveLength(1);
+    expect(scanPage(driver, `${wrapper}export const db = { run: command };`).uncovered).toHaveLength(1);
+    expect(scanPage(driver, `${wrapper}const run = command;`).uncovered).toHaveLength(1);
+    // Its own name, and its own calls, are how others read it.
+    expect(scanPage(driver, `${wrapper}export { command };\nawait command('sbd_close', { handle });`)).toMatchObject({ uncovered: [], wrappers: ['command'] });
+    expect(scanPage('src/app/x.ts', `const internals = (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;`).uncovered).toHaveLength(2);
+    expect(scanPage('src/app/x.ts', `const ok = '__TAURI_INTERNALS__' in window;`).uncovered).toEqual(["src/app/x.ts:1: reaches __TAURI_INTERNALS__, past @tauri-apps/api, which this test can't follow"]);
+    expect(scanPage('src/app/x.ts', `const v = window['__TAURI_INTERNALS__'];`).uncovered).toHaveLength(1);
+    // A type re-exported carries no call.
+    expect(scanPage('src/app/x.ts', `export { type InvokeArgs } from '@tauri-apps/api/core';`).uncovered).toEqual([]);
+    expect(scanPage('src/app/x.ts', `export type { InvokeArgs } from '@tauri-apps/api/core';`).uncovered).toEqual([]);
+    expect(scanPage('src/app/x.ts', `export { type InvokeArgs, invoke } from '@tauri-apps/api/core';`).uncovered).toHaveLength(1);
   });
 
   it('say so when invoke is kept or passed rather than called', () => {

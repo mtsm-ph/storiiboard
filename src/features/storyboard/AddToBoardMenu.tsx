@@ -105,10 +105,13 @@ export function AddToBoardMenu({ ask, onClose }: { ask: BoardMenuAsk; onClose: (
       close(true);
     };
     // Focus moved to something outside the panel: it is done. (Moving between its own commands, or to nothing as one command
-    // replaces another, keeps it open.)
+    // replaces another, keeps it open. So does focus going to what holds the menu (6.19b): WebKit, so the Mac app, gives
+    // a pressed command no focus and moves it to the nearest focusable ancestor before the command's click; a press
+    // outside the menu closes it above.)
     const onFocusOut = (event: FocusEvent) => {
       const to = event.relatedTarget;
-      if (to instanceof Node && !panel.current?.contains(to)) close(false);
+      const here = panel.current;
+      if (to instanceof Node && !here?.contains(to) && !(here && to.contains(here))) close(false);
     };
     const node = panel.current;
     node?.addEventListener('focusout', onFocusOut);

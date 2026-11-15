@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
+import { wholePixelCentre } from './wholePixels';
 import { closeSettings, openSettings } from './settings';
 
 // The room's underlays and measures (6.9) in the memory build: a picture added as an underlay from the room's menu (as a
@@ -84,6 +85,9 @@ const mod = async (page: Page) => ((await page.evaluate(() => /Mac/i.test(naviga
 
 /** Where a world point (canvas units: cm) is on screen, from the view the canvas reports. */
 async function screen(page: Page, x: number, y: number) {
+  // The Setup workspace's dock puts the plan on fractions of a pixel, and the notices above it move it as the test goes:
+  // its centre alone is made whole, before every gesture (e2e/wholePixels.ts; a no-op while it already is).
+  await wholePixelCentre(page, canvas(page), { corner: false, tries: 160 });
   const box = await canvas(page).boundingBox();
   if (!box) throw new Error('no canvas');
   const attr = async (name: string) => Number(await canvas(page).getAttribute(name));

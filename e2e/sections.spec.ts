@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
+import { wholePixelCentre } from './wholePixels';
 
 // Sections, align and distribute, Tidy up and snap guides (5.3) in the memory build. The canvas is pixels, so the tests
 // read the items from the board's data, the snap guides from the canvas's data-guides, and move the mouse over the same
@@ -71,6 +72,7 @@ async function openCamera(page: Page) {
   await tile(page).locator('[data-department-board="camera"]').click();
   await expect(canvas(page)).toBeVisible();
   await page.waitForTimeout(100);
+  await wholePixelCentre(page, canvas(page));
 }
 
 /** Where a world point is on screen, at the standard view. */

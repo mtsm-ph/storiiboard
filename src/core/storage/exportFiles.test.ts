@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { chooseExportFolder } from './exportFiles';
+import { chooseExportFile, chooseExportFolder } from './exportFiles';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 const invokeMock = vi.mocked(invoke);
@@ -61,5 +61,40 @@ describe('a folder export in the desktop app', () => {
     const target = await chooseExportFolder('Pitch', true);
     invokeMock.mockRejectedValue(new Error('Storiiboard writes exports only where you choose.'));
     await expect(target?.end?.()).resolves.toBeUndefined();
+  });
+});
+
+// 6.15 review: a file the Save dialog picked stays writable in Rust until it is written; an export that stops first
+// (or fails) says it is over, so it can't be written later in the session.
+describe('a single-file export in the desktop app', () => {
+  beforeEach(() => {
+    invokeMock.mockImplementation((command: string) => Promise.resolve(command === 'export_choose_file' ? '/Exports/Bey County.csv' : ''));
+  });
+
+  it('stopped before its write, lets the file go, once', async () => {
+    const target = await chooseExportFile('Bey County.csv', true);
+    await target?.end?.();
+    await target?.end?.();
+    const writes = invokeMock.mock.calls.filter(([command]) => command === 'export_write').map(([, body]) => headerOf(body));
+    expect(writes).toEqual([{ path: '/Exports/Bey County.csv', action: 'end' }]);
+  });
+
+  it('written, has nothing left to end', async () => {
+    const target = await chooseExportFile('Bey County.csv', true);
+    await target?.write('Bey County.csv', new Uint8Array([1]));
+    await target?.end?.();
+    expect(actions()).toEqual([undefined]);
+  });
+
+  it('a refused end is no failure of the export', async () => {
+    const target = await chooseExportFile('Bey County.csv', true);
+    invokeMock.mockRejectedValue(new Error('Storiiboard writes exports only where you choose.'));
+    await expect(target?.end?.()).resolves.toBeUndefined();
+  });
+
+  it('in the browser build downloads and holds nothing', async () => {
+    const target = await chooseExportFile('Bey County.csv', false);
+    expect(target !== null && 'end' in target).toBe(false);
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 });

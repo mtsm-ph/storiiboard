@@ -7,7 +7,7 @@ import type { Paper } from '../../core/model/paper';
 import { isDayDate } from '../../core/model/shootDay';
 import { dayWeather, type WeatherUnits } from '../../core/net/weather';
 import type { DirectionsApp } from '../../core/storage/settings';
-import { chooseExportFile } from '../../core/storage/exportFiles';
+import { chooseExportFile, type ExportTarget } from '../../core/storage/exportFiles';
 import { fontBytes, replacedWarning } from '../export/pdfStoryboardFormat';
 import type { CallSheetPdf, PdfForecast } from './callSheetPdf';
 import { callSheetFileName } from './callSheetName';
@@ -101,8 +101,9 @@ export async function exportCallSheetPdf(options: ExportCallSheetOptions): Promi
     return;
   }
   let label = '';
+  let target: ExportTarget | null = null;
   try {
-    const target = await chooseExportFile(callSheetFileName(before.title || options.projectName, before.day.number, before.day.fields.date), isTauriApp);
+    target = await chooseExportFile(callSheetFileName(before.title || options.projectName, before.day.number, before.day.fields.date), isTauriApp);
     if (!target) return;
     label = target.label;
     // A call typed just before pressing Export is saved on the blur, in the queue: wait for it (and anything else queued
@@ -122,5 +123,8 @@ export async function exportCallSheetPdf(options: ExportCallSheetOptions): Promi
   } catch (error) {
     const reason = localizeError(error instanceof Error ? error.message : String(error));
     showNotice(new Error(label === '' ? t('export.failed', { reason }) : t('export.failedTo', { label, reason })));
+  } finally {
+    // Written, stopped or failed: the file chosen is let go, so nothing more is written to it (6.15 review).
+    await target?.end?.().catch(() => undefined);
   }
 }

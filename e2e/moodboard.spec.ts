@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
+import { wholePixelCentre } from './wholePixels';
 
 // The canvas core and boards (5.0) in the memory build: the Camera board is made when it is first opened from the
 // picker, rectangles are drawn, selected, moved, resized, rotated, reordered, copied, deleted and brought back from the
@@ -62,6 +63,7 @@ async function openCamera(page: Page) {
   await tile(page).locator('[data-department-board="camera"]').click();
   await expect(canvas(page)).toBeVisible();
   await page.waitForTimeout(100);
+  await wholePixelCentre(page, canvas(page));
 }
 
 /** Where world (0, 0) is on screen: the middle of the canvas at the standard view. */

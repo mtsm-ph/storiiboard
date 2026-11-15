@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
+import { wholePixelCentre } from './wholePixels';
 
 // Connectors (5.2) in the memory build: drawn between two sticky notes with C, followed when a note moves, switched
 // between straight, elbow and curved, given an arrowhead and a label, an end dragged to a third note, a connected copy
@@ -84,6 +85,7 @@ async function openCamera(page: Page) {
   await tile(page).locator('[data-department-board="camera"]').click();
   await expect(canvas(page)).toBeVisible();
   await page.waitForTimeout(100);
+  await wholePixelCentre(page, canvas(page));
 }
 
 /** Where a world point is on screen, at the standard view. */

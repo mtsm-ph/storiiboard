@@ -20,7 +20,8 @@ export interface ExportTarget {
   abandon?(): Promise<void>;
   /**
    * The export is over, however it ended (B6, 6.15): a folder export's token is given back, so Rust forgets the run and
-   * nothing can be written with it again. Once only; a no-op after commit or abandon, which end the run themselves. A
+   * nothing can be written with it again; a file the Save dialog picked but never written is let go the same way (6.15
+   * review). Once only; a no-op after commit or abandon, which end the run themselves, or after a file's one write. A
    * target without it holds nothing to give back.
    */
   end?(): Promise<void>;
@@ -63,10 +64,18 @@ export async function chooseExportFile(name: string, desktop: boolean): Promise<
   if (!desktop) return { label: name, write: downloading };
   const path = await invoke<string | null>('export_choose_file', { name });
   if (path === null) return null;
+  // Rust lets the file be written once; until then it stays writable, so an export that stops first says it is over.
+  let open = true;
   return {
     label: lastPart(path),
     write: async (_file, bytes) => {
+      open = false;
       await invoke('export_write', writeBody({ path }, bytes));
+    },
+    end: async () => {
+      if (!open) return;
+      open = false;
+      await invoke('export_write', writeBody({ path, action: 'end' }, new Uint8Array())).catch(() => undefined);
     },
   };
 }

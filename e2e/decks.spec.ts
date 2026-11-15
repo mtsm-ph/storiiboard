@@ -237,6 +237,128 @@ test('a pen or a finger drags a page as the mouse does', async ({ page }) => {
   }
 });
 
+// 6.15 review: in a deck long enough to scroll, only what shows of the list takes a drop (never the panel's header or
+// controls the list runs under), its edges scroll it, a scroll places the drop again, and one pointer drives a drag.
+const scrollBox = (page: Page) => panel(page).locator('[data-pages-scroll]');
+const dropTo = async (page: Page) => Number(await dropBar(page).getAttribute('data-page-drop-to'));
+const scrollTop = (page: Page) => scrollBox(page).evaluate((el) => el.scrollTop);
+
+/** A Pitch deck with pages added until its list runs well past the box that shows it. */
+async function longDeck(page: Page) {
+  await openPicker(page);
+  await newDeck(page, 'Pitch', 'Pitch');
+  const overflow = () => scrollBox(page).evaluate((el) => el.scrollHeight - el.clientHeight);
+  while ((await overflow()) < 400) {
+    const count = await rows(page).count();
+    await panel(page).getByRole('button', { name: 'Add page' }).click();
+    await expect(rows(page)).toHaveCount(count + 1);
+  }
+}
+
+async function box(locator: ReturnType<Page['locator']>) {
+  const found = await locator.boundingBox();
+  if (!found) throw new Error('not on screen');
+  return found;
+}
+
+test('in a long deck scrolled partway, a page released over the panel’s header or its controls writes no step', async ({ page }) => {
+  await longDeck(page);
+  await page.getByRole('button', { name: 'History' }).click();
+  const steps = page.getByRole('region', { name: 'History', exact: true }).getByRole('list', { name: 'Steps, newest first' }).getByRole('listitem');
+  await expect(steps.first()).toBeVisible();
+  const count = await steps.count();
+  const order = async () => rows(page).evaluateAll((all) => all.map((row) => row.getAttribute('data-page-row')));
+  const before = await order();
+  await scrollBox(page).evaluate((el) => {
+    el.scrollTop = 150;
+  });
+  const shown = await box(scrollBox(page));
+  const header = await box(panel(page).locator('h2'));
+  const controls = await box(panel(page).getByRole('button', { name: 'Add page' }));
+  // The list runs under both: what made them count as inside before.
+  const list = await box(panel(page).locator('[data-pages-list]'));
+  expect(list.y).toBeLessThan(header.y);
+  expect(list.y + list.height).toBeGreaterThan(controls.y + controls.height);
+  for (const over of [header, controls]) {
+    // A handle that shows, pressed, moved into the list: a place there.
+    const handles = panel(page).locator('[data-page-handle]');
+    let handle = await box(handles.first());
+    for (let i = 0; handle.y < shown.y; i += 1) handle = await box(handles.nth(i));
+    const x = handle.x + handle.width / 2;
+    await page.mouse.move(x, handle.y + handle.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, shown.y + shown.height / 2, { steps: 6 });
+    await expect(dropBar(page)).toBeVisible();
+    // Over the header or the controls: no place, no bar, and the release writes nothing.
+    await page.mouse.move(x, over.y + over.height / 2, { steps: 6 });
+    await expect(dropBar(page)).toHaveCount(0);
+    await page.mouse.up();
+  }
+  await page.waitForTimeout(300);
+  expect(await order()).toEqual(before);
+  await expect(steps).toHaveCount(count);
+});
+
+test('a page drag places again as the list scrolls, scrolls it held at the bottom edge, and drops where nothing showed', async ({ page }) => {
+  await longDeck(page);
+  const total = await rows(page).count();
+  const first = await rows(page).first().getAttribute('data-page-row');
+  const shown = await box(scrollBox(page));
+  // The last page is out of sight below.
+  expect((await box(rows(page).last())).y).toBeGreaterThan(shown.y + shown.height);
+  const handle = await box(panel(page).locator('[data-page-handle]').first());
+  const x = handle.x + handle.width / 2;
+  await page.mouse.move(x, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x, shown.y + shown.height / 2, { steps: 6 });
+  await expect(dropBar(page)).toBeVisible();
+  const middle = await dropTo(page);
+  // The list scrolled under a pointer that stays put: the place follows what is under it now.
+  const step = (await box(rows(page).nth(1))).height * 2;
+  await scrollBox(page).evaluate((el, by) => {
+    el.scrollTop += by;
+  }, step);
+  await expect.poll(() => dropTo(page)).toBeGreaterThan(middle);
+  // Held near the bottom edge: the list scrolls to its end by itself, the place with it.
+  await page.mouse.move(x, shown.y + shown.height - 8, { steps: 4 });
+  const end = await scrollBox(page).evaluate((el) => el.scrollHeight - el.clientHeight);
+  await expect.poll(() => scrollTop(page), { timeout: 10_000 }).toBe(end);
+  await expect.poll(() => dropTo(page)).toBe(total - 1);
+  await page.mouse.up();
+  await expect.poll(async () => rows(page).last().getAttribute('data-page-row')).toBe(first);
+  await expect(rows(page)).toHaveCount(total);
+});
+
+test('a second pointer’s moves, release and cancel during a page drag change nothing', async ({ page }) => {
+  await openPicker(page);
+  await newDeck(page, 'Pitch', 'Pitch');
+  const third = await box(rows(page).nth(2));
+  const handle = await pressFirstHandle(page);
+  await page.mouse.move(handle.x + handle.width / 2, third.y + third.height - 4, { steps: 8 });
+  await expect(dropBar(page)).toBeVisible();
+  const place = await dropTo(page);
+  const bar = await box(dropBar(page));
+  const header = await box(panel(page).locator('h2'));
+  // A finger lands on another handle, moves over the header, lifts and is cancelled: none of it is the mouse's drag.
+  await page.evaluate(
+    ({ x, y }) => {
+      const at = (type: string, buttons: number) => new PointerEvent(type, { pointerType: 'touch', pointerId: 9, isPrimary: false, button: 0, buttons, clientX: x, clientY: y, bubbles: true, cancelable: true });
+      document.querySelectorAll('[data-page-handle]')[1]?.dispatchEvent(at('pointerdown', 1));
+      window.dispatchEvent(at('pointermove', 1));
+      window.dispatchEvent(at('pointerup', 0));
+      window.dispatchEvent(at('pointercancel', 0));
+    },
+    { x: handle.x + handle.width / 2, y: header.y + header.height / 2 },
+  );
+  await expect(dropBar(page)).toBeVisible();
+  expect(await dropTo(page)).toBe(place);
+  expect(await box(dropBar(page))).toEqual(bar);
+  expect(await pageNames(page)).toEqual(['Title', 'Logline', 'The team']);
+  // The mouse's own release drops where it showed.
+  await page.mouse.up();
+  await expect.poll(() => pageNames(page)).toEqual(['Logline', 'The team', 'Title']);
+});
+
 test('shows a change to the logline in Settings on the field card', async ({ page }) => {
   await openPicker(page);
   await newDeck(page, 'Pitch', 'Pitch');
