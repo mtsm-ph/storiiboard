@@ -571,31 +571,48 @@ test('prints the lighting department alone: chosen in the Export window, the fil
 
 test('a plan’s PDF and PNG carry the project’s watermark when Watermark Settings say so (6.17)', async ({ page }) => {
   await furnishedSetup(page);
-  /** Dark pixels in the PNG's bottom right corner, where the stamp goes. */
-  const cornerInk = (picture: Uint8Array) =>
-    page.evaluate(async (base64) => {
-      const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], { type: 'image/png' }));
-      const sheet = new OffscreenCanvas(bitmap.width, bitmap.height);
-      const ctx = sheet.getContext('2d');
-      if (!ctx) return -1;
-      ctx.drawImage(bitmap, 0, 0);
-      const x = Math.round(bitmap.width * 0.7);
-      const y = Math.round(bitmap.height * 0.9);
-      const data = ctx.getImageData(x, y, bitmap.width - x, bitmap.height - y).data;
-      let dark = 0;
-      for (let i = 0; i < data.length; i += 4) if ((data[i] ?? 255) < 128) dark += 1;
-      return dark;
-    }, Buffer.from(picture).toString('base64'));
+  /**
+   * How many pixels of a region (shares of the picture's width and height) differ between two PNGs by more than 24 on any
+   * channel: the stamp drawn over the plan changes its pixels, whatever colour the plan has under it in either engine.
+   */
+  const changedPixels = (one: Uint8Array, two: Uint8Array, region: { x: number; y: number; width: number; height: number }) =>
+    page.evaluate(
+      async ({ a, b, region }) => {
+        const pixels = async (base64: string) => {
+          const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], { type: 'image/png' }));
+          const sheet = new OffscreenCanvas(bitmap.width, bitmap.height);
+          const ctx = sheet.getContext('2d');
+          if (!ctx) return null;
+          ctx.drawImage(bitmap, 0, 0);
+          const x = Math.round(bitmap.width * region.x);
+          const y = Math.round(bitmap.height * region.y);
+          return { size: `${String(bitmap.width)}x${String(bitmap.height)}`, data: ctx.getImageData(x, y, Math.round(bitmap.width * region.width), Math.round(bitmap.height * region.height)).data };
+        };
+        const [first, second] = [await pixels(a), await pixels(b)];
+        if (!first || !second || first.size !== second.size) return -1;
+        let changed = 0;
+        for (let i = 0; i < first.data.length; i += 4) {
+          for (let c = 0; c < 4; c += 1) {
+            if (Math.abs((first.data[i + c] ?? 0) - (second.data[i + c] ?? 0)) > 24) {
+              changed += 1;
+              break;
+            }
+          }
+        }
+        return changed;
+      },
+      { a: Buffer.from(one).toString('base64'), b: Buffer.from(two).toString('base64'), region },
+    );
   const exportPng = async () => {
     await fromPlan(page, 'plan-setup-png');
     return bytesOf(await save(page));
   };
-  // Before any watermark: the PDF has no stamp, and the PNG's corner has only the page's own lines.
+  // Before any watermark: the PDF has no stamp; the PNG is kept to compare with the stamped one.
   await fromPlan(page, 'plan-setup-pdf');
   await expect(dialog(page)).toContainText('No watermark.');
   const [plain] = await pdfTexts(await bytesOf(await save(page)));
   expect(plain).not.toContain('DRAFT STAMP');
-  const before = await cornerInk(await exportPng());
+  const before = await exportPng();
 
   await page.getByRole('button', { name: 'Project', exact: true }).click();
   await page.getByRole('button', { name: 'Watermark Settings…', exact: true }).click();
@@ -608,6 +625,8 @@ test('a plan’s PDF and PNG carry the project’s watermark when Watermark Sett
   await expect(dialog(page)).toContainText('Watermark “DRAFT STAMP”, bottom right.');
   const [text] = await pdfTexts(await bytesOf(await save(page)));
   expect(text).toContain('DRAFT STAMP');
-  const after = await cornerInk(await exportPng());
-  expect(after - before).toBeGreaterThan(100);
+  const after = await exportPng();
+  // The stamp changes the bottom right corner, where it goes, and nothing in the top left quarter, far from it.
+  expect(await changedPixels(before, after, { x: 0.7, y: 0.9, width: 0.3, height: 0.1 })).toBeGreaterThan(100);
+  expect(await changedPixels(before, after, { x: 0, y: 0, width: 0.5, height: 0.5 })).toBe(0);
 });

@@ -1252,6 +1252,21 @@ describe('per-department prints (6.17)', () => {
     expect(artPage?.header.setup).toBe('Setup 1 · Set and art');
   });
 
+  it('prints an item with no layer (an icon a newer version wrote) on every department’s page, as context (6.17 review)', async () => {
+    const { sceneId, setupId, camera } = await furnished();
+    const newer = crypto.randomUUID();
+    await apply(placeIconChanges(records(), { sceneId, setupId }, 'set-art/sofa', { x: 0, y: 2 }, newer));
+    await apply([{ kind: 'update', id: newer, set: { icon: 'vfx/smoke-machine' } }]);
+    expect(shownItems(records(), sceneId, setupId).some((item) => item.record.id === newer)).toBe(true);
+    const views = departmentViews(records(), [{ sceneId, setupId }], 'each');
+    // It gives no department a page of its own: the same three as before.
+    expect(views.map((v) => v.department)).toEqual(['camera', 'lighting', 'grip']);
+    const pages = planPages(records(), project.projectId, views, options());
+    for (const page of pages) expect(page.plan?.items.map((item) => item.id), page.header.setup ?? '').toContain(newer);
+    // A department's own items still keep to their pages: the camera is on the camera's alone.
+    expect(pages.map((page) => page.plan?.items.some((item) => item.id === camera))).toEqual([true, false, false]);
+  });
+
   it('writes the lighting print’s PDF with the light’s beam and without the camera’s cone', async () => {
     const { sceneId, setupId } = await furnished();
     const [everything] = planPages(records(), project.projectId, [{ sceneId, setupId }], options());

@@ -3593,6 +3593,7 @@ export const es: Messages = {
   'export.plan.departments.everything': 'Todo',
   'export.plan.departments.each': 'Cada departamento',
   'export.plan.departmentsWord': 'departamentos',
+  'export.plan.fileNameDepartment': '{what} de {department} de {name}',
   'export.plan.nothingDepartment': 'No hay nada que imprimir: {department} no tiene nada en estas plantas.',
   'export.plan.nothingEach': 'No hay nada que imprimir: ningún departamento tiene nada en estas plantas.',
   'export.plan.countDepartment.one': '{count} planta para imprimir: {department} y el espacio, nada seleccionado.',

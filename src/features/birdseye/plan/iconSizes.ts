@@ -159,9 +159,8 @@ export const iconSize = (id: string): IconSize | null => (Object.hasOwn(ICON_SIZ
  * How a library icon's drawing fills its item's box (6.17, Kevin, Nov 14): `top-view` is a plan view of the thing itself
  * (a sofa, a bed, a car, stairs), stretched to the item's real footprint; `symbol` is a letter, a pictogram of the thing
  * seen from the side or front, or an abstract sign (Parking's P, Basecamp's tent, Video village's monitor, Generator's
- * bolt): an icon item of it draws an outline at its true footprint with the symbol at its own proportions in the middle,
- * never stretched (iconDraw.tsx, SymbolShape). Every one of the kit's 68 icons is classed here by its drawing, never
- * guessed at draw time (iconSizes.test.ts); Kevin may overrule any.
+ * bolt). Every one of the kit's 68 icons is classed here by its drawing, never guessed at draw time (iconSizes.test.ts);
+ * Kevin may overrule any. What a class does on the plan is `outlinedSymbol`'s, below: the one place the two tables meet.
  */
 export type IconClass = 'symbol' | 'top-view';
 
@@ -191,8 +190,9 @@ export const ICON_CLASSES: Readonly<Record<string, IconClass>> = {
   'lighting/beam-cone': 'symbol',
   'lighting/sun-path': 'symbol',
   'lighting/window-light': 'symbol',
-  // Grip: stands' legs, frames edge-on, an overhead, a sandbag and a rostrum from above; a flag and a floppy on their
-  // stands, an apple box with its handholes, a ladder's rungs and a combo stand's A from the front or side.
+  // Grip: stands' legs, frames edge-on, an overhead, a sandbag, a rostrum, an apple box (the box itself) and a ladder
+  // (lying flat, its rungs) from above (6.17 review); a flag and a floppy on their stands and a combo stand's A from the
+  // front or side.
   'grip/c-stand': 'top-view',
   'grip/flag': 'symbol',
   'grip/floppy': 'symbol',
@@ -201,8 +201,8 @@ export const ICON_CLASSES: Readonly<Record<string, IconClass>> = {
   'grip/overhead-8x8': 'top-view',
   'grip/neg-fill': 'top-view',
   'grip/sandbag': 'top-view',
-  'grip/apple-box': 'symbol',
-  'grip/ladder': 'symbol',
+  'grip/apple-box': 'top-view',
+  'grip/ladder': 'top-view',
   'grip/combo-stand': 'symbol',
   'grip/rostrum': 'top-view',
   // Set and art: all plan views.
@@ -248,3 +248,14 @@ export const ICON_CLASSES: Readonly<Record<string, IconClass>> = {
 
 /** An icon's class from the table, or null for an id the table doesn't have (an icon this version doesn't know). */
 export const iconClass = (id: string): IconClass | null => (Object.hasOwn(ICON_CLASSES, id) ? (ICON_CLASSES[id] ?? null) : null);
+
+/**
+ * Whether an icon item draws as an outline at its true footprint with the symbol at its own proportions in the middle
+ * (6.17, Kevin, Nov 14; iconDraw.tsx IconShape's `footprint`): a `symbol` icon (ICON_CLASSES) whose size is stated as a
+ * width and a depth (STATED_SIZES), a footprint such as Parking, Basecamp, Video village or a Generator. An icon sized by
+ * `{ side }` is never treated as a footprint (6.17 review): its box already has its drawing's own proportions, so it was
+ * never stretched, and it draws bare, with no outline and no margin, as before 6.17 (First aid, an eyeline, a C-stand).
+ * A `top-view` icon stretches to its footprint. An id with no stated size (a tool, a picture, one this version doesn't
+ * know) is no footprint either.
+ */
+export const outlinedSymbol = (id: string): boolean => iconClass(id) === 'symbol' && Object.hasOwn(STATED_SIZES, id) && !isSymbolSize(id);

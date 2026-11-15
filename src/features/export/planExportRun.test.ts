@@ -244,7 +244,10 @@ describe('per-department prints and the watermark, from the run (6.17)', () => {
     expect(each.result.what).toBe('3 pages');
     setLocale('es');
     const es = await kept(planSetupPdf, { plan, planDepartments: 'lighting' });
-    expect([...es.files.keys()]).toEqual(['planta de Bey County SC004 Emplazamiento 1 Iluminación.pdf']);
+    // The language's template places the department (6.17 review): Spanish reads "planta de Iluminación de …".
+    expect([...es.files.keys()]).toEqual(['planta de Iluminación de Bey County SC004 Emplazamiento 1.pdf']);
+    const esEach = await kept(planScenePdf, { plan: { kind: 'scene', sceneId }, planDepartments: 'each' });
+    expect([...esEach.files.keys()]).toEqual(['plantas de departamentos de Bey County SC004.pdf']);
     setLocale('en');
     // Everything, the default, is named and printed as it always was.
     expect([...(await kept(planSetupPdf, { plan })).files.keys()]).toEqual(['Bey County SC004 Setup 1 plan.pdf']);

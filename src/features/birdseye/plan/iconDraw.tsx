@@ -5,7 +5,7 @@ import type { CanvasColours } from '../../../ui/canvas/types';
 import type { PlanIcon } from '../../../ui/icons/plan/planIcons';
 import { ensureFont, useFonts } from '../../moodboards/fonts';
 import { ICON_BOXES, ICON_SHAPES, type IconBox, type IconPart, type IconPath, type IconText } from './iconBoxes';
-import { iconClass } from './iconSizes';
+import { outlinedSymbol } from './iconSizes';
 
 // A library icon drawn on a plan (6.3) exactly as the kit's SVG is, never recoloured, in light and dark (decision 13),
 // as vectors (third review round): its shapes are a committed table (iconBoxes.ts, written from the SVGs by
@@ -198,13 +198,14 @@ function IconGroup({ icon, width, height, texts, symbol = false }: { icon: PlanI
 /**
  * A known icon at its box's size, as vectors, with its name beneath; one the table doesn't have, the "?" outline.
  * `texts` replaces the icon's own text (IconTexts). `footprint` (an icon item, 6.17: its box is the thing's real width
- * and depth) draws a `symbol` icon (iconSizes.ts ICON_CLASSES) as an ink outline at the box with the symbol at its own
- * proportions in the middle; a `top-view` one, and every icon drawn without it (a camera, a light, a mark), stretched to
- * the box as before. Either turns with the item: it is drawn in the item's own box, which the canvas turns.
+ * and depth) draws a symbol footprint (iconSizes.ts `outlinedSymbol`: a `symbol` sized by width and depth, never one
+ * sized by its side) as an ink outline at the box with the symbol at its own proportions in the middle; any other icon,
+ * and every icon drawn without it (a camera, a light, a mark), stretched to the box as before. Either turns with the
+ * item: it is drawn in the item's own box, which the canvas turns.
  */
 export function IconShape({ icon, width, height, zoom, name, colours, texts, footprint = false }: ShapeProps & { icon: PlanIcon; texts?: IconTexts | undefined; footprint?: boolean }) {
   if (!iconShapesOf(icon.id)) return <UnknownIconShape width={width} height={height} zoom={zoom} name={name} colours={colours} />;
-  const symbol = footprint && iconClass(icon.id) === 'symbol';
+  const symbol = footprint && outlinedSymbol(icon.id);
   return (
     <>
       <IconGroup icon={icon} width={width} height={height} texts={texts} symbol={symbol} />

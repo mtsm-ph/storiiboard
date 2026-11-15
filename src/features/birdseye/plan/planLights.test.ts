@@ -279,6 +279,20 @@ describe('a standing frame under the handles (6.5 review, M1)', () => {
     // At 400% it is 20 px: picked by its box.
     expect(pickBoxOf(item, 4)).toBe(item);
   });
+  it('is resized by its ends alone when standing, as a wall is (6.17 review); an overhead lying flat keeps every handle', async () => {
+    const { sceneId, setupId } = await scene();
+    const ids = {
+      flag: await place({ sceneId, setupId }, 'grip/flag', { x: 0, y: 0 }),
+      floppy: await place({ sceneId, setupId }, 'grip/floppy', { x: 2, y: 0 }),
+      diffusion: await place({ sceneId, setupId }, 'grip/diffusion-4x4', { x: 4, y: 0 }),
+      over: await place({ sceneId, setupId }, 'grip/overhead-8x8', { x: 5, y: 5 }),
+    };
+    const built = planItemsBuilder()(shownItems(records(), sceneId, setupId), 'metres', '#16150F', 'en');
+    const of = (id: string) => built.find((i) => i.id === id);
+    for (const id of [ids.flag, ids.floppy, ids.diffusion]) expect(of(id)?.endsOnly, id).toBe(true);
+    expect(of(ids.over)?.endsOnly).toBeUndefined();
+    expect(of(ids.over)?.keepRatio).toBe(true);
+  });
 });
 
 describe('copies keep a light’s gear item, watts and beam (6.5)', () => {

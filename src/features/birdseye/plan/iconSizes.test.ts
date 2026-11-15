@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PLAN_ICONS } from '../../../ui/icons/plan/planIcons';
 import { ICON_BOXES } from './iconBoxes';
-import { FREE_RESIZE, ICON_CLASSES, ICON_SIZES, iconClass, iconSize, iconUse, isSymbolSize, symbolSize, TOOL_ICONS } from './iconSizes';
+import { FREE_RESIZE, ICON_CLASSES, ICON_SIZES, iconClass, iconSize, iconUse, isSymbolSize, outlinedSymbol, symbolSize, TOOL_ICONS } from './iconSizes';
 
 // The library's default sizes (6.3): every icon this milestone places has one, and no other icon does.
 
@@ -153,5 +153,27 @@ describe('every icon’s class (6.17)', () => {
   it('makes Kevin’s four signs symbols and his four plan views top views', () => {
     for (const id of ['production/parking', 'production/basecamp', 'production/video-village', 'production/generator']) expect(iconClass(id), id).toBe('symbol');
     for (const id of ['set-art/sofa', 'set-art/bed', 'set-art/car', 'set-art/stairs']) expect(iconClass(id), id).toBe('top-view');
+  });
+});
+
+describe('which icons draw as an outlined footprint (6.17 review)', () => {
+  it('outlines every symbol sized by a width and a depth, and no icon sized by its side', () => {
+    const outlined: string[] = [];
+    for (const id of Object.keys(ICON_SIZES)) {
+      if (isSymbolSize(id)) expect(outlinedSymbol(id), id).toBe(false);
+      else expect(outlinedSymbol(id), id).toBe(iconClass(id) === 'symbol');
+      if (outlinedSymbol(id)) outlined.push(id);
+    }
+    // Kevin's four, the distro cable, and the standing flag and floppy (whose items never draw as footprints: gripItem).
+    expect(outlined.sort()).toEqual(['grip/flag', 'grip/floppy', 'production/basecamp', 'production/distro-cable', 'production/generator', 'production/parking', 'production/video-village']);
+    for (const id of ['production/first-aid', 'cast/eyeline', 'production/hazard', 'grip/c-stand', 'sound/lav']) expect(outlinedSymbol(id), id).toBe(false);
+    // An icon with no stated size (a tool, a picture, one this version doesn't know) is no footprint.
+    for (const id of ['production/measure', 'camera/field-of-view', 'cast/walk-path', 'set-art/hovercraft']) expect(outlinedSymbol(id), id).toBe(false);
+  });
+
+  it('makes the ladder and the apple box top views', () => {
+    expect(iconClass('grip/ladder')).toBe('top-view');
+    expect(iconClass('grip/apple-box')).toBe('top-view');
+    expect(outlinedSymbol('grip/ladder')).toBe(false);
   });
 });

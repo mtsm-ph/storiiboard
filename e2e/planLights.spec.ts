@@ -276,6 +276,48 @@ test('picks a flag 3 px off its line at about 25%, by a click and by a right-cli
   await expect.poll(() => selection(page)).toEqual([placed.id]);
 });
 
+test('a selected standing flag moves by its body: a press on its line, or a pixel either side, and a drag of a metre move it a metre, at 100% and zoomed out (6.17 review, as a wall, 6.19c)', async ({ page }) => {
+  const placed = await placeFlag(page);
+  const zoom = async () => Number(await canvas(page).getAttribute('data-zoom'));
+  expect(await zoom()).toBe(1);
+  type Placed = Item & { centre: { x: number; y: number }; rotation: number };
+  // As 6.19c's wall test: every press aimed at a whole CSS pixel from the measured box (an engine may deliver only whole
+  // pixels), round(L) and round(L) ± 1 for its line at screen y = L. The 5 cm bar is 5 px thick at 100% and is picked 8 px
+  // thick at any zoom (pickThickness), so all three are on it with a whole pixel to spare (within 1.5 of L, under 4 - 1).
+  // Without endsOnly, the anchors in the middle of its long sides (8 px, on its edges 2.5 px from L) take every one.
+  const dragsByItsBody = async () => {
+    for (const off of [0, -1, 1]) {
+      const was = (await frames(page))[0] as Placed | undefined;
+      if (!was) throw new Error('no flag');
+      const exact = await screen(page, was.centre.x * 100, was.centre.y * 100);
+      const at = { x: Math.round(exact.x), y: Math.round(exact.y) + off };
+      await page.mouse.click(at.x, at.y);
+      await expect.poll(() => selection(page)).toEqual([placed.id]);
+      const metre = 100 * (await zoom());
+      await page.mouse.move(at.x, at.y);
+      await page.mouse.down();
+      await page.mouse.move(at.x, at.y + metre, { steps: 8 });
+      await page.mouse.up();
+      await expect.poll(async () => (((await frames(page))[0] as Placed | undefined)?.centre.y ?? 0) - was.centre.y).toBeCloseTo(1, 3);
+      const now = (await frames(page))[0] as Placed | undefined;
+      expect(now?.centre.x).toBeCloseTo(was.centre.x, 3);
+      expect(now?.width).toBe(was.width);
+      expect(now?.height).toBe(was.height);
+      expect(now?.rotation).toBe(was.rotation);
+    }
+  };
+  await dragsByItsBody();
+  // Zoomed out to about 50%: the bar is 2.5 px, the anchors still 8 px, the pick still 8 px.
+  const zoomOut = planTile(page).getByRole('button', { name: 'Zoom out', exact: true });
+  while ((await zoom()) / 1.25 >= 0.5) {
+    const was = await zoom();
+    await zoomOut.click();
+    await expect.poll(zoom).toBeLessThan(was);
+  }
+  expect(await zoom()).toBeLessThan(0.6);
+  await dragsByItsBody();
+});
+
 test('names a typed frame in the Trash and History in the plan’s unit, and again when the setting changes (6.5 second review)', async ({ page }) => {
   await placeFlag(page);
   await type(page, 'Width', '1.5');

@@ -757,12 +757,19 @@ const ROOM_CONTEXT: ReadonlySet<string> = new Set(['wall', 'door', 'window', 'un
 const isRoomContext = (item: ShownItem): boolean => ROOM_CONTEXT.has(item.fields.kind);
 
 /**
- * A view's items for a department's print: the room's, and the items whose layer is the department's, by the very
- * function the Layers tile goes by (layerOfItem); the others left out entirely, never dimmed. No department: all of them.
+ * An item every department's print shows as context: the room's, and (6.17 review) an item with no layer (layerOfItem
+ * null: an icon a newer version wrote), which the screen always draws, so no page leaves it out.
+ */
+const isContext = (records: Records, item: ShownItem): boolean => isRoomContext(item) || layerOfItem(records, item.record) === null;
+
+/**
+ * A view's items for a department's print: the context (isContext), and the items whose layer is the department's, by
+ * the very function the Layers tile goes by (layerOfItem); the others left out entirely, never dimmed. No department:
+ * all of them.
  */
 export function departmentItems(records: Records, shown: readonly ShownItem[], department: PlanLayer | undefined): readonly ShownItem[] {
   if (department === undefined) return shown;
-  return shown.filter((item) => isRoomContext(item) || layerOfItem(records, item.record) === department);
+  return shown.filter((item) => isContext(records, item) || layerOfItem(records, item.record) === department);
 }
 
 /** Whether a department has anything of its own in a view (the room's items aside): a department with nothing is skipped. */

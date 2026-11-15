@@ -17,7 +17,7 @@ import { boardTitle } from '../moodboards/boards';
 import { isDeck, pagesOf } from '../moodboards/pages';
 import { closeExportDialog, useExportDeck, useExportDialog, useExportFormatId, useExportPlan, useExportSwatches } from './exportStore';
 import { groupName } from '../birdseye/plan/library';
-import { planExportName } from './planExport';
+import { nothingWords, planExportName } from './planExport';
 import { PRINT_DEPARTMENTS, type PlanDepartments } from './planPages';
 import { DAY_PLAN_FORMATS, DECK_FORMATS, FORMATS, PLAN_FORMATS, SWATCH_FORMATS } from './registry';
 import { swatchSet } from './swatchSet';
@@ -122,6 +122,12 @@ function ExportDialog() {
     () => (plans && format.planViews && projectId !== null ? format.planViews(records, projectId, plan ?? undefined, scope, planDepartments).length : 0),
     [plans, format, records, projectId, plan, scope, planDepartments],
   );
+  // Why there is nothing to print (6.17): no plan, or a department with nothing on them; worked out only when the count
+  // is none, and once per change to what it reads (6.17 review), by the very words a run refuses with.
+  const nothing = useMemo(
+    () => (plans && projectId !== null && planCount === 0 ? nothingWords(format, records, projectId, plan ?? undefined, scope, planDepartments) : ''),
+    [plans, format, records, projectId, plan, scope, planDepartments, planCount],
+  );
   // A PNG of each department is a folder of pictures (6.17); every other choice writes what the format always writes.
   const output = format ? (plans && format.outputFor ? format.outputFor(planDepartments) : format.output) : 'file';
   if (!project) return null;
@@ -138,12 +144,6 @@ function ExportDialog() {
   const carries = watermark !== null && format?.watermark !== undefined && watermark.appliesTo.includes(format.watermark);
   const frames = (scene ? [scene] : scenes).reduce((n, s) => n + s.shots.length, 0);
   const noPlans = plans && planCount === 0;
-  // Why there is nothing to print: no plan, or a department with nothing on them (6.17).
-  const nothing = planDepartments === 'everything' || !format?.planViews || format.planViews(records, project.projectId, plan ?? undefined, scope, 'everything').length === 0
-    ? t('export.plan.nothing')
-    : planDepartments === 'each'
-      ? t('export.plan.nothingEach')
-      : t('export.plan.nothingDepartment', { department: groupName(planDepartments) });
 
   const stop = () => {
     stopper.current?.abort();

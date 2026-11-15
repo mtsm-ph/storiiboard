@@ -101,7 +101,8 @@ export interface CanvasItem extends Geometry {
    */
   moveOnly?: boolean;
   /**
-   * Resized by its ends alone (6.19c: a wall, a 10 cm bar about 10 px thick at 100%): picked by itself, its handles have
+   * Resized by its ends alone (6.19c: a wall, a 10 cm bar about 10 px thick at 100%; 6.17 review: a standing flag or
+   * frame, 5 cm, and a measure, 1 cm, both thinner still): picked by itself, its handles have
    * no anchor on the middle of its long sides, where one would sit on its centre line and take the press meant to move
    * it. Its corner and end anchors and the rotate handle stay. Left out (a board's items), all eight anchors show.
    */
