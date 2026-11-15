@@ -5,6 +5,7 @@ import { framesOffCameras } from './cameraLinks';
 import { fieldOfView, type FieldOfView } from './fieldOfView';
 import { cameraFields, planFields, setupPlanOf, type CameraFields } from './plan';
 import type { JsonValue, Props, SbdRecord } from './record';
+import { childrenOf } from './recordIndex';
 import { frameSetupId, setupFrames } from './setup';
 import { aspectRatioValue, projectStoryboard, shotFields } from './storyboard';
 
@@ -85,8 +86,8 @@ function setupReading(records: Records, setupId: string): SetupReading {
     const plan = setupPlanOf(records, setupId);
     const frames = setupFrames(records, setupId);
     const cameras = plan
-      ? Object.values(records)
-          .filter((r) => r.type === 'plan_item' && r.parentId === plan.id && r.trashedAt === null)
+      ? childrenOf(records, plan.id, 'plan_item')
+          .filter((r) => r.trashedAt === null)
           .sort(bySortKey)
           .flatMap((record) => {
             const fields = cameraFields(record.props);

@@ -3,6 +3,7 @@ import { frameLocationId, locationFields, mapPlace } from './location';
 import { northFields, planFields, sceneRoomId, sunFields, type NorthFields, type SunFields } from './plan';
 import { cameraSetupFrames, itemSetupId } from './planCamera';
 import type { SbdRecord } from './record';
+import { childrenOf } from './recordIndex';
 import { frameDayId, projectShootDays, type ShootDay } from './shootDay';
 import { isTimeZone } from './sunTimes';
 
@@ -39,8 +40,8 @@ export const sunReadingsMade = (): number => readings;
 /** A room's live north items in plan order: the first is the room's north (a file may carry more; the app never writes a second). */
 function northsOf(records: Records, roomId: string): readonly { record: SbdRecord; fields: NorthFields }[] {
   return memo(records, `norths:${roomId}`, () =>
-    Object.values(records)
-      .filter((r) => r.type === 'plan_item' && r.parentId === roomId && r.trashedAt === null)
+    childrenOf(records, roomId, 'plan_item')
+      .filter((r) => r.trashedAt === null)
       .sort(bySortKey)
       .flatMap((record) => {
         const fields = northFields(record.props);

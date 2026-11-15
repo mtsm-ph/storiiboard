@@ -3,6 +3,7 @@ import type { Change } from '../ops/ops';
 import { keyBetween } from '../ops/order';
 import { framesOffCameras } from './cameraLinks';
 import type { JsonValue, Props, SbdRecord } from './record';
+import { childrenOf, keptFor } from './recordIndex';
 
 // Setups (6.0, docs/PHASE6_DECISIONS.md 3). A setup is one camera position and lighting state; several frames can share
 // one. It is a `setup` record under its scene, numbered within the scene (Setup 1, Setup 2), never lettered: shot
@@ -36,18 +37,23 @@ export interface Setup {
 
 const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0);
 
-/** Every setup under a scene in order, those in the Trash too: where new sort keys are worked out. */
-function allSetups(records: Records, sceneId: string): SbdRecord[] {
-  return Object.values(records)
-    .filter((r) => r.type === 'setup' && r.parentId === sceneId)
-    .sort(bySortKey);
+/**
+ * Every setup under a scene in order, those in the Trash too: where new sort keys are worked out. Read once per records
+ * object from the index of setups by scene (6.21: tiles ask for each scene's on every edit); read-only.
+ */
+function allSetups(records: Records, sceneId: string): readonly SbdRecord[] {
+  return keptFor(records, `setup.all:${sceneId}`, () => [...childrenOf(records, sceneId, 'setup')].sort(bySortKey));
 }
 
-/** The scene's live setups in order, each numbered. */
+/** The scene's live setups in order, each numbered: worked out once per records object (6.21), a fresh list each call. */
 export function sceneSetups(records: Records, sceneId: string): Setup[] {
-  return allSetups(records, sceneId)
-    .filter((r) => r.trashedAt === null)
-    .map((record, i) => ({ record, fields: setupFields(record.props), number: i + 1 }));
+  return [
+    ...keptFor(records, `setup.live:${sceneId}`, () =>
+      allSetups(records, sceneId)
+        .filter((r) => r.trashedAt === null)
+        .map((record, i): Setup => ({ record, fields: setupFields(record.props), number: i + 1 })),
+    ),
+  ];
 }
 
 /** A live setup by its id, or null. */
@@ -74,18 +80,24 @@ export function frameSetup(records: Records, shot: SbdRecord): Setup | null {
   return sceneSetups(records, shot.parentId).find((s) => s.record.id === id) ?? null;
 }
 
-/** The live frames in a scene, in board order. */
-function sceneFrames(records: Records, sceneId: string): SbdRecord[] {
-  return Object.values(records)
-    .filter((r) => r.type === 'shot' && r.parentId === sceneId && r.trashedAt === null)
-    .sort(bySortKey);
+/** The live frames in a scene, in board order: once per records object, from the index of frames by scene (6.21); read-only. */
+function sceneFrames(records: Records, sceneId: string): readonly SbdRecord[] {
+  return keptFor(records, `setup.frames:${sceneId}`, () => childrenOf(records, sceneId, 'shot').filter((r) => r.trashedAt === null).sort(bySortKey));
 }
+
+/** Whether a scene has a live frame (SetupsTile asks for each scene). */
+export const sceneHasFrames = (records: Records, sceneId: string): boolean => sceneFrames(records, sceneId).length > 0;
 
 /** A setup's frames, in board order. */
 export function setupFrames(records: Records, setupId: string): SbdRecord[] {
-  const setup = liveSetup(records, setupId);
-  if (!setup?.parentId) return [];
-  return sceneFrames(records, setup.parentId).filter((shot) => frameSetupId(records, shot) === setupId);
+  // Worked out once per records object (6.21), a fresh list each call.
+  return [
+    ...keptFor(records, `setup.setupFrames:${setupId}`, () => {
+      const setup = liveSetup(records, setupId);
+      if (!setup?.parentId) return [];
+      return sceneFrames(records, setup.parentId).filter((shot) => frameSetupId(records, shot) === setupId);
+    }),
+  ];
 }
 
 /** A scene's live frames in no setup, in board order: what a setup can take in. */

@@ -1,5 +1,6 @@
 import { formatDate, t } from '../i18n';
 import type { JsonValue, Props, SbdRecord } from './record';
+import { recordsOfType } from './recordIndex';
 import { frameSetupId } from './setup';
 import { shotFields } from './storyboard';
 
@@ -58,8 +59,8 @@ const bySortKey = (a: SbdRecord, b: SbdRecord) => byText(a.sortKey, b.sortKey);
 
 /** The project's live shoot days, by date (undated last), each numbered. */
 export function projectShootDays(records: Records, projectId: string): ShootDay[] {
-  return Object.values(records)
-    .filter((r) => r.type === 'shoot_day' && r.parentId === projectId && r.trashedAt === null)
+  return recordsOfType(records, 'shoot_day')
+    .filter((r) => r.parentId === projectId && r.trashedAt === null)
     .map((record) => ({ record, fields: shootDayFields(record.props) }))
     .sort((a, b) => {
       if (a.fields.date !== b.fields.date) {
@@ -108,12 +109,12 @@ export function frameShootDay(records: Records, projectId: string, shot: SbdReco
 
 /** The project's live frames in live scenes, in board order, each with its scene. */
 function boardFrames(records: Records, projectId: string): { scene: SbdRecord; shot: SbdRecord }[] {
-  const scenes = Object.values(records)
-    .filter((r) => r.type === 'scene' && r.parentId === projectId && r.trashedAt === null)
+  const scenes = recordsOfType(records, 'scene')
+    .filter((r) => r.parentId === projectId && r.trashedAt === null)
     .sort(bySortKey);
   const byScene = new Map<string, SbdRecord[]>();
-  for (const r of Object.values(records)) {
-    if (r.type !== 'shot' || r.trashedAt !== null || r.parentId === null) continue;
+  for (const r of recordsOfType(records, 'shot')) {
+    if (r.trashedAt !== null || r.parentId === null) continue;
     const list = byScene.get(r.parentId) ?? [];
     list.push(r);
     byScene.set(r.parentId, list);

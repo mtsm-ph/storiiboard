@@ -11,6 +11,7 @@ import {
   leaveSetup,
   moveSetup,
   renameSetup,
+  sceneHasFrames,
   sceneSetups,
   setupFrames,
   setupLabel,
@@ -363,7 +364,7 @@ function SetupFrames({ records, projectId, setup, scene }: { records: Records; p
       <h3 className="sb-label border-b-[1.5px] border-text pb-1">{t('setups.withoutSetup', { scene: sceneName })}</h3>
       {free.length === 0 ? (
         <p className="text-[13px] text-text-muted">
-          {Object.values(records).some((r) => r.type === 'shot' && r.parentId === scene.id && r.trashedAt === null)
+          {sceneHasFrames(records, scene.id)
             ? t('setups.allInSetups', { scene: sceneName })
             : t('setups.sceneNoFrames', { scene: sceneName })}
         </p>
