@@ -1520,6 +1520,8 @@ export const en = {
   'error.notMigrationBackupName': '"{name}" isn\'t a migration backup name for this project.',
   'error.tooManyBackups': 'This project already has {count} backups from this minute. Try again in a minute.',
   'error.changedOnDisk': 'The project file changed on disk since Storiiboard last saved it.',
+  'error.queryReturnedBytes': 'A query can\'t return bytes; read them with readBlob.',
+  'error.notBytes': 'That column doesn\'t hold bytes.',
   'error.newerProject': 'This project was saved by a newer version of Storiiboard (file format {file}; this version reads up to {app}). Update Storiiboard to open it.',
   'error.heic': 'This is an HEIC photo, which Storiiboard can’t read on this computer yet. Convert it to JPEG first.',
   'error.notAnImage': 'This file isn’t an image Storiiboard can read. JPEG, PNG and WebP work.',

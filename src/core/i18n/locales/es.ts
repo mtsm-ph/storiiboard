@@ -1522,6 +1522,8 @@ export const es: Messages = {
   'error.notMigrationBackupName': '"{name}" no es un nombre de respaldo de migración de este proyecto.',
   'error.tooManyBackups': 'Este proyecto ya tiene {count} respaldos de este minuto. Intenta otra vez en un minuto.',
   'error.changedOnDisk': 'El archivo del proyecto cambió en el disco desde la última vez que Storiiboard lo guardó.',
+  'error.queryReturnedBytes': 'Una consulta no puede devolver bytes; léelos con readBlob.',
+  'error.notBytes': 'Esa columna no contiene bytes.',
   'error.newerProject': 'Este proyecto se guardó con una versión más nueva de Storiiboard (formato de archivo {file}; esta versión lee hasta {app}). Actualiza Storiiboard para abrirlo.',
   'error.heic': 'Esta es una foto HEIC, que Storiiboard todavía no puede leer en esta computadora. Conviértela primero a JPEG.',
   'error.notAnImage': 'Este archivo no es una imagen que Storiiboard pueda leer. Sirven JPEG, PNG y WebP.',

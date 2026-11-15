@@ -4,7 +4,7 @@ import { hostname } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { isBackupName, isMigrationBackupName } from './backups';
-import { CHANGED_ON_DISK, type BackupKind, type LockHolder, type ProjectFile, type Row, type SqlDriver } from './driver';
+import { blobOf, CHANGED_ON_DISK, refuseBytes, type BackupKind, type LockHolder, type ProjectFile, type Row, type SqlDriver } from './driver';
 import { fileStem } from './paths';
 
 // The same contract as the Rust commands in src-tauri/src/sbd.rs, on Node's built-in SQLite: Vitest runs on it now,
@@ -171,12 +171,11 @@ function nodeFile(db: DatabaseSync, path: string, machine: NodeMachine, drafts: 
           lastWrite = fingerprint(path);
         }
       }),
-    query: (sql, params) => settle(() => db.prepare(sql).all(...(params ?? [])).map(toRow)),
+    query: (sql, params) => settle(() => refuseBytes(db.prepare(sql).all(...(params ?? [])).map(toRow))),
     readBlob: (sql, params) =>
       settle(() => {
         const row = db.prepare(sql).get(...(params ?? []));
-        const value = row ? Object.values(row)[0] : undefined;
-        return value instanceof Uint8Array ? value : null;
+        return blobOf(row ? Object.values(row)[0] : undefined);
       }),
     backup: (kind, name) =>
       settle(() => {

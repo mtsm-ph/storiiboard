@@ -1,6 +1,6 @@
 import type { Database, SqlJsStatic, SqlJsValue } from 'sql.js';
 import { isBackupName, isMigrationBackupName } from './backups';
-import type { BackupKind, ProjectFile, Row, SqlDriver } from './driver';
+import { blobOf, refuseBytes, type BackupKind, type ProjectFile, type Row, type SqlDriver } from './driver';
 import { fileName, fileStem } from './paths';
 
 // A third driver, for the end-to-end tests only (approved Nov 2): SQLite compiled to WebAssembly (sql.js), with each
@@ -188,7 +188,7 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
             statement.bind(params ?? []);
             const rows: Row[] = [];
             while (statement.step()) rows.push(toRow(statement.getAsObject()));
-            return rows;
+            return refuseBytes(rows);
           } finally {
             statement.free();
           }
@@ -199,8 +199,7 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
           try {
             statement.bind(params ?? []);
             if (!statement.step()) return null;
-            const value = Object.values(statement.getAsObject())[0];
-            return value instanceof Uint8Array ? value : null;
+            return blobOf(statement.get()[0]);
           } finally {
             statement.free();
           }
