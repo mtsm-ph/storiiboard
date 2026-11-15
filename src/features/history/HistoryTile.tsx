@@ -22,6 +22,7 @@ import { createWriteGate } from './writeGate';
 import { t, type MessageKey } from '../../core/i18n';
 import { Trans } from '../../ui/Trans';
 import { useLocale } from '../../ui/useLocale';
+import { usePlanUnit } from '../../app/planUnits';
 
 // The History tile (1.22, CLAUDE.md: History): every step, undos and redos included, newest first, each with what it
 // did, who and when, and Restore to here. Named versions (1.23) are named here and opened as separate projects.
@@ -62,6 +63,8 @@ export function RestoreStatus({ restoring, opening = null }: { restoring: boolea
 export function HistoryTile() {
   const project = useProject((s) => s.project);
   const locale = useLocale();
+  // A plan's lengths (6.2a) in the unit the setting says now, read so a change of it reads the lines again.
+  const unit = usePlanUnit();
   const records = useProject((s) => s.records);
   const canUndo = useProject((s) => s.canUndo);
   // Clean up old pictures changes neither the records nor undo, but older steps then read "(picture removed)".
@@ -111,7 +114,7 @@ export function HistoryTile() {
     if (!project) return;
     let live = true;
     const readFor = gate.versionOf(records);
-    loadSteps(project.file, count)
+    loadSteps(project.file, count, unit)
       .then((next) => {
         if (live) setLoaded({ ...next, readFor });
       })
@@ -124,7 +127,7 @@ export function HistoryTile() {
       live = false;
     };
     // The language too: each step's line is worked out here, in the words of the moment.
-  }, [gate, project, records, canUndo, deletedForGood, count, generation, locale]);
+  }, [gate, project, records, canUndo, deletedForGood, count, generation, locale, unit]);
 
   useEffect(() => {
     if (loaded) gate.read('steps', loaded.readFor);
@@ -344,6 +347,7 @@ export function HistoryTile() {
             title={named.title}
             ops={itemOps.ops}
             places={places}
+            unit={unit}
             busy={restoring}
             problem={(recordId, field) => putBackProblem(records, recordId, field)}
             onPutBack={putBack}

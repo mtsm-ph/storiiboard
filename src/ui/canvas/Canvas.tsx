@@ -5,21 +5,21 @@ import { t, tn } from '../../core/i18n';
 import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
 import { boundsFor, boundsOf, rectFromCorners, topmostAt } from './hitTest';
-import { arrangeForKey, commandForKey, hostToolForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor } from './keys';
+import { arrangeForKey, commandForKey, hostToolForKey, isCommand, quickSideFor, toolForKey, zoomShortcut, zoomStepFor, type KeyLike } from './keys';
 import { ItemNodes, type RegisterNode } from './ItemNodes';
 import { createZoomSettle } from './zoomSettle';
 import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
 import { LinkShape, type ResolvedLink } from './LinkShapes';
 import { Minimap } from './Minimap';
 import { PASTE_WAIT, pasteEventSeen, pasteStep, waitFoundNoEvent } from './pasteFallback';
-import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy } from './placement';
+import { atLeastMinimum, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, tidy, withDraft } from './placement';
 import { drawOrder, sectionContents, tabRect, topmostSectionAt } from './sections';
 import { mergeGuides, snapMove, snapPoint, type Guide } from './snapping';
 import { pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd } from './routing';
 import { itemAt, marqueePicks, menuPickAt, pickable, pickOrder } from './picking';
-import { END_SNAP, nextPoint, NO_MODS, pathAngle, runClick, runKey, runPoints, runStart, toolEndsRun, type PathDraft, type PathMods } from './pathRun';
+import { DOUBLE_PRESS_MS, END_SNAP, nextPoint, NO_MODS, pathAngle, runClick, runKey, runPoints, runStart, toolEndsRun, type PathDraft, type PathMods } from './pathRun';
 import { Rulers, RULER_SIZE } from './Rulers';
-import { gridLines, gridPull, pointAlong, scaleBarLength, snapMoveByPoints, snapToGrid } from './scale';
+import { gridLines, gridPull, pointAlong, scaleBarLength, snapMoveByPoints, snapToGrid, type GridSnap } from './scale';
 import {
   isAttached,
   isHostTool,
@@ -121,8 +121,11 @@ export interface CanvasProps {
   onGeometry: (changes: GeometryChange[]) => unknown;
   /** An arrow key's nudge, as a distance: the host adds it to the items as they are when the edit is written. */
   onNudge: (ids: string[], dx: number, dy: number) => unknown;
-  /** An item drawn, clicked into place or placed with Enter, by the tool that placed it. */
-  onCreate: (geometry: Geometry, tool: PlaceTool | HostToolId) => unknown;
+  /**
+   * An item drawn, clicked into place or placed with Enter (`by` the key: 6.2b), by the tool that placed it. The tool
+   * goes back to Select, unless this gives back `false`: the host placed nothing and keeps the tool (6.2b review).
+   */
+  onCreate: (geometry: Geometry, tool: PlaceTool | HostToolId, by?: 'pointer' | 'key') => unknown;
   /** Enter or a double-click on an editable item (text, sticky): the host edits it in place. */
   onEdit?: (id: string) => void;
   /** The item being edited in place, if any: the host draws its editor over it (renderEditor). */
@@ -170,6 +173,16 @@ export interface CanvasProps {
    * A run's clicks join the items' `snapPoints`.
    */
   onPath?: (points: Point[], tool: HostToolId) => unknown;
+  /**
+   * Where a move puts what it moves (6.2b, a plan's doors and windows): the moving items' geometry as the pointer and
+   * the snapping made it, and how it snaps (Alt fine, ⌘ or Ctrl off); the host gives back what is drawn and written in
+   * its place, which may hold items moving with them (an opening on a moving wall). Without it, a move is as made.
+   */
+  constrainMove?: (moving: ReadonlyMap<string, Geometry>, snap: GridSnap) => ReadonlyMap<string, Geometry>;
+  /** The pointer over the canvas with no gesture under way, world units; null once it leaves (6.2b: a door's preview). */
+  onHover?: (at: Point | null) => void;
+  /** A key the canvas has no use for, offered to the host first: true when it took it (6.2b: F flips a door's swing). */
+  onKey?: (event: KeyLike & { repeat: boolean }) => boolean;
 }
 
 /** The items as boxes for snapping, back to front. */
@@ -234,6 +247,9 @@ export function Canvas({
   scale,
   zoomLimits,
   onPath,
+  constrainMove,
+  onHover,
+  onKey,
 }: CanvasProps) {
   const limits = zoomLimits ?? BOARD_ZOOM;
   const themed = useCanvasColours();
@@ -284,6 +300,8 @@ export function Canvas({
     pathRef.current = next;
     setPathState(next);
   };
+  // When a double-click's second press finished a run, so the dblclick right after it isn't taken as another.
+  const doubleFinished = useRef<number | null>(null);
   // What the run said last for a screen reader (a typed length taken or refused).
   const [pathSaid, setPathSaid] = useState('');
   const describedBy = useId();
@@ -294,7 +312,7 @@ export function Canvas({
       draft
         ? items.map((item) => {
             const moved = draft.get(item.id);
-            return moved ? { ...item, ...moved } : item;
+            return moved ? withDraft(item, moved) : item;
           })
         : items,
     [items, draft],
@@ -382,6 +400,8 @@ export function Canvas({
   const mixed = handleIds.length > 1 && (new Set(turned).size > 1 || turned.some((r) => r % 90 !== 0));
   // Pictures and video cards keep their shape: corners only.
   const locked = handleIds.some((id) => shown.find((item) => item.id === id)?.keepRatio === true);
+  // A door or window (6.2b) takes its shape and turn from its wall: no anchors and no turning while one is picked.
+  const moveOnly = handleIds.some((id) => shown.find((item) => item.id === id)?.moveOnly === true);
 
   // What the handlers read, as it is now: they are set up once and must never act on an old view.
   const latest = useRef({ items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale });
@@ -649,6 +669,12 @@ export function Canvas({
     return { dx: tidy(snap.dx + (onX ? 0 : pulled.dx)), dy: tidy(snap.dy + (onY ? 0 : pulled.dy)), guides: snap.guides };
   };
 
+  /** Where a move by dx, dy puts what it moves, as the host places it when it does (6.2b). */
+  const placedBy = (g: Extract<Gesture, { kind: 'move' }>, dx: number, dy: number, snap: GridSnap): ReadonlyMap<string, Geometry> => {
+    const moved = new Map([...g.origins].map(([id, o]) => [id, { ...o, x: tidy(o.x + dx), y: tidy(o.y + dy) }]));
+    return constrainMove ? constrainMove(moved, snap) : moved;
+  };
+
   /** A point onto the grid on the axes no item line took (6.2a); unchanged without a scale. */
   const gridded = (point: Point, guides: readonly Guide[]): Point => {
     const grid = latest.current.scale?.grid;
@@ -731,9 +757,14 @@ export function Canvas({
     if (spec?.pointToPoint && isHostTool(current)) {
       const run = pathRef.current;
       const at = pathPoint(world, event, run);
-      // A double-click's second press adds nothing, however far it jittered: the double-click finishes the run.
-      const next = run ? runClick(run, at, now.zoom, event.detail) : runStart(current, at);
-      if (next !== run) setPath(next);
+      const press = { time: event.timeStamp, x: screen.x, y: screen.y };
+      const next = run ? runClick(run, at, now.zoom, press) : runStart(current, at, at, press);
+      // A double-click's second press adds nothing, however far it jittered, and finishes the run; the dblclick that
+      // follows it then finds no run and does nothing.
+      if (next === 'double') {
+        doubleFinished.current = press.time;
+        finishPath();
+      } else if (next !== run) setPath(next);
       return;
     }
     if (current === 'connector') {
@@ -806,7 +837,10 @@ export function Canvas({
     const run = pathRef.current;
     if (run) setPath({ ...run, cursor: pathPoint(world, event, run) });
     const g = gesture.current;
-    if (!g) return;
+    if (!g) {
+      onHover?.(world);
+      return;
+    }
     if (g.kind === 'pan') {
       onViewportChange(panBy(latest.current.viewport, screen.x - g.last.x, screen.y - g.last.y));
       g.last = screen;
@@ -824,7 +858,7 @@ export function Canvas({
     if (g.kind === 'move') {
       const { dx, dy, guides: aligned } = movement(g, world, off, event.altKey);
       setGuides(aligned);
-      setDraft(new Map([...g.origins].map(([id, o]) => [id, { ...o, x: tidy(o.x + dx), y: tidy(o.y + dy) }])));
+      setDraft(placedBy(g, dx, dy, off ? 'off' : event.altKey ? 'fine' : 'magnet'));
     } else if (g.kind === 'draw') {
       const made = drawnRect(g, world, off);
       setGuides(made.guides);
@@ -871,7 +905,7 @@ export function Canvas({
         return;
       }
       const { dx, dy } = movement(g, world, off, event.altKey);
-      commit([...g.origins].map(([id, o]) => ({ id, ...o, x: tidy(o.x + dx), y: tidy(o.y + dy) })));
+      commit([...placedBy(g, dx, dy, off ? 'off' : event.altKey ? 'fine' : 'magnet')].map(([id, o]) => ({ id, ...o })));
     } else if (g.kind === 'marquee') {
       setPreview(null);
       if (!g.moved) return;
@@ -886,13 +920,15 @@ export function Canvas({
       setPreview(null);
       const box = g.moved ? drawnRect(g, world, off).rect : rectFromCorners(g.start, world);
       // Only a click (under 3 px) places the standard rectangle; any drag draws what was dragged, at least 8 a side.
-      void onCreate(
+      const made = onCreate(
         g.moved
           ? { x: tidy(box.x), y: tidy(box.y), width: tidy(Math.max(MIN_SIZE, box.width)), height: tidy(Math.max(MIN_SIZE, box.height)), rotation: 0 }
           : placedAt(g.start, isPlaceTool(g.tool) ? g.tool : 'rect', tools?.find((each) => each.id === g.tool)?.size),
         g.tool,
+        'pointer',
       );
-      onToolChange('select');
+      // A host that placed nothing there says so and keeps its tool (6.2b review: a Door tool pressed over no wall).
+      if (made !== false) onToolChange('select');
     }
   };
 
@@ -958,7 +994,7 @@ export function Canvas({
     if (ran) {
       event.preventDefault();
       if (ran.kind === 'finish') finishPath();
-      else if (ran.kind === 'refused') setPathSaid(t('canvas.path.refused', { typed: ran.typed }));
+      else if (ran.kind === 'refused') setPathSaid(latest.current.scale?.refusal?.(ran.typed) ?? t('canvas.path.refused', { typed: ran.typed }));
       else if (ran.kind === 'taken') {
         setPath(ran.run);
         setPathSaid(t('canvas.path.taken', { length: latest.current.scale ? latest.current.scale.format(ran.length) : String(tidy(ran.length)) }));
@@ -1107,8 +1143,8 @@ export function Canvas({
       if (event.key === 'Enter' && (isPlaceTool(placing) || isHostTool(placing))) {
         event.preventDefault();
         const { viewport: view } = latest.current;
-        void onCreate(placedAt({ x: view.cx, y: view.cy }, isPlaceTool(placing) ? placing : 'rect', pointTool?.size), placing);
-        onToolChange('select');
+        const made = onCreate(placedAt({ x: view.cx, y: view.cy }, isPlaceTool(placing) ? placing : 'rect', pointTool?.size), placing, 'key');
+        if (made !== false) onToolChange('select');
         return;
       }
       // Enter on one selected video or link card opens it.
@@ -1133,6 +1169,11 @@ export function Canvas({
           onEdit(only.id);
           return;
         }
+      }
+      // The host's own keys come before the tool letters (6.2b: F and Shift+F flip a door).
+      if (onKey?.(event)) {
+        event.preventDefault();
+        return;
       }
       const next = tools ? hostToolForKey(event, tools) : toolForKey(event);
       if (next) {
@@ -1184,8 +1225,9 @@ export function Canvas({
       : selection.length === 1
         ? t('canvas.selectedAt', {
             label: items.find((i) => i.id === selection[0])?.label ?? links.find((l) => l.id === selection[0])?.label ?? '',
-            n: [...links, ...items].findIndex((i) => i.id === selection[0]) + 1,
-            total: links.length + items.length,
+            // A locked item (a preview, an underlay) is never picked, so it isn't counted either (6.2b review).
+            n: [...links, ...pickable(items)].findIndex((i) => i.id === selection[0]) + 1,
+            total: links.length + pickable(items).length,
           })
         : tn('canvas.itemsSelected', selection.length);
   const data = useMemo(() => JSON.stringify(items.map(({ id, x, y, width, height, rotation }) => ({ id, x, y, width, height, rotation }))), [items]);
@@ -1226,12 +1268,17 @@ export function Canvas({
       onPointerCancel={cancelGesture}
       onPointerLeave={() => {
         pointer.current = null;
+        onHover?.(null);
       }}
       onKeyDown={onKeyDown}
       onDoubleClick={(event) => {
-        // A double-click finishes a run (6.2a).
+        // A double-click finishes a run (6.2a); once its second press has finished it, the double-click does nothing more.
         if (pathRef.current) {
           finishPath();
+          return;
+        }
+        if (doubleFinished.current !== null && event.timeStamp - doubleFinished.current <= DOUBLE_PRESS_MS) {
+          doubleFinished.current = null;
           return;
         }
         if ((!onEdit && !onOpen) || (event.target !== event.currentTarget && !(event.target instanceof HTMLCanvasElement))) return;
@@ -1408,7 +1455,7 @@ export function Canvas({
             flipEnabled={false}
             // Shift keeps the proportions (Konva's own rule when this is off), and snaps a turn to 15 degrees.
             keepRatio={mixed || locked}
-            enabledAnchors={mixed || locked ? CORNERS : ALL_ANCHORS}
+            enabledAnchors={moveOnly ? [] : mixed || locked ? CORNERS : ALL_ANCHORS}
             ignoreStroke
             anchorSize={8}
             anchorCornerRadius={0}
@@ -1419,7 +1466,7 @@ export function Canvas({
             borderStrokeWidth={1.5}
             rotateAnchorOffset={24}
             // A section is always upright.
-            rotateEnabled={!handleIds.some((id) => shown.find((item) => item.id === id)?.section)}
+            rotateEnabled={!moveOnly && !handleIds.some((id) => shown.find((item) => item.id === id)?.section)}
             rotationSnaps={shift ? ROTATION_SNAPS : []}
             rotationSnapTolerance={shift ? 7.5 : 0}
             boundBoxFunc={(was, next) => (next.width < MIN_SIZE * view.zoom || next.height < MIN_SIZE * view.zoom ? was : next)}

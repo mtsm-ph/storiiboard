@@ -16,7 +16,26 @@ export interface PathDraft {
   cursor: Point | null;
   angle: number;
   typed: string;
+  /** The last press of the run (when and where on screen), to know a double-click's second press by. */
+  press?: PathPress;
 }
+
+/** A pointer press: its time (ms) and where it was on screen (px). */
+export interface PathPress {
+  time: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * How near in time and on screen a press must be to the one before to be a double-click's second press. Not the event's
+ * `detail`, which a pointerdown leaves at 0 in Chromium (WebView2) and WebKit.
+ */
+export const DOUBLE_PRESS_MS = 500;
+export const DOUBLE_PRESS_PX = 6;
+
+export const isDoublePress = (before: PathPress | undefined, press: PathPress): boolean =>
+  before !== undefined && press.time - before.time >= 0 && press.time - before.time <= DOUBLE_PRESS_MS && Math.hypot(press.x - before.x, press.y - before.y) <= DOUBLE_PRESS_PX;
 
 export interface PathMods {
   shiftKey: boolean;
@@ -60,18 +79,19 @@ export const pathAngle = (run: PathDraft): number => {
   return run.angle;
 };
 
-export const runStart = (tool: HostToolId, at: Point, cursor: Point | null = at): PathDraft => ({ tool, points: [at], cursor, angle: 0, typed: '' });
+export const runStart = (tool: HostToolId, at: Point, cursor: Point | null = at, press?: PathPress): PathDraft => ({ tool, points: [at], cursor, angle: 0, typed: '', ...(press ? { press } : {}) });
 
 /**
- * A press during a run: the point it fixes, ending a segment and starting the next. A double-click's second press
- * (`detail` 2 or more) adds nothing, however far it jittered, nor does one where the last point is (under 2 px).
+ * A press during a run: the point it fixes, ending a segment and starting the next; or 'double' for a double-click's
+ * second press (within 500 ms and 6 screen px of the press before), which adds nothing however it jittered and ends the
+ * run. A press where the last point is (under 2 px) adds nothing either.
  */
-export function runClick(run: PathDraft, at: Point, zoom: number, detail: number): PathDraft {
+export function runClick(run: PathDraft, at: Point, zoom: number, press: PathPress): PathDraft | 'double' {
+  if (isDoublePress(run.press, press)) return 'double';
   const last = run.points.at(-1);
-  if (!last) return { ...run, points: [at], cursor: at, typed: '' };
-  if (detail >= 2) return run;
-  if (Math.hypot(at.x - last.x, at.y - last.y) * zoom < 2) return run;
-  return { ...run, points: [...run.points, at], cursor: at, angle: Math.atan2(at.y - last.y, at.x - last.x), typed: '' };
+  if (!last) return { ...run, points: [at], cursor: at, typed: '', press };
+  if (Math.hypot(at.x - last.x, at.y - last.y) * zoom < 2) return { ...run, press };
+  return { ...run, points: [...run.points, at], cursor: at, angle: Math.atan2(at.y - last.y, at.x - last.x), typed: '', press };
 }
 
 /** The points a run leaves to be written when it ends: the fixed ones, two or more, never where the pointer is. */

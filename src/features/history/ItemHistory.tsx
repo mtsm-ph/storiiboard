@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import { localDateTime } from '../../app/format';
+import type { PlanUnit } from '../../core/model/length';
 import type { JsonValue, SbdRecord } from '../../core/model/record';
 import type { LoggedOp } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
@@ -21,6 +22,7 @@ export function ItemHistory({
   title,
   ops,
   places,
+  unit,
   busy = false,
   problem = () => null,
   onPutBack,
@@ -29,6 +31,8 @@ export function ItemHistory({
   title: string;
   ops: readonly LoggedOp[];
   places: (id: string) => string | null;
+  /** A plan's lengths in this unit (the setting as the tile reads it); the setting at the moment when not given. */
+  unit?: PlanUnit;
   /** A Restore to here is running: Put back takes no clicks until it lands (the tile ignores them too). */
   busy?: boolean;
   /**
@@ -61,7 +65,7 @@ export function ItemHistory({
   const value = (field: FieldChange, v: JsonValue | undefined): string =>
     field.key === undefined && Object.hasOwn(named, field.prop) && typeof v === 'string' && v !== ''
       ? (places(v) ?? t(named[field.prop as keyof typeof named]))
-      : changeText(field, v);
+      : changeText(field, v, unit);
   return (
     <table ref={table} tabIndex={-1} aria-busy={busy} className="w-full border-collapse text-[12px]">
       <caption className="sr-only">{t('history.changesTo', { title })}</caption>

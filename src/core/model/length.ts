@@ -22,11 +22,18 @@ const METRIC = new RegExp(String.raw`^${NUMBER}\s*(m|cm|mm|metres?|meters?)$`);
 // 12', 12' 6", 12'6, 12'-6", 12' 6 1/2".
 const FEET = new RegExp(String.raw`^${NUMBER}\s*(?:'|ft|feet|foot)\s*(?:-\s*)?(?:${INCH_TEXT}\s*${INCH_MARK}?)?$`);
 const INCHES = new RegExp(String.raw`^${INCH_TEXT}\s*${INCH_MARK}$`);
-// 12-6: feet, a dash, inches; read only while the screen shows feet.
-const DASHED = new RegExp(String.raw`^(\d+)\s*-\s*${INCH_TEXT}$`);
+// 12-6, 12-6 1/2: feet, a dash, whole inches (a fraction only after them); read only while the screen shows feet. A
+// fraction straight after the dash (4-1/2) is refused: it reads as four and a half, never as 4' 0½".
+const DASHED = new RegExp(String.raw`^(\d+)\s*-\s*((?:\d+(?:\.\d*)?|\.\d+)(?:\s+\d+\/\d+)?)$`);
 const BARE = new RegExp(String.raw`^${NUMBER}$`);
-/** A grouping comma (1,500): refused rather than guessed, since it reads as 1.5 where a comma is the decimal mark. */
-const GROUPING = /,\d{3}(?!\d)/;
+/**
+ * A grouping comma (1,500): refused rather than guessed, since it reads as 1.5 where a comma is the decimal mark. After
+ * a 0 (0,125) it can only be a decimal, so that one is read.
+ */
+const GROUPING = /(\d+),\d{3}(?!\d)/g;
+
+/** Whether what was typed has a thousands comma, which is refused (and said so). */
+export const hasGroupingComma = (text: string): boolean => [...text.matchAll(GROUPING)].some((m) => !/^0+$/.test(m[1] ?? ''));
 /** The longest length a plan takes: a kilometre. */
 const MOST = 1000;
 
@@ -56,7 +63,7 @@ export function parseLength(text: string, unit: PlanUnit, signed = false): numbe
 
 function readLength(text: string, unit: PlanUnit, signed: boolean): number | null {
   const typed = text.trim();
-  if (GROUPING.test(typed)) return null;
+  if (hasGroupingComma(typed)) return null;
   let s = typed
     .toLowerCase()
     // Typographic marks, as a Mac's smart quotes or a pasted spec write them; two single quotes are an inch mark.

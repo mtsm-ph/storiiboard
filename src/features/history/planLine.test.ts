@@ -93,6 +93,93 @@ describe('History for plans', () => {
     expect(changeText(turn, turn.after)).toBe('36.87°');
   });
 
+  it('shows a wall’s lengths in the unit it is handed (the History tile reads it with usePlanUnit and hands it on), whatever the setting', () => {
+    setPlanUnitsChoice('metres');
+    const [length] = fieldChanges(wall('a'), wall('a', { width: 3.81 }));
+    if (!length) throw new Error('no change');
+    expect([changeText(length, length.after, 'feet'), changeValue(length, length.after, 'feet')]).toEqual(['12\' 6"', '12\' 6"']);
+    setPlanUnitsChoice('feet');
+    expect(changeText(length, length.after, 'metres')).toBe('3.81 m');
+  });
+
+  it('says a scene was set in a room already drawn, a room copied for a scene, and one deleted and restored (6.2b)', () => {
+    const lobby = record('r2', 'plan', 'p', { kind: 'room', name: 'Lobby' });
+    const set = lineText(describeEdit([op('update', scene, { ...scene, props: { ...scene.props, room_id: 'r2' } })], none, new Map([['sc4', scene], ['r2', lobby]])));
+    expect(set).toBe('Set SC 04 in room “Lobby”');
+    const copy = record('r3', 'plan', 'p', { kind: 'room', name: 'Diner (SC 04)' });
+    const copied = [op('create', null, copy), op('create', null, { ...wall('c1', { copied_from: 'a' }), parentId: 'r3' }), op('update', scene, { ...scene, props: { ...scene.props, room_id: 'r3' } })];
+    expect(say(copied)).toBe('Made a separate copy of the room for SC 04: room “Diner (SC 04)”');
+    expect(say([op('trash', room, { ...room, trashedAt: at }), op('trash', wall('a'), { ...wall('a'), trashedAt: at })])).toBe('Deleted room “Diner”');
+    expect(say([op('restore', { ...room, trashedAt: at }, room)])).toBe('Restored room “Diner”');
+  });
+
+  it('says doors and windows were put in, moved, resized, flipped and deleted, by what they are (6.2b)', () => {
+    const door = (id: string, props: Props = {}) => record(id, 'plan_item', 'r', { kind: 'door', wall_id: 'a', along_m: 1, width_m: 0.9, hinge: 'start', swing: 'left', ...props });
+    const window = (id: string) => record(id, 'plan_item', 'r', { kind: 'window', wall_id: 'a', along_m: 3, width_m: 1.2 });
+    expect(say([op('create', null, door('d'))])).toBe('Put in a door');
+    expect(say([op('create', null, window('n')), op('create', null, window('m'))])).toBe('Put in 2 windows');
+    expect(say([op('update', door('d'), door('d', { along_m: 2 }))])).toBe('Moved a door');
+    expect(say([op('update', door('d'), door('d', { along_m: 2, wall_id: 'b' }))])).toBe('Moved a door');
+    expect(say([op('update', door('d'), door('d', { width_m: 0.8 }))])).toBe('Resized a door');
+    expect(say([op('update', door('d'), door('d', { swing: 'right' }))])).toBe('Flipped a door');
+    expect(say([op('trash', door('d'), { ...door('d'), trashedAt: at }), op('trash', window('n'), { ...window('n'), trashedAt: at })])).toBe('Deleted 2 doors and windows');
+    // A wall with its door goes as the wall.
+    expect(say([op('trash', wall('a'), { ...wall('a'), trashedAt: at }), op('trash', door('d'), { ...door('d'), trashedAt: at })])).toBe('Deleted a wall');
+    // Fields as the Selection tile names them; a hinge in words, a wall never by its id.
+    const [hinge] = fieldChanges(door('d'), door('d', { hinge: 'end' }));
+    if (!hinge) throw new Error('no change');
+    expect([changeLabel(hinge), changeText(hinge, hinge.after)]).toEqual(['hinge', 'At the wall’s end side']);
+    const [moved] = fieldChanges(door('d'), door('d', { wall_id: '3f1c9a52-wall' }));
+    if (!moved) throw new Error('no change');
+    expect(changeText(moved, moved.after)).not.toContain('3f1c9a52');
+  });
+
+  it('says items were put in one setup only, back in every setup, and copied from another setup (6.2b)', () => {
+    const own = record('own', 'plan', 'u1', { kind: 'setup', name: '' });
+    const around = new Map([['sc4', scene], ['own', own], ['r', room]]);
+    const into = [op('move', wall('a'), { ...wall('a'), parentId: 'own' }), op('move', wall('b'), { ...wall('b'), parentId: 'own' })];
+    expect(lineText(describeEdit(into, none, around))).toBe('Put 2 plan items in one setup only');
+    const back = [op('move', { ...wall('a'), parentId: 'own' }, wall('a'))];
+    expect(lineText(describeEdit(back, none, around))).toBe('Put a plan item back in every setup');
+    const copied = [op('create', null, own), op('create', null, { ...wall('c', { copied_from: 'a' }), parentId: 'own' })];
+    expect(lineText(describeEdit(copied, none, around))).toBe('Copied a plan item from another setup');
+    setLocale('es');
+    expect(lineText(describeEdit(into, none, around))).toBe('Se dejaron 2 elementos de planta solo en un emplazamiento');
+    expect(say([op('create', null, record('d', 'plan_item', 'r', { kind: 'door', wall_id: 'a', along_m: 1 }))])).toBe('Se puso una puerta');
+  });
+
+  it('tells a copy from items put in by hand by what they were copied from, in English and Spanish (6.2b review)', () => {
+    const own = record('own', 'plan', 'u1', { kind: 'setup', name: '' });
+    const around = new Map([['sc4', scene], ['own', own], ['r', room]]);
+    // A door put in a wall that is one setup's only sits in the setup's plan, yet it was put in, not copied.
+    const door = record('d', 'plan_item', 'own', { kind: 'door', wall_id: 'a', along_m: 1, width_m: 0.9, hinge: 'start', swing: 'left' });
+    expect(lineText(describeEdit([op('create', null, door)], none, around))).toBe('Put in a door');
+    const setupCopy = [op('create', null, { ...wall('c', { copied_from: 'a' }), parentId: 'own' }), op('create', null, { ...door, id: 'd2', props: { ...door.props, copied_from: 'd' } })];
+    expect(lineText(describeEdit(setupCopy, none, around))).toBe('Copied 2 plan items from another setup');
+    const copy = record('r3', 'plan', 'p', { kind: 'room', name: 'Diner (SC 04)' });
+    const roomCopy = [op('create', null, copy), op('create', null, { ...wall('c1', { copied_from: 'a' }), parentId: 'r3' }), op('update', scene, { ...scene, props: { ...scene.props, room_id: 'r3' } })];
+    expect(say(roomCopy)).toBe('Made a separate copy of the room for SC 04: room “Diner (SC 04)”');
+    setLocale('es');
+    expect(lineText(describeEdit([op('create', null, door)], none, around))).toBe('Se puso una puerta');
+    expect(lineText(describeEdit(setupCopy, none, around))).toBe('Se copiaron 2 elementos de planta de otro emplazamiento');
+    expect(say(roomCopy)).toBe('Se hizo una copia aparte del espacio para ESC 04: el espacio “Diner (SC 04)”');
+  });
+
+  it('says what went to the Trash when a scene left its room, and a wall resized from its start (6.2b review)', () => {
+    const own = record('own', 'plan', 'u1', { kind: 'setup', name: '' });
+    const lobby = record('r2', 'plan', 'p', { kind: 'room', name: 'Lobby' });
+    const door = record('d', 'plan_item', 'own', { kind: 'door', wall_id: 'a', along_m: 1 });
+    const around = new Map([['sc4', scene], ['own', own], ['r2', lobby]]);
+    const left = [op('trash', door, { ...door, trashedAt: at }), op('update', scene, { ...scene, props: { ...scene.props, room_id: 'r2' } })];
+    expect(lineText(describeEdit(left, none, around))).toBe('Set SC 04 in room “Lobby”; a door or window it had in that room only for this scene went to the Trash');
+    const deleted = [op('trash', room, { ...room, trashedAt: at }), op('trash', wall('a'), { ...wall('a'), trashedAt: at }), op('trash', door, { ...door, trashedAt: at }), op('trash', { ...door, id: 'e' }, { ...door, id: 'e', trashedAt: at })];
+    expect(say(deleted)).toBe('Deleted room “Diner”; 2 doors and windows it had in that room only for this scene went to the Trash');
+    const shifted = [op('update', wall('a'), wall('a', { x: 0.5, width: 3 })), op('update', record('n', 'plan_item', 'r', { kind: 'door', wall_id: 'a', along_m: 1 }), record('n', 'plan_item', 'r', { kind: 'door', wall_id: 'a', along_m: 0.5 }))];
+    expect(say(shifted)).toBe('Resized a wall');
+    setLocale('es');
+    expect(lineText(describeEdit(left, none, around))).toContain('se fue a la Papelera');
+  });
+
   it('says it in Spanish too', () => {
     setLocale('es');
     expect(say([op('create', null, wall('a')), op('create', null, wall('b'))])).toBe('Se dibujaron 2 muros');

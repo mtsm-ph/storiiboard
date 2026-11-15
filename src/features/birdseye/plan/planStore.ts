@@ -1,5 +1,6 @@
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
+import { projectStore } from '../../../app/projectStore';
 import type { Tool, Viewport } from '../../../ui/canvas/types';
 import { DEFAULT_VIEWPORT } from '../../../ui/canvas/viewport';
 import type { PlanClip } from './planItems';
@@ -36,6 +37,12 @@ export const planStore = createStore<PlanState>()((set) => ({
     set({ clipboard });
   },
 }));
+
+// Another project opened: nothing selected and the Select tool, since a version or a backup shares the original's ids
+// and a selection or a half-drawn run must never act on the other file. The clipboard stays, as a board's does.
+projectStore.subscribe((state, before) => {
+  if (state.project !== before.project) planStore.setState({ selections: {}, tool: 'select' });
+});
 
 export function usePlan<T>(select: (state: PlanState) => T): T {
   return useStore(planStore, select);

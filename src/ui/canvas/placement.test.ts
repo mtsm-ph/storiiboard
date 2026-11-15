@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PLACED_SIZE, MIN_SIZE, NEW_HEIGHT, NEW_WIDTH, PASTE_OFFSET, atLeastMinimum, moved, normalisedRotation, nudgeFor, pasted, placedAt } from './placement';
+import { PLACED_SIZE, MIN_SIZE, NEW_HEIGHT, NEW_WIDTH, PASTE_OFFSET, atLeastMinimum, moved, normalisedRotation, nudgeFor, pasted, placedAt, withDraft } from './placement';
 import type { Geometry } from './types';
 
 const g = (x: number, y: number, rotation = 0): Geometry => ({ x, y, width: 100, height: 50, rotation });
@@ -45,5 +45,27 @@ describe('nudges, pastes and placements', () => {
     expect(normalisedRotation(-90)).toBe(270);
     expect(normalisedRotation(450)).toBe(90);
     expect(normalisedRotation(359.999)).toBe(0);
+  });
+});
+
+// An item where a gesture's draft has it (6.2a review): a move takes its snap points along, so a run's click joins the
+// ends where a wall is drawn mid-drag; a resize or a turn keeps the item's own; an item without them gets none.
+
+describe('an item under a draft', () => {
+  const wall = { id: 'w', x: 0, y: -5, width: 350, height: 10, rotation: 0, snapPoints: [{ x: 0, y: 0 }, { x: 350, y: 0 }] };
+
+  it('takes its snap points along with a move', () => {
+    expect(withDraft(wall, { x: 100, y: 45, width: 350, height: 10, rotation: 0 })).toMatchObject({
+      x: 100,
+      y: 45,
+      snapPoints: [{ x: 100, y: 50 }, { x: 450, y: 50 }],
+    });
+  });
+
+  it('keeps them for a resize or a turn, and adds none to an item without', () => {
+    expect(withDraft(wall, { x: 0, y: -5, width: 500, height: 10, rotation: 0 }).snapPoints).toBe(wall.snapPoints);
+    expect(withDraft(wall, { x: 0, y: -5, width: 350, height: 10, rotation: 90 }).snapPoints).toBe(wall.snapPoints);
+    const box = { id: 'b', x: 0, y: 0, width: 10, height: 10, rotation: 0 };
+    expect(withDraft(box, { x: 5, y: 5, width: 10, height: 10, rotation: 0 })).toEqual({ id: 'b', x: 5, y: 5, width: 10, height: 10, rotation: 0 });
   });
 });

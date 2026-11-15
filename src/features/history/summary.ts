@@ -16,7 +16,7 @@ import { arrangedAs, coveredRows } from '../moodboards/arrangeNames';
 import { itemFields, type ItemKind } from '../moodboards/items';
 import { DECK_FIELD_LABEL } from '../moodboards/pageFormats';
 import { ROLE_LABELS } from '../../core/model/role';
-import { formatLength } from '../../core/model/length';
+import { formatLength, type PlanUnit } from '../../core/model/length';
 import { planUnitNow } from '../../app/planUnits';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
@@ -283,6 +283,7 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
   if (prop === 'setup_id') return t('history.aSetup');
   if (prop === 'lens_id') return t('history.aLens');
   if (prop === 'room_id') return t('history.aRoom');
+  if (prop === 'wall_id') return t('history.aWall');
   // What a gear item is (6.1): gear, a camera body or a lens, in words. The values never meet another record's kinds.
   if (prop === 'kind' && (value === 'camera_body' || value === 'lens')) return GEAR_KIND_LABEL[value];
   // A body's sensor and a lens's range, in mm; its squeeze as a factor; the phones entry's mode in the language in use.
@@ -508,6 +509,12 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   height_m: 'history.field.wallHeight',
   rotation: 'history.field.rotation',
   name: 'history.field.planName',
+  // A door's or window's (6.2b).
+  along_m: 'history.field.alongWall',
+  width_m: 'history.field.openingWidth',
+  hinge: 'history.field.hinge',
+  swing: 'history.field.swing',
+  wall_id: 'history.field.wall',
 });
 
 /** A connector's props by the words a person uses (5.2). */
@@ -579,16 +586,26 @@ const privateValue = (change: FieldChange, value: JsonValue | undefined): string
   isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');
 
 /** A plan item's lengths in the unit this computer shows (3.50 m, 12' 6"), its rotation in degrees (6.2a); null for its other props. */
-const PLAN_LENGTHS: ReadonlySet<string> = new Set(['x', 'y', 'width', 'height', 'height_m']);
-function planItemValue(change: FieldChange, value: JsonValue | undefined): string | null {
-  if (change.planItem !== true || change.key !== undefined || typeof value !== 'number') return null;
-  if (PLAN_LENGTHS.has(change.prop)) return formatLength(value, planUnitNow());
+const PLAN_LENGTHS: ReadonlySet<string> = new Set(['x', 'y', 'width', 'height', 'height_m', 'along_m', 'width_m']);
+/** A door's hinge and swing (6.2b) in the Selection tile's words. */
+const OPENING_WORDS: Readonly<Record<string, string>> = labels({
+  'hinge:start': 'selection.hinge.start',
+  'hinge:end': 'selection.hinge.end',
+  'swing:left': 'selection.swing.left',
+  'swing:right': 'selection.swing.right',
+});
+function planItemValue(change: FieldChange, value: JsonValue | undefined, unit: PlanUnit): string | null {
+  if (change.planItem !== true || change.key !== undefined) return null;
+  if (typeof value === 'string' && (change.prop === 'hinge' || change.prop === 'swing')) return OPENING_WORDS[`${change.prop}:${value}`] ?? null;
+  if (typeof value !== 'number') return null;
+  if (PLAN_LENGTHS.has(change.prop)) return formatLength(value, unit);
   if (change.prop === 'rotation') return t('plan.degrees', { value: String(Math.round(value * 100) / 100) });
   return null;
 }
 
-export const changeValue = (change: FieldChange, value: JsonValue | undefined): string =>
-  planItemValue(change, value) ??
+/** `unit`: the plan's unit, which the History tile reads with usePlanUnit so its words follow a change of the setting. */
+export const changeValue = (change: FieldChange, value: JsonValue | undefined, unit: PlanUnit = planUnitNow()): string =>
+  planItemValue(change, value, unit) ??
   (isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
@@ -601,8 +618,8 @@ export const changeValue = (change: FieldChange, value: JsonValue | undefined): 
         ? deliverableText(value, false)
         : change.key === undefined ? valueLabel(change.prop, value) : value === undefined ? t('history.noField') : valueLabel('', value));
 /** A change's value in full, for an item's own history and its Put back: never cut short. */
-export const changeText = (change: FieldChange, value: JsonValue | undefined): string =>
-  planItemValue(change, value) ??
+export const changeText = (change: FieldChange, value: JsonValue | undefined, unit: PlanUnit = planUnitNow()): string =>
+  planItemValue(change, value, unit) ??
   (isPrivate(change)
     ? privateValue(change, value)
     : isStatus(change)
@@ -614,11 +631,11 @@ export const changeText = (change: FieldChange, value: JsonValue | undefined): s
       : isDeliverable(change)
         ? deliverableText(value, true)
         : change.key === undefined ? valueText(change.prop, value) : value === undefined ? t('history.noField') : valueText('', value));
-const changeValuePart = (change: FieldChange, value: JsonValue | undefined): Part => {
+const changeValuePart = (change: FieldChange, value: JsonValue | undefined, unit: PlanUnit): Part => {
   // A wall's length is a technical value: mono.
-  const planned = planItemValue(change, value);
+  const planned = planItemValue(change, value, unit);
   if (planned !== null) return { mono: planned };
-  return change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value);
+  return change.key === undefined && !isPrivate(change) ? valuePart(change.prop, value) : changeValue(change, value, unit);
 };
 
 /** Props that keep another record by id, and what a step calls it when that record can't be named. */
@@ -629,6 +646,8 @@ const KEPT_BY_ID: ReadonlyMap<string, MessageKey> = new Map<string, MessageKey>(
   ['setup_id', 'history.aSetup'],
   ['lens_id', 'history.aLens'],
   ['room_id', 'history.aRoom'],
+  // A door's or window's wall (6.2b): never shown by its id.
+  ['wall_id', 'history.aWall'],
 ]);
 
 /** A setup as History names one (6.0), by its name: its number is its place among the scene's setups now, not then. */
@@ -702,36 +721,99 @@ function roomName(record: SbdRecord | null | undefined): string {
 function planLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Line | null {
   const record = (op: LoggedOp) => op.after ?? op.before;
   const isPlan = (op: LoggedOp) => record(op)?.type === 'plan' || record(op)?.type === 'plan_item';
-  if (!ops.some(isPlan)) return null;
   const roomLink = (op: LoggedOp) =>
     op.kind === 'update' && op.before?.type === 'scene' && op.after !== null && changedProps(op.before, op.after).every((prop) => prop === 'room_id');
+  const isOpeningOp = (op: LoggedOp) => record(op)?.type === 'plan_item' && (record(op)?.props.kind === 'door' || record(op)?.props.kind === 'window');
+  // The doors and windows a scene had in its old room's walls at its own level, gone to the Trash as it left the room
+  // (6.2b review): said after the step's own line.
+  const strandedIn = (roomId: string | null) => ops.filter((op) => op.kind === 'trash' && isOpeningOp(op) && record(op)?.parentId !== roomId).length;
+  const withStranded = (said: Line, count: number): Line => (count === 0 ? said : [...said, tn('history.strandedTrashed', count)]);
+  // A scene set in a room already drawn (6.2b): its `room_id` alone, with any of its own openings in the old room trashed.
+  const link = ops.find(roomLink);
+  if (link && ops.every((op) => op === link || (op.kind === 'trash' && isOpeningOp(op)))) {
+    const scene = record(link);
+    const roomId = scene?.props.room_id;
+    const room = typeof roomId === 'string' ? (around.get(roomId) ?? null) : null;
+    return withStranded(line('history.roomChosen', { scene: nameOf(scene, around) }, { name: roomName(room) }), strandedIn(null));
+  }
+  if (!ops.some(isPlan)) return null;
   if (!ops.every((op) => isPlan(op) || roomLink(op))) return null;
-  const started = ops.find((op) => op.kind === 'create' && op.after?.type === 'plan');
+  const items = ops.filter((op) => record(op)?.type === 'plan_item');
+  // Items made by a copy (a setup's or a room's) say what they were copied from; ones put in by hand don't (6.2b review).
+  const created = items.filter((op) => op.kind === 'create');
+  const copies = created.length > 0 && created.every((op) => typeof op.after?.props.copied_from === 'string');
+  const started = ops.find((op) => op.kind === 'create' && op.after?.type === 'plan' && op.after.props.kind === 'room');
   if (started) {
-    const linked = ops.find(roomLink);
-    const scene = linked ? record(linked) : null;
-    return line('history.roomStarted', { scene: nameOf(scene, around) }, { name: roomName(started.after) });
+    const scene = link ? record(link) : null;
+    // A room made with copied items in it is a separate copy of another (6.2b).
+    if (copies) return line('history.roomCopied', { scene: nameOf(scene, around) }, { name: roomName(started.after) });
+    return withStranded(line('history.roomStarted', { scene: nameOf(scene, around) }, { name: roomName(started.after) }), strandedIn(started.recordId));
   }
   const renamed = ops.find((op) => op.kind === 'update' && op.before?.type === 'plan' && op.after !== null);
   if (renamed?.before && renamed.after) {
     const name = typeof renamed.after.props.name === 'string' ? renamed.after.props.name.trim() : '';
     return [t('history.roomRenamed', { from: roomName(renamed.before), name })];
   }
-  const items = ops.filter((op) => record(op)?.type === 'plan_item');
+  // A room deleted or restored with its items (6.2b: Delete room).
+  const roomGone = ops.find((op) => (op.kind === 'trash' || op.kind === 'restore') && record(op)?.type === 'plan');
+  if (roomGone) {
+    const said = [t(roomGone.kind === 'trash' ? 'history.roomDeleted' : 'history.roomRestored', { name: roomName(record(roomGone)) })];
+    return roomGone.kind === 'trash' ? withStranded(said, strandedIn(roomGone.recordId)) : said;
+  }
   const n = new Set(items.map((op) => op.recordId)).size;
   if (n === 0) return null;
   const all = (kind: LoggedOp['kind']) => items.every((op) => op.kind === kind);
-  if (all('create')) return [tn('history.wallsDrawn', n)];
-  if (all('trash')) return [tn('history.wallsDeleted', n)];
-  if (all('restore')) return [tn('history.wallsRestored', n)];
+  const planKindOf = (id: string | null | undefined): unknown => {
+    if (!id) return undefined;
+    const made = ops.find((op) => op.recordId === id && op.after?.type === 'plan');
+    return (made?.after ?? around.get(id))?.props.kind;
+  };
+  // Moved to another plan (6.2b): into one setup's own, or back to every setup.
+  const moves = items.filter((op) => op.kind === 'move' && op.before && op.after && op.before.parentId !== op.after.parentId);
+  const rewalled = items.some((op) => op.kind === 'update' && op.before && op.after && changedProps(op.before, op.after).includes('wall_id'));
+  if (moves.length > 0 && !rewalled && items.every((op) => op.kind === 'move' || op.kind === 'update')) {
+    const intoSetup = moves.every((op) => planKindOf(op.after?.parentId) === 'setup');
+    return [tn(intoSetup ? 'history.toSetupOnly' : 'history.backToEverySetup', moves.length)];
+  }
+  // Copied from another setup (6.2b): items made in a setup's own plan, each from the item it was copied from.
+  if (all('create') && copies && items.every((op) => planKindOf(op.after?.parentId) === 'setup')) return [tn('history.setupCopied', n)];
+  // Doors and windows (6.2b), named as what they are; a wall's openings that go and come back with it aren't counted.
+  const kinds = new Set(items.map((op) => record(op)?.props.kind));
+  const openingOnly = [...kinds].every((kind) => kind === 'door' || kind === 'window');
+  if (openingOnly) {
+    const mixed = kinds.size > 1;
+    const one = mixed ? 'history.anOpening' : kinds.has('door') ? 'history.aDoor' : 'history.aWindow';
+    const many = mixed ? 'history.openingsNoun' : kinds.has('door') ? 'history.doorsNoun' : 'history.windowsNoun';
+    const say = (base: Parameters<typeof tn>[0]) => [tn(base, n, { what: t(n === 1 ? one : many) })];
+    if (all('create')) return say('history.openingsPlaced');
+    if (all('trash')) return say('history.openingsDeleted');
+    if (all('restore')) return say('history.openingsRestored');
+    if (!items.every((op) => op.kind === 'update' || op.kind === 'move')) return null;
+    const props = new Set(items.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
+    const only = (allowed: readonly string[]) => props.size > 0 && [...props].every((prop) => allowed.includes(prop));
+    if (only(['along_m', 'wall_id'])) return say('history.openingsMoved');
+    if (only(['width_m', 'along_m'])) return say('history.openingsResized');
+    if (only(['hinge', 'swing'])) return say('history.openingsFlipped');
+    return say('history.openingsChanged');
+  }
+  const walls = items.filter((op) => record(op)?.props.kind === 'wall');
+  const w = new Set(walls.map((op) => op.recordId)).size;
+  if (all('create')) return [tn('history.wallsDrawn', w > 0 ? w : n)];
+  if (all('trash')) return [tn('history.wallsDeleted', w > 0 ? w : n)];
+  if (all('restore')) return [tn('history.wallsRestored', w > 0 ? w : n)];
   if (all('move')) return [tn('history.planItemsReordered', n)];
   if (!all('update')) return null;
-  const props = new Set(items.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
+  // A wall resized from its start keeps its doors and windows where they were (their `along_m` in the same step): the
+  // step is the wall's.
+  const keptOpenings = w > 0 && items.every((op) => record(op)?.props.kind === 'wall' || (isOpeningOp(op) && op.before && op.after && changedProps(op.before, op.after).every((prop) => prop === 'along_m')));
+  const counted = keptOpenings ? walls : items;
+  const m = keptOpenings ? w : n;
+  const props = new Set(counted.flatMap((op) => (op.before && op.after ? changedProps(op.before, op.after) : [])));
   const only = (allowed: readonly string[]) => props.size > 0 && [...props].every((prop) => allowed.includes(prop));
-  if (only(['x', 'y'])) return [tn('history.wallsMoved', n)];
-  if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [tn('history.wallsRotated', n)];
-  if (only(['x', 'y', 'width', 'height', 'rotation'])) return [tn('history.wallsResized', n)];
-  return [tn('history.wallsChanged', n)];
+  if (only(['x', 'y'])) return [tn('history.wallsMoved', m)];
+  if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [tn('history.wallsRotated', m)];
+  if (only(['x', 'y', 'width', 'height', 'rotation'])) return [tn('history.wallsResized', m)];
+  return [tn('history.wallsChanged', m)];
 }
 
 /** How a record is named in a step: a frame by its number, a scene by its slate label. */
@@ -769,7 +851,7 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
     case 'plan':
       return roomName(record);
     case 'plan_item':
-      return t('history.aWall');
+      return t(record.props.kind === 'door' ? 'history.aDoor' : record.props.kind === 'window' ? 'history.aWindow' : 'history.aWall');
     case 'board':
       return boardTitle(record);
     case 'board_item': {
@@ -884,7 +966,7 @@ function peopleLine(change: FieldChange, day: Part, around: ReadonlyMap<string, 
  * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
  * names without writing them (a sketch's frame, a scene's location), as they were then.
  */
-export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<string>, around: ReadonlyMap<string, SbdRecord> = new Map()): Line {
+export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<string>, around: ReadonlyMap<string, SbdRecord> = new Map(), unit: PlanUnit = planUnitNow()): Line {
   if (opsIn.length === 0) return [t('history.noChange')];
   // A call sheet made with its first note reads as that note being set, not as a call sheet added (4.1): its create
   // is read as an update from a record with no props.
@@ -1109,7 +1191,7 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
         const value = (v: JsonValue | undefined): Part => {
           // Kept by id: named as the step left it (`around`), a location or the person cast (3.5b).
           const fallback = KEPT_BY_ID.get(only.prop);
-          if (fallback === undefined || typeof v !== 'string' || v === '') return changeValuePart(only, v);
+          if (fallback === undefined || typeof v !== 'string' || v === '') return changeValuePart(only, v, unit);
           const named = around.get(v);
           return named ? nameOf(named) : t(fallback);
         };
@@ -1197,10 +1279,11 @@ export function describeGroup(
   titles: ReadonlyMap<string, Line>,
   stored: ReadonlySet<string>,
   around: ReadonlyMap<string, SbdRecord> = new Map(),
+  unit: PlanUnit = planUnitNow(),
 ): Line {
   switch (group.kind) {
     case 'edit':
-      return describeEdit(ops, stored, around);
+      return describeEdit(ops, stored, around, unit);
     case 'undo':
       return [t('history.undid'), ...(titles.get(group.targetGroupId ?? '') ?? [t('history.aStep')])];
     case 'redo':

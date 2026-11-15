@@ -89,6 +89,11 @@ export interface CanvasItem extends Geometry {
    * run's clicks join them too.
    */
   snapPoints?: readonly Point[];
+  /**
+   * Moved only, never resized or turned by the handles (6.2b: a door or window, whose shape and turn come from its
+   * wall). With one in the selection, the handles show its box and no anchors.
+   */
+  moveOnly?: boolean;
 }
 
 /** What makes an item a section: the name tab above its top left corner, and how the host draws it. */
@@ -154,6 +159,8 @@ export interface CanvasScale {
   format: (world: number) => string;
   /** A typed distance in world units, or null when it can't be read. */
   parse: (text: string) => number | null;
+  /** Why a typed distance was refused, when the host can say better than the canvas's own words; null for those. */
+  refusal?: (text: string) => string | null;
   /** A round length's short label: "1 m", "10 ft". */
   label: (world: number) => string;
   grid: GridSpec;
