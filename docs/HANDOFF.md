@@ -347,7 +347,52 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 15: cloud session handed to the PC; Kevin's Nov 14 instructions under way)
+### Next session: start here (Nov 15, evening: Phase 6 and the audit's cover merged; Kevin's by-hand pass is next)
+
+Kevin's Nov 15 message (from his phone) finished the Nov 14 list on the PC. **Nothing is left to build before his
+by-hand pass. Phase 7 stays unbuilt until he has done it and answered docs/PHASE7_DECISIONS.md.**
+
+- **Merged into `v2`, in order (Nov 15):** #167 to #178 (6.12 to 6.21; docs/PLAN.md has a row for each).
+- **The checkpoint for his by-hand pass:** branch `checkpoint/nov15-v2` (v2 as merged): Actions, "Checkpoint", the
+  newest run on that branch; its installers are the ones to use. It is the first run of the installers' bundle
+  listing and of 6.16's generic commands on the Mac.
+- **Built on the PC on Nov 15 (after the cloud session):**
+  - 6.18's fixes, three review passes (#177 and commits in #178): the cut follows a drag, a turn and a resize live,
+    made by the drop's own function; a fifth of the corners; printed glow bands clipped properly. Measured on the PC
+    (e2e/perf.spec.ts, three runs each): pan, zoom and drag p95 16.7 to 16.8 ms before 6.18, with it, and after the
+    fixes; dragging the plan's 40 walls 83 ms before the last pass, 16.7 after. So the cut is ON; nothing was
+    switched off.
+  - 6.20 (Kevin's Nov 15 answers): the watermark inside the plan box; a department print shows the room with its
+    set pieces (the main session's reading of "the room": tell Kevin), cameras with cones and cast marks dimmed.
+  - 6.21: readers per records object (src/core/model/recordIndex.ts). Found by a perf run with 5,000 extra stroke
+    records (SB_PERF_EXTRA=5000): a held turn key was p95 83 ms, now 33 ms as without them.
+- **Kevin's four Nov 14 rules** are in builder.md and reviewer.md since #167. A chat started before #167 merged
+  doesn't have them in its agents: put them at the top of every brief and review request (docs/briefs/
+  6.20-nov15-answers.md shows the wording). A chat started on `v2` now has them.
+- **The Mac's whole suite in WebKit:** run 43738354811 (6.17-review-fixes' head): 540 passed, 0 failed, 0 flaky.
+  The checkpoint above runs it again on everything merged.
+- **Known and left for Kevin to decide:**
+  - `setupPlanOf` still scans the records once per setup on each edit, because src/core/checks/gearOnDay.test.ts
+    "reads the plans' items in one scan of the records…" asserts an exact count (`toBe(3)`); indexing it makes that
+    0. His word is needed to change the assertion (rule of Nov 14), or `setupReading` can take the indexed path.
+  - A held turn key is p95 33 ms, not 16.7: each key repeat is a whole edit (the store copies the records, React
+    re-renders the plan tile in a dev build). No small fix was found.
+  - A light deep inside a wall whose beam points exactly along it lights both sides of the wall.
+  - Dimmed context on a department print is 45% ink (the Layers tile's dim): faint for 7 pt labels on paper.
+  - A legend's continuation page carries no watermark (it has no plan box).
+  - The drop of a door onto a setup-only wall throws on an unreadable sort key from an imported file (old
+    behaviour; the live cut no longer does).
+  - Still open from before: Spanish (his glossary pass), the icon classes (his judgment in use).
+- **By hand, for Kevin:** the list under the older "start here" below still holds (Mac: Tab in Settings,
+  right-click Duplicate, Shift+F10, Copy link; Windows: deck page by its handle, the Menu key; Show backups; a wild
+  wall with Stop at walls off; a department print), plus: drag a wall across a camera's cone and a light's beam
+  and watch the cut follow; export a lighting print with the watermark on; the Phase 6 gate's checklist.
+- **Leftovers only Kevin deletes:** `playwright-full.log` and `tsconfig.tsbuildinfo` in the repo root (both from
+  before Nov 14), `e2e/zz-probe.spec.ts`.
+- **Status line (keep current):** Nov 15, evening: everything above merged and the checkpoint pushed; no agent
+  running; waiting for Kevin.
+
+### Next session: start here (Nov 15, earlier: cloud session handed to the PC; Kevin's Nov 14 instructions under way)
 
 Kevin's Nov 14 message is the brief for this run (six items: merge #152 to #166; the audit's go-aheads and the
 Mac's whole suite in WebKit; his Phase 6 answers; walls stop cones and beams; four rules; then a full checkpoint
