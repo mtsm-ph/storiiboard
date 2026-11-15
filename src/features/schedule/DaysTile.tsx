@@ -26,6 +26,7 @@ import { confirmedCrew, crewChange, dayPeople, dayPeopleChosen } from '../../cor
 import { gearFields, gearIdsOf, moneyLabel, projectCurrency, projectGear } from '../../core/model/gear';
 import { gearNotOnDay } from '../../core/checks';
 import { DayChecksButton } from '../callsheets/DayChecksButton';
+import { showDay, useShownDay } from './shownDay';
 import { GearPicker } from '../gear/GearPicker';
 import { gearListChange } from '../gear/gearEdits';
 import { ROLE_LABELS } from '../../core/model/role';
@@ -61,7 +62,8 @@ function focusAfter(ids: readonly string[], gone: readonly string[], attribute: 
 export function DaysTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
-  const [chosen, setChosen] = useState<string | null>(null);
+  // In a store rather than this tile's state, so the Inspector's Shoot day row can open the tile on a day (5.11).
+  const chosen = useShownDay((s) => s.dayId);
   const listId = useId();
   const newButton = useRef<HTMLButtonElement>(null);
   const making = useRef(false);
@@ -105,7 +107,7 @@ export function DaysTile() {
               void edit((now) => [newDay(now, projectId, today(), id)])
                 .then((made) => {
                   if (!made) return;
-                  setChosen(id);
+                  showDay(id);
                   requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-day-id="${CSS.escape(id)}"]`)?.focus());
                 })
                 .finally(() => {
@@ -130,7 +132,7 @@ export function DaysTile() {
                     aria-current={current || undefined}
                     data-day-id={day.record.id}
                     onClick={() => {
-                      setChosen(day.record.id);
+                      showDay(day.record.id);
                     }}
                     // On the ink fill, the focus ring is paper (DESIGN.md: never ink on ink).
                     className={cx(
@@ -184,7 +186,7 @@ export function DaysTile() {
               if (!done) return;
               // A note about this step: an undo clears it.
               showInfo(t('days.trashed', { day: label }), { step: true });
-              setChosen(null);
+              showDay(null);
               focusAfter(ids, [selected.record.id], 'data-day-id', () => newButton.current);
             });
           }}

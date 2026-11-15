@@ -88,6 +88,18 @@ export function frameDayId(records: Records, shot: SbdRecord): string | null {
   return day?.type === 'shoot_day' && day.trashedAt === null ? day.id : null;
 }
 
+/**
+ * The frame's day as the Inspector's Shoot day row reads it (5.11): the day's id and "Day 2 · Tue, Nov 18", numbered
+ * among the live days as the Shoot days tile and the Calendar number them. Null when the frame is in no live day of
+ * this project: none set, its day in the Trash, or an id that names nothing.
+ */
+export function frameShootDay(records: Records, projectId: string, shot: SbdRecord): { id: string; label: string } | null {
+  const id = frameDayId(records, shot);
+  if (id === null) return null;
+  const day = projectShootDays(records, projectId).find((d) => d.record.id === id);
+  return day ? { id, label: dayLabel(day) } : null;
+}
+
 /** The project's live frames in live scenes, in board order, each with its scene. */
 function boardFrames(records: Records, projectId: string): { scene: SbdRecord; shot: SbdRecord }[] {
   const scenes = Object.values(records)
