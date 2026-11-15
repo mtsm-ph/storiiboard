@@ -1,0 +1,8 @@
+e2e/a11ySweep.spec.ts
+e2e/customFields.spec.ts
+e2e/history.spec.ts
+e2e/planLayers.spec.ts
+e2e/projects.spec.ts
+e2e/sidebar.spec.ts
+e2e/setups.spec.ts
+e2e/emptyTrash.spec.ts
