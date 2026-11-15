@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { E2E_CSP_ADDITIONS, e2eCsp, parseCsp, tauriCsp } from './e2eCsp';
+import { CSP_EXPECTED_PAGE, CSP_VIOLATION_PREFIX, E2E_CSP_ADDITIONS, e2eCsp, isExpectedViolation, parseCsp, tauriCsp, unexpectedViolations } from './e2eCsp';
 
 // The end-to-end tests' page runs under the installed app's CSP plus a short list of test-only additions (6.13). A
 // later loosening, here or in the list, fails this test with a diff to justify.
@@ -48,5 +48,31 @@ describe('the test server’s content security policy (6.13)', () => {
     expect(e2eCsp("default-src 'self'; script-src 'self' 'wasm-unsafe-eval'")).toBe(
       "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'",
     );
+  });
+
+  it('refuses a base policy that repeats a directive, naming it: a browser reads the first copy, the parser the last', () => {
+    expect(() => e2eCsp("default-src 'self'; connect-src 'self'; Connect-Src *")).toThrow(/repeats connect-src/);
+    expect(() => e2eCsp("default-src 'self'; script-src 'self'; script-src 'unsafe-eval'")).toThrow(/repeats script-src/);
+    expect(() => e2eCsp("default-src 'self'; connect-src 'self';")).not.toThrow();
+  });
+});
+
+describe('the run’s CSP violations file (6.13 review)', () => {
+  const meant = `${CSP_VIOLATION_PREFIX} connect-src refused data from __playwright_evaluation_script__:3 on ${CSP_EXPECTED_PAGE}`;
+  const other = `${CSP_VIOLATION_PREFIX} connect-src refused data on /?files=memory`;
+  const row = (at: number, line: string) => JSON.stringify({ at, line });
+
+  it('knows the meant one only by its directive, its refused address and its page', () => {
+    expect(isExpectedViolation(meant)).toBe(true);
+    expect(isExpectedViolation(other)).toBe(false);
+    expect(isExpectedViolation(`${CSP_VIOLATION_PREFIX} img-src refused https://example.com on ${CSP_EXPECTED_PAGE}`)).toBe(false);
+    expect(isExpectedViolation(`${CSP_VIOLATION_PREFIX} connect-src refused data on ${CSP_EXPECTED_PAGE}&more`)).toBe(false);
+  });
+
+  it('lists every other violation from the run’s start on, and keeps a line it cannot read', () => {
+    const text = [row(100, other), row(200, meant), row(300, other), 'not json', ''].join('\n');
+    expect(unexpectedViolations(text, 0)).toEqual([other, other, 'not json']);
+    expect(unexpectedViolations(text, 250)).toEqual([other, 'not json']);
+    expect(unexpectedViolations('', 0)).toEqual([]);
   });
 });

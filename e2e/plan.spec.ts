@@ -10,6 +10,11 @@ import { closeSettings, openSettings } from './settings';
 // so the tests read the plan from the data its tile keeps (data-plan-data, in metres) and the canvas's own attributes.
 
 test.use({ viewport: { width: 1440, height: 900 } });
+// The positions this spec works out from the canvas's box assume whole CSS pixels, as at a pixel ratio of 1 (Chromium's
+// device). At Playwright's Desktop Safari ratio of 2 the 1.5px rules put the box on half pixels and WebKit delivers the
+// pointer on whole ones, so a press landed a fraction off and snapped to the next unit (6.19). The canvas's own maths
+// reads the pointer against its box unrounded (src/ui/canvas/Canvas.tsx `local`).
+test.use({ deviceScaleFactor: 1 });
 
 const errors: string[] = [];
 

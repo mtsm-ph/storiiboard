@@ -208,6 +208,7 @@ test('presents page by page: next, previous, End, Escape returns focus, and noth
 });
 
 test('starts on the selected page, and is a no-op without pages', async ({ page }) => {
+  const mod = (await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control';
   await openPicker(page);
   await newDeck(page, 'Social', 'Blank', '9:16 vertical');
   await rows(page).first().getByRole('button', { name: 'Delete Page 1' }).click();
@@ -215,13 +216,13 @@ test('starts on the selected page, and is a no-op without pages', async ({ page 
   const button = tile(page).getByRole('button', { name: 'Present', exact: true });
   await expect(button).toBeDisabled();
   await expect(tile(page).getByText('Add a page to present.')).toBeVisible();
-  await page.keyboard.press('Control+Alt+KeyP');
+  await page.keyboard.press(`${mod}+Alt+KeyP`);
   await expect(present(page)).toHaveCount(0);
   await panel(page).getByRole('button', { name: 'Add page' }).click();
   await panel(page).getByRole('button', { name: 'Add page' }).click();
   await expect(rows(page)).toHaveCount(2);
   await rows(page).nth(1).locator('[data-page-select]').click();
-  await page.keyboard.press('Control+Alt+KeyP');
+  await page.keyboard.press(`${mod}+Alt+KeyP`);
   await expect(present(page)).toHaveAttribute('data-present-page', '2');
   await page.keyboard.press('Escape');
 });

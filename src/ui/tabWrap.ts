@@ -6,8 +6,16 @@
 const FOCUSABLE =
   'a[href], button, input, select, textarea, summary, [tabindex], [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]';
 
+/**
+ * WebKit on a Mac (Safari, so the Mac app's webview) never moves Tab to a colour input, whatever the Keyboard navigation
+ * setting: the system colour panel is a pointer's. Counted as a stop here, it made Tab from the control before it, the
+ * last other stop in Settings → Theme, leave the window for nothing (6.19); its hex field beside it is the keyboard's way.
+ */
+const SKIPS_COLOUR_INPUTS = typeof navigator !== 'undefined' && /AppleWebKit/.test(navigator.userAgent) && !/Chrome\/|Chromium\/|Edg\//.test(navigator.userAgent);
+
 function tabbable(element: HTMLElement): boolean {
   if (element.tabIndex < 0) return false;
+  if (SKIPS_COLOUR_INPUTS && element instanceof HTMLInputElement && element.type === 'color') return false;
   if (element.matches(':disabled')) return false;
   if (element.closest('[inert], [hidden], dialog:not([open]), details:not([open]) > :not(summary)')) return false;
   if (element.getClientRects().length === 0 || getComputedStyle(element).visibility === 'hidden') return false;

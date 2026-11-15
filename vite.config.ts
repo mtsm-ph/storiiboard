@@ -2,7 +2,9 @@ import { defineConfig } from 'vitest/config';
 import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { CSP_VIOLATION_PREFIX, e2eCsp, tauriCsp } from './scripts/e2eCsp';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { CSP_VIOLATION_PREFIX, CSP_VIOLATIONS_FILE, e2eCsp, tauriCsp } from './scripts/e2eCsp';
 
 const E2E = process.env.STORIIBOARD_E2E === '1';
 
@@ -42,8 +44,9 @@ const CSP_WATCH = '/@storiiboard/csp-watch.js';
 const CSP_REPORT = '/@storiiboard/csp-violation';
 
 // Loaded first on the test server's page: every violation of the policy is printed to the console (e2e/cspWatch.ts
-// fails the test on it), kept for violations before a test listens, and sent to the server's log, where Playwright
-// shows it ("[WebServer] …") whichever test it came from.
+// fails the test on it), kept for violations before a test listens, and sent to the server, which prints it to its log
+// (Playwright shows it as "[WebServer] …") and keeps it in a file the run's teardown reads (e2e/cspTeardown.ts),
+// whichever test it came from. The report names the page's address, query included, so a meant one is known by it.
 const CSP_WATCH_SCRIPT = `(() => {
   const seen = (window.__cspViolations = []);
   document.addEventListener('securitypolicyviolation', (event) => {
@@ -51,7 +54,7 @@ const CSP_WATCH_SCRIPT = `(() => {
     const line = ${JSON.stringify(CSP_VIOLATION_PREFIX)} + ' ' + event.effectiveDirective + ' refused ' + (String(event.blockedURI).slice(0, 120) || '(none)') + where;
     seen.push(line);
     console.error(line);
-    navigator.sendBeacon(${JSON.stringify(CSP_REPORT)}, line + ' on ' + location.pathname);
+    navigator.sendBeacon(${JSON.stringify(CSP_REPORT)}, line + ' on ' + location.pathname + location.search);
   });
 })();
 `;
@@ -63,10 +66,14 @@ const CSP_WATCH_SCRIPT = `(() => {
  */
 function e2eContentSecurityPolicy(): Plugin {
   const policy = e2eCsp(tauriCsp(import.meta.dirname));
+  const violations = join(import.meta.dirname, CSP_VIOLATIONS_FILE);
   return {
     name: 'storiiboard:e2e-csp',
     apply: 'serve',
     configureServer(server) {
+      // Emptied as the server starts: what the file holds is this server's.
+      mkdirSync(dirname(violations), { recursive: true });
+      writeFileSync(violations, '');
       server.middlewares.use((req, res, next) => {
         const path = req.url?.replace(/\?.*$/, '');
         if (path === CSP_WATCH) {
@@ -77,9 +84,12 @@ function e2eContentSecurityPolicy(): Plugin {
         if (path === CSP_REPORT && req.method === 'POST') {
           let body = '';
           req.setEncoding('utf8');
-          req.on('data', (chunk: string) => (body += chunk.slice(0, 1000)));
+          // At most 1000 characters kept, however much is sent; a broken request ends without a report.
+          req.on('data', (chunk: string) => (body = (body + chunk).slice(0, 1000)));
+          req.on('error', () => res.destroy());
           req.on('end', () => {
-            process.stderr.write(`${body.slice(0, 1000)}\n`);
+            process.stderr.write(`${body}\n`);
+            appendFileSync(violations, `${JSON.stringify({ at: Date.now(), line: body })}\n`);
             res.statusCode = 204;
             res.end();
           });

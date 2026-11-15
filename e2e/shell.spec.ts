@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
+import { CSP_EXPECTED_PAGE, e2eCsp, tauriCsp } from '../scripts/e2eCsp';
 
 test('app shell loads with its heading and bundled fonts', async ({ page, baseURL }) => {
   // Fonts must come from the bundle, never a CDN, so the app reads the same on set with no signal. Matched to the
@@ -81,12 +82,15 @@ test("the page carries the installed app's content security policy", async ({ pa
   const policy = response?.headers()['content-security-policy'] ?? '';
   expect(policy).toContain(connectSrc);
   expect(policy).toContain("default-src 'self'");
+  // Exactly the app's policy with the listed test-only additions, nothing else (6.13 review).
+  expect(policy).toBe(e2eCsp(tauriCsp(join(import.meta.dirname, '..'))));
 });
 
 // A1 in miniature: a fetch of a data: URL, as the company logo once was, is refused by connect-src. (This test's own
-// violation is meant, so the run's log shows one "[csp-violation] connect-src" line from it.)
+// violation is meant, so the run's log shows one "[csp-violation] connect-src" line from it. Its page's address carries
+// the marker the run's teardown knows it by, e2e/cspTeardown.ts: every other violation fails the run.)
 test("the policy is live: the page can't fetch a data: URL", async ({ page }) => {
-  await page.goto('/');
+  await page.goto(CSP_EXPECTED_PAGE);
   await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
   const outcome = await page.evaluate(async () => {
     const violation = new Promise<string>((resolve) => {

@@ -87,6 +87,11 @@ export function CanvasMenu({ at, hasSelection, items, hasSection, canvasHeight, 
           onClose();
         }
       }}
+      onMouseDown={(event) => {
+        // A press inside keeps focus where it is. WebKit (Safari, the Mac app) gives a clicked button no focus and
+        // blurs what had it, so without this the blur below closed the menu before the command's click arrived.
+        event.preventDefault();
+      }}
       onBlur={(event) => {
         // Focus gone out of the menu (Tab past its end) closes it, leaving focus where it went.
         if (!event.currentTarget.contains(event.relatedTarget)) onClose();

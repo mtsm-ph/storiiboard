@@ -8,6 +8,7 @@ import type { ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { Button } from '../../ui/Button';
 import { cx } from '../../ui/cx';
+import { fromKeyboard, isMenuKey } from '../../ui/menuKey';
 import { PencilButton, TitleField } from '../../ui/EditableTitle';
 import { DepartmentStateGlyph, LockGlyph } from '../../ui/glyphs';
 import { SegmentedControl } from '../../ui/SegmentedControl';
@@ -250,6 +251,16 @@ function SceneTitleRow({
   const [editing, setEditing] = useState(false);
   const pencil = useRef<HTMLButtonElement>(null);
   const label = t('title.sceneName', { scene: sceneLabel(scene.number) });
+  /** What Escape gives focus back to: what was pressed if it takes focus, else the heading's pencil, else the scene's first item. */
+  const menuFrom = (target: Element | null, row: HTMLElement): HTMLElement => {
+    const pressed = target?.closest<HTMLElement>('button, a[href], [tabindex]') ?? null;
+    return (
+      (pressed && row.contains(pressed) ? pressed : null) ??
+      pencil.current ??
+      row.closest('[data-scene-group]')?.querySelector<HTMLElement>('[data-board-item]') ??
+      row
+    );
+  };
   return (
     // The whole row counts as the heading for a dragged frame (useItemDrag): over it, the frame lands at the start.
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- the context menu is also reached from the pencil's keyboard (the menu key, Shift+F10), which bubbles here
@@ -263,14 +274,21 @@ function SceneTitleRow({
           // The rename field keeps its own (native) menu.
           if (target?.closest('input, textarea, [contenteditable]')) return;
           event.preventDefault();
-          // What Escape gives focus back to: what was pressed if it takes focus, else the heading's pencil, else the scene's first item.
-          const pressed = target?.closest<HTMLElement>('button, a[href], [tabindex]') ?? null;
-          const from =
-            (pressed && event.currentTarget.contains(pressed) ? pressed : null) ??
-            pencil.current ??
-            event.currentTarget.closest('[data-scene-group]')?.querySelector<HTMLElement>('[data-board-item]') ??
-            event.currentTarget;
-          onMenu(from, menuPoint(event, event.currentTarget));
+          // The keyboard's own contextmenu: its keydown below has opened the menu already.
+          if (fromKeyboard(event.nativeEvent)) return;
+          onMenu(menuFrom(target, event.currentTarget), menuPoint(event, event.currentTarget));
+        })
+      }
+      onKeyDown={
+        onMenu &&
+        ((event) => {
+          // The menu key and Shift+F10 on the pencil, read here: a Mac's WebKit sends no contextmenu for them.
+          const target = event.target instanceof Element ? event.target : null;
+          if (!isMenuKey(event) || target?.closest('input, textarea, [contenteditable]')) return;
+          event.preventDefault();
+          const from = menuFrom(target, event.currentTarget);
+          const box = from.getBoundingClientRect();
+          onMenu(from, { x: box.left, y: box.bottom + 4 });
         })
       }
     >
@@ -496,11 +514,21 @@ export function StoryboardView({
     onContextMenu: (event: MouseEvent<HTMLButtonElement>) => {
       if (!onContextMenu) return;
       event.preventDefault();
+      // The keyboard's own contextmenu: its keydown below has opened the menu already.
+      if (fromKeyboard(event.nativeEvent)) return;
       // The frame the menu is on becomes the selected one, as a click on it would make it.
       onSelect(frame.id, sceneId);
       onContextMenu({ kind: 'shot', id: frame.id }, event.currentTarget, menuPoint(event, event.currentTarget));
     },
     onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => {
+      // The menu key and Shift+F10, read from the key: a Mac's WebKit sends no contextmenu for them. Beside the frame.
+      if (onContextMenu && isMenuKey(event)) {
+        event.preventDefault();
+        onSelect(frame.id, sceneId);
+        const box = event.currentTarget.getBoundingClientRect();
+        onContextMenu({ kind: 'shot', id: frame.id }, event.currentTarget, { x: box.left, y: box.bottom + 4 });
+        return;
+      }
       onKeyDown(event, frame.id);
     },
   });

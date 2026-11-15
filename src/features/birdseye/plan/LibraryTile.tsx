@@ -269,6 +269,9 @@ function IconButton({
   const unit = usePlanUnit();
   const [ghost, setGhost] = useState<Ghost | null>(null);
   const drag = useRef<Drag | null>(null);
+  // A drag that was cancelled (Escape, a context menu, the system): the pointer click its release may still send to this
+  // button places nothing. Kept until the next press, since that click can come after the press has ended (WebKit).
+  const swallowClick = useRef(false);
   const button = useRef<HTMLButtonElement>(null);
   const refused = refusalNow(entry, view, state);
   const muted = refused !== null;
@@ -284,6 +287,7 @@ function IconButton({
   const cancel = (now: Drag) => {
     if (drag.current !== now || now.dropped) return;
     now.dropped = true;
+    swallowClick.current = true;
     setGhost(null);
     const el = button.current;
     if (el?.hasPointerCapture(now.pointer)) el.releasePointerCapture(now.pointer);
@@ -350,6 +354,7 @@ function IconButton({
   };
 
   const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    swallowClick.current = false;
     // A tool's entry is a button; a finger scrolls the Library (a tap still places, as Enter does).
     if (event.button !== 0 || tool || event.pointerType === 'touch') return;
     const previous = drag.current;
@@ -502,10 +507,12 @@ function IconButton({
           const now = drag.current;
           if (now?.pointer === event.pointerId) cancel(now);
         }}
-        onClick={() => {
+        onClick={(event) => {
           // A press under way (held, or just dropped or cancelled) places nothing: only the click that follows a release
-          // without a drag, which has ended the press, or one from the keyboard or a tap, does.
+          // without a drag, which has ended the press, or one from the keyboard or a tap, does. Nor does the pointer
+          // click that ends a cancelled drag, whenever it comes; the keyboard's (detail 0) always does.
           if (drag.current) return;
+          if (swallowClick.current && event.detail > 0) return;
           activate();
         }}
       >
