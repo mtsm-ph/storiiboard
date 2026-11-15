@@ -97,11 +97,35 @@ afterEach(async () => {
   folder.remove();
 });
 
-/** Every table of a file, row for row in stored order, blobs as bytes. */
+/**
+ * Every table of a file, row for row in stored order, blobs as bytes. A query can't return bytes on the desktop
+ * (sbd.rs), and the drivers refuse it too (B3, 6.14), so the query leaves out every value whose own type is blob (the
+ * value's type counts, not the column's) and each of those is read with readBlob, as the app reads them.
+ */
 async function everything(file: ProjectFile): Promise<Record<string, Row[]>> {
   const tables = await file.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
   const all: Record<string, Row[]> = {};
-  for (const { name } of tables) all[String(name)] = await file.query(`SELECT * FROM "${String(name)}" ORDER BY rowid`);
+  const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
+  for (const { name } of tables) {
+    const table = quote(String(name));
+    const columns = (await file.query('SELECT name FROM pragma_table_info(?) ORDER BY cid', [String(name)])).map((c) => String(c.name));
+    const selected = columns.flatMap((column, i) => [
+      `CASE WHEN typeof(${quote(column)}) = 'blob' THEN NULL ELSE ${quote(column)} END AS ${quote(column)}`,
+      `typeof(${quote(column)}) = 'blob' AS "__blob_${String(i)}"`,
+    ]);
+    const rows: Row[] = [];
+    for (const found of await file.query(`SELECT rowid AS "__rowid", ${selected.join(', ')} FROM ${table} ORDER BY rowid`)) {
+      const row: Row = {};
+      for (const [i, column] of columns.entries()) {
+        row[column] = found[column] ?? null;
+        if (found[`__blob_${String(i)}`] !== 1) continue;
+        // readBlob answers null for an empty blob, as the desktop does; it is still a blob, of no bytes.
+        row[column] = (await file.readBlob(`SELECT ${quote(column)} FROM ${table} WHERE rowid = ?`, [found.__rowid ?? null])) ?? new Uint8Array(0);
+      }
+      rows.push(row);
+    }
+    all[String(name)] = rows;
+  }
   return all;
 }
 
