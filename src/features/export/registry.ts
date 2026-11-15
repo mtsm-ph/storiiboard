@@ -6,7 +6,7 @@ import { deckPdf } from './deckPdf';
 import { deckPng } from './deckPng';
 import { pdfStoryboard } from './pdfStoryboardFormat';
 import { planDayPdf, planScenePdf, planSetupPdf, planSetupPng, type PlanTarget } from './planExport';
-import type { LeftOut, PlanView } from './planPages';
+import type { LeftOut, PlanDepartments, PlanView } from './planPages';
 import { pngFrames } from './pngFrames';
 import type { SwatchSource } from './swatchSet';
 import { swatchesAse } from './swatchesAse';
@@ -47,6 +47,8 @@ export interface ExportContext {
   /** Whether a plan prints its room's underlay, dimmed, and its light grid (6.10's export choices, both on by default). */
   planUnderlay?: boolean;
   planGrid?: boolean;
+  /** What a plan prints (6.17): everything (as before, when absent), one department's print, or each department's. */
+  planDepartments?: PlanDepartments;
 }
 
 export interface ExportFormatOptions {
@@ -64,6 +66,8 @@ export interface ExportFormat {
   /** What it writes, in a sentence. */
   description: string;
   output: 'file' | 'folder';
+  /** Where a plan format's run writes for a Departments choice, when that differs from `output` (6.17: a PNG of each department is a folder of them). */
+  outputFor?: (departments: PlanDepartments) => 'file' | 'folder';
   /** It is for the open deck (5.6a), offered from the deck's Export button and not in Export Project. */
   deck?: true;
   /** It is for a scene's palette or the brand kit (5.6b), offered from them and not in Export Project. */
@@ -82,14 +86,14 @@ export interface ExportFormat {
   /** What a whole-project file holds, said under the choice (3.14: Project data and Full archive hold different things). */
   readonly wholeNote?: string;
   /** The file's name, or the new folder's, for this scope. */
-  name: (title: string, sceneNumber: string | null) => string;
+  name: (title: string, sceneNumber: string | null, departments?: PlanDepartments) => string;
   /** The file's name for a plan export's target (6.10: "Bey County SC004 Setup 2 plan.pdf"). */
-  planName?: (title: string, records: Readonly<Record<string, SbdRecord>>, target: PlanTarget) => string;
+  planName?: (title: string, records: Readonly<Record<string, SbdRecord>>, target: PlanTarget, departments?: PlanDepartments) => string;
   /**
    * The plans a plan format prints, in order, for its target (or, from Export Project, its scope): one function, so what
    * the dialog counts is what is printed (6.10 review). None says there is nothing to print.
    */
-  planViews?: (records: Readonly<Record<string, SbdRecord>>, projectId: string, target: PlanTarget | undefined, scope: ExportScope) => readonly PlanView[];
+  planViews?: (records: Readonly<Record<string, SbdRecord>>, projectId: string, target: PlanTarget | undefined, scope: ExportScope, departments?: PlanDepartments) => readonly PlanView[];
   /** How many of its possible pages a plan format leaves out, with nothing drawn and no frames (6.10 review): its result says so. */
   planLeftOut?: (records: Readonly<Record<string, SbdRecord>>, projectId: string, target: PlanTarget | undefined, scope: ExportScope) => LeftOut;
   /** Resolves to what it wrote. */

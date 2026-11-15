@@ -154,3 +154,97 @@ export function iconUse(id: string): IconUse {
 
 /** The size an icon is placed at, or null for one that isn't placed. */
 export const iconSize = (id: string): IconSize | null => (Object.hasOwn(ICON_SIZES, id) ? (ICON_SIZES[id] ?? null) : null);
+
+/**
+ * How a library icon's drawing fills its item's box (6.17, Kevin, Nov 14): `top-view` is a plan view of the thing itself
+ * (a sofa, a bed, a car, stairs), stretched to the item's real footprint; `symbol` is a letter, a pictogram of the thing
+ * seen from the side or front, or an abstract sign (Parking's P, Basecamp's tent, Video village's monitor, Generator's
+ * bolt): an icon item of it draws an outline at its true footprint with the symbol at its own proportions in the middle,
+ * never stretched (iconDraw.tsx, SymbolShape). Every one of the kit's 68 icons is classed here by its drawing, never
+ * guessed at draw time (iconSizes.test.ts); Kevin may overrule any.
+ */
+export type IconClass = 'symbol' | 'top-view';
+
+export const ICON_CLASSES: Readonly<Record<string, IconClass>> = {
+  // A camera from above (body and lens hood), on its tripod's three legs, on its track, slider or arm, or a drone's
+  // rotors; the gimbal's ring and the Steadicam's rig are signs; the field of view is the cone's sign.
+  'camera/camera': 'top-view',
+  'camera/sticks': 'top-view',
+  'camera/dolly-track': 'top-view',
+  'camera/slider': 'top-view',
+  'camera/jib-crane': 'top-view',
+  'camera/gimbal': 'symbol',
+  'camera/handheld': 'top-view',
+  'camera/steadicam': 'symbol',
+  'camera/drone': 'top-view',
+  'camera/field-of-view': 'symbol',
+  // Lights are drawn from the front or the side, their beams and rays as signs.
+  'lighting/fresnel': 'symbol',
+  'lighting/led-panel': 'symbol',
+  'lighting/tube': 'symbol',
+  'lighting/cob-softbox': 'symbol',
+  'lighting/hmi-par': 'symbol',
+  'lighting/china-ball': 'symbol',
+  'lighting/practical': 'symbol',
+  'lighting/spacelight': 'symbol',
+  'lighting/rgb-gel': 'symbol',
+  'lighting/beam-cone': 'symbol',
+  'lighting/sun-path': 'symbol',
+  'lighting/window-light': 'symbol',
+  // Grip: stands' legs, frames edge-on, an overhead, a sandbag and a rostrum from above; a flag and a floppy on their
+  // stands, an apple box with its handholes, a ladder's rungs and a combo stand's A from the front or side.
+  'grip/c-stand': 'top-view',
+  'grip/flag': 'symbol',
+  'grip/floppy': 'symbol',
+  'grip/diffusion-4x4': 'top-view',
+  'grip/bounce': 'top-view',
+  'grip/overhead-8x8': 'top-view',
+  'grip/neg-fill': 'top-view',
+  'grip/sandbag': 'top-view',
+  'grip/apple-box': 'symbol',
+  'grip/ladder': 'symbol',
+  'grip/combo-stand': 'symbol',
+  'grip/rostrum': 'top-view',
+  // Set and art: all plan views.
+  'set-art/wall': 'top-view',
+  'set-art/door': 'top-view',
+  'set-art/window': 'top-view',
+  'set-art/table': 'top-view',
+  'set-art/chair': 'top-view',
+  'set-art/sofa': 'top-view',
+  'set-art/bed': 'top-view',
+  'set-art/car': 'top-view',
+  'set-art/stairs': 'top-view',
+  'set-art/column': 'top-view',
+  'set-art/plant-tree': 'top-view',
+  'set-art/counter-bar': 'top-view',
+  // Cast: marks with their letters, the eyeline's arrow, the background's three figures and the walk path are signs;
+  // a tape mark is the T of tape on the floor, from above.
+  'cast/cast-mark': 'symbol',
+  'cast/next-position': 'symbol',
+  'cast/tape-mark': 'top-view',
+  'cast/walk-path': 'symbol',
+  'cast/eyeline': 'symbol',
+  'cast/background': 'symbol',
+  // Sound: the boom from above (operator, pole, mic); a lav, a cart's front and a speaker are pictograms.
+  'sound/boom': 'top-view',
+  'sound/lav': 'symbol',
+  'sound/sound-cart': 'symbol',
+  'sound/playback': 'symbol',
+  // Production: signs and letters, but a zone's outline and a note's card, which are the size they're given.
+  'production/video-village': 'symbol',
+  'production/generator': 'symbol',
+  'production/distro-cable': 'symbol',
+  'production/basecamp': 'symbol',
+  'production/first-aid': 'symbol',
+  'production/parking': 'symbol',
+  'production/north': 'symbol',
+  'production/measure': 'symbol',
+  'production/snap-point': 'symbol',
+  'production/zone': 'top-view',
+  'production/note': 'top-view',
+  'production/hazard': 'symbol',
+};
+
+/** An icon's class from the table, or null for an id the table doesn't have (an icon this version doesn't know). */
+export const iconClass = (id: string): IconClass | null => (Object.hasOwn(ICON_CLASSES, id) ? (ICON_CLASSES[id] ?? null) : null);

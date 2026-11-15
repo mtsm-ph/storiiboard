@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PLAN_ICONS } from '../../../ui/icons/plan/planIcons';
 import { ICON_BOXES } from './iconBoxes';
-import { FREE_RESIZE, ICON_SIZES, iconSize, iconUse, isSymbolSize, symbolSize, TOOL_ICONS } from './iconSizes';
+import { FREE_RESIZE, ICON_CLASSES, ICON_SIZES, iconClass, iconSize, iconUse, isSymbolSize, symbolSize, TOOL_ICONS } from './iconSizes';
 
 // The library's default sizes (6.3): every icon this milestone places has one, and no other icon does.
 
@@ -138,5 +138,20 @@ describe('the cast group’s sizes (6.7)', () => {
     expect(ICON_SIZES['cast/background']).toEqual({ width: 0.5, depth: 0.43 });
     expect(iconUse('cast/walk-path')).toBe('shown');
     expect(iconSize('cast/walk-path')).toBeNull();
+  });
+});
+
+describe('every icon’s class (6.17)', () => {
+  it('classes each of the kit’s 68 icons, symbol or top-view, and nothing else', () => {
+    const ids = PLAN_ICONS.map((icon) => icon.id).sort();
+    expect(ids).toHaveLength(68);
+    expect(Object.keys(ICON_CLASSES).sort()).toEqual(ids);
+    for (const id of ids) expect(['symbol', 'top-view'], id).toContain(iconClass(id));
+    expect(iconClass('set-art/hovercraft')).toBeNull();
+  });
+
+  it('makes Kevin’s four signs symbols and his four plan views top views', () => {
+    for (const id of ['production/parking', 'production/basecamp', 'production/video-village', 'production/generator']) expect(iconClass(id), id).toBe('symbol');
+    for (const id of ['set-art/sofa', 'set-art/bed', 'set-art/car', 'set-art/stairs']) expect(iconClass(id), id).toBe('top-view');
   });
 });

@@ -50,9 +50,9 @@ export const SENSOR_MODES: readonly SensorMode[] = [
   // Blackmagic's Pocket Cinema Camera tech specs: https://www.blackmagicdesign.com/products/blackmagicpocketcinemacamera/techspecs/W-CIN-12
   { id: 'bmpcc6k-6k', camera: 'Blackmagic Pocket Cinema Camera 6K', mode: '6K (Super 35)', widthMm: 23.1, heightMm: 12.99, source: BMPCC },
   { id: 'bmpcc4k-4k', camera: 'Blackmagic Pocket Cinema Camera 4K', mode: '4K (Four Thirds)', widthMm: 18.96, heightMm: 10, source: BMPCC },
-  // Kevin's own figures (Nov 3 and Nov 13): Sony's site could not be read when the table was made, so Kevin confirms
-  // them against Sony's spec page for the FX3 before `unchecked` comes off.
-  { id: 'fx3-ff-169', camera: 'Sony FX3', mode: 'Full frame 16:9', widthMm: 35.6, heightMm: 20.0, source: 'Kevin’s figures, Nov 3 and Nov 13 (to check against Sony’s FX3 spec page)', unchecked: true },
+  // Sony's FX3 spec page gives the sensor as 35.6 × 23.8 mm, and 16:9 records the full width, so 35.6 × 20.0 mm
+  // (Kevin checked it there, Nov 14).
+  { id: 'fx3-ff-169', camera: 'Sony FX3', mode: 'Full frame 16:9', widthMm: 35.6, heightMm: 20.0, source: 'https://www.sony.com.au/interchangeable-lens-cameras/products/ilme-fx3/spec — sensor 35.6 × 23.8 mm; 16:9 uses the full width (checked by Kevin, Nov 14)' },
   // The 35 mm still frame, 36 × 24 mm: what a phone's "equivalent" focal lengths are given against.
   { id: 'equivalent', camera: null, mode: EQUIVALENT_MODE, widthMm: 36, heightMm: 24, source: 'The 35 mm still frame (36 × 24 mm)', focalEquivalent: true },
 ];

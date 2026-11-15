@@ -72,6 +72,8 @@ const BUTTON = 'sb-label flex h-7 items-center justify-center px-2.5 focus-visib
 const ZOOM_BUTTON = cx(BUTTON, 'text-text hover:bg-surface-raised');
 const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 const ALL_ANCHORS = ['top-left', 'top-center', 'top-right', 'middle-right', 'bottom-right', 'bottom-center', 'bottom-left', 'middle-left'];
+/** All but the middles of the long sides (top and bottom in the item's own box): an item resized by its ends (endsOnly). */
+const END_ANCHORS = ['top-left', 'top-right', 'middle-right', 'bottom-right', 'bottom-left', 'middle-left'];
 const ROTATION_SNAPS = Array.from({ length: 24 }, (_, i) => i * 15);
 /** The "+" handles of a quick connected copy (5.2) sit this far outside a side, in screen pixels; the rotate handle is further. */
 const QUICK_OFFSET = 13;
@@ -439,6 +441,10 @@ export function Canvas({
   const locked = handleIds.some((id) => shown.find((item) => item.id === id)?.keepRatio === true);
   // A door or window (6.2b) takes its shape and turn from its wall: no anchors and no turning while one is picked.
   const moveOnly = handleIds.some((id) => shown.find((item) => item.id === id)?.moveOnly === true);
+  // A wall picked by itself (6.19c) is about as thick as an anchor: the anchors on the middle of its long sides would sit
+  // on its centre line and take the press meant to move it, so it has none there; its ends keep theirs. A group's box is
+  // the group's, not the wall's, and keeps all eight.
+  const endsOnly = handleIds.length === 1 && shown.find((item) => item.id === handleIds[0])?.endsOnly === true;
   // A plan's sun path (6.6) is never turned, a door or window takes its turn from its wall, and a section is always
   // upright: no rotate handle while one is picked (turnsByHandle).
   const turnable = turnsByHandle(shown, handleIds);
@@ -1562,7 +1568,7 @@ export function Canvas({
             flipEnabled={false}
             // Shift keeps the proportions (Konva's own rule when this is off), and snaps a turn to 15 degrees.
             keepRatio={mixed || locked}
-            enabledAnchors={moveOnly ? [] : mixed || locked ? CORNERS : ALL_ANCHORS}
+            enabledAnchors={moveOnly ? [] : mixed || locked ? CORNERS : endsOnly ? END_ANCHORS : ALL_ANCHORS}
             ignoreStroke
             anchorSize={8}
             anchorCornerRadius={0}

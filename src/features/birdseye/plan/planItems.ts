@@ -183,7 +183,8 @@ export function iconItem(id: string, fields: IconFields, unit: PlanUnit): Canvas
     if (!icon) return createElement(UnknownIconShape, common);
     if (icon.id === 'production/zone') return createElement(ZoneShape, { icon, ...common });
     if (icon.id === 'production/note') return createElement(NoteShape, { icon, ...common });
-    return createElement(IconShape, { icon, ...common });
+    // Its box is the thing's real footprint (6.17): a symbol draws in its own proportions inside an outline of it.
+    return createElement(IconShape, { icon, ...common, footprint: true });
   };
   return {
     id,
@@ -637,6 +638,8 @@ export function planItemsBuilder(): (
         label: wallLabel(item.fields, unit),
         // A wall snaps by its middle line's ends, never by its box (a move keeps it on the grid line it was on).
         snapPoints: [line.start, line.end],
+        // Moved by its body, resized by its ends (6.19c): no anchor on its centre line.
+        endsOnly: true,
         draw: () => createElement(Line, { key: 'wall', points: outline, closed: true, fill: ink, listening: false }),
         ...(heights.length > 0 ? { beyond: besideBeyond(g, { lines: heights, side: 1, edge: g.height / 2, clears }, PLAN_ZOOM.min) } : {}),
         sameInAndOut: true,
