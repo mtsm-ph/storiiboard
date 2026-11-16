@@ -20,6 +20,9 @@ src-tauri/gen
 # Design kit master copy; the parts the app uses are copied into design/ and src/ui
 Storiiboard Design Kit/
 
+# Plans for features not built yet (Kevin, Nov 16): kept on this computer only, never in the public repo
+private/
+
 # The running build report for Kevin, kept on this computer only
 REPORT.local.md
 # ffmpeg and ffprobe sidecars, built by scripts/ffmpeg/build.sh (CI caches them); never committed.

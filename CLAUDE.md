@@ -1,7 +1,8 @@
 # Storiiboard — CLAUDE.md
 
 ## What this is
-- Open-source pre-production tool for filmmakers, producers and content creators.
+- Free pre-production tool for filmmakers, producers and content creators. Free to use, not open source (Kevin,
+  Nov 16): created by Kevin Matos, all rights reserved; terms come with the first release.
 - Mission: production tools people own, instead of renting them from corporations.
 - Core: fast storyboarding. Every shot links to its scene, location, shoot day, people and gear.
 - Production flows out of the storyboard: schedule, call sheets, gear lists, bird's-eye plans.
@@ -473,3 +474,12 @@
   finding, unless the brief asked for it, so the reviewer is given the brief with the diff.
 - Tools (Kevin, Nov 14): a builder runs only tools already in the repo's dependencies: nothing fetched through npx.
 - Builders' logs and probes go in test-results/, never the repo root or e2e/ (Kevin, Nov 14).
+- The public repo (Kevin, Nov 16) holds only what is needed to build and test the app, and stays public until the
+  app is fully built.
+  - Plans and decision sheets for features not yet built live in `private/` (git-ignored); a plan moves into docs/
+    when its feature is built. Documents already public stay where they are; history is never rewritten.
+  - Never a LICENSE file from an open-source template. Never a description, topics, a website link, GitHub Pages or
+    releases on this repo, and nothing that links to it from outside.
+  - Never commit Kevin's email address, a password, a key or a real person's contact details. Fixtures use made-up
+    people.
+  - A checkpoint runs only when Kevin asks for one by name.
