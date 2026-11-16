@@ -48,6 +48,9 @@ import { CameraMoveView, MarkFieldsView } from './MarkSelection';
 import { NorthFieldsView, SunFieldsView } from './SunSelection';
 import { MeasureFieldsView, UnderlayFieldsView } from './UnderlaySelection';
 import { degreesText, lengthCommit, shared, TypedField } from './selectionFields';
+import { CeilingField, RefusedLine, refusalWords, WindowHeightFields, WindowSunList, WindowSunView } from './WindowSelection';
+import { ceilingOver, doorHeightRefusal, openingHeights, storedHeightsRefusal } from '../../../core/model/planHeights';
+import { useId, useState } from 'react';
 
 // The Selection tile (6.2a, 6.2b), in the Setup workspace: the selected plan item's fields as it reads them, each typed
 // and each one edit when it's left (one ⌘Z), lengths in the unit the screen shows and read in any form (src/core/model/
@@ -113,7 +116,7 @@ function SelectionContent() {
           // Measures (6.9): their length (the start stays), rotation and start.
           <MeasureFieldsView ids={ids} measures={measures} unit={unit} records={records} />
         ) : openings.length === selected.length ? (
-          <OpeningFieldsView ids={ids} openings={openings} unit={unit} records={records} view={live.view} />
+          <OpeningFieldsView key={ids.join(' ')} ids={ids} openings={openings} unit={unit} records={records} view={live.view} />
         ) : camera && selected.length === 1 && isCamera(camera.fields) ? (
           // A camera (6.4): its body, its frames, its lens, its field of view; its move (6.7).
           <>
@@ -133,6 +136,8 @@ function SelectionContent() {
             <div className="border-t-[1.5px] border-text pt-3">
               <SunFieldsView id={sun.id} fields={sun.fields} records={records} />
             </div>
+            {/* Every outside window's hours (6.5.6). */}
+            <WindowSunList records={records} view={live.view} />
           </>
         ) : north && selected.length === 1 ? (
           // The room's north (6.6): its angle.
@@ -173,6 +178,7 @@ function SelectionContent() {
           return true;
         }}
       />
+      <CeilingField key={room.id} roomId={room.id} records={records} unit={unit} />
       <p className="text-[13px]" data-room-scenes={scenes}>
         {tn('selection.roomScenes', scenes)}
       </p>
@@ -328,12 +334,26 @@ function OpeningFieldsView({ ids, openings, unit, records, view }: { ids: readon
   const names = shared(openings.map((o) => o.name));
   const hinge = shared(openings.map((o) => o.hinge));
   const swing = shared(openings.map((o) => o.swing));
+  // A door's height above its room's ceiling (6.5.6 round 2): refused, said in the line under the fields.
+  const [heightRefused, setHeightRefused] = useState<string | null>(null);
   const write = (patch: OpeningPatch): boolean | string => {
     // A width or place that would run it off the wall or over another opening is refused, and nothing is saved.
     if (openingPatchChanges(records, ids, patch, view) === null) return t('selection.openingRefused');
+    const tooTall = patch.heightM === undefined ? null : doorHeightRefusal(records, ids, patch.heightM);
+    if (tooTall) {
+      setHeightRefused(refusalWords(tooTall.refused, ceilingOver(records, tooTall.id), unit));
+      return false;
+    }
+    if (patch.heightM !== undefined) setHeightRefused(null);
     void changeOpenings(ids, patch, view);
     return true;
   };
+  // A window with both its sill and top set is as high as the glass between them: its Height is shown, not typed.
+  const glass = openings.length > 0 && ids.every((id) => openingHeights(records[id]?.props ?? {})?.heightFromGlass === true);
+  const glassNote = useId();
+  // A door taller than its ceiling as stored (an undo or a Put back can leave one so): said under the fields.
+  const doorWrongId = doors ? ids.find((id) => storedHeightsRefusal(records, id) !== null) : undefined;
+  const doorWrong = doorWrongId === undefined ? null : storedHeightsRefusal(records, doorWrongId);
   const length = (apply: (m: number) => OpeningPatch, opts: { empty?: OpeningPatch } = {}) => lengthCommit(unit, write, apply, opts);
   const refused = t('selection.lengthRefused');
   const keyed = (field: string) => `${ids.join(' ')}:${field}`;
@@ -359,8 +379,23 @@ function OpeningFieldsView({ ids, openings, unit, records, view }: { ids: readon
         <TypedField key={keyed('width')} label={t('selection.width')} text={widthText ?? ''} mixed={widthText === null} onCommit={length((m) => ({ width: m }))} refused={refused} />
         <TypedField key={keyed('fromStart')} label={t('selection.fromStart')} text={startText ?? ''} mixed={startText === null} onCommit={distance((m) => ({ fromStart: m }))} refused={refused} />
         <TypedField key={keyed('fromEnd')} label={t('selection.fromEnd')} text={endText ?? ''} mixed={endText === null} onCommit={distance((m) => ({ fromEnd: m }))} refused={refused} />
-        <TypedField key={keyed('height')} label={t('selection.height')} text={heightText ?? ''} mixed={heightText === null} onCommit={length((m) => ({ heightM: m }), { empty: { heightM: null } })} refused={refused} />
+        <TypedField
+          key={keyed(glass ? 'glassHeight' : 'height')}
+          label={t('selection.height')}
+          text={heightText ?? ''}
+          mixed={heightText === null}
+          onCommit={length((m) => ({ heightM: m }), { empty: { heightM: null } })}
+          refused={refused}
+          readOnly={glass}
+          describedBy={glass ? glassNote : undefined}
+        />
       </div>
+      {glass && (
+        <p id={glassNote} className="text-[12px] text-text-muted" data-height-from-glass="">
+          {t('selection.heightFromGlass')}
+        </p>
+      )}
+      {doors && <RefusedLine words={heightRefused ?? (doorWrong && doorWrongId !== undefined ? refusalWords(doorWrong, ceilingOver(records, doorWrongId), unit) : null)} />}
       {clamped && (
         <p className="text-[12px] text-text-muted" data-opening-stored="">
           {clamped.kept.width !== clamped.stored.width ? (
@@ -397,6 +432,9 @@ function OpeningFieldsView({ ids, openings, unit, records, view }: { ids: readon
         </div>
       )}
       <p className="text-[12px] text-text-muted">{t(doors ? 'selection.doorNote' : 'selection.openingNote')}</p>
+      {/* Windows' sill and top, and one window's sun (6.5.6). */}
+      {kind === 'window' && <WindowHeightFields key={ids.join(' ')} ids={ids} records={records} unit={unit} />}
+      {kind === 'window' && ids.length === 1 && ids[0] !== undefined && <WindowSunView windowId={ids[0]} records={records} view={view} />}
     </>
   );
 }

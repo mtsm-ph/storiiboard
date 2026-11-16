@@ -6,6 +6,7 @@ import { localizeError, t, tn } from '../../../core/i18n';
 import type { Project } from '../../../core/storage/project';
 import { CAST_MARK_ICON, MARK_ICON, NEXT_POSITION_ICON, NORTH_ICON, plansShown, renamePlanChanges, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
 import { castMarkFor, markOwnerChanges, movePositionChanges, nextPositionChanges, ownerIn, placeMarkChanges, type OwnerChoice } from '../../../core/model/planBlocking';
+import { ceilingHeightChanges, windowHeightsChanges, type WindowHeightsPatch } from '../../../core/model/planHeights';
 import { roomNorthItem, sunTimeChanges } from '../../../core/model/planSun';
 import type { Coordinates } from '../../../core/model/coordinates';
 import { ownDateChanges, ownPlaceChanges } from '../../../core/model/sunSources';
@@ -145,6 +146,22 @@ export async function deleteRoom(sceneId: string): Promise<boolean> {
 
 export async function renameRoom(roomId: string, name: string): Promise<boolean> {
   return projectStore.getState().applyWith((records) => ({ changes: renamePlanChanges(records, roomId, name) }));
+}
+
+/** A room's ceiling height set or taken off (6.5.6), one op; nothing when it is refused as the records are then. */
+export async function setCeilingHeight(roomId: string, ceilingM: number | null): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => {
+    const outcome = ceilingHeightChanges(records, roomId, ceilingM);
+    return { changes: 'refused' in outcome ? [] : outcome.changes };
+  });
+}
+
+/** The selected windows' sill or top set or taken off (6.5.6), one op group; nothing when it is refused as the records are then. */
+export async function setWindowHeights(ids: readonly string[], patch: WindowHeightsPatch): Promise<boolean> {
+  return projectStore.getState().applyWith((records) => {
+    const outcome = windowHeightsChanges(records, ids, patch);
+    return { changes: 'refused' in outcome ? [] : outcome.changes };
+  });
 }
 
 /**

@@ -339,7 +339,32 @@ or issued call sheet reads any of them.
 
 Added to this version by later 6.5 milestones:
 
-- (none yet)
+- Heights for the 3D set (6.5.6), each optional, in metres (a number above 0; absent, or anything else, reads as not
+  set), typed in the Selection tile as a length in either unit and stored in metres, each set or taken off (an emptied
+  field) in one op. They draw nothing on the plan and print nothing: they are data that the MCP's `get_plan` and Phase
+  10's 3D set read, through src/core/model/planHeights.ts (`roomHeights`, `openingHeights`, `planHeights`).
+  - `plan` of `kind` `room`: `ceiling_height_m`, floor to ceiling. Refused when not above 0, or under a window's sill
+    or top or a door's `height_m` anywhere the room is that opening's room (its own walls, and walls a scene set there
+    keeps in its blocking or in one setup's own plan).
+  - `plan_item` of `kind` `window`: `sill_height_m`, floor to the bottom of the glass, and `top_height_m`, floor to its
+    top. Refused when not above 0, a top not above the sill, or either above the ceiling of the window's room (its
+    wall's room, or for a wall in one setup's only plan, the scene's room) while one is set.
+  - A window's height (round 2): with both `sill_height_m` and `top_height_m` set and the top above the sill, it IS
+    top − sill, for every reader: the Selection tile's Height (shown, not typed), the label on the plan and the legend,
+    `get_plan` and the 3D set (`openingHeights`). Its `height_m` (Schema v14) stays in the file untouched and is read
+    again once the sill or the top is cleared. The 3D set reads the sill and the top where both are set; else
+    `height_m`.
+  - A door's height is its `height_m` (Schema v14, 6.2b), the prop doors already carry, labelled on the plan and listed
+    in the legend when set (decision 11): no second prop was made. Typed above its room's ceiling, it is refused.
+  - The checks are on edits. The file can still hold a value past them (an undo, History's Put back, an import): readers
+    read it as stored, and the Selection tile shows it with the line saying what's wrong.
+- Not a new prop: sun through the windows (6.5.6, src/core/model/windowSun.ts) is worked out, never stored. For each
+  window in a view, which side of its wall is outside (a ray from its middle along each of the wall's normals, counting
+  the other walls shown that it crosses, each taken whole: a side crossing none is outside; both crossing walls, the
+  one side with an even count is outside, both odd is an inside wall, both even can't be told), the way it
+  faces as a compass bearing through the room's north, and from the view's sun path's reading (sunSources.ts) the
+  stretches of that date, minute by minute, when the sun is up and within 90° of its outward direction, rounded to 5
+  minutes in the place's zone (`WindowSunOf`, what `get_plan` will return). Buildings and trees outside aren't known.
 
 ## Schema v14: Phase 6's props (6.1)
 

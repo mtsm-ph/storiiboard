@@ -213,6 +213,10 @@
     are typed or pasted in any form Google Maps copies (src/core/model/coordinates.ts), on a sun path and on a
     location (no address search, no request). A compass at the plan's top right shows north and the sun: chrome,
     never printed, never stored.
+    Sun through the windows (6.5.6, src/core/model/windowSun.ts): for a window in an outside wall, its facing and
+    the hours direct sun can come through on that date, always with "Buildings and trees outside aren't known";
+    a rollup, never stored. Heights for the 3D set (planHeights.ts), optional, in metres: a room's ceiling, a
+    window's sill and top (its height is top − sill when both are set), a door's height.
   - Layers per department: camera (DP), lighting (gaffer), grip, art, cast blocking. A focus view, not access control.
   - A plan never follows the app's theme, as boards: it is paper and ink, or the Dark view (Kevin, Nov 16, 6.5.1):
     a toggle on the canvas, remembered on this computer, never in the project. PDFs, PNGs and prints stay on paper.

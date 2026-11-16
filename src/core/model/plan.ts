@@ -173,6 +173,21 @@ export interface OpeningFields {
   name: string;
 }
 
+/** The highest height a plan reads, metres (its largest size). */
+const MOST_HEIGHT = 1000;
+/** A height as stored (6.5.6), or null: not a number, not above 0, or over a kilometre. */
+export const storedHeight = (value: JsonValue | undefined): number | null => (typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= MOST_HEIGHT ? value : null);
+
+/**
+ * A window's glass height from its sill and top (6.5.6 round 2): top − sill, to a tenth of a millimetre, while both are
+ * set and the top is above the sill; else null.
+ */
+export function windowGlassHeight(props: Props): number | null {
+  const sill = storedHeight(props.sill_height_m);
+  const top = storedHeight(props.top_height_m);
+  return sill !== null && top !== null && top > sill ? Math.round((top - sill) * 10000) / 10000 : null;
+}
+
 /** A door's or window's props, or null when it isn't one that can be read (no wall, no place along it). */
 export function openingFields(props: Props): OpeningFields | null {
   const kind = OPENING_KINDS.find((k) => k === props.kind);
@@ -182,7 +197,11 @@ export function openingFields(props: Props): OpeningFields | null {
   if (wallId === '' || along === null || along < 0 || !inReach(along)) return null;
   const width = num(props.width_m);
   if (width !== null && !notHuge(width)) return null;
-  const heightM = num(props.height_m);
+  const stored = num(props.height_m);
+  // A window with both its sill and top (6.5.6 round 2) is as high as the glass between them, whatever `height_m` holds:
+  // the label, the legend and the 3D set read one height. The stored one is kept and read again once either is cleared.
+  const glass = kind === 'window' ? windowGlassHeight(props) : null;
+  const heightM = glass ?? (stored !== null && stored > 0 ? stored : null);
   return {
     kind,
     wallId,
@@ -190,7 +209,7 @@ export function openingFields(props: Props): OpeningFields | null {
     width: width !== null && width > 0 ? Math.max(MIN_PLAN_SIZE, width) : OPENING_WIDTH[kind],
     hinge: props.hinge === 'end' ? 'end' : 'start',
     swing: props.swing === 'right' ? 'right' : 'left',
-    heightM: heightM !== null && heightM > 0 ? heightM : null,
+    heightM,
     name: text(props.name).trim(),
   };
 }
