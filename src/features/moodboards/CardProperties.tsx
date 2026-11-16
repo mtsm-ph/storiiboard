@@ -9,6 +9,7 @@ import type { CardInfo } from './cards';
 import { cardUrl } from './links';
 import { platformOf, showOriginalKey, useOriginalShown } from './showOriginal';
 import type { ItemFields } from './items';
+import { BorderFields, CropFields } from './PictureLook';
 
 // What the properties strip shows for one selected picture, video card or link (5.1b): a picture's original and, when
 // the file is there, Show in Finder or Explorer (5.9), a video's file (with Relink when it's missing), a link's address and title, both editable.
@@ -22,7 +23,16 @@ interface Props {
 }
 
 export function CardProperties({ id, fields, card, original }: Props) {
-  if (fields.kind === 'picture') return <PictureFields original={original} />;
+  if (fields.kind === 'picture') {
+    return (
+      <>
+        <PictureFields original={original} />
+        {/* Keyed by the picture alone: each field inside is keyed by its own number, so focus stays put (round 2). */}
+        <CropFields key={`crop|${id}`} id={id} fields={fields} />
+        <BorderFields key={`border|${id}`} id={id} fields={fields} />
+      </>
+    );
+  }
   if (fields.kind === 'video') {
     return (
       <>

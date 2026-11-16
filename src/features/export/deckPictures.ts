@@ -3,7 +3,7 @@ import { canvasBlob, makeCanvas, type AnyCanvas, type Canvas2D } from '../../cor
 import { fitWithin } from '../../core/media/image';
 import { readOriginal, readThumbnail } from '../../core/media/store';
 import type { ProjectFile } from '../../core/storage/driver';
-import type { PictureLoader } from './deckPdfWriter';
+import type { PictureCrop, PictureLoader } from './deckPdfWriter';
 
 // The pictures a deck's PDF prints (5.6a, decision 4): the picture's original file where the project points at one the app can
 // still read (a new read-only Rust command, src-tauri/src/originals.rs, which takes the open project and the picture's SHA-256,
@@ -74,24 +74,43 @@ function hasTransparency(ctx: Canvas2D, width: number, height: number): boolean 
  * Draws a bitmap on an sRGB canvas `width` by `height`, in halving steps for a big reduction (a single big step shimmers on fine
  * detail). Every step is sRGB, asked for outright: a Mac's webview would otherwise draw in P3, the very thing being undone.
  */
-function redrawn(bitmap: ImageBitmap, width: number, height: number): { canvas: AnyCanvas; ctx: Canvas2D } | null {
+function redrawn(bitmap: ImageBitmap, width: number, height: number, part?: { x: number; y: number; width: number; height: number }): { canvas: AnyCanvas; ctx: Canvas2D } | null {
   let source: CanvasImageSource = bitmap;
-  let w = bitmap.width;
-  let h = bitmap.height;
+  // A cropped picture (6.5.7b round 2): its kept part, in the bitmap's own pixels, is cut by the first draw itself (a
+  // drawImage from that rectangle), so it is never resampled whole first. Each later halving step and the last draw are
+  // the uncropped picture's own.
+  let from = part ?? { x: 0, y: 0, width: bitmap.width, height: bitmap.height };
+  let w = from.width;
+  let h = from.height;
   while (w / 2 >= width && h / 2 >= height) {
     w = Math.round(w / 2);
     h = Math.round(h / 2);
     const step = makeCanvas(w, h, { colorSpace: 'srgb' });
     if (!step.ctx) return null;
     step.ctx.imageSmoothingQuality = 'high';
-    step.ctx.drawImage(source, 0, 0, w, h);
+    step.ctx.drawImage(source, from.x, from.y, from.width, from.height, 0, 0, w, h);
     source = step.canvas;
+    from = { x: 0, y: 0, width: w, height: h };
   }
   const out = makeCanvas(width, height, { colorSpace: 'srgb' });
   if (!out.ctx) return null;
   out.ctx.imageSmoothingQuality = 'high';
-  out.ctx.drawImage(source, 0, 0, width, height);
+  out.ctx.drawImage(source, from.x, from.y, from.width, from.height, 0, 0, width, height);
   return { canvas: out.canvas, ctx: out.ctx };
+}
+
+/**
+ * Where a picture's kept part lies in its bitmap and the size it is printed at (6.5.7b round 2): the whole picture
+ * is sized as the uncropped export sizes it (printSize for `longEdge`), and the part keeps that same pixels-per-pixel,
+ * so it is never printed coarser than the uncropped picture would have been there.
+ */
+export function croppedPrint(bitmapWidth: number, bitmapHeight: number, longEdge: number, crop: PictureCrop): { part: { x: number; y: number; width: number; height: number }; width: number; height: number } {
+  const whole = printSize(bitmapWidth, bitmapHeight, longEdge);
+  const scale = whole.width / bitmapWidth;
+  const x = Math.min(bitmapWidth - 1, Math.max(0, crop.x * bitmapWidth));
+  const y = Math.min(bitmapHeight - 1, Math.max(0, crop.y * bitmapHeight));
+  const part = { x, y, width: Math.max(1, Math.min(bitmapWidth - x, crop.width * bitmapWidth)), height: Math.max(1, Math.min(bitmapHeight - y, crop.height * bitmapHeight)) };
+  return { part, width: Math.max(1, Math.round(part.width * scale)), height: Math.max(1, Math.round(part.height * scale)) };
 }
 
 /** A decoded picture as the page prints it, or null when the webview can't decode or redraw it. */
@@ -100,6 +119,7 @@ export async function printablePicture(
   mime: string | null,
   longEdge: number,
   verify?: (bitmap: ImageBitmap) => Promise<boolean>,
+  crop?: PictureCrop,
 ): Promise<{ bytes: Uint8Array; kind: 'jpeg' | 'png' } | null> {
   let bitmap: ImageBitmap;
   try {
@@ -109,8 +129,10 @@ export async function printablePicture(
   }
   try {
     if (verify && !(await verify(bitmap))) return null;
-    const size = printSize(bitmap.width, bitmap.height, mayHaveTransparency(bytes) ? Math.min(longEdge, TRANSPARENT_LONG_EDGE) : longEdge);
-    const drawn = redrawn(bitmap, size.width, size.height);
+    const edge = mayHaveTransparency(bytes) ? Math.min(longEdge, TRANSPARENT_LONG_EDGE) : longEdge;
+    const cut = crop ? croppedPrint(bitmap.width, bitmap.height, edge, crop) : null;
+    const size = cut ?? printSize(bitmap.width, bitmap.height, edge);
+    const drawn = redrawn(bitmap, size.width, size.height, cut?.part);
     if (!drawn) return null;
     const transparent = mayHaveTransparency(bytes) && hasTransparency(drawn.ctx, size.width, size.height);
     const blob = await canvasBlob(drawn.canvas, transparent ? 'image/png' : 'image/jpeg', transparent ? undefined : PRINT_JPEG_QUALITY);
@@ -136,19 +158,19 @@ async function originalBytes(file: ProjectFile, sha256: string): Promise<Uint8Ar
  * is none (a pasted picture), the copy the project keeps, which the writer counts and the export's notice says.
  */
 export function pictureLoader(file: ProjectFile): PictureLoader {
-  return async (sha256, longEdge, signal) => {
+  return async (sha256, longEdge, signal, crop) => {
     signal?.throwIfAborted();
     const original = await originalBytes(file, sha256);
     signal?.throwIfAborted();
     if (original) {
       // Only the picture the deck shows: a path that now leads to another picture is not printed.
-      const printed = await printablePicture(original, null, longEdge, (bitmap) => isTheStoredPicture(file, sha256, bitmap));
+      const printed = await printablePicture(original, null, longEdge, (bitmap) => isTheStoredPicture(file, sha256, bitmap), crop);
       if (printed) return { ...printed, original: true };
     }
     signal?.throwIfAborted();
     const stored = await readOriginal(file, sha256).catch(() => null);
     if (!stored) return null;
-    const printed = await printablePicture(stored.bytes, stored.mime, longEdge);
+    const printed = await printablePicture(stored.bytes, stored.mime, longEdge, undefined, crop);
     return printed ? { ...printed, original: false } : null;
   };
 }

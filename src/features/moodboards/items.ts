@@ -1,11 +1,12 @@
 import { t, tn } from '../../core/i18n';
-import type { SbdRecord } from '../../core/model/record';
+import type { Props, SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
 import { keyAfterKeys, keyBetween } from '../../core/ops/order';
 import { atLeastMinimum, MIN_SIZE, pasted, tidy } from '../../ui/canvas/placement';
 import { sectionContents } from '../../ui/canvas/sections';
 import type { CanvasColours, CanvasItem, Geometry, GeometryChange, ReorderMode, SectionLook } from '../../ui/canvas/types';
 import { reordered, sortKeysFor } from '../../ui/canvas/zOrder';
+import { boxForCrop, cleanCrop, isWhole, MIN_KEPT, WHOLE, type CropRect } from '../../ui/canvas/cropping';
 import { INK, PAPER, PAPER_COLOURS, RAISED } from '../../ui/canvas/paperColours';
 import { cardUrl, linkLabel } from './links';
 import { clipMediaOf, mediaChildOf, mediaCopyChanges, type ClipMedia } from './itemMedia';
@@ -100,9 +101,44 @@ export interface ItemFields extends Geometry {
   background: string;
   /** The field a field card shows (5.5); '' for any other kind. */
   field: DeckField | '';
+  /** A picture's kept part (6.5.7b), fractions of the picture; null for the whole picture, and for any other kind. */
+  crop: CropRect | null;
+  /** A picture's border (6.5.7b): on or off, its colour (null: the board's ink) and width in board units. */
+  border: boolean;
+  borderColor: string | null;
+  borderWidth: number;
 }
 
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
+
+/** A border's width, board units: 1 to 40, 2 when none is stored or it isn't a number (6.5.7b). */
+export const BORDER_WIDTH_MIN = 1;
+export const BORDER_WIDTH_MAX = 40;
+export const DEFAULT_BORDER_WIDTH = 2;
+export const cleanBorderWidth = (value: unknown): number => {
+  const n = num(value);
+  return n === null ? DEFAULT_BORDER_WIDTH : Math.min(BORDER_WIDTH_MAX, Math.max(BORDER_WIDTH_MIN, n));
+};
+
+/**
+ * A picture's stored `crop` (6.5.7b), or null for the whole picture: four numbers, x and y from 0, width and height
+ * above 0, x + width and y + height at most 1. Anything else (a missing number, a part past the picture) reads as
+ * uncropped, so an odd value never hides the picture.
+ */
+export function cropOf(value: unknown): CropRect | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  const x = num(v.x);
+  const y = num(v.y);
+  const width = num(v.width);
+  const height = num(v.height);
+  if (x === null || y === null || width === null || height === null) return null;
+  const slack = 1e-9;
+  if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > 1 + slack || y + height > 1 + slack) return null;
+  const crop = cleanCrop({ x, y, width, height });
+  // Less than 1% of the picture either way (round 2) is no crop a person made: read as the whole picture.
+  return isWhole(crop) || crop.width < MIN_KEPT - 1e-9 || crop.height < MIN_KEPT - 1e-9 ? null : crop;
+}
 
 /** A colour as stored: `#RRGGBB`, upper case; anything else is nothing. */
 export function hexColour(value: unknown): string | null {
@@ -172,6 +208,10 @@ export function itemFields(props: SbdRecord['props']): ItemFields | null {
     orientation: page && isPaper(format) && props.orientation === 'landscape' ? 'landscape' : 'portrait',
     background: page ? (hexColour(props.background) ?? DEFAULT_PAGE_BACKGROUND) : '',
     field: kind === 'field_card' && isDeckField(props.field) ? props.field : '',
+    crop: kind === 'picture' ? cropOf(props.crop) : null,
+    border: kind === 'picture' && props.border === true,
+    borderColor: kind === 'picture' ? hexColour(props.border_color) : null,
+    borderWidth: kind === 'picture' ? cleanBorderWidth(props.border_width) : DEFAULT_BORDER_WIDTH,
   };
 }
 
@@ -304,6 +344,8 @@ export function canvasItems(records: Records, boardId: string): CanvasItem[] {
       keepRatio: fields.kind === 'picture' || fields.kind === 'video' || isLiveKind(fields.kind) || fields.kind === 'page',
       // A sticky, shape or text box can be copied with a connector (5.2).
       quick: isTextKind(fields.kind) || isShapeKind(fields.kind),
+      // A picture can be cropped (6.5.7b): its kept part, the whole picture when it has no crop.
+      ...(fields.kind === 'picture' ? { crop: fields.crop ?? WHOLE } : {}),
       ...(isFrameKind(fields.kind) ? { section: { tab: sectionTab(fields, numbers.get(id) ?? 0) } } : {}),
     };
   });
@@ -364,14 +406,16 @@ const keyAfterItems = (records: Records, boardId: string): string =>
 export type ItemSeed = Geometry & { kind: ItemKind } & Partial<Omit<ItemFields, keyof Geometry | 'kind'>>;
 
 /** The props written for a new item: its kind's own, nothing it doesn't use. */
-export function propsFor(seed: ItemSeed): Record<string, string | number | boolean> {
-  const props: Record<string, string | number | boolean> = { kind: seed.kind, ...geometryProps(seed) };
+export function propsFor(seed: ItemSeed): Props {
+  const props: Props = { kind: seed.kind, ...geometryProps(seed) };
   if (isShapeKind(seed.kind)) {
     if (seed.fill) props.fill = seed.fill;
     if (seed.stroke) props.stroke = seed.stroke;
     return props;
   }
-  if (seed.kind === 'picture' || seed.kind === 'video') return props;
+  // A copy of a picture keeps its crop and its border (6.5.7b); only what differs from the whole picture and no border is written.
+  if (seed.kind === 'picture') return { ...props, ...pictureLookProps(seed) };
+  if (seed.kind === 'video') return props;
   // A live card names its record and nothing else (5.4): what it draws is read from the project each time.
   if (seed.kind === 'shot_card') return { ...props, shot_id: seed.shotId ?? '' };
   if (seed.kind === 'scene_card' || seed.kind === 'palette_card') return { ...props, scene_id: seed.sceneId ?? '' };
@@ -409,6 +453,18 @@ export function propsFor(seed: ItemSeed): Record<string, string | number | boole
   if (seed.kind === 'sticky') props.color = hexColour(seed.color) ?? STICKY_COLOURS[0];
   else if (seed.color) props.color = seed.color;
   return props;
+}
+
+/** A picture's crop and border props as stored (6.5.7b): none for the whole picture and a border never set. */
+function pictureLookProps(seed: Partial<Pick<ItemFields, 'crop' | 'border' | 'borderColor' | 'borderWidth'>>): Props {
+  const out: Props = {};
+  const crop = cropOf(seed.crop);
+  if (crop) out.crop = { ...crop };
+  if (seed.border === true) out.border = true;
+  const colour = hexColour(seed.borderColor);
+  if (colour) out.border_color = colour;
+  if (seed.borderWidth !== undefined && seed.borderWidth !== DEFAULT_BORDER_WIDTH) out.border_width = cleanBorderWidth(seed.borderWidth);
+  return out;
 }
 
 /** Items made at the front, in order, each after the last. A given id is used for the first (an item typed into before it existed). */
@@ -705,4 +761,102 @@ export function seedWithText(seed: ItemSeed, text: string, measure: MeasureText 
   if (seed.kind !== 'text') return { ...seed, text };
   const fields = itemFields(propsFor({ ...seed, text }));
   return { ...seed, text, height: fields ? Math.max(MIN_SIZE, measure(boxOf(fields))) : seed.height };
+}
+
+/** The live picture item a crop or border edit is for, as it reads; null for anything else. */
+function pictureNow(records: Records, id: string): ItemFields | null {
+  const record = records[id];
+  const now = record?.type === 'board_item' && record.trashedAt === null ? itemFields(record.props) : null;
+  return now?.kind === 'picture' ? now : null;
+}
+
+const sameGeometry = (a: Geometry, b: Geometry): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.rotation === b.rotation;
+const sameCrop = (a: CropRect | null, b: CropRect | null): boolean => (a === null || b === null ? a === b : a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height);
+
+/**
+ * A picture's box and kept part together (6.5.7b: a crop drag, typed crop fields, Reset crop), in one update so one undo
+ * restores both. The whole picture is written as no `crop` at all. Nothing when neither changed.
+ */
+export function cropChanges(records: Records, id: string, geometry: Geometry, crop: CropRect): Change[] {
+  const now = pictureNow(records, id);
+  if (!now) return [];
+  const next = cropOf(crop);
+  // A crop the reader would refuse (under 1% of the picture, round 2) is never written, nor taken as the whole picture.
+  if (next === null && !isWhole(cleanCrop(crop))) return [];
+  const box = { x: tidy(geometry.x), y: tidy(geometry.y), width: Math.max(MIN_SIZE, tidy(geometry.width)), height: Math.max(MIN_SIZE, tidy(geometry.height)), rotation: now.rotation };
+  if (sameGeometry(now, box) && sameCrop(now.crop, next)) return [];
+  return [{ kind: 'update', id, set: { ...geometryProps(box), ...(next ? { crop: { ...next } } : {}) }, ...(next ? {} : { unset: ['crop'] }) }];
+}
+
+/** Reset crop (6.5.7b): the whole picture, its box grown back round it so the part that showed stays where it was. */
+export function resetCropChanges(records: Records, id: string): Change[] {
+  const now = pictureNow(records, id);
+  if (!now?.crop) return [];
+  return cropChanges(records, id, boxForCrop(now, now.crop, WHOLE), WHOLE);
+}
+
+/** A crop as its four fields show it (6.5.7b): how much is cut off the left, top, right and bottom, in percent. */
+export interface CropEdges {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+const percent = (fraction: number): number => Math.round(fraction * 10000) / 100;
+
+export function cropEdgesOf(crop: CropRect | null): CropEdges {
+  const c = crop ?? WHOLE;
+  return { left: percent(c.x), top: percent(c.y), right: percent(1 - c.x - c.width), bottom: percent(1 - c.y - c.height) };
+}
+
+/**
+ * One crop field typed (6.5.7b): that side cut by its percent, the others as they are, the picture where it is on the
+ * board. Refused (nothing) for a number outside 0 to 100, or a cut that would leave less than the least size a side.
+ */
+export function cropEdgeChanges(records: Records, id: string, edge: keyof CropEdges, value: number): Change[] {
+  const now = pictureNow(records, id);
+  if (!now || !Number.isFinite(value) || value < 0 || value > 100) return [];
+  const crop = now.crop ?? WHOLE;
+  // From the stored fractions (round 2), so the other three sides stay exactly where they are, never moved to their
+  // rounded percents.
+  const v = value / 100;
+  const next =
+    edge === 'left'
+      ? { ...crop, x: v, width: crop.x + crop.width - v }
+      : edge === 'right'
+        ? { ...crop, width: 1 - v - crop.x }
+        : edge === 'top'
+          ? { ...crop, y: v, height: crop.y + crop.height - v }
+          : { ...crop, height: 1 - v - crop.y };
+  // The least size a side, as the picture is drawn now (its pixels' size on the board), and at least 1% of the picture.
+  const fullWidth = now.width / crop.width;
+  const fullHeight = now.height / crop.height;
+  if (next.width * fullWidth < MIN_SIZE || next.height * fullHeight < MIN_SIZE || next.width < MIN_KEPT || next.height < MIN_KEPT) return [];
+  const clean = cleanCrop(next);
+  return cropChanges(records, id, boxForCrop(now, crop, clean), clean);
+}
+
+/**
+ * A border change from the picture's fields (6.5.7b): on or off, a colour (null: back to the default, the board's ink,
+ * by taking `border_color` off), a width (1 to 40); one update, only what changed.
+ */
+export function borderChanges(records: Records, id: string, patch: { border?: boolean; color?: string | null; width?: number }): Change[] {
+  const now = pictureNow(records, id);
+  if (!now) return [];
+  const set: Props = {};
+  const unset: string[] = [];
+  if (patch.border !== undefined && patch.border !== now.border) set.border = patch.border;
+  if (patch.color === null) {
+    if (records[id]?.props.border_color !== undefined) unset.push('border_color');
+  } else {
+    const colour = patch.color === undefined ? null : hexColour(patch.color);
+    if (colour !== null && colour !== now.borderColor) set.border_color = colour;
+  }
+  if (patch.width !== undefined && Number.isFinite(patch.width)) {
+    const width = cleanBorderWidth(Math.round(patch.width * 100) / 100);
+    if (width !== now.borderWidth) set.border_width = width;
+  }
+  if (Object.keys(set).length === 0 && unset.length === 0) return [];
+  return [{ kind: 'update', id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }];
 }

@@ -34,9 +34,14 @@ interface ColourControlProps {
    */
   swatchCloses?: boolean;
   onChange: (hex: string) => void;
+  /**
+   * A way back to no colour of its own (6.5.7b round 2: a picture's border): a Default choice first in the panel, its
+   * swatch `unset` (what is drawn in the view now), pressed while nothing is stored. Left out, none shows.
+   */
+  onDefault?: () => void;
 }
 
-export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf, mixed = false, custom = true, swatchCloses = !custom, onChange }: ColourControlProps) {
+export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf, mixed = false, custom = true, swatchCloses = !custom, onChange, onDefault }: ColourControlProps) {
   const [open, setOpen] = useState(false);
   // Where the panel opens: beside its button, in window coordinates, since the strip scrolls sideways and would clip it.
   const [anchor, setAnchor] = useState<{ left: number; top?: number; bottom?: number }>({ left: 0, top: 0 });
@@ -162,6 +167,20 @@ export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf
         // The menu key on a swatch opens no browser menu over the panel; the hex field keeps its own.
         // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- only keeps the browser's menu out; the buttons inside are the controls
         <div ref={panelBox} id={panel} role="group" aria-label={label} onContextMenu={keepBrowserMenuOut} style={{ position: 'fixed', ...anchor }} className="z-30 flex w-56 flex-col gap-2 border border-text bg-surface p-2">
+          {onDefault && (
+            <button
+              type="button"
+              aria-pressed={!mixed && value === null}
+              onClick={() => {
+                onDefault();
+              }}
+              className={cx('flex h-8 items-center gap-2 border border-text px-2 text-[13px] text-text hover:bg-surface-raised focus-visible:-outline-offset-4', !mixed && value === null && 'font-bold')}
+            >
+              <span aria-hidden="true" className="size-4 border border-text" style={{ background: unset }} />
+              {t('moodboard.colourDefault')}
+              {!mixed && value === null && <span aria-hidden="true">✓</span>}
+            </button>
+          )}
           <div className="grid grid-cols-6 gap-2 p-1">
             {swatches.map((hex) => (
               <button

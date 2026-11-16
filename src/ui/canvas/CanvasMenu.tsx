@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { t } from '../../core/i18n';
 import { commandShortcut, MenuGroup, MenuItem } from '../Menu';
-import type { AlignMode, Axis, CanvasCommand, Point, TidyMode } from './types';
+import type { AlignMode, Axis, CanvasCommand, MenuAction, Point, TidyMode } from './types';
 
 // The right-click menu (decision 11), also opened by Shift+F10 or the menu key: Copy, Cut, Paste, Duplicate, Delete and
 // the four z-order moves. A panel of buttons like the app's other menus (src/ui/Menu.tsx); Escape closes it and
@@ -22,6 +22,8 @@ interface CanvasMenuProps {
   onCommand: (command: CanvasCommand) => void;
   onSelectContents: () => void;
   onClose: () => void;
+  /** The host's own entries for the selection (6.5.7b: Reset crop), in a group after Duplicate; none when left out. */
+  extras?: readonly MenuAction[];
 }
 
 const ALIGNS: readonly { mode: AlignMode; code: string; label: () => string }[] = [
@@ -42,7 +44,7 @@ const TIDIES: readonly { mode: TidyMode; label: () => string }[] = [
   { mode: 'grid', label: () => t('canvas.tidy.grid') },
 ];
 
-export function CanvasMenu({ at, hasSelection, items, hasSection, canvasHeight, canPaste, mac, onCommand, onSelectContents, onClose }: CanvasMenuProps) {
+export function CanvasMenu({ at, hasSelection, items, hasSection, canvasHeight, canPaste, mac, onCommand, onSelectContents, onClose, extras = [] }: CanvasMenuProps) {
   const panel = useRef<HTMLDivElement>(null);
   // Moved up by its own measured height when it would run off the bottom of the canvas.
   const [top, setTop] = useState(at.y);
@@ -111,6 +113,22 @@ export function CanvasMenu({ at, hasSelection, items, hasSection, canvasHeight, 
           {t('canvas.duplicate')}
         </MenuItem>
       </MenuGroup>
+      {extras.length > 0 && (
+        <MenuGroup>
+          {extras.map((extra) => (
+            <MenuItem
+              key={extra.id}
+              disabled={extra.disabled === true}
+              onClick={() => {
+                onClose();
+                extra.run();
+              }}
+            >
+              {extra.label}
+            </MenuItem>
+          ))}
+        </MenuGroup>
+      )}
       <MenuGroup>
         <MenuItem shortcut={bracket(false, false)} disabled={!hasSelection} onClick={run({ kind: 'forward' })}>
           {t('canvas.forward')}

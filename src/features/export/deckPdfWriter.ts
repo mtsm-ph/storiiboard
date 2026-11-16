@@ -101,8 +101,19 @@ export interface PictureData {
   kind: 'jpeg' | 'png';
   original: boolean;
 }
-/** `longEdge`: the most pixels the picture's long edge needs where it is printed (300 dpi, at most 6000). */
-export type PictureLoader = (sha256: string, longEdge: number, signal?: AbortSignal) => Promise<PictureData | null>;
+/**
+ * `longEdge`: the most pixels the picture's long edge needs where it is printed (300 dpi, at most 6000). With `crop`
+ * (6.5.7b round 2), `longEdge` is still the WHOLE picture's, as the uncropped export would ask, and only the kept part,
+ * at that same pixel density, is returned.
+ */
+export type PictureLoader = (sha256: string, longEdge: number, signal?: AbortSignal, crop?: PictureCrop) => Promise<PictureData | null>;
+/** The kept part of a picture, as fractions of it. */
+export interface PictureCrop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export type FontNoteReason = 'restricted' | 'bitmap' | 'missing' | 'unreadable' | 'glyphs';
 export interface FontNote {
@@ -243,12 +254,12 @@ export async function writeDeckPdf(input: DeckPdfInput): Promise<DeckPdf> {
   const storedCopy = new Set<string>();
   const unprintable = new Set<string>();
   let blank = 0;
-  const image = (sha256: string, longEdge: number): Promise<PDFImage | null> => {
-    const key = `${sha256}:${String(longEdge)}`;
+  const image = (sha256: string, longEdge: number, crop?: PictureCrop): Promise<PDFImage | null> => {
+    const key = `${sha256}:${String(longEdge)}${crop ? `:${String(crop.x)},${String(crop.y)},${String(crop.width)},${String(crop.height)}` : ''}`;
     let made = images.get(key);
     if (!made) {
       made = (async () => {
-        const data = await input.pictures(sha256, longEdge, input.signal).catch((error: unknown) => {
+        const data = await (crop ? input.pictures(sha256, longEdge, input.signal, crop) : input.pictures(sha256, longEdge, input.signal)).catch((error: unknown) => {
           // A Stop ends the export; any other failure is a picture that can't be printed.
           if (input.signal?.aborted) throw error;
           return null;
@@ -291,7 +302,7 @@ async function drawPage(
   pdf: PDFDocument,
   source: PrintPage,
   face: (family: string, weight: number, italic: boolean) => Promise<Face>,
-  image: (sha256: string, longEdge: number) => Promise<PDFImage | null>,
+  image: (sha256: string, longEdge: number, crop?: PictureCrop) => Promise<PDFImage | null>,
   watermark: Watermark | null,
   signal: AbortSignal | undefined,
   note: (family: string, reason: FontNoteReason) => void,
@@ -392,7 +403,11 @@ async function drawPage(
         }
         const total = followed(current().m, base);
         const printed = scaleOf(total);
-        const picture = await image(op.sha256, longEdgeFor(op.width * printed.x, op.height * printed.y));
+        // A cropped picture (6.5.7b round 2) asks for the whole picture's size as printed, so its kept part comes at the
+        // density the uncropped export would give it, and only that part is embedded.
+        const picture = op.crop
+          ? await image(op.sha256, longEdgeFor((op.width / op.crop.width) * printed.x, (op.height / op.crop.height) * printed.y), op.crop)
+          : await image(op.sha256, longEdgeFor(op.width * printed.x, op.height * printed.y));
         if (!picture) break;
         let key = imageKeys.get(picture);
         if (!key) {

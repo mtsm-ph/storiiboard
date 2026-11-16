@@ -554,6 +554,11 @@ const BOARD_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   font_size: 'history.field.fontSize',
   align: 'history.field.alignment',
   name: 'history.field.sectionName',
+  // A picture's crop and border (6.5.7b).
+  crop: 'history.field.pictureCrop',
+  border: 'history.field.border',
+  border_color: 'history.field.borderColour',
+  border_width: 'history.field.borderWidth',
 });
 
 /** The plan items with a box of their own, which History reads as an icon's (6.3, 6.4, 6.5). */
@@ -1650,6 +1655,12 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     if (props.size > 0 && only(['x', 'y'])) return [t('history.boardItemsMoved', { things })];
     if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [t('history.boardItemsRotated', { things })];
     if ((props.has('width') || props.has('height')) && only(['x', 'y', 'width', 'height'])) return [t('history.boardItemsResized', { things })];
+    // A picture cropped, or its crop reset (6.5.7b): its box and its kept part together.
+    if (props.has('crop') && only(['x', 'y', 'width', 'height', 'crop'])) {
+      // Reset crop takes `crop` off every item it touched: a reset, not a crop.
+      const reset = mine.every((op) => op.after?.props.crop === undefined);
+      return [t(reset ? 'history.boardItemsCropReset' : 'history.boardItemsCropped', { things })];
+    }
     // Text typed into a box (its height follows it), or a style set on several items at once (5.1a).
     if (props.has('text') && only(['text', 'height', 'x', 'y'])) return [t('history.boardTextEdited', { things })];
     if (mine.length > 1 && !props.has('text')) return [t('history.boardItemsChanged', { things })];

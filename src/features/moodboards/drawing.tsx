@@ -61,8 +61,30 @@ function words(fields: ItemFields, size: { width: number; height?: number }, fil
 const MONO = '"JetBrains Mono", monospace';
 
 /** A picture: the stored picture in its box, the thumbnail or the full size by how large it is drawn. */
-function picture(id: string, card: CardInfo | null, context: DrawContext): ReactNode {
-  return <PictureNode id={id} sha256={card?.sha256 ?? null} width={context.width} height={context.height} zoom={context.zoom} inView={context.inView} colours={context.colours} />;
+function picture(id: string, fields: ItemFields, card: CardInfo | null, context: DrawContext): ReactNode {
+  // Its kept part (6.5.7b): a crop drag's live one while it lasts, else its own.
+  const crop = context.crop ?? fields.crop;
+  // Past the box during a crop drag (round 2): the part being cut, dimmed, and no border.
+  if (context.cutAway === true) return <PictureNode id={id} sha256={card?.sha256 ?? null} width={context.width} height={context.height} zoom={context.zoom} inView={context.inView} colours={context.colours} crop={crop} cutAway />;
+  const look = pictureBorder(fields, context.width, context.height);
+  return (
+    <>
+      <PictureNode id={id} sha256={card?.sha256 ?? null} width={context.width} height={context.height} zoom={context.zoom} inView={context.inView} colours={context.colours} crop={crop} />
+      {/* The border (6.5.7b) on the box's edge, inside it, in board units, so it turns and scales with the picture and prints
+          as drawn. No colour of its own: the ink of what it sits on, which the Dark view makes light. */}
+      {look && <Rect x={look.x} y={look.y} width={look.width} height={look.height} stroke={fields.borderColor ?? context.colours.ink} strokeWidth={look.strokeWidth} listening={false} />}
+    </>
+  );
+}
+
+/**
+ * Where a picture's border is drawn (6.5.7b), when it has one on: a stroke `strokeWidth` wide whose outer edge is the
+ * box's edge, so the item's size never changes (no wider than half the box's short side).
+ */
+export function pictureBorder(fields: Pick<ItemFields, 'border' | 'borderWidth'>, width: number, height: number): { x: number; y: number; width: number; height: number; strokeWidth: number } | null {
+  if (!fields.border) return null;
+  const stroke = Math.min(fields.borderWidth, width / 2, height / 2);
+  return { x: stroke / 2, y: stroke / 2, width: width - stroke, height: height - stroke, strokeWidth: stroke };
 }
 
 /** A video card: its poster, with the file's name and length in a bar along the foot, or the missing flag in it. */
@@ -362,7 +384,7 @@ export function withDrawing(
           const live = liveOf(item.id);
           return <Group key={fontsVersion}>{live && drawLive(item.id, live, context)}</Group>;
         }
-        if (fields.kind === 'picture') return picture(item.id, cardOf(item.id), context);
+        if (fields.kind === 'picture') return picture(item.id, fields, cardOf(item.id), context);
         if (fields.kind === 'video') return <Group key={fontsVersion}>{videoCard(item.id, cardOf(item.id), context)}</Group>;
         if (fields.kind === 'link') return <Group key={fontsVersion}>{linkCard(fields, context)}</Group>;
         return shape(fields, context);

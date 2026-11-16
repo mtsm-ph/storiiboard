@@ -77,7 +77,17 @@ export type DisplayOp =
        */
       stroke?: { colour: string; width: number };
     }
-  | { op: 'image'; sha256: string; width: number; height: number }
+  | {
+      op: 'image';
+      sha256: string;
+      width: number;
+      height: number;
+      /**
+       * The part of the picture drawn in the box, as fractions of it (6.5.7b round 2: a board's cropped picture): the
+       * PDF embeds that part alone. Absent, the whole picture, as before.
+       */
+      crop?: { x: number; y: number; width: number; height: number };
+    }
   | { op: 'link'; url: string; width: number; height: number };
 
 const num = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
@@ -403,6 +413,16 @@ function textStroke(a: Readonly<Record<string, unknown>>): { stroke?: { colour: 
   return { stroke: { colour: a.stroke, width } };
 }
 
+/** A cropped picture's kept part as its node carries it (`sbCrop`, fractions within the picture), or null for none. */
+function cropAttr(value: unknown): { x: number; y: number; width: number; height: number } | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  const [x, y, width, height] = [v.x, v.y, v.width, v.height].map((n) => (typeof n === 'number' && Number.isFinite(n) ? n : Number.NaN));
+  if (x === undefined || y === undefined || width === undefined || height === undefined) return null;
+  if (!(x >= 0 && y >= 0 && width > 0 && height > 0 && x + width <= 1 + 1e-9 && y + height <= 1 + 1e-9)) return null;
+  return { x, y, width, height };
+}
+
 function ownOps(node: PrintNode): DisplayOp[] {
   const a = node.attrs;
   switch (node.kind) {
@@ -494,7 +514,9 @@ function ownOps(node: PrintNode): DisplayOp[] {
     }
     case 'image': {
       // A picture node that doesn't say which picture it is (an empty hash) stays an operation, so the export can count it as unprintable.
-      return 'sbSha' in a ? [{ op: 'image', sha256: str(a.sbSha, ''), width: num(a.width, 0), height: num(a.height, 0) }] : [];
+      if (!('sbSha' in a)) return [];
+      const crop = cropAttr(a.sbCrop);
+      return [{ op: 'image', sha256: str(a.sbSha, ''), width: num(a.width, 0), height: num(a.height, 0), ...(crop ? { crop } : {}) }];
     }
     default:
       return [];

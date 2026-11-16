@@ -48,7 +48,9 @@ import {
   changeGeometry,
   connect,
   copySelection,
+  cropPicture,
   cutSelection,
+  resetCrop,
   deleteSelection,
   changeStyle,
   duplicateSelection,
@@ -565,6 +567,13 @@ export function BoardView({ board }: { board: SbdRecord }) {
             moodboardStore.getState().setViewport(board.id, view);
           }}
           onGeometry={(changes) => changeGeometry(changes)}
+          // A picture cropped by Ctrl (⌘) + a handle (6.5.7b), and Reset crop in its menu.
+          onCrop={(id, geometry, crop) => cropPicture(id, geometry, crop)}
+          menuActions={(ids) => {
+            const one = ids.length === 1 && ids[0] !== undefined ? itemFields(records[ids[0]]?.props ?? {}) : null;
+            const id = ids[0];
+            return one?.kind === 'picture' && id !== undefined ? [{ id: 'reset-crop', label: t('moodboard.crop.reset'), disabled: one.crop === null, run: () => void resetCrop(id) }] : [];
+          }}
           onNudge={(ids, dx, dy) => nudge(ids, dx, dy)}
           // A board has no host tools of its own (6.2a), so every tool it places is a board's.
           onCreate={(geometry, placing) => (isHostTool(placing) ? undefined : placeItem(board.id, geometry, placing))}

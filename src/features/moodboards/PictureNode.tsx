@@ -6,6 +6,7 @@ import { projectStore } from '../../app/projectStore';
 import { t } from '../../core/i18n';
 import type { CanvasColours } from '../../ui/canvas/types';
 import { cropBox, DEFAULT_CROP, type Crop } from '../../core/media/crop';
+import { wholePicture, type CropRect } from '../../ui/canvas/cropping';
 import { decodedPicture, levelFor, loadPicture, onFullDropped, useDecodedGeneration, type PictureLevel } from '../../core/media/decoded';
 
 // A stored picture on the canvas (5.1b): the thumbnail until the item is drawn larger than 640 device pixels on its
@@ -22,6 +23,9 @@ function report(id: string, level: PictureLevel | null) {
   const next = Object.fromEntries(Object.entries(levels).filter(([key]) => key !== id));
   drawnLevels.setState({ levels: level === null ? next : { ...next, [id]: level } });
 }
+
+/** How strongly the part being cut is drawn during a crop drag (6.5.7b). */
+const CUT_OPACITY = 0.3;
 
 /** Tried again this long after a read or decode went wrong (a busy disk, a file mid-write). */
 const RETRY_MS = 3000;
@@ -92,6 +96,8 @@ export function PictureNode({
   inView,
   colours,
   fit = { kind: 'stretch' },
+  crop = null,
+  cutAway = false,
 }: {
   id: string;
   sha256: string | null;
@@ -101,18 +107,29 @@ export function PictureNode({
   inView: boolean;
   colours: CanvasColours;
   fit?: PictureFit;
+  /** A picture card's kept part (6.5.7b), the box being that part; null for the whole picture. */
+  crop?: CropRect | null;
+  /**
+   * The part a crop drag is cutting, alone and dimmed round the box (round 2): drawn in the item's `beyond` group, so the
+   * handles never take it in. It says nothing of the size drawn: the picture in the box does.
+   */
+  cutAway?: boolean;
 }) {
   const ratio = typeof window === 'undefined' ? 1 : window.devicePixelRatio;
-  const { image, level } = usePicture(sha256, levelFor(width, height, zoom, ratio, inView));
+  // The whole picture's place in the box: its size on screen, uncropped, decides which size is read (6.5.7b).
+  const whole = crop ? wholePicture(width, height, crop) : null;
+  const { image, level } = usePicture(sha256, levelFor(whole?.width ?? width, whole?.height ?? height, zoom, ratio, inView));
   const shown = image ?? null;
   // Which stored picture this is, on the node itself, so a PDF export can draw its original instead of what the canvas holds (5.6a).
   const marked = { name: 'sb-picture', sbSha: sha256 ?? '' };
   useEffect(() => {
+    if (cutAway) return;
     report(id, shown ? level : null);
     return () => {
       report(id, null);
     };
-  }, [id, level, shown]);
+  }, [id, level, shown, cutAway]);
+  if (cutAway) return shown && whole ? <KonvaImage image={shown} x={whole.x} y={whole.y} width={whole.width} height={whole.height} opacity={CUT_OPACITY} listening={false} /> : null;
   if (shown && fit.kind === 'cover') {
     const box = cropBox(fit.crop ?? DEFAULT_CROP, shown.naturalWidth / shown.naturalHeight, width / height);
     return (
@@ -126,6 +143,13 @@ export function PictureNode({
     const w = shown.naturalWidth * scale;
     const h = shown.naturalHeight * scale;
     return <KonvaImage image={shown} x={(width - w) / 2} y={(height - h) / 2} width={w} height={h} listening={false} {...marked} />;
+  }
+  if (shown && crop) {
+    // Cropped (6.5.7b round 2): the kept part alone, in the box, by Konva's own crop of the picture's pixels, so nothing
+    // reaches past the box for the handles to frame. Its fractions ride on the node (`sbCrop`) for the PDF, which embeds
+    // that part alone from the full-quality picture.
+    const source = { x: crop.x * shown.naturalWidth, y: crop.y * shown.naturalHeight, width: crop.width * shown.naturalWidth, height: crop.height * shown.naturalHeight };
+    return <KonvaImage image={shown} width={width} height={height} crop={source} listening={false} {...marked} {...{ sbCrop: { ...crop } }} />;
   }
   if (shown) return <KonvaImage image={shown} width={width} height={height} listening={false} {...marked} />;
   return (
