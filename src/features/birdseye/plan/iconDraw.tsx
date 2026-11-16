@@ -1,13 +1,18 @@
 import { useEffect, type ReactElement } from 'react';
 import type { Context } from 'konva/lib/Context';
 import { Group, Path, Rect, Shape, Text } from 'react-konva';
+import { DARK_COLOURS, inkOn, isDark, kitStroke } from '../../../ui/canvas/canvasPalette';
+import { INK, PAPER_COLOURS } from '../../../ui/canvas/paperColours';
 import type { CanvasColours } from '../../../ui/canvas/types';
 import type { PlanIcon } from '../../../ui/icons/plan/planIcons';
 import { ensureFont, useFonts } from '../../moodboards/fonts';
+import { parsePathData } from '../../export/deckDisplay';
 import { ICON_BOXES, ICON_SHAPES, type IconBox, type IconPart, type IconPath, type IconText } from './iconBoxes';
 import { outlinedSymbol } from './iconSizes';
 
-// A library icon drawn on a plan (6.3) exactly as the kit's SVG is, never recoloured, in light and dark (decision 13),
+// A library icon drawn on a plan (6.3) exactly as the kit's SVG is, never recoloured by the theme (decision 13); only
+// the plan's own Dark view (6.5.1) draws the kit's ink LINES light (canvasPalette.ts kitStroke) and keeps every fill,
+// its letters in the ink that reads on what they sit on (iconTextInk),
 // as vectors (third review round): its shapes are a committed table (iconBoxes.ts, written from the SVGs by
 // scripts/planIconBoxes.ts), each a Konva Path in the kit's own hex, inside one Group that maps the box of the icon's ink
 // on its 32 px grid to the item's box (stretched, as the item is). Every line is drawn with strokeScaleEnabled off, so
@@ -61,14 +66,68 @@ export function symbolFit(box: IconBox, width: number, height: number): { x: num
   return { x: width / 2 - (box.x + box.width / 2) * scale, y: height / 2 - (box.y + box.height / 2) * scale, scaleX: scale, scaleY: scale };
 }
 
-function pathNode(part: IconPath, key: string): ReactElement {
+/** The width of the light outline the Dark view gives a solid ink fill with no line of its own, kit pixels (its lines' weight). */
+export const DARK_OUTLINE = 1.5;
+
+/** A path's box on the icon's grid, from every point its segments name (an arc's cubics' control points bound it). */
+const pathBoxes = new WeakMap<IconPath, { x0: number; y0: number; x1: number; y1: number } | null>();
+function pathBox(part: IconPath): { x0: number; y0: number; x1: number; y1: number } | null {
+  if (pathBoxes.has(part)) return pathBoxes.get(part) ?? null;
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const segment of parsePathData(part.d)) {
+    const values = 'm' in segment ? segment.m : 'l' in segment ? segment.l : 'c' in segment ? segment.c : [];
+    for (let i = 0; i + 1 < values.length; i += 2) {
+      xs.push(values[i] ?? 0);
+      ys.push(values[i + 1] ?? 0);
+    }
+  }
+  const box = xs.length === 0 ? null : { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+  pathBoxes.set(part, box);
+  return box;
+}
+
+/** How far past a fill's box a line may reach and still be on it, grid pixels (a line drawn along a fill's edge). */
+const ON_FILL_SLACK = 0.01;
+
+/**
+ * The fill a line of an icon is drawn over (6.5.1 round 4): a shape with no fill of its own whose every point lies in
+ * the box of a filled shape drawn before it (the nearest such, by the kit's drawing order); null for a line on no fill
+ * (a filled shape's own outline, which edges it against the page, and a stroke-only icon). Drawing order alone took a
+ * fresnel's rays, a beam's sides and a stand's legs, drawn after the lamp's or the screen's fill but outside it, for lines
+ * on it; the box tells them apart. A box is wider than a round fill, so a line in a disc's corner would count as on it:
+ * no kit icon draws one there.
+ */
+export function fillUnderLine(parts: readonly IconPart[], index: number): string | null {
+  const part = parts[index];
+  if (part?.kind !== 'path' || part.fill !== null) return null;
+  const box = pathBox(part);
+  if (!box) return null;
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const under = parts[i];
+    if (under?.kind !== 'path' || under.fill === null) continue;
+    const fill = pathBox(under);
+    if (fill && box.x0 >= fill.x0 - ON_FILL_SLACK && box.x1 <= fill.x1 + ON_FILL_SLACK && box.y0 >= fill.y0 - ON_FILL_SLACK && box.y1 <= fill.y1 + ON_FILL_SLACK) return under.fill;
+  }
+  return null;
+}
+
+function pathNode(part: IconPath, key: string, colours: CanvasColours, under: string | null = null): ReactElement {
+  // Dark (6.5.1 rounds 3 and 4): the kit's ink lines turn light, but a line over one of the icon's own fills (a bounce's
+  // centre line on its white face) takes the ink that reads on that fill; every fill stays the kit's (an ink fill is
+  // black cloth, a white one a bounce's face). A solid ink fill with no line of its own would vanish into the dark page:
+  // it gets a light outline at the kit's line weight, so its shape reads while its fill stays ink.
+  const inkFill = part.fill !== null && part.fill.toUpperCase() === INK;
+  const outlined = isDark(colours) && part.stroke === null && inkFill;
+  const line = part.stroke === null ? null : under !== null && isDark(colours) && part.stroke.toUpperCase() === INK ? inkOn(colours, under) : kitStroke(part.stroke, colours);
   return (
     <Path
       key={key}
       data={part.d}
       {...(part.fill === null ? {} : { fill: paintOf(part.fill, part.fillOpacity) })}
-      {...(part.stroke === null ? {} : { stroke: paintOf(part.stroke, part.strokeOpacity) })}
-      strokeWidth={part.strokeWidth}
+      {...(line === null ? {} : { stroke: paintOf(line, part.strokeOpacity) })}
+      {...(outlined ? { stroke: colours.ink } : {})}
+      strokeWidth={outlined ? DARK_OUTLINE : part.strokeWidth}
       strokeScaleEnabled={false}
       {...(part.dash === null ? {} : { dash: [...part.dash] })}
       lineCap={part.lineCap}
@@ -80,15 +139,23 @@ function pathNode(part: IconPath, key: string): ReactElement {
   );
 }
 
+/** One shape of an icon as the palette draws it (its tests draw a shape the kit doesn't have yet). */
+export const iconPathNode = pathNode;
+
 const ALIGN = { start: 'left', middle: 'center', end: 'right' } as const;
 
-/** Draws a text at its SVG baseline, anchored as SVG's text-anchor says: one function per text, shared. */
-const textScenes = new WeakMap<IconText, (context: Context) => void>();
-function sceneOf(part: IconText): (context: Context) => void {
-  let scene = textScenes.get(part);
+/** Draws a text at its SVG baseline, anchored as SVG's text-anchor says: one function per text and paint, shared. */
+const textScenes = new WeakMap<IconText, Map<string, (context: Context) => void>>();
+function sceneOf(part: IconText, ink: string | undefined): (context: Context) => void {
+  const fill = paintOf(ink ?? part.fill, part.fillOpacity);
+  let scenes = textScenes.get(part);
+  if (!scenes) {
+    scenes = new Map();
+    textScenes.set(part, scenes);
+  }
+  let scene = scenes.get(fill);
   if (!scene) {
     const font = `${String(part.weight)} ${String(part.size)}px "${part.family}", monospace`;
-    const fill = paintOf(part.fill, part.fillOpacity);
     scene = (context: Context) => {
       context.setAttr('font', font);
       context.setAttr('textAlign', ALIGN[part.anchor]);
@@ -96,33 +163,71 @@ function sceneOf(part: IconText): (context: Context) => void {
       context.setAttr('fillStyle', fill);
       context.fillText(part.text, part.x, part.y);
     };
-    textScenes.set(part, scene);
+    scenes.set(fill, scene);
   }
   return scene;
 }
 
-/** A text of an icon, in the bundled face it names; drawn again once that face has loaded (Parking's "P", a cast mark's "A1"). */
-function IconTextNode({ part }: { part: IconText }) {
+/**
+ * A text of an icon, in the bundled face it names; drawn again once that face has loaded (Parking's "P", a cast mark's "A1").
+ * `ink`, the Dark view's ink for it (iconTextInk); left out, the kit's own fill.
+ */
+function IconTextNode({ part, ink }: { part: IconText; ink?: string }) {
   // Changes when a face finishes loading, so the canvas draws the text again in it.
   const fonts = useFonts((s) => s.version);
   useEffect(() => {
     void ensureFont(part.family, part.weight, false);
   }, [part]);
   // `sbText` carries the part itself, so a PDF export can set it as real text in its face (6.10), not as the pixels fillText makes.
-  return <Shape sceneFunc={sceneOf(part)} sbText={part} fontsVersion={fonts} opacity={part.opacity} perfectDrawEnabled={false} listening={false} />;
+  return <Shape sceneFunc={sceneOf(part, ink)} sbText={part} fontsVersion={fonts} opacity={part.opacity} perfectDrawEnabled={false} listening={false} />;
 }
 
-/** Each icon's React elements, made the first time it is drawn and reused by every item that draws it (each gets its own Konva nodes). */
-const NODES = new Map<string, readonly ReactElement[]>();
+/**
+ * The fill a text of an icon sits on: the last filled shape drawn before it in the kit's own order (a cast mark's pink
+ * disc under its "A1"); null for none (Parking's "P" in an outline). The kit draws a letter after the shape it is set on,
+ * so its drawing order stands in for geometry, which a path's arcs make costly to work out.
+ */
+export function fillUnderText(parts: readonly IconPart[], index: number): string | null {
+  for (let i = index - 1; i >= 0; i -= 1) {
+    const part = parts[i];
+    if (part?.kind === 'path' && part.fill !== null) return part.fill;
+  }
+  return null;
+}
 
-/** An icon's React elements on its grid, the same array every time; null for an id the table doesn't have. */
-export function iconNodes(id: string): readonly ReactElement[] | null {
-  const had = NODES.get(id);
+/**
+ * The ink a text of an icon is set in for a palette (6.5.1 round 3): on paper, and in every print, none (the kit's own
+ * fill). In Dark, a text in the kit's ink takes `inkOn` against the fill it sits on (ink on the cast pink, light on no
+ * fill); a text in a colour of the kit's own keeps it.
+ */
+export function iconTextInk(parts: readonly IconPart[], index: number, part: IconText, colours: CanvasColours): string | undefined {
+  if (!isDark(colours) || part.fill.toUpperCase() !== INK) return undefined;
+  return inkOn(colours, fillUnderText(parts, index));
+}
+
+/**
+ * Each icon's React elements, made the first time it is drawn and reused by every item that draws it (each gets its own
+ * Konva nodes): one set in the kit's own hexes (paper, and every print), one for the Dark view (6.5.1): its ink lines
+ * light, its fills the kit's, its letters in the ink that reads on what they sit on.
+ */
+const NODES = new Map<string, readonly ReactElement[]>();
+const DARK_NODES = new Map<string, readonly ReactElement[]>();
+
+/** An icon's React elements on its grid for a palette, the same array every time; null for an id the table doesn't have. */
+export function iconNodes(id: string, colours: CanvasColours = PAPER_COLOURS): readonly ReactElement[] | null {
+  const dark = isDark(colours);
+  const cache = dark ? DARK_NODES : NODES;
+  const had = cache.get(id);
   if (had) return had;
   const parts = iconShapesOf(id);
   if (!parts) return null;
-  const nodes = parts.map((part, i) => (part.kind === 'path' ? pathNode(part, String(i)) : <IconTextNode key={String(i)} part={part} />));
-  NODES.set(id, nodes);
+  const paint = dark ? DARK_COLOURS : PAPER_COLOURS;
+  const nodes = parts.map((part, i) => {
+    if (part.kind === 'path') return pathNode(part, String(i), paint, dark ? fillUnderLine(parts, i) : null);
+    const ink = iconTextInk(parts, i, part, paint);
+    return <IconTextNode key={String(i)} part={part} {...(ink === undefined ? {} : { ink })} />;
+  });
+  cache.set(id, nodes);
   return nodes;
 }
 
@@ -171,21 +276,23 @@ export function replacedText(id: string, index: number, part: IconText, texts: I
 }
 
 /** An icon's React elements with `texts` applied; the shared ones when there is nothing to replace. */
-export function iconNodesWith(id: string, texts: IconTexts | undefined): readonly ReactElement[] | null {
-  const nodes = iconNodes(id);
+export function iconNodesWith(id: string, texts: IconTexts | undefined, colours: CanvasColours = PAPER_COLOURS): readonly ReactElement[] | null {
+  const nodes = iconNodes(id, colours);
   const parts = iconShapesOf(id);
   if (!nodes || !parts || texts === undefined) return nodes;
   const single = parts.filter((part) => part.kind === 'text').length === 1;
   return parts.map((part, i) => {
     if (part.kind !== 'text') return nodes[i] as ReactElement;
     const replaced = replacedText(id, i, part, texts, single);
-    return replaced === part ? (nodes[i] as ReactElement) : <IconTextNode key={String(i)} part={replaced} />;
+    if (replaced === part) return nodes[i] as ReactElement;
+    const ink = iconTextInk(parts, i, replaced, colours);
+    return <IconTextNode key={String(i)} part={replaced} {...(ink === undefined ? {} : { ink })} />;
   });
 }
 
 /** The icon's shapes alone, in the item's box: stretched to it, or for a symbol (6.17) at its own proportions in its middle. */
-function IconGroup({ icon, width, height, texts, symbol = false }: { icon: PlanIcon; width: number; height: number; texts?: IconTexts | undefined; symbol?: boolean }) {
-  const nodes = iconNodesWith(icon.id, texts);
+function IconGroup({ icon, width, height, colours, texts, symbol = false }: { icon: PlanIcon; width: number; height: number; colours: CanvasColours; texts?: IconTexts | undefined; symbol?: boolean }) {
+  const nodes = iconNodesWith(icon.id, texts, colours);
   if (!nodes) return null;
   const fit = (symbol ? symbolFit : iconFit)(iconContentBox(icon), width, height);
   return (
@@ -208,7 +315,7 @@ export function IconShape({ icon, width, height, zoom, name, colours, texts, foo
   const symbol = footprint && outlinedSymbol(icon.id);
   return (
     <>
-      <IconGroup icon={icon} width={width} height={height} texts={texts} symbol={symbol} />
+      <IconGroup icon={icon} width={width} height={height} colours={colours} texts={texts} symbol={symbol} />
       {/* The true footprint, in the kit's 1.5 px ink line (printed at the kit's line weight), under nothing it hides. */}
       {symbol && <Rect width={width} height={height} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} listening={false} />}
       <NameBelow name={name} width={width} height={height} zoom={zoom} colours={colours} />
@@ -252,9 +359,12 @@ const fillOf = (icon: PlanIcon): string | null => {
 export function NoteShape({ icon, width, height, zoom, name, colours }: ShapeProps & { icon: PlanIcon }) {
   if (name === '') return <IconShape icon={icon} width={width} height={height} zoom={zoom} name="" colours={colours} />;
   const pad = Math.min(width, height) * 0.12;
+  // The kit's fill stays the kit's in the Dark view (6.5.1 round 3); its outline is a line (light in Dark), and its words
+  // take the ink that reads on that fill.
+  const fill = fillOf(icon) ?? colours.raised;
   return (
     <>
-      <Rect width={width} height={height} fill={fillOf(icon) ?? colours.raised} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} listening={false} />
+      <Rect width={width} height={height} fill={fill} stroke={colours.ink} strokeWidth={1.5} strokeScaleEnabled={false} listening={false} />
       <Text
         text={name}
         x={pad}
@@ -264,7 +374,7 @@ export function NoteShape({ icon, width, height, zoom, name, colours }: ShapePro
         verticalAlign="middle"
         fontFamily='"Inter Tight"'
         fontSize={Math.max(1, Math.min(height * 0.3, 40))}
-        fill={colours.ink}
+        fill={inkOn(colours, fill)}
         ellipsis
         listening={false}
       />

@@ -138,7 +138,7 @@ function MonoText({
       fontStyle={bold ? 'bold' : 'normal'}
       fontSize={size}
       fill={colours.ink}
-      {...labelHalo(zoom)}
+      {...labelHalo(zoom, colours)}
       wrap="none"
       listening={false}
     />

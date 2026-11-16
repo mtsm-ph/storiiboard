@@ -77,6 +77,21 @@ export const isPaperChoice = (value: unknown): value is PaperChoice => value ===
 export type DirectionsApp = 'google' | 'apple' | 'osm';
 export const isDirectionsApp = (value: unknown): value is DirectionsApp => value === 'google' || value === 'apple' || value === 'osm';
 
+/** How a canvas is looked at on this computer (6.5.1): on paper, as it prints, or dark, a view only. */
+export type CanvasViewChoice = 'paper' | 'dark';
+
+/** One choice for every plan and one for every board and deck (a deck is a board), each on its own. */
+export interface CanvasViews {
+  plan: CanvasViewChoice;
+  board: CanvasViewChoice;
+}
+
+/** Anything but `dark` reads as paper, each kind on its own, so an odd value never darkens a canvas nobody chose to. */
+export function canvasViewsOf(value: unknown): CanvasViews {
+  const saved = typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  return { plan: saved.plan === 'dark' ? 'dark' : 'paper', board: saved.board === 'dark' ? 'dark' : 'paper' };
+}
+
 export interface Settings {
   theme: ThemePreference;
   /**
@@ -300,6 +315,34 @@ export function saveSettings(patch: Partial<Settings>, storage: Writer | undefin
     storage?.setItem(SETTINGS_KEY, JSON.stringify(next));
   } catch {
     // A full or blocked store only loses the preference, never the session.
+  }
+  return next;
+}
+
+/**
+ * Paper or Dark (6.5.1), one for every plan and one for every board on this computer: a view, never a prop, an op or
+ * anything in a project; exports and prints are always on paper. Kept in this computer's storage beside the settings,
+ * under a key of its own, read as defensively.
+ */
+export const CANVAS_VIEW_KEY = 'storiiboard.canvasView';
+
+export const DEFAULT_CANVAS_VIEWS: CanvasViews = { plan: 'paper', board: 'paper' };
+
+export function loadCanvasViews(storage: Reader | undefined = browserStorage()): CanvasViews {
+  try {
+    const raw = storage?.getItem(CANVAS_VIEW_KEY);
+    return raw ? canvasViewsOf(JSON.parse(raw)) : { ...DEFAULT_CANVAS_VIEWS };
+  } catch {
+    return { ...DEFAULT_CANVAS_VIEWS };
+  }
+}
+
+export function saveCanvasViews(views: CanvasViews, storage: Writer | undefined = browserStorage()): CanvasViews {
+  const next = canvasViewsOf(views);
+  try {
+    storage?.setItem(CANVAS_VIEW_KEY, JSON.stringify(next));
+  } catch {
+    // A full or blocked store only loses the view, never the session.
   }
   return next;
 }

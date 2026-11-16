@@ -36,6 +36,14 @@ export interface CanvasColours {
   ink: string;
   paper: string;
   raised: string;
+  /**
+   * The Dark view's palette (6.5.1): what has no colour of its own draws light on a dark page. Read from the palette
+   * itself, so a copy or a wrap of it (a context whose ink was chosen for what lies under an item) still draws as Dark.
+   * Left out (paper, every export, the theme's colours), false.
+   */
+  dark?: boolean;
+  /** The colour behind a plan label as its halo (6.5.1), where it isn't the fixed paper; left out, the fixed paper. */
+  halo?: string;
 }
 
 export interface DrawContext extends Size {

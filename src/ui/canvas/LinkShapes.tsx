@@ -41,12 +41,14 @@ interface LinkShapeProps {
   zoom: number;
   /** A connector being drawn: drawn lighter. */
   draft?: boolean;
+  /** The host's ink for its line when it has no colour of its own (6.5.1 round 3); left out, the canvas's ink. */
+  ink?: string | undefined;
 }
 
 // Memoised (5.7): a pan or a marquee leaves every connector as it was.
-export const LinkShape = memo(function LinkShape({ resolved, colours, selected, hideText, handles, zoom, draft = false }: LinkShapeProps) {
+export const LinkShape = memo(function LinkShape({ resolved, colours, selected, hideText, handles, zoom, draft = false, ink }: LinkShapeProps) {
   const { link, path, patch } = resolved;
-  const stroke = link.color ?? colours.ink;
+  const stroke = link.color ?? ink ?? colours.ink;
   const points = path.points;
   const first = points[0];
   const last = points[points.length - 1];

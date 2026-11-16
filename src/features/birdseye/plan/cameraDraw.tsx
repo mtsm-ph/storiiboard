@@ -109,15 +109,19 @@ export const HALO_PIXELS = 3;
 
 /**
  * A plan label's paper halo (6.6 review): the text stroked in the fixed paper colour under its ink, so a label stays
- * legible where it crosses a wall, a cone or a beam, with no box behind it. Plans only; the paper is the fixed one, as a
- * plan is never themed (decision 13). Spread into a Konva Text drawn at `zoom`.
+ * legible where it crosses a wall, a cone or a beam, with no box behind it. Plans only; the paper is the palette's (never
+ * the theme's, decision 13), so in the Dark view (6.5.1) the halo is the dark page under the light ink, the pair swapped
+ * together. Spread into a Konva Text drawn at `zoom`.
  *
  * Its width is worked out per zoom (6.6 second review): Konva's Text always scales its stroke with the view (its
  * strokeScaleEnabled is ignored for text), so a fixed width was in plan units, too thin to show zoomed out and a slab of
  * paper over walls and cones zoomed in. HALO_PIXELS / zoom is HALO_PIXELS on screen at every zoom.
  */
-export function labelHalo(zoom: number) {
-  return { stroke: PAPER, strokeWidth: HALO_PIXELS / zoom, fillAfterStrokeEnabled: true, lineJoin: 'round' } as const;
+export function labelHalo(zoom: number, colours?: CanvasColours) {
+  // Only the Dark view changes it: on paper, and in every print (whose own paper is the sheet), it stays the fixed paper
+  // it always was, so what prints is exactly as before.
+  const paper = colours?.halo ?? PAPER;
+  return { stroke: paper, strokeWidth: HALO_PIXELS / zoom, fillAfterStrokeEnabled: true, lineJoin: 'round' } as const;
 }
 
 /**
@@ -163,7 +167,7 @@ export function UprightLabels({
           fontFamily='"JetBrains Mono"'
           fontSize={size}
           fill={colours.ink}
-          {...labelHalo(zoom)}
+          {...labelHalo(zoom, colours)}
           wrap="none"
           ellipsis
           listening={false}
@@ -303,7 +307,7 @@ export function BesideLabels({ width, height, zoom, rotation, colours, spec }: {
           fontFamily='"JetBrains Mono"'
           fontSize={size}
           fill={colours.ink}
-          {...labelHalo(zoom)}
+          {...labelHalo(zoom, colours)}
           wrap="none"
           listening={false}
         />

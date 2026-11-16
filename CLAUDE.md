@@ -199,7 +199,8 @@
   - North is one per room. The sun path draws the real sun for the frames' location and shoot day (SunCalc, the
     location's time zone); with no location, day or north it says what's missing and draws nothing.
   - Layers per department: camera (DP), lighting (gaffer), grip, art, cast blocking. A focus view, not access control.
-  - A plan is never themed, as boards: paper and ink in light and dark.
+  - A plan never follows the app's theme, as boards: it is paper and ink, or the Dark view (Kevin, Nov 16, 6.5.1):
+    a toggle on the canvas, remembered on this computer, never in the project. PDFs, PNGs and prints stay on paper.
   - Export: PDF and PNG per setup, and two packets, each one PDF: a scene (a page per setup) and a shoot day (every
     setup with a frame that day, in the day's order). Paper by region, as call sheets.
 - Department status: per frame, Priority, Seen (automatic), Working on it and Done for each department; Approved per
@@ -269,8 +270,12 @@
   - A deck is a board with ordered page frames: 16:9, 9:16 and 4:5 (social), A4 and Letter (a treatment).
   - Pictures are stored as frames' are: at most 2560 px, with a pointer to the original for full-quality export;
     never the original embedded. The canvas draws small previews when zoomed out, the full picture only up close.
-  - Board content is never themed (5.1a): a missing colour is ink, and the board's canvas is paper in light and dark;
-    only the app around it follows the theme. So a board looks and prints the same everywhere.
+  - Board content never follows the app's theme (5.1a): a missing colour is ink, and the canvas is paper. Dark is a
+    view, never part of the board (Kevin, Nov 16, 6.5.1): a toggle on each canvas (one for plans, one for boards and
+    decks), remembered on this computer. In Dark the background is dark and anything with no colour of its own draws
+    light (on a fill, whichever ink reads better on it); chosen colours, pictures, an icon's fills and department
+    colours don't change. Nothing of it is stored in the project, and every PDF, PNG and print stays on paper: the
+    drawing takes a palette (src/ui/canvas/canvasPalette.ts), and export paths always pass the paper one.
   - Shot and scene cards are live, never copies. Video is a card with a still that opens the Player.
   - Fonts: the bundled ones plus this computer's (font-kit). A missing font shows its fallback and says which; a PDF
     never embeds a font whose `fsType` bits forbid it: the fallback is used and the export says so.
