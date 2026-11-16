@@ -290,7 +290,7 @@ jobs:
             'dav1d-LICENSE.txt', 'ffmpeg-SOURCE.txt', 'fonts-archivo-OFL.txt', 'fonts-bodonimoda-OFL.txt',
             'fonts-intertight-OFL.txt', 'fonts-jetbrainsmono-OFL.txt', 'fonts-jost-OFL.txt', 'fonts-outfit-OFL.txt'
           $scripts = @(Get-ChildItem src-tauri/target/release/wix/*/main.wxs) + @(Get-ChildItem src-tauri/target/release/nsis/*/installer.nsi)
-          if ($scripts.Count -lt 2) { throw 'Expected both installers\' scripts.' }
+          if ($scripts.Count -lt 2) { throw 'Expected the scripts of both installers.' }
           foreach ($script in $scripts) {
             Select-String -Path $script -Pattern 'ffmpeg|ffprobe|LICENSE|OFL|SOURCE' | ForEach-Object { "$($script.Name): $($_.Line.Trim())" }
             foreach ($name in $names) {
