@@ -20,6 +20,7 @@ import { handledSize, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, shrunkBe
 import { drawOrder, sectionContents, tabRect, topmostSectionAt } from './sections';
 import { mergeGuides, runSnapEnds, snapMove, snapPoint, snapTargetItems, type Guide } from './snapping';
 import { dotBox, dotCornerKeepingRatio, dotHandle, dotMove, dotSnapSpacing, dotSpacing, dotSpacingLabel, dotsInView, handleAxes } from './dotGrid';
+import { cropDrag, HANDLE_ANCHORS, sideKeepingRatio, soleCropItem, withCropLive, type CropLive, type CropRect } from './cropping';
 
 /** The box Konva's handles hand their bound function, in the stage's pixels. */
 interface TransformBox {
@@ -49,6 +50,7 @@ import {
   type HostToolId,
   type LinkEnd,
   type LiveBy,
+  type MenuAction,
   type PlaceTool,
   type Point,
   type Rect as WorldRect,
@@ -87,6 +89,8 @@ const ZOOM_SETTLE = 150;
 /** A zoom that follows a wheel or pinch this soon is theirs: it settles; any other zoom is a jump. */
 const WHEEL_WINDOW = 250;
 const DRAG_THRESHOLD = 3;
+/** A crop leaves at least this many screen pixels a side (6.5.7b), and never less than the host's least size. */
+const CROP_MIN_PIXELS = 8;
 const BUTTON = 'sb-label flex h-7 items-center justify-center px-2.5 focus-visible:-outline-offset-4';
 const ZOOM_BUTTON = cx(BUTTON, 'text-text hover:bg-surface-raised');
 const CORNERS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
@@ -119,7 +123,9 @@ type Gesture =
   | { kind: 'marquee'; start: Point; screen: Point; base: string[]; moved: boolean }
   | { kind: 'draw'; tool: PlaceTool | HostToolId; start: Point; screen: Point; targets: WorldRect[] | null; moved: boolean }
   // A connector drawn (the tool, or a "+" handle) or one of its ends dragged: `fixed` stays, the other end follows the pointer.
-  | { kind: 'connect'; id: string | null; fixed: LinkEnd; moving: 'from' | 'to'; screen: Point; moved: boolean; quick: string | null; quickSide: Side | null };
+  | { kind: 'connect'; id: string | null; fixed: LinkEnd; moving: 'from' | 'to'; screen: Point; moved: boolean; quick: string | null; quickSide: Side | null }
+  // A crop drag (6.5.7b): a handle pressed with Ctrl (⌘) on an item with a picture of its own, its box and crop as it began.
+  | { kind: 'crop'; id: string; anchor: string; start: Point; screen: Point; origin: Geometry; crop: CropRect; min: number; moved: boolean };
 
 /** A connector being drawn or re-ended: the ends as the pointer makes them, and the side it would join. */
 interface ConnectDraft {
@@ -263,6 +269,16 @@ export interface CanvasProps {
    * right of `insetLeft` (a plan, whose first view is centred there too) rather than the canvas's own middle (a board).
    */
   insetMiddle?: boolean;
+  /**
+   * Crop (6.5.7b): given, an item with a `crop` (a board's picture) picked by itself, not locked, is cropped by a handle
+   * dragged with Ctrl (⌘ on a Mac) held as the drag starts: the dragged side moves over the picture, the opposite one
+   * stays, the picture keeps its size on the board (cropping.ts), Shift keeps the crop's proportions and Escape cancels.
+   * Told once, on release, with the item's new box and crop. Its middle handles show too, a plain drag of one keeping its
+   * proportions. Left out (a plan), the handles resize exactly as before.
+   */
+  onCrop?: (id: string, geometry: Geometry, crop: CropRect) => unknown;
+  /** The host's own entries in the right-click menu for the selection (6.5.7b: Reset crop). Left out, none. */
+  menuActions?: (selection: readonly string[]) => readonly MenuAction[];
 }
 
 /** The items as boxes for snapping, back to front. */
@@ -340,6 +356,8 @@ export function Canvas({
   onLiveDrawn,
   insetLeft = 0,
   insetMiddle = false,
+  onCrop,
+  menuActions,
 }: CanvasProps) {
   const limits = zoomLimits ?? BOARD_ZOOM;
   const themed = useCanvasColours();
@@ -383,6 +401,8 @@ export function Canvas({
   const [guides, setGuides] = useState<readonly Guide[]>([]);
   // Where the items being resized or turned by the handles are right now, so the connectors follow before the gesture ends.
   const [transforming, setTransforming] = useState<{ key: string; live: ReadonlyMap<string, Geometry> } | null>(null);
+  // A crop drag's live box and crop (6.5.7b), held after release until its write lands, as a move's draft is.
+  const [cropLive, setCropLive] = useState<CropLive | null>(null);
   // A point-to-point run (6.2a), in a ref too so the handlers always read it as it is now.
   const [path, setPathState] = useState<PathDraft | null>(null);
   const pathRef = useRef<PathDraft | null>(null);
@@ -406,7 +426,8 @@ export function Canvas({
   const remade = useMemo(() => remadeFor(liveItems, draft, liveBoxes, seen), [liveItems, draft, liveBoxes, seen]);
   // Only an item the gesture moves (or the host draws anew for it) is a new object: the others stay the items they were,
   // so what is drawn for them is kept (5.7).
-  const shown = useMemo(() => shownWith(items, draft, remade), [items, draft, remade]);
+  // A crop drag's item at its live box, drawn with its live crop (none without onCrop: a plan's list is as it was).
+  const shown = useMemo(() => withCropLive(shownWith(items, draft, remade), cropLive), [items, draft, remade, cropLive]);
   // The host told what was drawn anew once it is drawn (for its tests), never while drawing.
   useLayoutEffect(() => {
     onLiveDrawn?.(remade && remade.size > 0 ? remade : null);
@@ -508,7 +529,8 @@ export function Canvas({
   // unevenly would skew them, and on release the saved rotation would change.
   const turned = handleIds.map((id) => shown.find((item) => item.id === id)?.rotation ?? 0);
   const mixed = handleIds.length > 1 && (new Set(turned).size > 1 || turned.some((r) => r % 90 !== 0));
-  // Pictures and video cards keep their shape: corners only.
+  // Pictures and video cards keep their shape: corners only, but for one picture picked by itself with a host that crops
+  // (cropOne below: all eight, a middle one keeping the proportions).
   const locked = handleIds.some((id) => shown.find((item) => item.id === id)?.keepRatio === true);
   // A door or window (6.2b) takes its shape and turn from its wall: no anchors and no turning while one is picked.
   const moveOnly = handleIds.some((id) => shown.find((item) => item.id === id)?.moveOnly === true);
@@ -519,6 +541,10 @@ export function Canvas({
   // A plan's sun path (6.6) is never turned, a door or window takes its turn from its wall, and a section is always
   // upright: no rotate handle while one is picked (turnsByHandle).
   const turnable = turnsByHandle(shown, handleIds);
+  // One item with a picture of its own picked by itself, with a host that crops (6.5.7b): all eight handles, so any side
+  // can be cropped; a plain drag of a middle one keeps the proportions (sideKeepingRatio), as the corners do.
+  // The same rule as the gesture's (soleCropItem): a picture and a connector picked together show no middle handles.
+  const cropOne = onCrop !== undefined && handleIds.length === 1 && soleCropItem(selection, shown) !== undefined;
 
   // What the handlers read, as it is now: they are set up once and must never act on an old view.
   const trackpadOn = trackpad?.value ?? true;
@@ -597,6 +623,11 @@ export function Canvas({
       setShift(false);
       space.current = false;
       setSpaceHeld(false);
+      // A crop drag under way when the window loses focus is cancelled (6.5.7b round 2): its release may never come.
+      if (gesture.current?.kind === 'crop') {
+        gesture.current = null;
+        setCropLive(null);
+      }
     };
     window.addEventListener('keydown', track);
     window.addEventListener('keyup', track);
@@ -695,11 +726,34 @@ export function Canvas({
 
   // The handles are given their nodes only when the picked ones change: Konva detaches and resets a transform in
   // progress when its nodes are set again (pressing Shift mid-turn would do it).
+  /**
+   * Where the handles are, on the frame for the end-to-end tests (6.5.7b round 2; the canvas is pixels): each shown
+   * anchor's middle in the stage's pixels, or nothing while none shows.
+   */
+  const reportHandles = () => {
+    // Only where the tests run (as the plan's data-plan-live): an installed app writes nothing per pointer move.
+    if (!import.meta.env.DEV) return;
+    const tr = transformer.current;
+    const element = frame.current;
+    if (!tr || !element) return;
+    const at: Record<string, { x: number; y: number }> = {};
+    if (tr.nodes().length > 0) {
+      for (const name of HANDLE_ANCHORS) {
+        const anchor = tr.findOne(`.${name}`);
+        if (!anchor?.visible()) continue;
+        const point = anchor.getAbsolutePosition();
+        at[name] = { x: Math.round(point.x * 10) / 10, y: Math.round(point.y * 10) / 10 };
+      }
+    }
+    const text = JSON.stringify(at);
+    if (element.dataset.handles !== text) element.dataset.handles = text;
+  };
   useLayoutEffect(() => {
     const tr = transformer.current;
     if (!tr) return;
     tr.nodes(handleIds.map((id) => nodes.current.get(id)).filter((n): n is Konva.Group => n !== undefined));
     tr.getLayer()?.batchDraw();
+    reportHandles();
     // handleIds is read through its key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleKey]);
@@ -709,6 +763,7 @@ export function Canvas({
     if (!tr || tr.nodes().length === 0) return;
     tr.forceUpdate();
     tr.getLayer()?.batchDraw();
+    reportHandles();
   }, [shown]);
 
   const commit = (real: GeometryChange[]) => {
@@ -851,6 +906,7 @@ export function Canvas({
     setGuides([]);
     // Only a drag that began its own hold lets it go: a pending write's hold is not this gesture's to drop.
     if (g?.kind === 'move' && g.moved) setDraft(null);
+    if (g?.kind === 'crop') setCropLive(null);
   };
 
   /** The lines moving things snap to: the items in view (sections too) that are not themselves moving or carried. */
@@ -1000,6 +1056,21 @@ export function Canvas({
     const screen = local(event);
     // The handles are Konva's: it resizes and rotates, and tells us when it is done.
     const hit = stage.current?.getIntersection(screen);
+    const handle = hit?.findAncestor('Transformer') ? hit.name().split(' ')[0] : undefined;
+    // Ctrl (⌘ on a Mac) held as a handle's drag starts crops (6.5.7b), when the host crops and one picture is picked by
+    // itself. Decided once, here: Konva never begins the resize, as a cancelled press sends it no mouse events.
+    if (handle !== undefined && onCrop && event.button === 0 && (isMac() ? event.metaKey : event.ctrlKey) && (HANDLE_ANCHORS as readonly string[]).includes(handle) && latest.current.tool === 'select') {
+      const { selection: picked, shown: all, viewport: now } = latest.current;
+      const item = soleCropItem(picked, all);
+      if (item?.crop) {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        // As a move does: a crop's write on its way from before never lets go of this one's hold.
+        generation.current += 1;
+        gesture.current = { kind: 'crop', id: item.id, anchor: handle, start: worldOf(screen), screen, origin: geometryOf(item), crop: item.crop, min: Math.max(minSize, CROP_MIN_PIXELS / now.zoom), moved: false };
+        return;
+      }
+    }
     if (hit?.findAncestor('Transformer')) return;
     if (event.button === 1 || space.current || latest.current.tool === 'hand') {
       event.preventDefault();
@@ -1112,6 +1183,12 @@ export function Canvas({
     if (!g.moved && Math.hypot(screen.x - g.screen.x, screen.y - g.screen.y) < DRAG_THRESHOLD) return;
     if (!g.moved && g.kind === 'move') generation.current += 1;
     g.moved = true;
+    if (g.kind === 'crop') {
+      // Not onto the dots or other items' lines: a crop follows the pointer over the picture.
+      const made = cropDrag(g.origin, g.crop, g.anchor, { x: world.x - g.start.x, y: world.y - g.start.y }, { min: g.min, keepRatio: event.shiftKey });
+      setCropLive({ id: g.id, ...made, active: true });
+      return;
+    }
     if (g.kind === 'connect') {
       const snap = snapEnd(boxesOf(latest.current.itemsShown), world, latest.current.viewport.zoom, isAttached(g.fixed) ? g.fixed.item : null);
       setConnecting({ id: g.id, from: g.moving === 'to' ? g.fixed : snap.end, to: g.moving === 'to' ? snap.end : g.fixed, mark: snap.mark });
@@ -1138,6 +1215,18 @@ export function Canvas({
     setGuides([]);
     if (!g || g.kind === 'pan') return;
     const world = worldOf(local(event));
+    if (g.kind === 'crop') {
+      if (!g.moved) return;
+      // One write for the box and the crop together; the drawing holds them until it lands.
+      const made = cropDrag(g.origin, g.crop, g.anchor, { x: world.x - g.start.x, y: world.y - g.start.y }, { min: g.min, keepRatio: event.shiftKey });
+      generation.current += 1;
+      const mine = generation.current;
+      setCropLive({ id: g.id, ...made, active: false });
+      void Promise.resolve(onCrop?.(g.id, made.geometry, made.crop)).finally(() => {
+        if (generation.current === mine) setCropLive(null);
+      });
+      return;
+    }
     if (g.kind === 'connect') {
       setConnecting(null);
       if (!g.moved) {
@@ -1292,6 +1381,11 @@ export function Canvas({
     }
     if (event.key === 'Escape') {
       event.preventDefault();
+      // A crop drag under way is cancelled, the picture as it was and still picked, so it can be tried again (6.5.7b).
+      if (gesture.current?.kind === 'crop') {
+        cancelGesture();
+        return;
+      }
       cancelGesture();
       onSelectionChange([]);
       if (latest.current.tool !== 'select') onToolChange('select');
@@ -1746,7 +1840,7 @@ export function Canvas({
             flipEnabled={false}
             // Shift keeps the proportions (Konva's own rule when this is off), and snaps a turn to 15 degrees.
             keepRatio={mixed || locked}
-            enabledAnchors={moveOnly ? [] : mixed || locked ? CORNERS : endsOnly ? END_ANCHORS : ALL_ANCHORS}
+            enabledAnchors={moveOnly ? [] : cropOne ? ALL_ANCHORS : mixed || locked ? CORNERS : endsOnly ? END_ANCHORS : ALL_ANCHORS}
             ignoreStroke
             anchorSize={8}
             anchorCornerRadius={0}
@@ -1763,7 +1857,9 @@ export function Canvas({
             // the least on screen up close) still turns and stretches along its length (6.5 review).
             // A proportional corner drag lands on the dots first (6.5.7a), then the same least-size rule holds.
             boundBoxFunc={(was, asked) => {
-              const next = dotSnap !== null ? keptRatioBox(was, asked) : asked;
+              // A picture's middle handle (6.5.7b) keeps its proportions: the other side follows about its middle.
+              const sided = cropOne ? sideKeepingRatio(was, asked, transformer.current?.getActiveAnchor() ?? null) : asked;
+              const next = dotSnap !== null ? keptRatioBox(was, sided) : sided;
               return shrunkBelow(was.width, next.width, minSize * view.zoom) || shrunkBelow(was.height, next.height, minSize * view.zoom) ? was : next;
             }}
             // Snap to the dots (6.5.7a): the handle being dragged lands on the nearest dot on the axes it moves, within the
@@ -1974,6 +2070,7 @@ export function Canvas({
           canvasHeight={size.height}
           canPaste={canPaste}
           mac={isMac()}
+          {...(menuActions ? { extras: menuActions(selection) } : {})}
           onCommand={runCommand}
           onSelectContents={selectContents}
           onClose={closeMenu}

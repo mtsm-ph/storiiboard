@@ -372,6 +372,25 @@ Added to this version by later 6.5 milestones:
   is written with that first swatch, not the custom colour; the original keeps its stored colour until its colour is
   changed in that build. The board's dot grid and its snap (6.5.7a) are this computer's view
   (`storiiboard.boardGrid`), never in the file.
+- A board picture's crop and border (6.5.7b), optional props on a `board_item` of `kind` `picture` (read through
+  src/features/moodboards/items.ts: `cropOf`, `itemFields`). The stored picture, its previews and the recorded original
+  are never changed; a build before 6.5.7b ignores these props and draws the whole picture stretched to the box.
+  - `crop`: the kept part, as fractions of the picture, `{ "x", "y", "width", "height" }`, each a number, x and y from 0,
+    width and height at least 0.01 (1% of the picture), x + width and y + height at most 1 (six decimals written).
+    Absent means the whole picture, and the whole picture is written as no `crop`. Anything else (a missing number, a
+    part past the picture's edge, less than 1% either way) reads as uncropped. The item's own `x`, `y`, `width` and
+    `height` are the kept part's box: the kept part alone is drawn in it, at the size the whole picture has on the board
+    (width / crop.width by height / crop.height), and a deck's PDF embeds that part alone. A
+    crop (Ctrl, or ⌘ on a Mac, + a handle; the four crop fields) writes the box and `crop` in one update; Reset crop
+    writes the uncropped picture's box (the part that showed stays where it was) and unsets `crop`. A resize keeps
+    `crop` as it is.
+  - `border`: `true` draws a border; anything else, or absent, none.
+  - `border_color`: `#RRGGBB`; absent (or anything else) is the board's ink, which the Dark view draws light. The
+    colour control's Default takes it off.
+  - `border_width`: board units, 1 to 40 (a number outside is held to the nearer end; absent or not a number, 2). The
+    border is drawn on the box's edge, inside it (at most half the box's short side), so the item's size never changes.
+  - Copies (Paste, Duplicate, a duplicated page) keep all four. No action replaces a board picture's file with another,
+    so nothing here is dropped by one.
 
 ## Schema v14: Phase 6's props (6.1)
 

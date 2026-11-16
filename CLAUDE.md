@@ -298,6 +298,9 @@
   - A dot grid behind a board (6.5.7a): a view on this computer, as Dark is, never stored, printed or exported;
     its spacing follows the zoom (20 × 5^k board units) and is shown; snap to it is an option. A sticky takes any
     colour (the six swatches or a hex); its words are ink or paper, whichever reads better on it.
+  - A board's picture can be cropped (6.5.7b): Ctrl (Cmd on a Mac) + a handle; the crop is fractions on the
+    item, the stored picture and the original are never touched, and an export embeds only the kept part, so what
+    was cropped away is not in the file. A picture can carry a border (on or off, a colour, a width).
   - Shot and scene cards are live, never copies. Video is a card with a still that opens the Player.
   - Fonts: the bundled ones plus this computer's (font-kit). A missing font shows its fallback and says which; a PDF
     never embeds a font whose `fsType` bits forbid it: the fallback is used and the export says so.

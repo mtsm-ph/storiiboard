@@ -18,6 +18,16 @@ const pathOf = (segments: readonly Segment[]): Path2D => {
   return path;
 };
 
+/** A picture's own size in pixels, whatever kind of source holds it. */
+function sourceSize(source: CanvasImageSource): { width: number; height: number } {
+  if (typeof HTMLImageElement !== 'undefined' && source instanceof HTMLImageElement) return { width: source.naturalWidth, height: source.naturalHeight };
+  if (typeof VideoFrame !== 'undefined' && source instanceof VideoFrame) return { width: source.displayWidth, height: source.displayHeight };
+  if (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement) return { width: source.videoWidth, height: source.videoHeight };
+  const sized = source as { width: number | { baseVal: { value: number } }; height: number | { baseVal: { value: number } } };
+  const read = (value: number | { baseVal: { value: number } }) => (typeof value === 'number' ? value : value.baseVal.value);
+  return { width: read(sized.width), height: read(sized.height) };
+}
+
 const cssFont = (op: Extract<DisplayOp, { op: 'text' }>) => `${op.italic ? 'italic ' : ''}${String(op.weight)} ${String(op.size)}px "${op.family}"`;
 
 /**
@@ -102,8 +112,12 @@ export function paintOps(ctx: Ctx, ops: readonly DisplayOp[], base: Matrix, pict
       }
       case 'image': {
         const source = op.sha256 === '' ? null : picture(op.sha256);
-        if (source) ctx.drawImage(source, 0, 0, op.width, op.height);
-        else unprintable += 1;
+        if (!source) unprintable += 1;
+        else if (op.crop) {
+          // A cropped picture (6.5.7b round 2): its kept part alone, into the box.
+          const { width, height } = sourceSize(source);
+          ctx.drawImage(source, op.crop.x * width, op.crop.y * height, op.crop.width * width, op.crop.height * height, 0, 0, op.width, op.height);
+        } else ctx.drawImage(source, 0, 0, op.width, op.height);
         break;
       }
       case 'link':

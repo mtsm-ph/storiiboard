@@ -310,6 +310,53 @@ test.describe('with Safari’s user agent', () => {
     await page.keyboard.press('Tab');
     await expect(settings.getByRole('button', { name: 'Close Settings' })).toBeFocused();
   });
+
+  test('⌘ held as a picture’s handle is dragged crops it, as Ctrl does elsewhere (6.5.7b)', async ({ page }) => {
+    await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Moodboard/ }).click();
+    const tile = page.getByRole('region', { name: 'Moodboard', exact: true });
+    await tile.locator('[data-department-board="camera"]').click();
+    const canvas = page.getByRole('application', { name: 'Camera board' });
+    await expect(canvas).toBeVisible();
+    // A 400 by 300 picture made in the page, dropped at the canvas's middle (selected once made).
+    const transfer = await page.evaluateHandle(async () => {
+      const made = new OffscreenCanvas(400, 300);
+      const context = made.getContext('2d');
+      if (context) {
+        context.fillStyle = '#2C5F8A';
+        context.fillRect(0, 0, 400, 300);
+      }
+      const data = new DataTransfer();
+      data.items.add(new File([await made.convertToBlob({ type: 'image/png' })], 'blue.png', { type: 'image/png' }));
+      return data;
+    });
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('no canvas');
+    await tile.locator('[data-board-data]').dispatchEvent('drop', { dataTransfer: transfer, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 });
+    type Item = { kind: string; x: number; y: number; width: number; height: number; crop: unknown };
+    const picture = async () => (JSON.parse((await tile.locator('[data-board-data]').getAttribute('data-board-data')) ?? '[]') as Item[]).find((i) => i.kind === 'picture');
+    await expect.poll(async () => (await picture())?.width ?? 0).toBe(400);
+    const before = await picture();
+    if (!before) throw new Error('no picture');
+    const zoom = Number(await canvas.getAttribute('data-zoom'));
+    const cx = Number(await canvas.getAttribute('data-cx'));
+    const cy = Number(await canvas.getAttribute('data-cy'));
+    const at = (x: number, y: number) => ({ x: box.x + box.width / 2 + (x - cx) * zoom, y: box.y + box.height / 2 + (y - cy) * zoom });
+    const middle = at(before.x + before.width / 2, before.y + before.height / 2);
+    await page.mouse.click(middle.x, middle.y);
+    const handle = at(before.x + before.width, before.y + before.height / 2);
+    await page.keyboard.down('Meta');
+    await page.mouse.move(handle.x, handle.y);
+    await page.mouse.down();
+    await page.mouse.move(handle.x - 40, handle.y, { steps: 4 });
+    await page.mouse.move(handle.x - 80, handle.y, { steps: 4 });
+    await page.mouse.up();
+    await page.keyboard.up('Meta');
+    await expect.poll(async () => (await picture())?.crop ?? null).not.toBeNull();
+    const after = await picture();
+    expect(after?.width ?? 0).toBeCloseTo(400 - 80 / zoom, 0);
+    expect(after?.height).toBe(300);
+    expect(after?.x).toBe(before.x);
+  });
 });
 
 test('trackpad mode off: the wheel zooms at the pointer, and a pinch zooms from its gesture events, its wheel left alone (6.5.3)', async ({ page }) => {

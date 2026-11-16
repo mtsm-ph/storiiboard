@@ -22,7 +22,8 @@ import { isConnector } from './connectorFields';
 import { clipConnectorsOf, connectChanges, connectorStyleChanges, createConnectors, foldMoves, grownQuickSeed, labelChanges, madeWithJoined, OPPOSITE, pasteConnectorChanges, pasteDelta, quickCreateChanges, quickSeedOf, type ClipConnector, type ConnectorPatch } from './connectors';
 import { boardFileChanges, type PlacedBoardFiles } from './boardFiles';
 import { boardsOf, boardTitle, newBoard, openDepartmentBoard, renameBoard, trashBoardChanges } from './boards';
-import { clipOf, type ClipItem, createItems, DEFAULT_FONT_FAMILY, isTextKind, itemFields, linkChanges, pasteChanges, reorderChanges, seedWithText, styleChanges, textEditChanges, trashItemsChanges, type StylePatch } from './items';
+import { borderChanges, clipOf, type ClipItem, createItems, cropChanges, cropEdgeChanges, DEFAULT_FONT_FAMILY, isTextKind, itemFields, linkChanges, pasteChanges, reorderChanges, resetCropChanges, seedWithText, styleChanges, textEditChanges, trashItemsChanges, type CropEdges, type StylePatch } from './items';
+import type { CropRect } from '../../ui/canvas/cropping';
 import { fontReady } from './fonts';
 import { mediaChildOf, shaOfClip } from './itemMedia';
 import { cardUrl, pastedAddress } from './links';
@@ -216,6 +217,26 @@ export async function changeStyle(boardId: string, patch: StylePatch): Promise<v
 export async function changeGeometry(changes: readonly GeometryChange[]): Promise<void> {
   // A section that moved takes what it holds along, and the free ends of connectors inside it (5.3).
   await projectStore.getState().applyWith((records) => ({ changes: moveChanges(records, changes, measureText) }));
+}
+
+/** A crop drag released (6.5.7b): the picture's box and kept part, one op group. */
+export async function cropPicture(id: string, geometry: Geometry, crop: CropRect): Promise<void> {
+  await projectStore.getState().applyWith((records) => ({ changes: cropChanges(records, id, geometry, crop) }));
+}
+
+/** Reset crop (6.5.7b): the whole picture again, the part that showed where it was; one op group. */
+export async function resetCrop(id: string): Promise<void> {
+  await projectStore.getState().applyWith((records) => ({ changes: resetCropChanges(records, id) }));
+}
+
+/** One of the picture's crop fields typed (6.5.7b), in percent. */
+export async function changeCropEdge(id: string, edge: keyof CropEdges, value: number): Promise<void> {
+  await projectStore.getState().applyWith((records) => ({ changes: cropEdgeChanges(records, id, edge, value) }));
+}
+
+/** The picture's border switched, coloured or sized (6.5.7b): each change one op group. */
+export async function changeBorder(id: string, patch: { border?: boolean; color?: string | null; width?: number }): Promise<void> {
+  await projectStore.getState().applyWith((records) => ({ changes: borderChanges(records, id, patch) }));
 }
 
 /** An arrow key's nudge: worked out from the records as they are when the write's turn comes. */

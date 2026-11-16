@@ -424,10 +424,14 @@ schema version, listed in SBD_FORMAT.md and the report.
   is open, stacked on #188. It changed three tests the brief names (the sticky's "six colours only"). For Kevin:
   "notes and stickies" was read as the sticky note (a board has no other note); a default text box on a dark
   sticky still prints in ink; Ctrl/⌘ suspends snap only while moving (a handle + Ctrl/⌘ is 6.5.7b's crop).
+- 6.5.7b (crop and a border on a board's picture; two rounds, reviewed twice: a HIGH fixed, the handles framed
+  the uncropped picture) is open, stacked on #189. For Kevin: a single selected picture shows 8 handles and a
+  plain drag of a middle one keeps proportions; a PDF embeds only the kept part (the brief said "clipped"; the
+  main session chose this for privacy); a builder appended to items.ts from the shell once (rule 2).
 - **Status line (keep current):** Nov 16: #180 to #184 merged; #185 (6.5.3) and #186 (6.5.4) wait for Kevin's
-  screenshot comparison; #187, #188 and 6.5.7a open, stacked; next: 6.5.7b (crop, border), 6.5.8 (presets), each
-  brief already in docs/briefs/. Then: Linux and Mac baselines once at the top of the stack, the report with the
-  private/ plans pasted in, and (when Kevin has said merge and 1 to 9 are in v2) the full checkpoint he asked for.
+  screenshot comparison; #187, #188, #189 and 6.5.7b open, stacked; next: 6.5.8 (presets; brief in docs/briefs/).
+  Then: Linux and Mac baselines once at the top of the stack, the report with the private/ plans pasted in, and
+  (when Kevin has said merge and 1 to 9 are in v2) the full checkpoint he asked for.
 
 ### Next session: start here (Nov 15, night, older: #179 merged; 6.22 built)
 

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { CropRect } from './cropping';
 
 // What the canvas core knows about (decision 11): rectangles in world units and how to draw them. It knows nothing of
 // boards or records; src/features/moodboards turns records into these and reports back what a gesture changed.
@@ -59,6 +60,21 @@ export interface DrawContext extends Size {
   present?: boolean;
   /** Drawn to be exported (5.6a): pictures at their stored size, and a page without the outline the screen gives it. */
   print?: boolean;
+  /** A crop drag's live crop (6.5.7b), in place of the item's own while the drag lasts. Left out, the item draws its own. */
+  crop?: CropRect;
+  /**
+   * Drawn past the box during a crop drag (6.5.7b round 2): only the part being cut, dimmed, round the box. The canvas
+   * asks for it in the item's `beyond` group, which the handles never hold.
+   */
+  cutAway?: boolean;
+}
+
+/** The menu's own entries a host adds for the selection (6.5.7b: Reset crop), after Duplicate. */
+export interface MenuAction {
+  id: string;
+  label: string;
+  disabled?: boolean;
+  run: () => void;
 }
 
 export interface CanvasItem extends Geometry {
@@ -146,6 +162,12 @@ export interface CanvasItem extends Geometry {
    * a click picks the box exactly.
    */
   pickThickness?: number;
+  /**
+   * The kept part of the item's own picture (6.5.7b: a board's picture; the whole picture when it isn't cropped). Given,
+   * and with the host's `onCrop`, Ctrl (⌘ on a Mac) held as one of its handles' drags starts crops it, and its middle
+   * handles show, keeping its proportions on a plain drag. Left out (a plan's items, a board's other kinds), nothing changes.
+   */
+  crop?: CropRect;
 }
 
 /**
