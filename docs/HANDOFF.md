@@ -410,9 +410,16 @@ schema version, listed in SBD_FORMAT.md and the report.
   clock (the brief's one allowed change). A builder left a stray src/app/shell/SavedSign.tsx; the main session
   moved it to test-results/build654/ (not deleted). The backup time read at open comes from the backup's name
   (local time), so after travel it can be off until the next backup.
-- **Status line (keep current):** Nov 16: #180 to #184 merged; 6.5.3 (#185) and 6.5.4 open, waiting for Kevin;
-  next: 6.5.5 (quick sun, compass, the 6.5 schema version), then 6.5.6, 6.5.7a, 6.5.7b, 6.5.8, each brief already
-  in docs/briefs/, each stacked on the last.
+- 6.5.5 (quick sun, pasted coordinates, compass; three rounds, reviewed once, one medium fixed) is open, stacked
+  on #186. **Schema 15** is registered there (the one version for all of 6.5: the sun path's `own_latitude`,
+  `own_longitude`, `own_date`; the `settings_preset` record type; later 6.5 milestones add their props to its
+  list in docs/SBD_FORMAT.md, with no new version). 014_plans.test.ts changed as the brief names. Left: the
+  Locations tile shows a place's coordinates to 5 decimals and the paste's status to 4 (existing tests pin the 5).
+  One refused page load in a full run: deckExport.spec "prints an original only when it is the picture the deck
+  shows…" (passed alone).
+- **Status line (keep current):** Nov 16: #180 to #184 merged; #185 (6.5.3) and #186 (6.5.4) wait for Kevin's
+  screenshot comparison; 6.5.5 open, stacked; next: 6.5.6 (sun through windows, heights), 6.5.7a, 6.5.7b, 6.5.8,
+  each brief already in docs/briefs/, each stacked on the last.
 
 ### Next session: start here (Nov 15, night, older: #179 merged; 6.22 built)
 

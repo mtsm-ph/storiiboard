@@ -26,6 +26,9 @@ export const RECORD_TYPES = [
   'note',
   'character',
   'stroke',
+  // Schema 15 (6.5.8, made ready in 6.5.5): a named set of canvas settings under the project (`name`, `settings`). Its
+  // type is listed ahead of its UI so the schema version of 6.5 covers it: nothing else in the file has to change for it.
+  'settings_preset',
 ] as const;
 
 export type RecordType = (typeof RECORD_TYPES)[number];

@@ -27,6 +27,7 @@ import { locationChange, newLocation, timeZoneChange, trashLocation } from './lo
 import { LocationPhotos } from './LocationPhotos';
 import { LinkedBoards } from '../moodboards/LinkedBoards';
 import { AddressSearch } from './AddressSearch';
+import { CoordinatesPaste } from './CoordinatesPaste';
 import { HospitalFinder } from './HospitalFinder';
 import { LocationMap } from './LocationMap';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
@@ -290,6 +291,8 @@ function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameFi
         text(prop, FIELD_LABEL[prop](), LONG.has(prop), FIELD_TYPE[prop]),
         // The search sits under the address it looks up.
         prop === 'address' && <AddressSearch key="address-search" locationId={id} place={place} query={() => typed('address').trim() || typed('name')} />,
+        // Beside the search (6.5.5): coordinates pasted put the pin there with no search at all.
+        prop === 'address' && <CoordinatesPaste key="coordinates-paste" locationId={id} />,
         // The map under the place it shows (4.9); the pin can be dragged to where the crew should go.
         prop === 'address' && place && <LocationMap key={`map-${id}`} locationId={id} place={place} moved={pinPlacedByHand(props)} />,
         // The nearest hospital, and the country with its emergency number, under the place it is searched around.

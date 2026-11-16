@@ -598,8 +598,11 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   gear_id: 'history.field.planGear',
   watts: 'history.field.watts',
   beam_deg: 'history.field.beam',
-  // A sun path's (6.6).
+  // A sun path's (6.6), and its own place and date (6.5.5).
   time: 'history.field.sunTime',
+  own_latitude: 'history.field.ownLatitude',
+  own_longitude: 'history.field.ownLongitude',
+  own_date: 'history.field.ownDate',
   // A mark's (6.7).
   character_id: 'history.field.markCharacter',
   camera_id: 'history.field.markCamera',
@@ -686,7 +689,23 @@ export const changeLabel = (change: FieldChange, around?: ReadonlyMap<string, Sb
  * says it was set, changed or removed, never the value, since History feeds notifications.
  */
 // A location's place on the map (3.4) says where its address is, so it's kept as the address is.
-const PRIVATE_PROPS: ReadonlySet<string> = new Set(['address', 'latitude', 'longitude', 'map_name', 'contact_phone', 'contact_email', 'phone', 'email', 'hospital_address', 'hospital_phone', 'hospital_latitude', 'hospital_longitude']);
+// A sun path's own place (6.5.5) says where a shoot is, so it's kept as a location's place is.
+const PRIVATE_PROPS: ReadonlySet<string> = new Set([
+  'address',
+  'latitude',
+  'longitude',
+  'map_name',
+  'contact_phone',
+  'contact_email',
+  'phone',
+  'email',
+  'hospital_address',
+  'hospital_phone',
+  'hospital_latitude',
+  'hospital_longitude',
+  'own_latitude',
+  'own_longitude',
+]);
 const isPrivate = (change: FieldChange): boolean => change.private === true || (change.key === undefined && PRIVATE_PROPS.has(change.prop));
 const privateValue = (change: FieldChange, value: JsonValue | undefined): string =>
   isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');

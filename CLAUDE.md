@@ -207,6 +207,12 @@
     set shows as a small label by its item and in the legend.
   - North is one per room. The sun path draws the real sun for the frames' location and shoot day (SunCalc, the
     location's time zone); with no location, day or north it says what's missing and draws nothing.
+    Quick sun (6.5.5): a sun path can hold its own coordinates and date for a setup with no location or shoot day;
+    the setup's win where one frame gives both, a setup half is never paired with another frame's half, and the
+    item says which it uses (one reader: src/core/model/sunSources.ts, what `get_plan` will return). Coordinates
+    are typed or pasted in any form Google Maps copies (src/core/model/coordinates.ts), on a sun path and on a
+    location (no address search, no request). A compass at the plan's top right shows north and the sun: chrome,
+    never printed, never stored.
   - Layers per department: camera (DP), lighting (gaffer), grip, art, cast blocking. A focus view, not access control.
   - A plan never follows the app's theme, as boards: it is paper and ink, or the Dark view (Kevin, Nov 16, 6.5.1):
     a toggle on the canvas, remembered on this computer, never in the project. PDFs, PNGs and prints stay on paper.

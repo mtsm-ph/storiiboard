@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type FocusEvent, t
 import { t } from '../../core/i18n';
 import { cx } from '../cx';
 import { keepBrowserMenuOut } from '../menuKey';
+import { useForwardToCanvas } from './forwardToCanvas';
 import type { StripTool } from './stripTools';
 import { TOOL_ICONS } from './toolIcons/toolIcons';
 
@@ -211,32 +212,8 @@ export function ToolStrip({ tools, offset = 0 }: ToolStripProps) {
     };
   }, [count, offset]);
   // A wheel over the strip zooms or scrolls the canvas, as if the strip weren't there; a middle-button press on it starts
-  // the canvas's pan. Each is handed to the canvas as its own event, at the same point, so the canvas reads it as ever.
-  useEffect(() => {
-    const strip = root.current;
-    if (!strip) return;
-    const onWheel = (event: WheelEvent) => {
-      const canvas = canvasBeside(strip);
-      if (!canvas) return;
-      event.preventDefault();
-      const { deltaX, deltaY, deltaZ, deltaMode, clientX, clientY, screenX, screenY, ctrlKey, metaKey, shiftKey, altKey } = event;
-      canvas.dispatchEvent(new WheelEvent('wheel', { deltaX, deltaY, deltaZ, deltaMode, clientX, clientY, screenX, screenY, ctrlKey, metaKey, shiftKey, altKey, bubbles: true, cancelable: true }));
-    };
-    const onDown = (event: PointerEvent) => {
-      const canvas = canvasBeside(strip);
-      if (event.button !== 1 || !canvas) return;
-      // No autoscroll from the browser: the press is the canvas's pan.
-      event.preventDefault();
-      const { pointerId, pointerType, isPrimary, button, buttons, clientX, clientY, screenX, screenY, ctrlKey, metaKey, shiftKey, altKey } = event;
-      canvas.dispatchEvent(new PointerEvent('pointerdown', { pointerId, pointerType, isPrimary, button, buttons, clientX, clientY, screenX, screenY, ctrlKey, metaKey, shiftKey, altKey, bubbles: true, cancelable: true }));
-    };
-    strip.addEventListener('wheel', onWheel, { passive: false });
-    strip.addEventListener('pointerdown', onDown);
-    return () => {
-      strip.removeEventListener('wheel', onWheel);
-      strip.removeEventListener('pointerdown', onDown);
-    };
-  }, []);
+  // the canvas's pan (forwardToCanvas.ts, shared with the plan's compass).
+  useForwardToCanvas(root);
   // Escape hides a tooltip wherever the focus is (hover opens one with the focus on the canvas). The key keeps its own
   // meaning there too: on the canvas it still ends what it ends (a selection, a run), as it always has.
   useEffect(() => {

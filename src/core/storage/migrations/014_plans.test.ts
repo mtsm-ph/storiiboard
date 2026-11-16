@@ -11,6 +11,7 @@ import { nodeDriver } from '../nodeDriver';
 import { openProject, type Project } from '../project';
 import { makeTestFolder, type TestFolder } from '../testFolder';
 import { MIGRATIONS, SCHEMA_VERSION } from '.';
+import { plans } from './014_plans';
 
 // Schema 14 (Phase 6, decision 16: props only, one version): it changes no table and rewrites nothing. A file from
 // before opens with every row as it was, backed up first; approvals and issued call sheets read as they did.
@@ -101,8 +102,8 @@ async function v13File(): Promise<{ path: string; fingerprint: string }> {
 }
 
 describe('schema 14: props only', () => {
-  it('is the newest schema, with no table change and nothing rewritten', () => {
-    expect(SCHEMA_VERSION).toBe(14);
+  it('is schema 14, with no table change and nothing rewritten', () => {
+    expect(plans.version).toBe(14);
     const fourteen = MIGRATIONS[13];
     expect(fourteen?.version).toBe(14);
     expect(fourteen?.statements).toEqual([]);
@@ -116,10 +117,10 @@ describe('schema 14: props only', () => {
     const steps = (await log(old)).length;
     await old.close();
     project = await openProject(path, { driver: nodeDriver, backups: false, now: () => new Date(late) });
-    expect(project.migration).toMatchObject({ from: 13, to: 14 });
+    expect(project.migration).toMatchObject({ from: 13, to: SCHEMA_VERSION });
     expect(readdirSync(folder.dir).some((name) => name.startsWith('Bey County.sbd.bak-v13-'))).toBe(true);
     const [version] = await project.file.query("SELECT value FROM meta WHERE key = 'schema_version'");
-    expect(version?.value).toBe('14');
+    expect(version?.value).toBe(String(SCHEMA_VERSION));
     const after = await everything(project.file);
     // Opening writes which app opened it last and the file's id, as any open does: those rows aside, identical.
     const strip = (tables: Record<string, unknown[]>) => ({

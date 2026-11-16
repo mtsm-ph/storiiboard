@@ -26,6 +26,7 @@ import {
   planItemLayer,
   roomTitle,
   sceneRoom,
+  SUN_ICON,
   wallEnds,
   type OpeningKind,
   type PlanLayer,
@@ -36,7 +37,7 @@ import { LAYER_ORDER, layeredItemsKeeper, layerNote, layerOfItem, type LayerLook
 import { alsoInRoom, roomChoices, setupCopySources, setupHasItems } from '../../../core/model/planRooms';
 import { openingFrame } from '../../../core/model/openings';
 import { beamDirection } from '../../../core/model/planLight';
-import { sunReading, sunZonePoint } from '../../../core/model/planSun';
+import { sunReadingOf, sunZonePointOf, type SunZonePoint } from '../../../core/model/sunSources';
 import { useSunZonesAt, type ZonePoint } from '../../../app/timeZone';
 import type { SbdRecord } from '../../../core/model/record';
 import { sceneSetups } from '../../../core/model/setup';
@@ -92,6 +93,7 @@ import { lightLooks } from './lightLooks';
 import { liveSights } from './liveSights';
 import { sightsKeeper, sightSummary, type Sights } from './planSights';
 import { sunLooks, sunNumbers } from './sunLooks';
+import { PlanCompass } from './PlanCompass';
 import { iconLabel } from './iconWords';
 import { heightLines, iconCentre, iconRefusal, measureLines, openingDistances, openingItem, openingSpot, openingSpotInWall, planConstrain, planItemsBuilder, shownItemsKeeper, turnsByKey, viewKey, wallAtPoint } from './planItems';
 import { CAMERA_TOOL, DOOR_TOOL, LIGHT_TOOL, MARK_TOOL, MEASURE_TOOL, PLAN_CANVAS_TOOLS, PLAN_TOOLS, PLAN_ZOOM, planScale, SCALE_TOOL, toCanvas, toMetres, WALL_TOOL, WINDOW_TOOL } from './planScale';
@@ -712,7 +714,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   // answer is on its way the path shows its icon alone. The browser build has no lookup and never takes this computer's
   // zone in its place (6.6 review): there, such a location reads "No time zone".
   const zonePoints = useMemo(
-    () => shown.flatMap((item): ZonePoint[] => (isSun(item.fields) ? [sunZonePoint(records, item.record.id)].filter((p): p is ZonePoint => p !== null) : [])),
+    () => shown.flatMap((item): ZonePoint[] => (isSun(item.fields) ? [sunZonePointOf(records, item.record.id)].filter((p): p is SunZonePoint => p !== null) : [])),
     [records, shown],
   );
   const zones = useSunZonesAt(zonePoints);
@@ -903,10 +905,13 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
       // A sun path (6.6): what it says (its label, or what it lacks) and, drawn, the sun's bearing and true height at its time.
       if (isSun(fields)) {
         const look = suns.get(record.id);
-        const numbers = sunNumbers(sunReading(records, record.id, zones), fields.time);
+        const reading = sunReadingOf(records, record.id, zones);
+        const numbers = sunNumbers(reading, fields.time);
         const sun = numbers ? { bearing: numbers.at.bearing, altitude: numbers.at.altitude, up: numbers.at.up, hours: numbers.path.hours.map((h) => h.hour) } : null;
         const says = look?.kind === 'missing' ? look.lines.join(' · ') : (look?.label ?? '');
-        return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), drawn: look?.kind === 'drawn', says, sun };
+        // Where its place and date come from (6.5.5): the setup's location and shoot day, or its own.
+        const from = { place: reading?.place?.source ?? null, date: reading?.date?.source ?? null };
+        return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), drawn: look?.kind === 'drawn', says, sun, from };
       }
       if (isWallFields(fields)) {
         const [start, end] = wallEnds(fields);
@@ -1193,6 +1198,22 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
             if (doors.length === 0) return false;
             if (!event.repeat) void flipDoors(doors, event.shiftKey ? 'hinge' : 'swing');
             return true;
+          }}
+        />
+        {/* North and the sun at the top-right corner (6.5.5), app chrome as the strip is; after the canvas, so the strip's
+            tab stops and the canvas's keep their order. While a drawing tool is in use, clicks go through it to the plan. */}
+        <PlanCompass
+          records={records}
+          view={view}
+          zones={zones}
+          passThrough={tool !== 'select' && tool !== 'hand'}
+          onAddSun={() => {
+            // The middle of what is seen beside the tools' strip, as the Library's Enter places it.
+            const middle = middleBeside(planViewportOf(planStore.getState().viewports, key), PLAN_STRIP_INSET);
+            void placeIcon(view, SUN_ICON, { x: toMetres(middle.x), y: toMetres(middle.y) }, madeIn).then((why) => {
+              if (why === 'noSetup') showInfo(t('library.needsSetup', { what: iconLabel(SUN_ICON) }));
+              else if (why === 'noRoom') showInfo(t('library.needsRoom'));
+            });
           }}
         />
       </div>
