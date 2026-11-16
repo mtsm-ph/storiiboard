@@ -63,8 +63,9 @@ pub(crate) struct Harness {
 impl Harness {
     pub(crate) fn new(tag: &str) -> Self {
         let dir = temp_dir(tag);
-        // The real config, capabilities included (tauri.conf.json, capabilities/default.json).
-        let mut context = tauri::generate_context!();
+        // The real config, capabilities included (tauri.conf.json, capabilities/default.json), from the crate's one
+        // expansion of the macro (lib.rs's `app_context`).
+        let mut context = crate::app_context();
         // The app's data and cache folders in the temp folder, never this computer's own.
         context.config_mut().app.app_directories_override =
             Some(AppDirectoriesOverride::Root(dir.join("app")));
