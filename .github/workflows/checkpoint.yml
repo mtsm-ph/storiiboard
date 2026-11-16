@@ -258,6 +258,13 @@ jobs:
           $found = Select-String -Path src-tauri/target/release/wix/*/main.wxs, src-tauri/target/release/nsis/*/installer.nsi -Pattern '\bsbd\b'
           if (-not $found) { throw 'Neither installer registers .sbd files.' }
           $found | ForEach-Object { "$($_.Path): $($_.Line.Trim())" }
+      # Uploaded before the listing below, so a check there that is itself wrong never costs the installers.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: storiiboard-${{ matrix.name }}
+          path: ${{ matrix.bundles }}
+          if-no-files-found: error
+          retention-days: 7
       # What the installer carries (the desktop gap audit, B4): a release build looks for ffmpeg and ffprobe only
       # beside the executable, and nothing else ever looked inside the bundle. The fonts themselves are in the page's
       # build (dist), which the executable embeds; their licences are bundle resources.
@@ -283,7 +290,7 @@ jobs:
             'dav1d-LICENSE.txt', 'ffmpeg-SOURCE.txt', 'fonts-archivo-OFL.txt', 'fonts-bodonimoda-OFL.txt',
             'fonts-intertight-OFL.txt', 'fonts-jetbrainsmono-OFL.txt', 'fonts-jost-OFL.txt', 'fonts-outfit-OFL.txt'
           $scripts = @(Get-ChildItem src-tauri/target/release/wix/*/main.wxs) + @(Get-ChildItem src-tauri/target/release/nsis/*/installer.nsi)
-          if ($scripts.Count -lt 2) { throw 'Expected both installers\' scripts.' }
+          if ($scripts.Count -lt 2) { throw 'Expected the scripts of both installers.' }
           foreach ($script in $scripts) {
             Select-String -Path $script -Pattern 'ffmpeg|ffprobe|LICENSE|OFL|SOURCE' | ForEach-Object { "$($script.Name): $($_.Line.Trim())" }
             foreach ($name in $names) {
@@ -291,9 +298,3 @@ jobs:
             }
           }
           if (-not (Get-ChildItem dist -Recurse -Filter *.ttf)) { throw 'No fonts in the page build.' }
-      - uses: actions/upload-artifact@v7
-        with:
-          name: storiiboard-${{ matrix.name }}
-          path: ${{ matrix.bundles }}
-          if-no-files-found: error
-          retention-days: 7

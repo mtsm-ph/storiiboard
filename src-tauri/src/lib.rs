@@ -133,6 +133,23 @@ pub(crate) fn manage_at_start<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     app.manage(playback::PlaybackCache::load(&data_dir, &cache_dir));
 }
 
+/// The app's context (tauri.conf.json, capabilities, icons, assets), for run() and the command tests alike. The macro
+/// is expanded here and nowhere else: on a Mac each expansion embeds the Info.plist under one fixed symbol
+/// (`_EMBED_INFO_PLIST`), so a second one in the crate fails to compile the tests there (6.16's checkpoint).
+pub(crate) fn app_context<R: tauri::Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
+}
+
+// Windows (MSVC): the lib's test program links Tauri's window and dialog code, which imports `TaskDialogIndirect`
+// from Common Controls 6. The app's exe asks for version 6 in the manifest tauri-build compiles into its resources
+// (`resource.lib`, linked into bins only); a test program has no manifest, so Windows loads version 5, which lacks
+// that entry point, and the program can't start (STATUS_ENTRYPOINT_NOT_FOUND). Cargo has no link argument that
+// reaches a lib's unit tests without the bin, so the test program links the same resources here, under cfg(test),
+// which the app's build never sees; build.rs adds their folder to the search path.
+#[cfg(all(test, windows, target_env = "msvc"))]
+#[link(name = "resource", kind = "static")]
+extern "C" {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -219,7 +236,7 @@ pub fn run() {
                 }
             }
         })
-        .build(tauri::generate_context!())
+        .build(app_context())
         .expect("error while building Storiiboard")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
