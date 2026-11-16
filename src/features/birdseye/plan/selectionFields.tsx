@@ -26,6 +26,10 @@ interface TypedFieldProps {
    */
   onCommit: (typed: string) => boolean | string;
   refused?: string;
+  /** Shown, never typed in (6.5.6: a window's height while its sill and top say it). */
+  readOnly?: boolean;
+  /** Its words' ids (a note saying why it is read-only). */
+  describedBy?: string | undefined;
 }
 
 /**
@@ -33,13 +37,13 @@ interface TypedFieldProps {
  * never by its value: Enter keeps the focus in it, and what the records say (an undo, the tidy form of what was typed)
  * shows in it as it changes.
  */
-export function TypedField({ label, text, mixed = false, mono = true, onCommit, refused }: TypedFieldProps) {
+export function TypedField({ label, text, mixed = false, mono = true, onCommit, refused, readOnly = false, describedBy }: TypedFieldProps) {
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (input.current) input.current.value = text;
   }, [text]);
   const commit = (field: HTMLInputElement) => {
-    if (field.value.trim() === text) return;
+    if (readOnly || field.value.trim() === text) return;
     const taken = onCommit(field.value);
     // Taken: the field shows the value as the plan has it ("3.50 m" for "3.5"), even when it's the one already stored,
     // which changes nothing the field would hear of. A new value comes back through `text` once it's written.
@@ -56,6 +60,8 @@ export function TypedField({ label, text, mixed = false, mono = true, onCommit, 
       autoComplete="off"
       defaultValue={text}
       placeholder={mixed ? t('plan.field.mixed') : undefined}
+      readOnly={readOnly || undefined}
+      aria-describedby={describedBy}
       onBlur={(event) => {
         commit(event.currentTarget);
       }}

@@ -13,6 +13,8 @@ export const SUN_RADIUS_M = 3;
 
 /** The sun's height at sunrise and sunset as SunCalc reckons them (refraction and the sun's half width): above it, it's up. */
 const HORIZON = -0.833;
+/** Whether the sun at this true height is up, as sunAt says it (`up`): sun through a window (windowSun.ts) reads the same. */
+export const isSunUp = (altitude: number): boolean => altitude > HORIZON;
 /** Golden hour, as CLAUDE.md defines it for call sheets: the sun from 6° above to 4° below the horizon. */
 const GOLDEN_HIGH = 6;
 const GOLDEN_LOW = -4;

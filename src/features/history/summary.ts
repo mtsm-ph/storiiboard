@@ -444,6 +444,8 @@ export function fieldChanges(before: SbdRecord, after: SbdRecord): FieldChange[]
     const marked = changes.map((change) => ({ ...change, planItem: true as const, ...(boxed ? { planIcon: true as const } : {}) }));
     return boxed ? iconMiddles(before, after, marked) : marked;
   }
+  // A room's ceiling height (6.5.6 round 2): named and shown as a plan's length is, in the plan's unit.
+  if (after.type === 'plan') return changes.map((change) => (change.prop === 'ceiling_height_m' ? { ...change, planItem: true as const } : change));
   if (after.type === 'board_item') {
     return changes.map((change) => ({ ...change, item: true as const, ...(isConnector(after) ? { connector: true as const } : {}) }));
   }
@@ -603,6 +605,11 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   own_latitude: 'history.field.ownLatitude',
   own_longitude: 'history.field.ownLongitude',
   own_date: 'history.field.ownDate',
+  // A window's sill and top (6.5.6).
+  sill_height_m: 'history.field.sillHeight',
+  top_height_m: 'history.field.topHeight',
+  // A room's ceiling (6.5.6), its plan record's.
+  ceiling_height_m: 'history.field.ceilingHeight',
   // A mark's (6.7).
   character_id: 'history.field.markCharacter',
   camera_id: 'history.field.markCamera',
@@ -711,7 +718,7 @@ const privateValue = (change: FieldChange, value: JsonValue | undefined): string
   isBlank(value) ? '—' : !isBlank(change.before) && !isBlank(change.after) ? t('history.changed') : t('history.notShown');
 
 /** A plan item's lengths in the unit this computer shows (3.50 m, 12' 6"), its rotation in degrees (6.2a); null for its other props. */
-const PLAN_LENGTHS: ReadonlySet<string> = new Set(['x', 'y', 'width', 'height', 'height_m', 'along_m', 'width_m', 'scale_m']);
+const PLAN_LENGTHS: ReadonlySet<string> = new Set(['x', 'y', 'width', 'height', 'height_m', 'along_m', 'width_m', 'scale_m', 'sill_height_m', 'top_height_m', 'ceiling_height_m']);
 /** A door's hinge and swing (6.2b) in the Selection tile's words. */
 const OPENING_WORDS: Readonly<Record<string, string>> = labels({
   'hinge:start': 'selection.hinge.start',
@@ -903,6 +910,9 @@ function planLine(opsIn: readonly LoggedOp[], around: ReadonlyMap<string, SbdRec
     if (copies) return line('history.roomCopied', { scene: nameOf(scene, around) }, { name: roomName(started.after) });
     return withStranded(line('history.roomStarted', { scene: nameOf(scene, around) }, { name: roomName(started.after) }), strandedIn(started.recordId));
   }
+  // A room's ceiling height (6.5.6), its only change: said as that, never as a rename.
+  const ceiling = ops.find((op) => op.kind === 'update' && op.before?.type === 'plan' && op.after !== null && changedProps(op.before, op.after).every((prop) => prop === 'ceiling_height_m'));
+  if (ceiling?.before && ops.length === 1) return [t('history.roomCeilingChanged', { name: roomName(ceiling.before) })];
   const renamed = ops.find((op) => op.kind === 'update' && op.before?.type === 'plan' && op.after !== null);
   if (renamed?.before && renamed.after) {
     const name = typeof renamed.after.props.name === 'string' ? renamed.after.props.name.trim() : '';
