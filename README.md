@@ -1,6 +1,6 @@
 # Storiiboard
 
-Storiiboard is an open-source pre-production tool for filmmakers, producers and content creators. It's built around
+Storiiboard is a free pre-production tool for filmmakers, producers and content creators. It's built around
 fast storyboarding: every shot links to its scene, location, shoot day, people and gear, and the schedule, call sheets,
 gear lists and bird's-eye plans come out of the storyboard.
 
@@ -60,4 +60,5 @@ servers it already knows, without an update: the service list is that switch. Re
 
 ## License
 
-There's no license yet. One will be chosen before the first release.
+Storiiboard is free to use. It is not open source. Created by Kevin Matos, all rights reserved. Terms come with the
+first release.
