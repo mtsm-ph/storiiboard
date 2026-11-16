@@ -61,6 +61,23 @@ export function fitBounds(bounds: Rect | null, size: Size, padding = FIT_PADDING
   return { zoom, cx: bounds.x + bounds.width / 2, cy: bounds.y + bounds.height / 2 };
 }
 
+/**
+ * `fitBounds` beside a strip `left` screen pixels wide along the canvas's left edge (6.5.2 round 2, the tools' strip):
+ * the bounds fitted into the part of the canvas right of it, and centred there, so nothing fitted lies under the strip.
+ */
+export function fitBeside(bounds: Rect | null, size: Size, left: number, padding = FIT_PADDING, maxZoom = 1, limits?: Pick<ZoomLimits, 'min' | 'max'>): Viewport {
+  // Nothing to fit, a size not measured yet, or no strip: as fitBounds (the default view for the first two).
+  if (left <= 0 || !bounds || size.width <= 0 || size.height <= 0) return fitBounds(bounds, size, padding, maxZoom, limits);
+  const fitted = fitBounds(bounds, { width: Math.max(1, size.width - left), height: size.height }, padding, maxZoom, limits);
+  return { ...fitted, cx: fitted.cx - left / 2 / fitted.zoom };
+}
+
+/** The world point in the middle of what the canvas shows beside a strip `left` screen pixels wide. */
+export const middleBeside = (view: Viewport, left: number): Point => ({ x: view.cx + left / 2 / view.zoom, y: view.cy });
+
+/** A canvas's first view beside a strip `left` screen pixels wide: 100%, the world's origin in the middle of what is seen. */
+export const firstViewBeside = (left: number): Viewport => ({ cx: -left / 2, cy: 0, zoom: 1 });
+
 /** The smallest rectangle round some rectangles, or null for none. */
 export function unionBounds(rects: readonly Rect[]): Rect | null {
   const [first, ...rest] = rects;

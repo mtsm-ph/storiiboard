@@ -6,6 +6,7 @@ import { useProject } from '../../../app/projectStore';
 import { t, type MessageKey } from '../../../core/i18n';
 import type { Project } from '../../../core/storage/project';
 import type { GridSnap } from '../../../ui/canvas/scale';
+import { pointOnStrip } from '../../../ui/canvas/stripClear';
 import type { Tool } from '../../../ui/canvas/types';
 import { TextField } from '../../../ui/fields';
 import { iconHome } from '../../../core/model/planRooms';
@@ -18,7 +19,7 @@ import { nextFromSelection, placeIcon, type PlaceOutcome, type PlanView } from '
 import { choosePlanTool } from './layersStore';
 import { viewKey, type IconRefusal } from './planItems';
 import { planScale } from './planScale';
-import { planStore, planViewportOf } from './planStore';
+import { PLAN_STRIP_INSET, planStore, planViewportOf } from './planStore';
 import { useLiveView } from './PlanTile';
 import { useLocale } from '../../../ui/useLocale';
 
@@ -336,7 +337,8 @@ function IconButton({
       return;
     }
     const at = dropView(view, planCanvas());
-    const spot = dropAt(entry.icon.id, { x: at.width / 2, y: at.height / 2 }, at, planScale(unit).grid, 'magnet');
+    // The middle of what is seen beside the tools' strip (6.5.2 round 2), as the canvas's own keyboard placing.
+    const spot = dropAt(entry.icon.id, { x: at.width / 2 + PLAN_STRIP_INSET / 2, y: at.height / 2 }, at, planScale(unit).grid, 'magnet');
     if (spot) void place(spot.centre, madeIn);
   };
 
@@ -344,7 +346,8 @@ function IconButton({
   const follow = (event: { clientX: number; clientY: number; altKey: boolean; ctrlKey: boolean; metaKey: boolean }): Ghost & { centre: { x: number; y: number } | null } => {
     const canvas = planCanvas();
     const box = canvas?.getBoundingClientRect();
-    const inside = box !== undefined && event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
+    // Over the tools' strip is not over the plan (6.5.2 round 3): a drop there places nothing.
+    const inside = box !== undefined && event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom && !pointOnStrip(event.clientX, event.clientY);
     if (canvas && box && inside && view) {
       const spot = dropAt(entry.icon.id, { x: event.clientX - box.left, y: event.clientY - box.top }, dropView(view, canvas), planScale(unit).grid, snapOf(event));
       // Drawn at its size on screen, its lines at the kit's weight as the plan draws them.

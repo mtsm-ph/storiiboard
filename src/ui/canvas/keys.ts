@@ -18,7 +18,8 @@ export const isCommand = (event: Pick<KeyLike, 'metaKey' | 'ctrlKey'>, mac: bool
 /** A tool's letter: V, H, R, T (text), S (sticky), O (ellipse), L (link), C (connector); read from the letter typed, so it follows the keyboard's layout. */
 export function toolForKey(event: KeyLike): Tool | null {
   if (event.altKey || event.metaKey || event.ctrlKey) return null;
-  // Shift+S is the Section tool (5.3), since S alone is the sticky.
+  // Shift+S is the Section tool (5.3), since S alone is the sticky. Shift+H is the hand as H is: the letter is read
+  // below whatever Shift says, as it always was (6.5.2 names it; on a plan, hostToolForKey adds it).
   if (event.shiftKey && event.key.toLowerCase() === 's') return 'section';
   switch (event.key.toLowerCase()) {
     case 'v':
@@ -52,6 +53,8 @@ export function toolForKey(event: KeyLike): Tool | null {
 export function hostToolForKey(event: KeyLike, tools: readonly ToolSpec[]): Tool | null {
   if (event.altKey || event.metaKey || event.ctrlKey) return null;
   const typed = event.key.toLowerCase();
+  // Shift+H picks the hand as H does (6.5.2), on every host that offers the hand.
+  if (typed === 'h' && event.shiftKey && tools.some((spec) => spec.id === 'hand')) return 'hand';
   const found = tools.find((spec) => {
     const shifted = spec.key.startsWith('⇧');
     const letter = (shifted ? spec.key.slice(1) : spec.key).toLowerCase();

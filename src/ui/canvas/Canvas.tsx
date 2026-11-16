@@ -50,7 +50,7 @@ import {
   type ZoomLimits,
 } from './types';
 import { useCanvasColours } from './useCanvasColours';
-import { BOARD_ZOOM, centreOn, panBy, rectsMeet, toScreen, toWorld, unionBounds, visibleWorld, zoomAround } from './viewport';
+import { BOARD_ZOOM, centreOn, middleBeside, panBy, rectsMeet, toScreen, toWorld, unionBounds, visibleWorld, zoomAround } from './viewport';
 
 // The canvas core (decision 11): a react-konva stage that pans, zooms, selects, moves, resizes and rotates rectangles in
 // world units and reports each finished gesture, never a half-done one. It knows nothing of boards: the host gives it
@@ -224,6 +224,16 @@ export interface CanvasProps {
   liveItems?: (live: ReadonlyMap<string, Geometry> | null, by: LiveBy, seen: WorldRect | null) => ReadonlyMap<string, CanvasItem>;
   /** What liveItems drew anew, told after the canvas drew it (null for none): the host's tests read it there. */
   onLiveDrawn?: (made: ReadonlyMap<string, CanvasItem> | null) => void;
+  /**
+   * The screen pixels the host's tools' strip takes along the canvas's left edge, its gap included (6.5.2 round 2): Fit
+   * all and Fit selection fit into the part right of it, so nothing fitted lies under the strip. Left out, none.
+   */
+  insetLeft?: number;
+  /**
+   * Whether the middle of the view, where the keyboard places an item or starts a run, is the middle of what is seen
+   * right of `insetLeft` (a plan, whose first view is centred there too) rather than the canvas's own middle (a board).
+   */
+  insetMiddle?: boolean;
 }
 
 /** The items as boxes for snapping, back to front. */
@@ -297,6 +307,8 @@ export function Canvas({
   minSize = MIN_SIZE,
   liveItems,
   onLiveDrawn,
+  insetLeft = 0,
+  insetMiddle = false,
 }: CanvasProps) {
   const limits = zoomLimits ?? BOARD_ZOOM;
   const themed = useCanvasColours();
@@ -716,7 +728,13 @@ export function Canvas({
     if (which === 'selection' && pool.length === 0) return;
     const { limits: range } = latest.current;
     // An item's fit extent counts with its box (a plan's sun path, its circle); a board's items have none.
-    onViewportChange(fitViewOf(pool, latest.current.size, range));
+    onViewportChange(fitViewOf(pool, latest.current.size, range, insetLeft));
+  };
+
+  /** Where the keyboard places an item or starts a run: the middle of what is seen (beside the strip, on a plan). */
+  const viewMiddle = (): Point => {
+    const { viewport: view } = latest.current;
+    return insetMiddle ? middleBeside(view, insetLeft) : { x: view.cx, y: view.cy };
   };
 
   const zoomTo = (zoom: number) => {
@@ -1275,16 +1293,14 @@ export function Canvas({
       if (event.key === 'Enter' && pointTool?.pointToPoint && isHostTool(pointTool.id)) {
         // From the keyboard: a run starts at the middle of the view; typed lengths and the arrows draw it.
         event.preventDefault();
-        const { viewport: view } = latest.current;
-        setPath(runStart(pointTool.id, pathPoint({ x: view.cx, y: view.cy }, NO_MODS, null), null));
+        setPath(runStart(pointTool.id, pathPoint(viewMiddle(), NO_MODS, null), null));
         setPathSaid(t('canvas.path.started'));
         return;
       }
       const placing = latest.current.tool;
       if (event.key === 'Enter' && (isPlaceTool(placing) || isHostTool(placing))) {
         event.preventDefault();
-        const { viewport: view } = latest.current;
-        const made = onCreate(placedAt({ x: view.cx, y: view.cy }, isPlaceTool(placing) ? placing : 'rect', pointTool?.size), placing, 'key');
+        const made = onCreate(placedAt(viewMiddle(), isPlaceTool(placing) ? placing : 'rect', pointTool?.size), placing, 'key');
         if (made !== false) onToolChange('select');
         return;
       }
@@ -1634,8 +1650,10 @@ export function Canvas({
       {canvasView && (
         // Paper or Dark (6.5.1), just above the zoom, clear of the left ruler as it is: two pressed-or-not buttons, each
         // reachable by Tab, the one in use an ink fill. A box of its own (the zoom's is 30 px high, 8 px off the foot, and
-        // this sits 4 px over it), so the zoom's box stays as wide as it was and covers no more of the canvas.
-        <div role="group" aria-label={t('canvas.view.label')} title={t('canvas.view.hint')} data-canvas-view={canvasView.value} className={cx('absolute bottom-[42px] flex items-center border border-text bg-surface', !scale && 'left-2')} style={scale ? { left: RULER_SIZE + 8 } : undefined}>
+        // this sits 4 px over it), so the zoom's box stays as wide as it was and covers no more of the canvas. Its 1.5 px
+        // rule and 2 px of surface round the buttons, as the tool strip's (6.5.2 round 2): the pressed one's ink fill
+        // stays framed where the canvas is that colour (a Paper canvas in the dark theme, whose ink is paper).
+        <div role="group" aria-label={t('canvas.view.label')} title={t('canvas.view.hint')} data-canvas-view={canvasView.value} className={cx('absolute bottom-[42px] flex items-center border-[1.5px] border-text bg-surface p-0.5', !scale && 'left-2')} style={scale ? { left: RULER_SIZE + 8 } : undefined}>
           {(['paper', 'dark'] as const).map((choice) => {
             const on = canvasView.value === choice;
             return (

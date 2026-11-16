@@ -2181,6 +2181,7 @@ export const es: Messages = {
   'canvas.tool.hand': 'Mano',
   'canvas.tool.rect': 'Rectángulo',
   'canvas.tools': 'Herramientas',
+  'canvas.toolTip': '{name} ({keys})',
   'canvas.zoomIn': 'Acercar',
   'canvas.zoomOut': 'Alejar',
   'canvas.zoomReset': 'Zoom {percent}%. Volver al 100%',
