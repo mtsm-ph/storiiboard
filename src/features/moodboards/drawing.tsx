@@ -1,10 +1,13 @@
 import type { ReactNode } from 'react';
 import { Ellipse, Group, Line, Rect, Text } from 'react-konva';
 import { t } from '../../core/i18n';
-import type { CanvasItem, DrawContext } from '../../ui/canvas/types';
+import { inkOn, isDark, mutedIn } from '../../ui/canvas/canvasPalette';
+import { hitsPoint } from '../../ui/canvas/hitTest';
+import { sectionContents } from '../../ui/canvas/sections';
+import { isAttached, type CanvasItem, type CanvasLink, type DrawContext, type LinkEnd } from '../../ui/canvas/types';
 import type { CardInfo } from './cards';
 import { cssFamily, fontsStore } from './fonts';
-import { isFrameKind, BOARD_INK, BOARD_MUTED, BOARD_PAPER, BOARD_WARNING, pageTitle, DEFAULT_FONT_FAMILY, LINE_HEIGHT, SECTION_COLOURS, SECTION_NAME_SIZE, SECTION_TAB_HEIGHT, sectionTitle, STICKY_COLOURS, STICKY_INK, STICKY_PADDING, type ItemFields } from './items';
+import { isFrameKind, isShapeKind, isTextKind, BOARD_COLOURS, BOARD_INK, BOARD_MUTED, BOARD_PAPER, BOARD_WARNING, pageTitle, DEFAULT_FONT_FAMILY, LINE_HEIGHT, SECTION_COLOURS, SECTION_NAME_SIZE, SECTION_TAB_HEIGHT, sectionTitle, STICKY_COLOURS, STICKY_INK, STICKY_PADDING, type ItemFields } from './items';
 import { linkLabel } from './links';
 import { PictureNode } from './PictureNode';
 import { DECK_FIELD_LABEL } from './pageFormats';
@@ -16,7 +19,9 @@ import { fontStyleOf, measureText } from './textFit';
 // How each kind of board item is drawn, in its own box (0 to width by 0 to height). Colours a person gave an item are
 // drawn as stored: board content is never themed. What was never given one reads as the board's own defaults, which the
 // canvas passes in as fixed colours (ink text and outlines, the raised surface for an unfilled shape) on the board's
-// fixed paper, in light and dark alike; the sticky colours are fixed too, with ink text on them.
+// fixed paper, in light and dark alike; the sticky colours are fixed too, with ink text on them. The board's own Dark
+// view (6.5.1) is another palette passed in the same way: what reads the context's colours follows it, a colour of the
+// item's own never does.
 
 const STROKE = 1.5;
 
@@ -101,7 +106,8 @@ function linkCard(fields: ItemFields, { width, height, colours }: DrawContext): 
   return (
     <>
       {/* The address rides on the card's box, for a PDF export to make it a link (5.6a). */}
-      <Rect width={width} height={height} fill={BOARD_PAPER} stroke={colours.ink} strokeWidth={STROKE} strokeScaleEnabled={false} name="sb-link" {...{ sbUrl: fields.url }} />
+      {/* The card's paper and its ink words swap together in the Dark view (6.5.1): the card has no colour of its own. */}
+      <Rect width={width} height={height} fill={colours.paper} stroke={colours.ink} strokeWidth={STROKE} strokeScaleEnabled={false} name="sb-link" {...{ sbUrl: fields.url }} />
       <Group clipX={0} clipY={0} clipWidth={width} clipHeight={height}>
         <Text x={12} y={10} width={width - 24} text={t('moodboard.link.label')} fontFamily={MONO} fontSize={10} letterSpacing={1} fill={colours.ink} listening={false} />
         <Text x={12} y={26} width={width - 24} height={Math.max(0, height - 52)} text={label} fontFamily={family} fontStyle="bold" fontSize={18} lineHeight={1.2} fill={colours.ink} ellipsis listening={false} />
@@ -164,10 +170,10 @@ function fieldCard(fields: ItemFields, value: FieldValue | null, { width, height
     <>
       {present !== true && <Rect width={width} height={height} stroke={colours.ink} strokeWidth={1} dash={[4, 3]} strokeScaleEnabled={false} listening={false} />}
       <Group clipX={0} clipY={0} clipWidth={width} clipHeight={height}>
-        {words({ ...fields, fontSize: fit.size, text: empty ? label : text }, { width }, empty ? BOARD_MUTED : (fields.color ?? colours.ink), 0)}
+        {words({ ...fields, fontSize: fit.size, text: empty ? label : text }, { width }, empty ? mutedIn(colours, BOARD_MUTED) : (fields.color ?? colours.ink), 0)}
       </Group>
       {fit.over && present !== true && (
-        <Text x={width - 28} y={height - 22} width={26} height={20} align="center" text="..." fontFamily={MONO} fontStyle="bold" fontSize={14} fill={BOARD_INK} listening={false} />
+        <Text x={width - 28} y={height - 22} width={26} height={20} align="center" text="..." fontFamily={MONO} fontStyle="bold" fontSize={14} fill={colours.ink} listening={false} />
       )}
     </>
   );
@@ -207,6 +213,86 @@ export interface DrawExtras {
   present?: boolean;
 }
 
+/** A frame's own fill: a page's background, a section's tint. */
+const frameFill = (fields: ItemFields): string => (fields.kind === 'page' ? fields.background : (fields.color ?? SECTION_COLOURS[0]));
+
+/**
+ * The fill a board item DRAWS (6.5.1 round 3), that words with no colour of their own may sit on: a sticky's swatch, a
+ * shape's own fill or, with none, the palette's raised surface it is drawn in, a link card's paper; null for anything
+ * else (a text box draws none; a picture's pixels aren't known here, so words over one take the frame's ink).
+ */
+function drawnFill(fields: ItemFields, colours: DrawContext['colours']): string | null {
+  if (fields.kind === 'sticky') return fields.color ?? STICKY_COLOURS[0];
+  if (isShapeKind(fields.kind)) return fields.fill ?? colours.raised;
+  if (fields.kind === 'link') return colours.paper;
+  return null;
+}
+
+/**
+ * What each item with no colour of its own sits on (6.5.1 rounds 2 and 3), for the Dark view's contrast rule (inkOn):
+ * `frame`, the fill of the innermost page or section whose box holds the item's CENTRE (so a text box running past a
+ * page's edge, its centre on the page, reads as on the page); with its centre in none, the innermost that holds it by
+ * the board's own rule for what a frame holds (sections.ts `sectionContents`, its box wholly inside), a rule a box whose
+ * centre is outside never meets, so in practice the centre decides. `fill`, for words, the fill drawn by the topmost item
+ * under them (drawn before them) whose box holds their centre. Null for the bare canvas. Worked out only when the Dark
+ * view asks, in its palette (a fill-less shape is the palette's raised surface).
+ */
+export function fillsUnder(items: readonly CanvasItem[], fieldsOf: (id: string) => ItemFields | null, colours: DrawContext['colours']): Map<string, { frame: string | null; fill: string | null }> {
+  const frames = items.flatMap((item) => {
+    const fields = fieldsOf(item.id);
+    return fields && isFrameKind(fields.kind) ? [{ item, fields }] : [];
+  });
+  const innermost = (holders: typeof frames) => holders.reduce<(typeof frames)[number] | null>((best, f) => (best === null || f.item.width * f.item.height < best.item.width * best.item.height ? f : best), null);
+  const out = new Map<string, { frame: string | null; fill: string | null }>();
+  items.forEach((item, index) => {
+    const fields = fieldsOf(item.id);
+    if (!fields) return;
+    const centre = { x: item.x + item.width / 2, y: item.y + item.height / 2 };
+    const others = frames.filter((f) => f.item.id !== item.id);
+    const inner = innermost(others.filter((f) => hitsPoint(f.item, centre))) ?? innermost(others.filter((f) => sectionContents(f.item, [item]).length === 1));
+    let fill: string | null = null;
+    if (isTextKind(fields.kind) || fields.kind === 'field_card') {
+      for (let i = index - 1; i >= 0 && fill === null; i -= 1) {
+        const under = items[i];
+        const own = under ? fieldsOf(under.id) : null;
+        if (under && own && !isFrameKind(own.kind) && hitsPoint(under, centre)) fill = drawnFill(own, colours);
+      }
+    }
+    out.set(item.id, { frame: inner ? frameFill(inner.fields) : null, fill });
+  });
+  return out;
+}
+
+/**
+ * The default ink of each connector with no colour of its own in the Dark view (6.5.1 round 3): where BOTH its ends lie
+ * in the same page or section (an end attached to an item is that item's centre; a free end its point; the innermost
+ * frame holding the point), the ink that reads on that frame's fill (inkOn). Ends in different frames, or out on the
+ * bare board, take none: the canvas's light ink. Empty on paper and for a connector with a colour of its own.
+ */
+export function linkInks(links: readonly CanvasLink[], items: readonly CanvasItem[], fieldsOf: (id: string) => ItemFields | null, colours: DrawContext['colours']): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!isDark(colours)) return out;
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const frames = items.flatMap((item) => {
+    const fields = fieldsOf(item.id);
+    return fields && isFrameKind(fields.kind) ? [{ item, fields }] : [];
+  });
+  const frameAt = (end: LinkEnd) => {
+    const item = isAttached(end) ? byId.get(end.item) : undefined;
+    if (isAttached(end) && !item) return null;
+    const point = item ? { x: item.x + item.width / 2, y: item.y + item.height / 2 } : (end as { x: number; y: number });
+    const holders = frames.filter((f) => f.item.id !== item?.id && hitsPoint(f.item, point));
+    return holders.reduce<(typeof frames)[number] | null>((best, f) => (best === null || f.item.width * f.item.height < best.item.width * best.item.height ? f : best), null);
+  };
+  for (const link of links) {
+    if (link.color !== null) continue;
+    const from = frameAt(link.from);
+    const to = frameAt(link.to);
+    if (from && to && from.item.id === to.item.id) out.set(link.id, inkOn(colours, frameFill(from.fields)));
+  }
+  return out;
+}
+
 export function withDrawing(
   items: readonly CanvasItem[],
   fieldsOf: (id: string) => ItemFields | null,
@@ -216,17 +302,39 @@ export function withDrawing(
   fontsVersion: number,
   extras: DrawExtras = {},
 ): CanvasItem[] {
+  // Only the Dark view reads what lies under an item (6.5.1 round 2): on paper, and in every export, nothing is worked out.
+  let under: Map<string, { frame: string | null; fill: string | null }> | null = null;
+  const underOf = (id: string, colours: DrawContext['colours']) => (under ??= fillsUnder(items, fieldsOf, colours)).get(id) ?? { frame: null, fill: null };
+  /**
+   * The context for what has no colour of its own on what lies under it: its own context on paper, and in Dark where the
+   * light ink reads. Where the paper ink reads better (a light fill underneath), the whole paper palette (round 4): ink,
+   * raised, muted and halo go together, so a field card's empty label and a picture's placeholder read as on Paper.
+   */
+  const inked = (context: DrawContext, background: string | null): DrawContext => {
+    const ink = inkOn(context.colours, background);
+    return ink === context.colours.ink ? context : { ...context, colours: BOARD_COLOURS };
+  };
   return items.map((item) => {
     const fields = fieldsOf(item.id);
     if (!fields) return item;
     const hidden = item.id === editingId;
+    const darkUnder = (colours: DrawContext['colours']): string | null => {
+      if (!isDark(colours)) return null;
+      const at = underOf(item.id, colours);
+      return at.fill ?? at.frame;
+    };
     return {
       ...item,
       // A section's name is drawn by the canvas beside it (outside its box, so the handles don't take it in); not while it is typed.
       ...(isFrameKind(fields.kind) && item.section
-        ? { section: { ...item.section, drawTab: ({ colours }: { colours: DrawContext['colours'] }) => <Group key={fontsVersion}>{!hidden && sectionName(fields, item.section?.tab.width ?? item.width, colours, extras.pageNumbers?.get(item.id) ?? 0)}</Group> } }
+        ? { section: { ...item.section, drawTab: ({ colours }: { colours: DrawContext['colours'] }) => <Group key={fontsVersion}>{!hidden && sectionName(fields, item.section?.tab.width ?? item.width, { ...colours, ink: inkOn(colours, darkUnder(colours)) }, extras.pageNumbers?.get(item.id) ?? 0)}</Group> } }
         : {}),
-      draw: (context) => {
+      draw: (drawn) => {
+        // A sticky's default outline sits on its own swatch; a link card's words on its own paper (they swap together);
+        // a live card (a shot or scene card, a palette, a brand card) is drawn exactly as on Paper, its pictures'
+        // placeholders included (round 3): it gets the board's paper colours; anything else on what lies under it.
+        const dark = isDark(drawn.colours);
+        const context = fields.kind === 'sticky' ? inked(drawn, dark ? (fields.color ?? STICKY_COLOURS[0]) : null) : fields.kind === 'link' ? drawn : isLiveKind(fields.kind) ? (dark ? { ...drawn, colours: BOARD_COLOURS } : drawn) : inked(drawn, darkUnder(drawn.colours));
         if (fields.kind === 'section') return sectionBox(fields, context);
         if (fields.kind === 'page') return pageBox(fields, context);
         if (fields.kind === 'field_card') return <Group key={fontsVersion}>{fieldCard(fields, extras.fieldOf?.(item.id) ?? null, { ...context, ...(extras.present ? { present: true } : {}) })}</Group>;

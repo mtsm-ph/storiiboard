@@ -3,6 +3,7 @@ import { Fragment, isValidElement, type ReactElement, type ReactNode } from 'rea
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { decodePDFRawStream, PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
+import { setCanvasView } from '../../app/canvasView';
 import { createProjectStore } from '../../app/projectStore';
 import { setLocale } from '../../core/i18n';
 import { sceneRoomId, shownItems, startRoomChanges, type PlanLayer } from '../../core/model/plan';
@@ -12,6 +13,7 @@ import type { Change } from '../../core/ops/ops';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
+import { DARK_COLOURS } from '../../ui/canvas/canvasPalette';
 import { DIM_OPACITY } from '../../ui/canvas/ItemNodes';
 import { RAISED } from '../../ui/canvas/paperColours';
 import type { CanvasItem } from '../../ui/canvas/types';
@@ -1697,5 +1699,31 @@ describe('the watermark inside the plan box (Kevin, Nov 15)', () => {
       expect(at.x).toBeCloseTo(box.textX * scale, 6);
       expect(at.y).toBeCloseTo(box.baseline * scale, 6);
     }
+  });
+});
+
+describe('the Dark view never reaches paper (6.5.1)', () => {
+  afterEach(() => {
+    setCanvasView('plan', 'paper');
+  });
+
+  it('prints a setup, a scene packet and a department’s print exactly as on Paper, with the plan’s view on Dark', async () => {
+    const { sceneId, setupId } = await furnished();
+    const views = [{ sceneId, setupId }];
+    const pages = () => [
+      ...planPages(records(), project.projectId, views, options()),
+      ...planPages(records(), project.projectId, scenePlanViews(records(), sceneId), options()),
+      ...planPages(records(), project.projectId, departmentViews(records(), views, 'camera'), options()),
+    ].map(printed);
+    setCanvasView('plan', 'paper');
+    const paper = pages();
+    setCanvasView('plan', 'dark');
+    const dark = pages();
+    expect(paper.length).toBeGreaterThanOrEqual(3);
+    expect(dark).toEqual(paper);
+    // And the walls on it are the paper's ink, never the Dark view's light one.
+    const fills = new Set(paper.flatMap((page) => pagePaths(page.ops).map((p) => p.fill)));
+    expect(fills).toContain('#16150F');
+    expect(fills).not.toContain(DARK_COLOURS.ink);
   });
 });

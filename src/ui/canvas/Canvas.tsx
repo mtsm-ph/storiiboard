@@ -2,6 +2,7 @@ import type Konva from 'konva';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Circle, Layer, Line, Rect, Shape, Stage, Transformer } from 'react-konva';
 import { t, tn } from '../../core/i18n';
+import type { CanvasViewChoice } from '../../core/storage/settings';
 import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
 import { boundsFor, boundsOf, fitViewOf, rectFromCorners, topmostAt, turnsByHandle } from './hitTest';
@@ -175,6 +176,17 @@ export interface CanvasProps {
    * whose content is never themed (a board) gives its own paper and ink. The controls around the canvas still follow the theme.
    */
   fixedColours?: CanvasColours;
+  /**
+   * Paper or Dark (6.5.1): given, a Paper and Dark pair sits just above the zoom's box and hands the choice back. A view only:
+   * the host keeps it on this computer and passes the palette for it as `fixedColours`; nothing goes into the project.
+   * Left out (a host with no such choice), no pair shows.
+   */
+  view?: { value: CanvasViewChoice; onChange: (view: CanvasViewChoice) => void };
+  /**
+   * The ink of each connector with no colour of its own, by id, where the host wants other than the canvas's ink (6.5.1
+   * round 3: a board's connector inside a white page in the Dark view). Left out (a plan), every one is the canvas's ink.
+   */
+  linkInk?: ReadonlyMap<string, string>;
   /** A host's own tools (6.2a): their letters take the place of a board's. */
   tools?: readonly ToolSpec[];
   /** A real scale (6.2a): a grid, rulers and a scale bar, grid snapping, and the scale bar as the zoom label. */
@@ -273,6 +285,8 @@ export function Canvas({
   canPaste,
   announcement = '',
   fixedColours,
+  view: canvasView,
+  linkInk,
   tools,
   scale,
   zoomLimits,
@@ -1523,6 +1537,7 @@ export function Canvas({
               hideText={editing === r.link.id}
               handles={selection.length === 1 && selection[0] === r.link.id && tool === 'select'}
               zoom={pickedSet.has(r.link.id) ? view.zoom : 1}
+              ink={linkInk?.get(r.link.id)}
             />
           ))}
           <ItemNodes items={drawnPlain} colours={colours} zoom={drawZoom} liveZoom={view.zoom} ratio={ratio} away={awayFrom(drawnPlain)} hidden={mounted.hidden} centre={{ x: view.cx, y: view.cy }} register={register} onDrawn={plainDrawn} />
@@ -1614,6 +1629,30 @@ export function Canvas({
           style={{ left: lengthAt.x, top: lengthAt.y, background: colours.paper, color: colours.ink, borderColor: colours.ink }}
         >
           {path?.typed !== '' ? `${path?.typed ?? ''}▏` : scale ? scale.format(segmentLength) : String(tidy(segmentLength))}
+        </div>
+      )}
+      {canvasView && (
+        // Paper or Dark (6.5.1), just above the zoom, clear of the left ruler as it is: two pressed-or-not buttons, each
+        // reachable by Tab, the one in use an ink fill. A box of its own (the zoom's is 30 px high, 8 px off the foot, and
+        // this sits 4 px over it), so the zoom's box stays as wide as it was and covers no more of the canvas.
+        <div role="group" aria-label={t('canvas.view.label')} title={t('canvas.view.hint')} data-canvas-view={canvasView.value} className={cx('absolute bottom-[42px] flex items-center border border-text bg-surface', !scale && 'left-2')} style={scale ? { left: RULER_SIZE + 8 } : undefined}>
+          {(['paper', 'dark'] as const).map((choice) => {
+            const on = canvasView.value === choice;
+            return (
+              <button
+                key={choice}
+                type="button"
+                aria-pressed={on}
+                title={t('canvas.view.hint')}
+                className={cx(BUTTON, on ? 'bg-text font-bold text-text-inverse focus-visible:outline-text-inverse' : 'text-text hover:bg-surface-raised')}
+                onClick={() => {
+                  canvasView.onChange(choice);
+                }}
+              >
+                {choice === 'paper' ? t('canvas.view.paper') : t('canvas.view.dark')}
+              </button>
+            );
+          })}
         </div>
       )}
       {/* Clear of the left ruler when there is one. */}

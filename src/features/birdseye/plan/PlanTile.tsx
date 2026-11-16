@@ -44,7 +44,8 @@ import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
 import { Button } from '../../../ui/Button';
 import { Canvas, type CanvasProps } from '../../../ui/canvas/Canvas';
 import { toWorld } from '../../../ui/canvas/viewport';
-import { INK, PAPER_COLOURS } from '../../../ui/canvas/paperColours';
+import { canvasPalette } from '../../../ui/canvas/canvasPalette';
+import { setCanvasView, useCanvasView } from '../../../app/canvasView';
 import { ToolStrip } from '../../../ui/canvas/ToolStrip';
 import type { CanvasCommand, CanvasItem, Point } from '../../../ui/canvas/types';
 import { useDrawnLevels } from '../../moodboards/PictureNode';
@@ -734,9 +735,14 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   // hidden layer is a focus view, never a wall flown out), worked out again only for what an edit touched.
   const [keepSights] = useState(sightsKeeper);
   const sights = useMemo(() => keepSights(shown, visible, looks, lights, blocking.marks), [keepSights, shown, visible, looks, lights, blocking.marks]);
+  // Paper or Dark (6.5.1): this computer's view of every plan, never the project's. The palette is a fixed object per view,
+  // so the canvas keeps what it drew until the view changes, then draws everything again; a wall's ink is its builder's,
+  // so a wall is made again with the new ink and hands the canvas a new `draw`.
+  const canvasView = useCanvasView('plan');
+  const palette = canvasPalette(canvasView);
   const built = useMemo(
-    () => build(visible, unit, INK, locale, looks, lights, suns, blocking, layered.looks, pictures, sights),
-    [build, visible, unit, locale, looks, lights, suns, blocking, layered.looks, pictures, sights],
+    () => build(visible, unit, palette.ink, locale, looks, lights, suns, blocking, layered.looks, pictures, sights),
+    [build, visible, unit, palette.ink, locale, looks, lights, suns, blocking, layered.looks, pictures, sights],
   );
   // Which size each underlay's picture is drawn at now, for the end-to-end tests (as a board's are).
   const levels = useDrawnLevels();
@@ -1126,7 +1132,13 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           }}
           onCommand={run}
           canPaste={clipboard.length > 0 && clipFrom === openingKey(madeIn)}
-          fixedColours={PAPER_COLOURS}
+          fixedColours={palette}
+          view={{
+            value: canvasView,
+            onChange: (next) => {
+              setCanvasView('plan', next);
+            },
+          }}
           tools={PLAN_CANVAS_TOOLS}
           scale={scale}
           zoomLimits={PLAN_ZOOM}

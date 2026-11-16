@@ -10,7 +10,9 @@ import { useWorkspaceId } from '../../app/shell/workspaceContext';
 import { videoDriver } from '../../app/video';
 import { t } from '../../core/i18n';
 import type { SbdRecord } from '../../core/model/record';
+import { setCanvasView, useCanvasView } from '../../app/canvasView';
 import { Canvas } from '../../ui/canvas/Canvas';
+import { canvasPalette, inkOn, isDark } from '../../ui/canvas/canvasPalette';
 import { LABEL_FONT_SIZE } from '../../ui/canvas/LinkShapes';
 import { ToolStrip } from '../../ui/canvas/ToolStrip';
 import { isHostTool, type CanvasCommand, type Point } from '../../ui/canvas/types';
@@ -63,11 +65,11 @@ import { CardProperties } from './CardProperties';
 import { canvasLinks, connectorsOf } from './connectors';
 import { connectorFields } from './connectorFields';
 import { ConnectorProperties } from './ConnectorProperties';
-import { withDrawing } from './drawing';
+import { fillsUnder, linkInks, withDrawing } from './drawing';
 import { LinkDialog } from './LinkDialog';
 import { useDrawnLevels } from './PictureNode';
 import { ensureFont, loadSystemFonts, newlyMissing, unreadableFamilies, unreported, useFonts } from './fonts';
-import { BOARD_COLOURS, BOARD_INK, canvasItems, isMediaKind, pageNumbers, isTextKind, itemFields, itemsOf, KIND_LABEL, propsFor, SECTION_NAME_SIZE, type ItemFields } from './items';
+import { canvasItems, isMediaKind, pageNumbers, isTextKind, itemFields, itemsOf, KIND_LABEL, propsFor, SECTION_NAME_SIZE, STICKY_COLOURS, type ItemFields } from './items';
 import { PropertiesStrip } from './PropertiesStrip';
 import { TextEditor } from './TextEditor';
 import { moodboardStore, useMoodboard, viewportOf } from './moodboardStore';
@@ -100,6 +102,10 @@ export function BoardView({ board }: { board: SbdRecord }) {
   const systemFonts = useFonts((s) => s.system);
   const brokenFonts = useFonts((s) => s.broken);
   const mine = editing?.boardId === board.id ? editing : null;
+  // Paper or Dark (6.5.1): this computer's view of every board and deck, never part of the board. Present and every
+  // export draw in BOARD_COLOURS whatever it says.
+  const canvasView = useCanvasView('board');
+  const palette = canvasPalette(canvasView);
   const placed = useMemo(() => canvasItems(records, board.id), [records, board.id]);
   const links = useMemo(() => canvasLinks(records, board.id), [records, board.id]);
   // A new text box or sticky note being typed into is not in the project yet: it is shown beside the real items.
@@ -131,6 +137,9 @@ export function BoardView({ board }: { board: SbdRecord }) {
   }, [records, board.id, locale]);
   const numbers = useMemo(() => pageNumbers(itemsOf(records, board.id).flatMap((r) => { const f = itemFields(r.props); return f ? [{ id: r.id, kind: f.kind }] : []; })), [records, board.id]);
   const fieldsOf = (id: string): ItemFields | null => (mine?.draft && id === mine.id ? draftFields : itemFields(records[id]?.props ?? {}));
+  // Connectors with no colour of their own inside a light page or section read in ink there in Dark (6.5.1 round 3): for
+  // the canvas only, never Present or an export, which draw the links as stored in the board's paper.
+  const linkInk = useMemo(() => linkInks(links, items, (id) => itemFields(records[id]?.props ?? {}), palette), [links, items, records, palette]);
   const drawn = useMemo(
     () =>
       withDrawing(
@@ -542,6 +551,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
           // A board has no host tools of its own (6.2a), so every tool it places is a board's.
           onCreate={(geometry, placing) => (isHostTool(placing) ? undefined : placeItem(board.id, geometry, placing))}
           links={links}
+          linkInk={linkInk}
           onConnect={(drop) => connect(board.id, drop)}
           onQuickCreate={(id, side) => {
             void quickCreate(board.id, id, side);
@@ -559,23 +569,33 @@ export function BoardView({ board }: { board: SbdRecord }) {
           editing={mine?.id ?? null}
           renderEditor={(item, zoom) => {
             const fields = fieldsOf(item.id);
+            // Typed in the ink it is drawn in (6.5.1 rounds 2 and 3): in Dark, the one readable on what lies under it; a
+            // sticky's outline the one its drawing has, on its own swatch.
+            const under = isDark(palette) && fields?.kind !== 'sticky' ? fillsUnder(items, fieldsOf, palette).get(item.id) : undefined;
+            const editInk = fields?.kind === 'sticky' ? inkOn(palette, fields.color ?? STICKY_COLOURS[0]) : inkOn(palette, under ? (under.fill ?? under.frame) : null);
             // A section's name: one line in Inter Tight bold, on its tab.
             if (fields?.kind === 'section' || fields?.kind === 'page') {
-              const named = itemFields(propsFor({ kind: 'text', x: 0, y: 0, width: item.width, height: item.height, rotation: 0, fontSize: SECTION_NAME_SIZE, fontWeight: 700, color: BOARD_INK }));
-              return named ? <TextEditor key={item.id} fields={named} text={fields.name} zoom={zoom} singleLine ariaLabel={fields.kind === 'page' ? t('deck.editPageName') : t('moodboard.section.editName')} onEnd={(text) => void finishEditing(text)} /> : null;
+              const named = itemFields(propsFor({ kind: 'text', x: 0, y: 0, width: item.width, height: item.height, rotation: 0, fontSize: SECTION_NAME_SIZE, fontWeight: 700, color: editInk }));
+              return named ? <TextEditor key={item.id} fields={named} text={fields.name} zoom={zoom} ink={editInk} singleLine ariaLabel={fields.kind === 'page' ? t('deck.editPageName') : t('moodboard.section.editName')} onEnd={(text) => void finishEditing(text)} /> : null;
             }
-            if (fields) return <TextEditor key={item.id} fields={fields} text={fields.text} zoom={zoom} onEnd={(text) => void finishEditing(text)} />;
+            if (fields) return <TextEditor key={item.id} fields={fields} text={fields.text} zoom={zoom} ink={editInk} onEnd={(text) => void finishEditing(text)} />;
             // A connector's label: centred, small, in ink as it is drawn, over its paper patch.
             const connector = records[item.id] ? connectorFields(records[item.id]?.props ?? {}) : null;
             const labelAs = connector
               ? itemFields(propsFor({ kind: 'text', x: 0, y: 0, width: item.width, height: item.height, rotation: 0, fontSize: LABEL_FONT_SIZE, align: 'center' }))
               : null;
-            return connector && labelAs ? <TextEditor key={item.id} fields={labelAs} text={connector.label} zoom={zoom} ariaLabel={t('moodboard.connector.editLabel')} onEnd={(text) => void finishEditing(text)} /> : null;
+            return connector && labelAs ? <TextEditor key={item.id} fields={labelAs} text={connector.label} zoom={zoom} ink={palette.ink} ariaLabel={t('moodboard.connector.editLabel')} onEnd={(text) => void finishEditing(text)} /> : null;
           }}
           onCommand={run}
           canPaste={clipboard.length > 0 || clipConnectors.length > 0}
           announcement={announcement}
-          fixedColours={BOARD_COLOURS}
+          fixedColours={palette}
+          view={{
+            value: canvasView,
+            onChange: (next) => {
+              setCanvasView('board', next);
+            },
+          }}
         />
       </div>
       </div>

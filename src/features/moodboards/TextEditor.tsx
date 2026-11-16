@@ -16,9 +16,11 @@ interface TextEditorProps {
   ariaLabel?: string;
   /** One line only, as a section's name is: Enter ends the edit, and nothing wraps. */
   singleLine?: boolean;
+  /** The board's ink in the view it is drawn in (6.5.1: the light ink in Dark), for text with no colour of its own and the outline. */
+  ink?: string;
 }
 
-export function TextEditor({ fields, text, zoom, onEnd, ariaLabel, singleLine = false }: TextEditorProps) {
+export function TextEditor({ fields, text, zoom, onEnd, ariaLabel, singleLine = false, ink = BOARD_INK }: TextEditorProps) {
   const field = useRef<HTMLTextAreaElement>(null);
   const ended = useRef(false);
   const sticky = fields.kind === 'sticky';
@@ -71,7 +73,7 @@ export function TextEditor({ fields, text, zoom, onEnd, ariaLabel, singleLine = 
         height: '100%',
         boxSizing: 'border-box',
         fontFamily: cssFamily(fields.fontFamily, fontsStore.getState(), { weight: fields.fontWeight, italic: fields.fontItalic }),
-        outline: `1px solid ${BOARD_INK}`,
+        outline: `1px solid ${ink}`,
         outlineOffset: -1,
         fontSize: fields.fontSize * zoom,
         fontWeight: fields.fontWeight,
@@ -79,7 +81,7 @@ export function TextEditor({ fields, text, zoom, onEnd, ariaLabel, singleLine = 
         lineHeight: LINE_HEIGHT,
         textAlign: fields.align,
         padding: sticky ? STICKY_PADDING * zoom : singleLine ? `${String(2.4 * zoom)}px ${String(4 * zoom)}px` : 0,
-        color: sticky ? STICKY_INK : (fields.color ?? BOARD_INK),
+        color: sticky ? STICKY_INK : (fields.color ?? ink),
         background: sticky ? (fields.color ?? STICKY_COLOURS[0]) : 'transparent',
         whiteSpace: singleLine ? 'pre' : 'pre-wrap',
         overflowWrap: 'break-word',

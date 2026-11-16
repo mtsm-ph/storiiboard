@@ -384,7 +384,17 @@ schema version, listed in SBD_FORMAT.md and the report.
   import) checks sort keys. A builder used `sed` once on its own new test file (rule 2).
 - **Merging in this run:** a milestone with no screenshot change merges once reviewed and its quick checks pass
   (the run rules below); one that changes screenshots waits for Kevin's word, and later milestones stack on it.
-- **Status line (keep current):** Nov 16: #180 merged; 6.23 reviewed, being committed; no agent running.
+- **Kevin, Nov 16, later: Storiiboard is free and closed source; the repo stays public until the app is built.**
+  Plans and decision sheets for features not yet built live in `private/` (git-ignored; their text goes in the
+  report), never in docs/; documents already public stay. A checkpoint runs only when he asks for one by name
+  (the one after 6.5 stands). A small docs PR changes "open-source" to "free" in CLAUDE.md and the README.
+- **Baselines in this run (the main session's decision, to keep runs few):** Windows baselines regenerated on each
+  PR that changes them; Linux and Mac ones once, at the top of the stack, before the final checkpoint.
+- **Done so far:** #181 (6.23) merged. 6.5.1 (Dark view; branch `polish/6.5.1-dark-canvas`; four rounds, reviewed
+  twice; no screenshot baseline differs on Windows) committed and open. This PC was busy on Nov 16: perf.spec's
+  held turn key read p95 66.7 ms with and without 6.5.1, so its numbers that day prove nothing; measure again on a
+  quiet PC before the checkpoint.
+- **Status line (keep current):** Nov 16: #180 and #181 merged; 6.5.1 open; next: the wording PR, then 6.5.2.
 
 ### Next session: start here (Nov 15, night, older: #179 merged; 6.22 built)
 
