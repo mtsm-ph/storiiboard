@@ -724,8 +724,9 @@ function indexOf(records: Records): RecordsIndex {
 
 /**
  * The live plans of a kind under a parent, by sort key, then when made, then id. Kept per records object, parent and kind
- * (6.21): the tiles ask for the same few on every edit. A first look-up for a parent still reads the records itself, so
- * what a reading of N setups' plans costs stays N look-ups (gearOnDay.test.ts counts them). Read-only.
+ * (6.21): the tiles ask for the same few on every edit. A first look-up for a parent still reads the records itself;
+ * blockingPlansOf reads it, while setupPlanOf reads the index (indexedPlansUnder, 6.22) so that N setups' plans cost no
+ * more scans than one (gearOnDay.test.ts counts them). Read-only.
  */
 const plansUnder = (records: Records, parentId: string, kind: PlanKind): readonly SbdRecord[] =>
   keptFor(records, `plan.plansUnder:${parentId}:${kind}`, () =>
@@ -741,7 +742,8 @@ const planUnder = (records: Records, parentId: string, kind: PlanKind): SbdRecor
 export const blockingPlanOf = (records: Records, sceneId: string): SbdRecord | null => planUnder(records, sceneId, 'blocking');
 /** Every live blocking plan of a scene, the first first (6.7 review, L8): a view shows all their items, so nothing placed vanishes. */
 export const blockingPlansOf = (records: Records, sceneId: string): SbdRecord[] => [...plansUnder(records, sceneId, 'blocking')];
-export const setupPlanOf = (records: Records, setupId: string): SbdRecord | null => planUnder(records, setupId, 'setup');
+/** A setup's own plan: its first live one of kind setup, from the index of plans by parent (6.22), as plansShown reads it. */
+export const setupPlanOf = (records: Records, setupId: string): SbdRecord | null => indexedPlansUnder(records, setupId, 'setup')[0] ?? null;
 
 /** The live setup, when it is one of this scene's. */
 function sceneSetup(records: Records, sceneId: string, setupId: string | null): SbdRecord | null {
@@ -788,7 +790,7 @@ function readPlansShown(records: Records, sceneId: string, setupId: string | nul
 
 /**
  * plansUnder from the index of plans by parent (6.21), for the views every tile reads on every edit: the same plans in
- * the same order. plansUnder itself keeps its own look-up, which gearOnDay.test.ts counts per setup.
+ * the same order, and for setupPlanOf (6.22). plansUnder itself keeps its own look-up, for blockingPlansOf.
  */
 const indexedPlansUnder = (records: Records, parentId: string, kind: PlanKind): readonly SbdRecord[] =>
   keptFor(records, `plan.indexedPlansUnder:${parentId}:${kind}`, () =>
@@ -1000,6 +1002,51 @@ export function lastKeyUnder(records: Records, parentId: string, type: SbdRecord
     .reduce<string | null>((key, r) => (key === null || r.sortKey > key ? r.sortKey : key), null);
 }
 
+/** The key after `key`, or null when keyBetween can't read it (an imported file can hold any string as a key). */
+export function keyAfter(key: string | null): string | null {
+  try {
+    return keyBetween(key, null);
+  } catch {
+    return null;
+  }
+}
+
+/** The last key among a parent's children of a type that keyBetween can read, the Trash's too; null with none. */
+export function lastReadableKeyUnder(records: Records, parentId: string, type: SbdRecord['type']): string | null {
+  let readable: string | null = null;
+  for (const r of Object.values(records)) {
+    if (r.type !== type || r.parentId !== parentId) continue;
+    if ((readable === null || r.sortKey > readable) && keyAfter(r.sortKey) !== null) readable = r.sortKey;
+  }
+  return readable;
+}
+
+/**
+ * The sort key for a record put at the front of a parent's children of a type: after the last one (lastKeyUnder). An
+ * imported file can hold any string as a key, and keyBetween throws on one it can't read (6.22, Kevin: an odd file must
+ * never make the app throw), so when the last key is such a one the new key goes after the last key it can read
+ * instead: still last among the readable ones, while the odd records keep their keys as they are (none is rewritten).
+ * With none readable it is the first key there is. A file with only readable keys gets exactly keyBetween(last, null),
+ * from the same one pass over the records.
+ */
+export function keyAfterLast(records: Records, parentId: string, type: SbdRecord['type']): string {
+  return keyAfter(lastKeyUnder(records, parentId, type)) ?? keyBetween(lastReadableKeyUnder(records, parentId, type), null);
+}
+
+/**
+ * A key between two stored keys (6.22): keyBetween's, or, when it can't place one there (a key it can't read, or two out
+ * of order, as an imported file may hold), the key after `last`, the last readable key of the list, so the edit puts
+ * its record last instead of throwing. With `last` unreadable too, the first key there is. A sound file gets exactly
+ * keyBetween(before, after).
+ */
+export function keyBetweenStored(before: string | null, after: string | null, last: string | null): string {
+  try {
+    return keyBetween(before, after);
+  } catch {
+    return keyAfter(last) ?? keyBetween(null, null);
+  }
+}
+
 /**
  * "New room" (6.2b): a room under the project, named after the scene's place and taking its location, and the scene
  * pointed at it, in one group, whether or not the scene had a room (the one it had is left as it is).
@@ -1007,13 +1054,12 @@ export function lastKeyUnder(records: Records, parentId: string, type: SbdRecord
 export function newRoomChanges(records: Records, projectId: string, sceneId: string, id: string = crypto.randomUUID()): Change[] {
   const scene = records[sceneId];
   if (scene?.type !== 'scene' || scene.trashedAt !== null) return [];
-  const last = lastKeyUnder(records, projectId, 'plan');
   const { locationId } = sceneFields(scene.props);
   const location = locationId ? records[locationId] : undefined;
   const props: Props = { kind: 'room', name: defaultRoomName(records, scene) };
   if (location?.type === 'location' && location.trashedAt === null) props.location_id = location.id;
   return [
-    { kind: 'create', record: { id, type: 'plan', parentId: projectId, sortKey: keyBetween(last, null), props } },
+    { kind: 'create', record: { id, type: 'plan', parentId: projectId, sortKey: keyAfterLast(records, projectId, 'plan'), props } },
     { kind: 'update', id: sceneId, set: { room_id: id } },
   ];
 }
@@ -1071,9 +1117,8 @@ export function wallProps(g: PlanGeometry): Props {
 
 /** Walls made at the front of a plan, one per segment of a run of points (metres); segments of no length are left out. */
 export function wallsAlong(records: Records, planId: string, points: readonly Point[], thickness = WALL_THICKNESS): { ids: string[]; changes: Change[] } {
-  let previous = Object.values(records)
-    .filter((r) => r.type === 'plan_item' && r.parentId === planId)
-    .reduce<string | null>((key, r) => (key === null || r.sortKey > key ? r.sortKey : key), null);
+  // The first wall after the plan's last readable key (keyAfterLast), each next one after the one before.
+  let previous: string | null = null;
   const ids: string[] = [];
   const changes: Change[] = [];
   for (let i = 1; i < points.length; i += 1) {
@@ -1081,7 +1126,7 @@ export function wallsAlong(records: Records, planId: string, points: readonly Po
     const b = points[i];
     if (!a || !b || Math.hypot(b.x - a.x, b.y - a.y) < MIN_PLAN_SIZE) continue;
     const id = crypto.randomUUID();
-    const sortKey = keyBetween(previous, null);
+    const sortKey: string = previous === null ? keyAfterLast(records, planId, 'plan_item') : keyBetween(previous, null);
     previous = sortKey;
     ids.push(id);
     changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props: wallProps(wallBetween(a, b, thickness)) } });

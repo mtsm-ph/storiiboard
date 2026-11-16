@@ -1472,8 +1472,8 @@ describe('what a department print shows (Kevin, Nov 15)', () => {
     expect(Math.max(...itemOpacities(castPage, camera))).toBe(round(DIM_OPACITY));
   });
 
-  it('prints the room’s set pieces in full on lighting’s page, in the room plan or the setup alone, and lists none in its legend (6.20 review)', async () => {
-    const { sceneId, setupId, camera } = await furnished();
+  it('prints the room’s set pieces dimmed on lighting’s page, in the room plan or the setup alone, and lists none in its legend (6.20 review)', async () => {
+    const { sceneId, setupId, camera, wallId } = await furnished();
     const view = { sceneId, setupId };
     await apply(placeIconChanges(records(), view, 'set-art/sofa', { x: 0, y: 2 }, 'sofa'));
     await apply(placeIconChanges(records(), view, 'set-art/table', { x: -2, y: 1 }, 'table'));
@@ -1487,7 +1487,20 @@ describe('what a department print shows (Kevin, Nov 15)', () => {
     for (const id of ['sofa', 'table']) {
       const item = page.plan?.items.find((i) => i.id === id);
       expect(item, id).toBeDefined();
+      // Dimmed as the cameras and marks are (Kevin, Nov 15 night): the canvas core's one dim, labels with them.
+      expect(item?.dim, id).toBe(true);
+      expect(Math.max(...itemOpacities(page, id)), id).toBe(round(DIM_OPACITY));
+    }
+    // The walls stay in full on lighting's page.
+    expect(page.plan?.items.find((i) => i.id === wallId)?.dim).not.toBe(true);
+    expect(Math.max(...itemOpacities(page, wallId))).toBe(1);
+    // On art's page the set pieces are its own items, in full.
+    const artPage = pageOf(sceneId, setupId, 'set-art');
+    for (const id of ['sofa', 'table']) {
+      const item = artPage.plan?.items.find((i) => i.id === id);
+      expect(item, id).toBeDefined();
       expect(item?.dim, id).not.toBe(true);
+      expect(Math.max(...itemOpacities(artPage, id)), id).toBe(1);
     }
     // The legend: lighting's own lines; no set and art line for the sofa or the table.
     expect(rowsOf(page)).toEqual(['LIGHTING', 'Fresnel · 2.40 m · 650 W', 'Total 650 W']);
