@@ -43,9 +43,11 @@ import { sceneSetups } from '../../../core/model/setup';
 import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
 import { Button } from '../../../ui/Button';
 import { Canvas, type CanvasProps } from '../../../ui/canvas/Canvas';
-import { toWorld } from '../../../ui/canvas/viewport';
+import { middleBeside, toWorld } from '../../../ui/canvas/viewport';
 import { canvasPalette } from '../../../ui/canvas/canvasPalette';
 import { setCanvasView, useCanvasView } from '../../../app/canvasView';
+import { RULER_SIZE } from '../../../ui/canvas/Rulers';
+import { hostStripTools } from '../../../ui/canvas/stripTools';
 import { ToolStrip } from '../../../ui/canvas/ToolStrip';
 import type { CanvasCommand, CanvasItem, Point } from '../../../ui/canvas/types';
 import { useDrawnLevels } from '../../moodboards/PictureNode';
@@ -99,7 +101,7 @@ import { pasteIsPicture } from './planClipboard';
 import { openPlanExport } from '../../export/exportStore';
 import type { PlanTarget } from '../../export/planExport';
 import { groupName } from './library';
-import { planStore, planViewportOf, usePlan } from './planStore';
+import { PLAN_STRIP_INSET, planStore, planViewportOf, usePlan } from './planStore';
 import { openingKey, useShownPlan } from './shownPlan';
 
 // The Plan tile (6.2a, 6.2b), in the Setup workspace: the setup picked in the Setups tile (or a scene picked by its
@@ -775,8 +777,9 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   /** Pictures added under the room (6.9): their middle at `centre` (metres), else the middle of the view. */
   const addPictures = (files: readonly PictureFile[], centre: PlanPoint | null) => {
     if (files.length === 0) return;
-    const view0 = planViewportOf(planStore.getState().viewports, key);
-    void addUnderlay(view, files, centre ?? { x: toMetres(view0.cx), y: toMetres(view0.cy) }, madeIn);
+    // The middle of what is seen beside the tools' strip (6.5.2 round 2).
+    const middle = middleBeside(planViewportOf(planStore.getState().viewports, key), PLAN_STRIP_INSET);
+    void addUnderlay(view, files, centre ?? { x: toMetres(middle.x), y: toMetres(middle.y) }, madeIn);
   };
   /** Where a drop at a page point lands on the plan, metres; null off the canvas. */
   const dropAt = (client: { x: number; y: number }): PlanPoint | null => {
@@ -950,11 +953,10 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   };
   return (
     <div className="flex h-full min-h-80 flex-col" data-plan-tile="">
-      {/* The heading, the room's menu and the notes on one row, the tools on their own below it, each wrapping in a narrow
-          tile (6.6 review). Sharing one wrapping row, the menu's wrapper (h-full, sized for the top bar) took the row's
-          whole height, and the tools wrapped past the strip's foot, under the canvas, out of sight. Each menu sits in a
-          box of its own height here, so nothing in the row can stretch it. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1" data-plan-heading="">
+      {/* The heading, the room's menu and the notes on one row, wrapping in a narrow tile (6.6 review); the tools are the
+          strip on the canvas's corner (6.5.2). Each menu sits in a box of its own height here (h-full, sized for the top
+          bar, would take the row's whole height), so nothing in the row can stretch it. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border px-2 py-1" data-plan-heading="">
         {header}
         <div className="flex h-7 min-w-0 max-w-full">
           <RoomMenu
@@ -999,13 +1001,10 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           )
         )}
       </div>
-      <div className="shrink-0" data-plan-tools="">
-        <ToolStrip tool={tool} onTool={choosePlanTool} tools={PLAN_TOOLS} />
-      </div>
       {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- takes pictures dropped on the plan as underlays (6.9); the canvas inside is the control */}
       <div
         ref={holder}
-        className="min-h-0 min-w-0 flex-1"
+        className="relative min-h-0 min-w-0 flex-1"
         data-plan-data={data}
         data-plan-unit={unit}
         data-plan-preview={spot ? JSON.stringify({ wallId: spot.wallId, along: spot.along }) : undefined}
@@ -1023,8 +1022,13 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           addPictures([...event.dataTransfer.files].map(fromFile), dropAt({ x: event.clientX, y: event.clientY }));
         }}
       >
+        {/* The tools on the canvas's corner (6.5.2), before it so their tab stops come first. */}
+        <ToolStrip tools={hostStripTools(PLAN_TOOLS, tool, choosePlanTool)} offset={RULER_SIZE} />
         <PlanViewCanvas
           planKey={key}
+          // Fits, the keyboard's placements and the first view (planViewportOf) beside the strip, never under it.
+          insetLeft={PLAN_STRIP_INSET}
+          insetMiddle
           label={t('plan.canvasLabel', { name: roomTitle(planFields(room.props)) })}
           items={items}
           selection={selection}

@@ -1,5 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { t } from '../../core/i18n';
+import { leftClearOfStrips } from '../../ui/canvas/stripClear';
 import { cx } from '../../ui/cx';
 import { keepBrowserMenuOut } from '../../ui/menuKey';
 import { toHolder, usePressInside } from '../../ui/pressInside';
@@ -41,6 +42,7 @@ export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const panelBox = useRef<HTMLDivElement>(null);
   const panel = useId();
   const hexId = useId();
   // A press inside the panel (a swatch, its padding) may send focus to what holds it; nothing else may (6.19b's review).
@@ -64,6 +66,16 @@ export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf
       window.removeEventListener('resize', close);
     };
   }, [open]);
+
+  // Hanging over the canvas, the panel keeps clear of the tools' strip (6.5.2 round 2), so a tool can still be picked
+  // while it is open: placed where its button is, then moved right of the strip if it meets it, as far as needed.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const box = panelBox.current?.getBoundingClientRect();
+    if (!box) return;
+    const left = leftClearOfStrips(box);
+    if (left !== box.left) setAnchor((now) => ({ ...now, left: now.left + (left - box.left) }));
+  }, [open, anchor]);
 
   // The native change event, which a colour input sends when a colour is chosen; React's onChange fires on every step.
   useEffect(() => {
@@ -143,7 +155,7 @@ export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf
       {open && (
         // The menu key on a swatch opens no browser menu over the panel; the hex field keeps its own.
         // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- only keeps the browser's menu out; the buttons inside are the controls
-        <div id={panel} role="group" aria-label={label} onContextMenu={keepBrowserMenuOut} style={{ position: 'fixed', ...anchor }} className="z-30 flex w-56 flex-col gap-2 border border-text bg-surface p-2">
+        <div ref={panelBox} id={panel} role="group" aria-label={label} onContextMenu={keepBrowserMenuOut} style={{ position: 'fixed', ...anchor }} className="z-30 flex w-56 flex-col gap-2 border border-text bg-surface p-2">
           <div className="grid grid-cols-6 gap-2 p-1">
             {swatches.map((hex) => (
               <button

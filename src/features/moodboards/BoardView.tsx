@@ -14,9 +14,10 @@ import { setCanvasView, useCanvasView } from '../../app/canvasView';
 import { Canvas } from '../../ui/canvas/Canvas';
 import { canvasPalette, inkOn, isDark } from '../../ui/canvas/canvasPalette';
 import { LABEL_FONT_SIZE } from '../../ui/canvas/LinkShapes';
+import { boardStripTools, STRIP_INSET } from '../../ui/canvas/stripTools';
 import { ToolStrip } from '../../ui/canvas/ToolStrip';
 import { isHostTool, type CanvasCommand, type Point } from '../../ui/canvas/types';
-import { fitBounds, toWorld } from '../../ui/canvas/viewport';
+import { fitBeside, toWorld } from '../../ui/canvas/viewport';
 import { EditableTitle } from '../../ui/EditableTitle';
 import { useMissingVideos } from '../video/videoStatus';
 import { boardFields, boardTitle, linkedLine } from './boards';
@@ -75,9 +76,9 @@ import { TextEditor } from './TextEditor';
 import { moodboardStore, useMoodboard, viewportOf } from './moodboardStore';
 import { useLocale } from '../../ui/useLocale';
 
-// One open board: the tool strip (a way back to the picker, the board's name, the tools) and the canvas core with the
-// board's items. Everything the canvas reports becomes an edit in boardActions.ts; selection, tool and view stay in the
-// session (moodboardStore), never in the project.
+// One open board: its row (a way back to the picker, the board's name, its actions), the tools' strip on the canvas's
+// corner (6.5.2) and the canvas core with the board's items. Everything the canvas reports becomes an edit in
+// boardActions.ts; selection, tool and view stay in the session (moodboardStore), never in the project.
 
 /** Which fonts have been named as missing, per board, this session: each is said once. */
 const REPORTED = new Set<string>();
@@ -316,7 +317,8 @@ export function BoardView({ board }: { board: SbdRecord }) {
   const centreOnPage = (page: PageInfo) => {
     const frame = wrapper.current?.querySelector<HTMLElement>('[data-canvas]');
     const size = { width: Math.max(80, Math.round(frame?.clientWidth ?? 800)), height: Math.max(80, Math.round(frame?.clientHeight ?? 600)) };
-    moodboardStore.getState().setViewport(board.id, fitBounds(pageRect(page.fields), size));
+    // Beside the tools' strip, never under it (6.5.2 round 2).
+    moodboardStore.getState().setViewport(board.id, fitBeside(pageRect(page.fields), size, STRIP_INSET));
   };
 
   // A deck opens fitted to its first page, unless the person has looked around in it already (L10).
@@ -365,13 +367,11 @@ export function BoardView({ board }: { board: SbdRecord }) {
 
   return (
     <div className="flex h-full min-h-80 flex-col">
-      <ToolStrip
-        tool={tool}
-        pages={deck}
-        // The Page tool belongs to a deck's board (5.5): its key does nothing on a moodboard.
-        onTool={(next) => {
-          if (next !== 'page' || deck) moodboardStore.getState().setTool(next);
-        }}
+      {/* The board's row: a way back to the picker, its name and its actions. The tools are the strip on the canvas
+          (6.5.2). */}
+      <div
+        className="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b border-border px-2 py-1"
+        data-board-header=""
       >
         <button
           type="button"
@@ -497,7 +497,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
           </button>
           {!deck && <BoardPaletteButton boardId={board.id} />}
         </span>
-      </ToolStrip>
+      </div>
       {/* A band of one height above the canvas, empty when nothing is selected: the canvas never changes size under a gesture, and nothing on it is covered. */}
       <PropertiesStrip
         fields={selectedFields}
@@ -514,7 +514,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
       {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- takes files dropped on the board; the canvas inside is the control */}
       <div
         ref={wrapper}
-        className="min-h-0 min-w-0 flex-1"
+        className="relative min-h-0 min-w-0 flex-1"
         data-board-data={data}
       data-board-connectors={connectorData}
         data-board-live={liveData}
@@ -533,8 +533,22 @@ export function BoardView({ board }: { board: SbdRecord }) {
           void addBoardPictures(board.id, [...event.dataTransfer.files].map(fromFile), worldAt({ x: event.clientX, y: event.clientY }));
         }}
       >
+        {/* Before the canvas, so its tab stops come first. The Page tool belongs to a deck's board (5.5): its key does
+            nothing on a moodboard. */}
+        <ToolStrip
+          tools={boardStripTools(
+            tool,
+            (next) => {
+              if (next !== 'page' || deck) moodboardStore.getState().setTool(next);
+            },
+            deck,
+          )}
+        />
         <Canvas
           label={t('moodboard.canvasLabel', { name: title })}
+          // Fits beside the tools' strip. A board's first view and keyboard placing stay at the canvas's middle, as its
+          // 100% view always had them.
+          insetLeft={STRIP_INSET}
           items={drawn}
           selection={selection}
           onSelectionChange={(ids) => {

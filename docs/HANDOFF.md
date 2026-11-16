@@ -394,7 +394,12 @@ schema version, listed in SBD_FORMAT.md and the report.
   twice; no screenshot baseline differs on Windows) committed and open. This PC was busy on Nov 16: perf.spec's
   held turn key read p95 66.7 ms with and without 6.5.1, so its numbers that day prove nothing; measure again on a
   quiet PC before the checkpoint.
-- **Status line (keep current):** Nov 16: #180 and #181 merged; 6.5.1 open; next: the wording PR, then 6.5.2.
+- #182 (6.5.1) and #183 (the wording: free, not open source; `private/` ignored) merged. 6.5.2 (the tool strip;
+  three rounds, reviewed once, one medium fixed) committed and open; it changed two plan.spec tests the brief
+  names (the tools are now inside the canvas). A board's first view is still centred on its origin (existing
+  board tests rely on it): tell Kevin.
+- **Status line (keep current):** Nov 16: #180 to #183 merged; 6.5.2 open; next: 6.5.3 (trackpad mode), then
+  6.5.4, 6.5.5, 6.5.6, 6.5.7a, 6.5.7b, 6.5.8, each brief already in docs/briefs/.
 
 ### Next session: start here (Nov 15, night, older: #179 merged; 6.22 built)
 

@@ -728,20 +728,27 @@ test('a wall made this setup’s only leaves the scene’s other setup and the s
   await sceneSetup(page, 'SC 02').first().click();
   await expect.poll(() => widths(page)).toEqual([4]);
 
-  // A narrow tile: the header and the tools wrap, nothing runs out of it. 150 px is narrower than the tool group's own
-  // row (measured here, so the test fails if the tools stop wrapping): they must take more than one row. The heading
-  // and the room's menu are a row of their own above the tools' strip (6.6 review).
-  const strip = planTile(page).locator('[data-plan-tools] > div').first();
+  // A narrow tile: the header wraps, nothing runs out of it. The heading and the room's menu are a row of their own
+  // (6.6 review); the tools are the strip on the canvas's corner (6.5.2), wrapping into columns where it is short.
+  const strip = planTile(page).getByRole('group', { name: 'Tools', exact: true });
   const heading = planTile(page).locator('[data-plan-heading]');
-  const group = strip.getByRole('group', { name: 'Tools' });
-  const row = await group.evaluate((el) => [...el.querySelectorAll('button')].reduce((sum, b) => sum + b.getBoundingClientRect().width, 0));
   await planTile(page).locator('[data-plan-tile]').evaluate((tile) => {
     (tile as HTMLElement).style.width = '150px';
   });
   await expect(planTile(page).locator('[data-room-shared]')).toHaveText('Also in SC 01');
-  expect(row).toBeGreaterThan(await strip.evaluate((el) => el.clientWidth));
-  const rows = await group.evaluate((el) => new Set([...el.querySelectorAll('button')].map((b) => Math.round(b.getBoundingClientRect().top))).size);
-  expect(rows).toBeGreaterThan(1);
+  // In that tile every tool button is still wholly visible inside the canvas: inside its box, and the topmost element
+  // at its own middle.
+  const shown = await strip.evaluate((el) => {
+    const frame = el.parentElement?.querySelector('[data-canvas]')?.getBoundingClientRect();
+    if (!frame) return false;
+    return [...el.querySelectorAll('button')].every((b) => {
+      const r = b.getBoundingClientRect();
+      const inside = r.left >= frame.left - 1 && r.right <= frame.right + 1 && r.top >= frame.top - 1 && r.bottom <= frame.bottom + 1;
+      const at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return inside && at !== null && b.contains(at);
+    });
+  });
+  expect(shown).toBe(true);
   expect(await strip.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   expect(await heading.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   const tools = await strip.evaluate((el) => [...el.querySelectorAll('button')].every((b) => b.getBoundingClientRect().right <= el.getBoundingClientRect().right + 1));
@@ -806,8 +813,8 @@ test('the focus after the room’s steps: Delete room to the chooser, a room cho
 
 /**
  * Every tool of the plan's strip on screen and reachable (6.6 review: in the Setup workspace's default layout the strip
- * had wrapped its tools under the canvas, out of sight): visible, inside the tile, above the canvas, and the topmost
- * element at its own middle.
+ * had wrapped its tools under the canvas, out of sight): visible, inside the tile, inside the canvas (6.5.2: a strip on
+ * its corner), and the topmost element at its own middle.
  */
 async function toolsShown(page: Page) {
   const tile = await planTile(page).boundingBox();
@@ -824,7 +831,14 @@ async function toolsShown(page: Page) {
     expect(box.x, name).toBeGreaterThanOrEqual(tile.x - 1);
     expect(box.x + box.width, name).toBeLessThanOrEqual(tile.x + tile.width + 1);
     expect(box.y, name).toBeGreaterThanOrEqual(tile.y - 1);
-    expect(box.y + box.height, name).toBeLessThanOrEqual(canvasBox.y + 1);
+    // 6.5.2 (round 2 of its brief): the tools are a strip on the canvas's corner, so each lies wholly inside the canvas,
+    // and wholly inside the tile's visible box (the tile, within the window).
+    expect(box.x, name).toBeGreaterThanOrEqual(canvasBox.x - 1);
+    expect(box.x + box.width, name).toBeLessThanOrEqual(canvasBox.x + canvasBox.width + 1);
+    expect(box.y, name).toBeGreaterThanOrEqual(canvasBox.y - 1);
+    expect(box.y + box.height, name).toBeLessThanOrEqual(canvasBox.y + canvasBox.height + 1);
+    expect(box.y + box.height, name).toBeLessThanOrEqual(tile.y + tile.height + 1);
+    expect(box.y + box.height, name).toBeLessThanOrEqual((page.viewportSize()?.height ?? 0) + 1);
     const onTop = await button.evaluate((element) => {
       const r = element.getBoundingClientRect();
       const at = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);

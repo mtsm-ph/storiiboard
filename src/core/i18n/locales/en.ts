@@ -2181,6 +2181,7 @@ export const en = {
   'canvas.tool.hand': 'Hand',
   'canvas.tool.rect': 'Rectangle',
   'canvas.tools': 'Tools',
+  'canvas.toolTip': '{name} ({keys})',
   'canvas.zoomIn': 'Zoom in',
   'canvas.zoomOut': 'Zoom out',
   'canvas.zoomReset': 'Zoom {percent}%. Reset to 100%',

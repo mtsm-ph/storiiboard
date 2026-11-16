@@ -2,7 +2,9 @@ import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { projectStore } from '../../../app/projectStore';
 import type { Tool, Viewport } from '../../../ui/canvas/types';
-import { DEFAULT_VIEWPORT } from '../../../ui/canvas/viewport';
+import { RULER_SIZE } from '../../../ui/canvas/Rulers';
+import { STRIP_INSET } from '../../../ui/canvas/stripTools';
+import { firstViewBeside } from '../../../ui/canvas/viewport';
 import type { PlanClip } from './planItems';
 import { SCALE_TOOL } from './planScale';
 import { useShownPlan } from './shownPlan';
@@ -82,4 +84,12 @@ export function usePlan<T>(select: (state: PlanState) => T): T {
   return useStore(planStore, select);
 }
 
-export const planViewportOf = (viewports: Readonly<Record<string, Viewport>>, key: string): Viewport => viewports[key] ?? DEFAULT_VIEWPORT;
+/**
+ * What the tools' strip takes along a plan's left edge, px (6.5.2 round 3): the strip's own, plus the left ruler, since on
+ * a plan the strip sits inside the rulers.
+ */
+export const PLAN_STRIP_INSET = STRIP_INSET + RULER_SIZE;
+
+/** A plan's view, or its first: at 100%, the plan's origin in the middle of what is seen beside the tools' strip (6.5.2). */
+const FIRST_VIEW = firstViewBeside(PLAN_STRIP_INSET);
+export const planViewportOf = (viewports: Readonly<Record<string, Viewport>>, key: string): Viewport => viewports[key] ?? FIRST_VIEW;
