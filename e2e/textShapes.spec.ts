@@ -156,9 +156,13 @@ test('makes a sticky note in each of its six colours', async ({ page }) => {
   for (const [colour, name] of colours) {
     await properties(page).getByRole('button', { name: /^Sticky colour:/ }).click();
     const panel = properties(page).getByRole('group', { name: 'Sticky colour' });
-    // Stickies are offered their six colours only: no hex field, no system picker.
+    // Stickies are offered their six swatches, each by its name, and any other colour by the Hex field (6.5.7a).
+    // Six buttons and two textboxes in all (the Hex field and the system picker, which Playwright counts as one), so
+    // an extra control is caught.
     await expect(panel.getByRole('button')).toHaveCount(6);
-    await expect(panel.getByRole('textbox')).toHaveCount(0);
+    for (const [, swatch] of colours) await expect(panel.getByRole('button', { name: swatch, exact: true })).toHaveCount(1);
+    await expect(panel.getByRole('textbox')).toHaveCount(2);
+    await expect(panel.getByRole('textbox', { name: 'Hex' })).toHaveCount(1);
     await panel.getByRole('button', { name, exact: true }).click();
     await expect.poll(async () => (await data(page))[0]?.color).toBe(colour);
   }

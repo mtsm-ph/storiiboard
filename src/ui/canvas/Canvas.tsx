@@ -19,6 +19,16 @@ import { remadeFor, shownWith } from './liveShown';
 import { handledSize, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, shrunkBelow, tidy } from './placement';
 import { drawOrder, sectionContents, tabRect, topmostSectionAt } from './sections';
 import { mergeGuides, runSnapEnds, snapMove, snapPoint, snapTargetItems, type Guide } from './snapping';
+import { dotBox, dotCornerKeepingRatio, dotHandle, dotMove, dotSnapSpacing, dotSpacing, dotSpacingLabel, dotsInView, handleAxes } from './dotGrid';
+
+/** The box Konva's handles hand their bound function, in the stage's pixels. */
+interface TransformBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+}
 import { pathBounds, pathHits, pathMiddle, pathTouchesRect, PICK_DISTANCE, routeBetween, sideMidpoint, sideNormal, SIDES, snapEnd } from './routing';
 import { itemAt, marqueePicks, menuPickAt, pickable, pickOrder } from './picking';
 import { DOUBLE_PRESS_MS, END_SNAP, nextPoint, NO_MODS, pathAngle, runClick, runKey, runPoints, runStart, toolEndsRun, type PathDraft, type PathMods } from './pathRun';
@@ -195,6 +205,13 @@ export interface CanvasProps {
    */
   trackpad?: { value: boolean; onChange: (on: boolean) => void };
   /**
+   * A board's dot grid (6.5.7a): given, a Grid and a Snap to grid switch sit beside the Trackpad switch, with the spacing
+   * shown; with `on`, dots are drawn behind every item in `ink` (dotGrid.ts), and with `snap` too, a drag's top-left
+   * corner and a resize handle snap to them. A view only: the host keeps it on this computer and nothing is written but
+   * the geometry a gesture ends in. Left out (a plan, which has its own grid), none of it shows or acts.
+   */
+  dotGrid?: { on: boolean; snap: boolean; ink: string; onChange: (next: { on?: boolean; snap?: boolean }) => void };
+  /**
    * The ink of each connector with no colour of its own, by id, where the host wants other than the canvas's ink (6.5.1
    * round 3: a board's connector inside a white page in the Dark view). Left out (a plan), every one is the canvas's ink.
    */
@@ -309,6 +326,7 @@ export function Canvas({
   fixedColours,
   view: canvasView,
   trackpad,
+  dotGrid,
   linkInk,
   tools,
   scale,
@@ -504,10 +522,17 @@ export function Canvas({
 
   // What the handlers read, as it is now: they are set up once and must never act on an old view.
   const trackpadOn = trackpad?.value ?? true;
-  const latest = useRef({ items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale, trackpadOn });
+  // The dots' spacing at this zoom (6.5.7a): what is drawn, labelled and snapped to. Snap acts only while the grid shows.
+  const dotsShown = dotGrid?.on === true;
+  const dotStep = dotSpacing(viewport.zoom);
+  const dotSnap = dotSnapSpacing(dotGrid, viewport.zoom);
+  // Whether the handles keep the proportions (their keepRatio) and Shift is down: a corner then snaps by its box.
+  const keepsRatio = mixed || locked;
+  const shiftHeld = shift;
+  const latest = useRef({ items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale, trackpadOn, dotSnap, keepsRatio, shiftHeld });
   useLayoutEffect(() => {
     canPasteRef.current = canPaste;
-    latest.current = { items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale, trackpadOn };
+    latest.current = { items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale, trackpadOn, dotSnap, keepsRatio, shiftHeld };
   });
 
   // What is drawn sized on screen (screenSized.ts: a plan's labels) keeps its size at every step of a zoom, without being
@@ -714,6 +739,49 @@ export function Canvas({
   // settled would carry a label off its item. At scale 1 it sits where React put it; it is made again when the gesture ends.
   const heldNodes = (): Konva.Node[] =>
     latest.current.selection.flatMap((id) => [nodes.current.get(id), nodes.current.get(beyondKey(id))].filter((node): node is Konva.Group => node !== undefined));
+  /**
+   * The handle being dragged and whether the handles are upright, when dot snap acts on it (6.5.7a): never the rotate
+   * handle, never a turned box. Ctrl (⌘) changes nothing here: it frees a MOVE only, and a handle with it is 6.5.7b's.
+   */
+  const dotAnchor = (): string | null => {
+    const tr = transformer.current;
+    const anchor = tr?.getActiveAnchor() ?? null;
+    const upright = tr !== null && Math.abs(normalisedRotation(tr.rotation())) < 0.01;
+    return latest.current.dotSnap === null || anchor === null || anchor === 'rotater' || !upright ? null : anchor;
+  };
+  /** Whether a corner drag keeps the proportions now: the selection's own (a picture, mixed turns) or Shift held. */
+  const ratioKept = (): boolean => latest.current.keepsRatio || latest.current.shiftHeld;
+  /**
+   * A resize handle's place, in the stage's pixels, pulled onto the board's dots (6.5.7a); as the pointer has it
+   * otherwise. A corner that keeps the proportions is left alone here: Konva projects it onto the diagonal after this,
+   * so it is snapped in the box (keptRatioBox) instead.
+   */
+  const dotHandleBound = (_was: Konva.Vector2d, next: Konva.Vector2d): Konva.Vector2d => {
+    const anchor = dotAnchor();
+    const { dotSnap: spacing, viewport: now, size: box } = latest.current;
+    if (anchor === null || spacing === null) return next;
+    const axes = handleAxes(anchor);
+    if (axes.x && axes.y && ratioKept()) return next;
+    return toScreen(now, box, dotHandle(toWorld(now, box, next), anchor, spacing, now.zoom));
+  };
+  /**
+   * The box a proportional corner drag makes, onto the dots (6.5.7a): after Konva's own projection, where nothing undoes
+   * it. The axis whose dot is nearer takes it and the other follows from the box's ratio, the corner opposite staying.
+   */
+  const keptRatioBox = (was: TransformBox, next: TransformBox): TransformBox => {
+    const anchor = dotAnchor();
+    const { dotSnap: spacing, viewport: now, size: box } = latest.current;
+    if (anchor === null || spacing === null || !ratioKept() || Math.abs(next.rotation) > 1e-6) return next;
+    const axes = handleAxes(anchor);
+    if (!axes.x || !axes.y || was.height <= 0 || next.width <= 0 || next.height <= 0) return next;
+    const left = anchor.endsWith('left');
+    const top = anchor.startsWith('top');
+    const fixed = toWorld(now, box, { x: left ? next.x + next.width : next.x, y: top ? next.y + next.height : next.y });
+    const moving = toWorld(now, box, { x: left ? next.x : next.x + next.width, y: top ? next.y : next.y + next.height });
+    const corner = toScreen(now, box, dotCornerKeepingRatio(fixed, moving, was.width / was.height, spacing, now.zoom));
+    const stays = toScreen(now, box, fixed);
+    return { ...next, x: Math.min(corner.x, stays.x), y: Math.min(corner.y, stays.y), width: Math.abs(stays.x - corner.x), height: Math.abs(stays.y - corner.y) };
+  };
   const onTransformStart = () => {
     holdScreenSized(heldNodes());
   };
@@ -836,6 +904,12 @@ export function Canvas({
     const bounds = unionBounds(lead);
     const snap = snapMove(bounds, dx, dy, g.targets, zoom, off);
     const grid = latest.current.scale?.grid;
+    // A board's dots (6.5.7a): the selection's top-left corner onto the nearest dot, on each axis no item line took.
+    const dots = latest.current.dotSnap;
+    if (!grid && bounds && dots !== null) {
+      const pulledToDots = dotMove({ ...bounds, x: bounds.x + snap.dx - dx, y: bounds.y + snap.dy - dy }, snap.guides, dots, zoom);
+      return { dx: tidy(snap.dx + pulledToDots.dx), dy: tidy(snap.dy + pulledToDots.dy), guides: snap.guides };
+    }
     if (!grid || !bounds) return { dx: tidy(snap.dx), dy: tidy(snap.dy), guides: snap.guides };
     const pulled = gridPull({ ...bounds, x: bounds.x + snap.dx - dx, y: bounds.y + snap.dy - dy }, grid, zoom, fine ? 'fine' : 'magnet');
     const onX = snap.guides.some((guide) => guide.axis === 'x');
@@ -1383,6 +1457,26 @@ export function Canvas({
         : editingBox) ??
       (editingLine?.patch ? { id: editingLine.link.id, label: editingLine.link.label, ...editingLine.patch, rotation: 0, editable: true } : undefined)
     : undefined;
+  // The dots' drawing (6.5.7a): the same function until the view, the size, the spacing or the ink changes, so their
+  // layer is drawn again only then, never on a drag's pointer moves. In the pixel ratio the layer's own canvas uses.
+  const dotInk = dotGrid?.ink ?? '';
+  const drawDots = useCallback(
+    (context: Konva.Context, shape: Konva.Shape) => {
+      const pixels = shape.getLayer()?.getCanvas().getPixelRatio() ?? 1;
+      const { columns, rows } = dotsInView({ cx: viewport.cx, cy: viewport.cy, zoom: viewport.zoom }, size, dotStep);
+      context.beginPath();
+      for (const column of columns) {
+        const across = dotBox(column, pixels);
+        for (const row of rows) {
+          const down = dotBox(row, pixels);
+          context.rect(across.at, down.at, across.side, down.side);
+        }
+      }
+      context.setAttr('fillStyle', dotInk);
+      context.fill();
+    },
+    [viewport.cx, viewport.cy, viewport.zoom, size, dotStep, dotInk],
+  );
   const percent = Math.round(view.zoom * 100);
   // A real scale (6.2a): the grid in view, the scale bar's round length, and the run being drawn with its next segment.
   const grid = scale ? gridLines(view, size, scale.grid) : [];
@@ -1547,6 +1641,14 @@ export function Canvas({
         {pathSaid !== '' ? pathSaid : announcement !== '' ? announcement : live}
       </p>
       <Stage ref={stage} width={size.width} height={size.height} listening>
+        {dotsShown && (
+          // A board's dot grid (6.5.7a), on a layer of its own under the items, in screen pixels: one shape drawn from
+          // the dots in view each frame, never a node per dot, and never picked. Only while it is on: off, the stage is
+          // as it always was.
+          <Layer listening={false}>
+            <Shape listening={false} sceneFunc={drawDots} />
+          </Layer>
+        )}
         <Layer x={size.width / 2 - view.cx * view.zoom} y={size.height / 2 - view.cy * view.zoom} scaleX={view.zoom} scaleY={view.zoom}>
           {grid.length > 0 && (
             <Shape
@@ -1659,7 +1761,16 @@ export function Canvas({
             rotationSnapTolerance={shift ? 7.5 : 0}
             // Only a side the gesture shrinks below the least size is refused: a thin item (a plan's 5 cm flag, thinner than
             // the least on screen up close) still turns and stretches along its length (6.5 review).
-            boundBoxFunc={(was, next) => (shrunkBelow(was.width, next.width, minSize * view.zoom) || shrunkBelow(was.height, next.height, minSize * view.zoom) ? was : next)}
+            // A proportional corner drag lands on the dots first (6.5.7a), then the same least-size rule holds.
+            boundBoxFunc={(was, asked) => {
+              const next = dotSnap !== null ? keptRatioBox(was, asked) : asked;
+              return shrunkBelow(was.width, next.width, minSize * view.zoom) || shrunkBelow(was.height, next.height, minSize * view.zoom) ? was : next;
+            }}
+            // Snap to the dots (6.5.7a): the handle being dragged lands on the nearest dot on the axes it moves, within the
+            // snap distance (a proportional corner in boundBoxFunc instead). Only for items upright on the board (a turned
+            // one's handles run off the dots' lines), never the rotate handle. Left unset without dot snapping, so a plan
+            // and a board with snap off resize exactly as before.
+            {...(dotSnap !== null ? { anchorDragBoundFunc: dotHandleBound } : {})}
             onTransformStart={onTransformStart}
             onTransform={onTransform}
             onTransformEnd={onTransformEnd}
@@ -1678,7 +1789,7 @@ export function Canvas({
           {path?.typed !== '' ? `${path?.typed ?? ''}▏` : scale ? scale.format(segmentLength) : String(tidy(segmentLength))}
         </div>
       )}
-      {(canvasView || trackpad) && (
+      {(canvasView || trackpad || dotGrid) && (
         // One row just above the zoom, clear of the left ruler as it is, so the zoom's box stays as wide as it was and
         // nothing more covers the middle of the canvas (the zoom's box is 30 px high, 8 px off the foot, and this row sits
         // 4 px over it).
@@ -1723,6 +1834,46 @@ export function Canvas({
                 }}
               >
                 {t('canvas.trackpad.short')}
+              </button>
+            </div>
+          )}
+          {dotGrid && (
+            // The dot grid (6.5.7a), boards only: Grid, its spacing while it shows (so it is known, not guessed), and Snap
+            // to grid, which acts only while the grid shows and is disabled meanwhile. Framed and pressed as the rest.
+            <div data-dot-grid={dotsShown ? 'on' : 'off'} data-dot-spacing={dotsShown ? String(dotStep) : undefined} className="flex items-center border-[1.5px] border-text bg-surface p-0.5">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={dotsShown}
+                aria-label={t('canvas.grid.label')}
+                title={t('canvas.grid.hint')}
+                className={cx(BUTTON, dotsShown ? PRESSED_IN_BOX : 'text-text hover:bg-surface-raised')}
+                onClick={() => {
+                  dotGrid.onChange({ on: !dotsShown });
+                }}
+              >
+                {t('canvas.grid.short')}
+              </button>
+              {dotsShown && (
+                <span className="flex h-7 items-center px-1.5 font-mono text-[11px] text-text" title={t('canvas.grid.spacing', { spacing: dotSpacingLabel(dotStep) })}>
+                  <span className="sr-only">{t('canvas.grid.spacing', { spacing: dotSpacingLabel(dotStep) })}</span>
+                  <span aria-hidden="true">{dotSpacingLabel(dotStep)}</span>
+                </span>
+              )}
+              <button
+                type="button"
+                role="switch"
+                // Shown as it acts: off while the grid is off, the choice kept for when the grid is back.
+                aria-checked={dotsShown && dotGrid.snap}
+                aria-label={t('canvas.gridSnap.label')}
+                title={dotsShown ? t('canvas.gridSnap.hint') : t('canvas.gridSnap.needsGrid')}
+                disabled={!dotsShown}
+                className={cx(BUTTON, dotsShown && dotGrid.snap ? PRESSED_IN_BOX : 'text-text enabled:hover:bg-surface-raised disabled:text-text-muted')}
+                onClick={() => {
+                  dotGrid.onChange({ snap: !dotGrid.snap });
+                }}
+              >
+                {t('canvas.gridSnap.short')}
               </button>
             </div>
           )}

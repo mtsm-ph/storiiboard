@@ -365,6 +365,13 @@ Added to this version by later 6.5 milestones:
   faces as a compass bearing through the room's north, and from the view's sun path's reading (sunSources.ts) the
   stretches of that date, minute by minute, when the sun is up and within 90° of its outward direction, rounded to 5
   minutes in the place's zone (`WindowSunOf`, what `get_plan` will return). Buildings and trees outside aren't known.
+- Not a new prop, a new form of one: a sticky note's `color` (`board_item` of `kind` `sticky`, 5.1a) may be any
+  `#RRGGBB` from 6.5.7a, not only one of its six swatches, and the sticky is drawn in it; its words, which have no colour
+  of their own, in ink or paper, whichever has the higher contrast on it. A build before 6.5.7a reads a colour outside
+  the six as the first swatch (yellow) and draws it so; nothing breaks. A copy that build makes of it (Paste, Duplicate)
+  is written with that first swatch, not the custom colour; the original keeps its stored colour until its colour is
+  changed in that build. The board's dot grid and its snap (6.5.7a) are this computer's view
+  (`storiiboard.boardGrid`), never in the file.
 
 ## Schema v14: Phase 6's props (6.1)
 

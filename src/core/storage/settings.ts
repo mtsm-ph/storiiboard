@@ -383,3 +383,42 @@ export function saveTrackpadMode(on: boolean, storage: Writer | undefined = brow
   }
   return on;
 }
+
+/**
+ * The dot grid behind every board and deck (6.5.7a, Kevin, Nov 16), and whether a drag or a resize snaps to it: a view
+ * on this computer, as Paper and Dark are, under a key of its own beside the settings. Never in a project, never an op,
+ * never printed or exported. Snap is kept as chosen while the grid is off, and acts only while it is on.
+ */
+export const BOARD_GRID_KEY = 'storiiboard.boardGrid';
+
+export interface BoardGrid {
+  boardGrid: boolean;
+  boardGridSnap: boolean;
+}
+
+export const DEFAULT_BOARD_GRID: BoardGrid = { boardGrid: false, boardGridSnap: false };
+
+/** Only a real true turns either on: a string, a number or junk reads as off, each on its own. */
+export function boardGridOf(value: unknown): BoardGrid {
+  const saved = typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  return { boardGrid: saved.boardGrid === true, boardGridSnap: saved.boardGridSnap === true };
+}
+
+export function loadBoardGrid(storage: Reader | undefined = browserStorage()): BoardGrid {
+  try {
+    const raw = storage?.getItem(BOARD_GRID_KEY);
+    return raw ? boardGridOf(JSON.parse(raw)) : { ...DEFAULT_BOARD_GRID };
+  } catch {
+    return { ...DEFAULT_BOARD_GRID };
+  }
+}
+
+export function saveBoardGrid(grid: BoardGrid, storage: Writer | undefined = browserStorage()): BoardGrid {
+  const next = boardGridOf(grid);
+  try {
+    storage?.setItem(BOARD_GRID_KEY, JSON.stringify(next));
+  } catch {
+    // A full or blocked store only loses the view, never the session.
+  }
+  return next;
+}

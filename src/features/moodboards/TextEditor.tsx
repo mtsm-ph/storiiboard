@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef } from 'react';
 import { t } from '../../core/i18n';
 import { cssFamily, fontsStore } from './fonts';
-import { BOARD_INK, LINE_HEIGHT, STICKY_COLOURS, STICKY_INK, STICKY_PADDING, type ItemFields } from './items';
+import { wordsOn } from '../../ui/canvas/canvasPalette';
+import { BOARD_INK, LINE_HEIGHT, STICKY_COLOURS, STICKY_PADDING, type ItemFields } from './items';
 
 // Typing into a text box or sticky note in place (5.1a): a textarea over the item, in the item's font, size and
 // alignment, scaled by the zoom, so what is typed is what is drawn. Escape or a click outside (the textarea losing
@@ -81,7 +82,8 @@ export function TextEditor({ fields, text, zoom, onEnd, ariaLabel, singleLine = 
         lineHeight: LINE_HEIGHT,
         textAlign: fields.align,
         padding: sticky ? STICKY_PADDING * zoom : singleLine ? `${String(2.4 * zoom)}px ${String(4 * zoom)}px` : 0,
-        color: sticky ? STICKY_INK : (fields.color ?? ink),
+        // A sticky's words as it draws them (6.5.7a): ink or paper, whichever reads on its fill.
+        color: sticky ? wordsOn(fields.color ?? STICKY_COLOURS[0]) : (fields.color ?? ink),
         background: sticky ? (fields.color ?? STICKY_COLOURS[0]) : 'transparent',
         whiteSpace: singleLine ? 'pre' : 'pre-wrap',
         overflowWrap: 'break-word',

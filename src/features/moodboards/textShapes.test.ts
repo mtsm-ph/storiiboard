@@ -333,11 +333,13 @@ describe('review fixes', () => {
     fontsStore.setState({ status: 'ready', system: [], broken: [], version: 0 });
   });
 
-  it('rounds a weight to the nearest 100 and reads a sticky colour outside the six as the first', () => {
+  it('rounds a weight to the nearest 100 and reads a sticky colour that is not a colour as the first', () => {
     const base = { x: 0, y: 0, width: 100, height: 50, rotation: 0 };
     expect(itemFields({ kind: 'text', ...base, font_weight: 449 })?.fontWeight).toBe(400);
     expect(itemFields({ kind: 'text', ...base, font_weight: 450 })?.fontWeight).toBe(500);
-    expect(itemFields({ kind: 'sticky', ...base, color: '#123456' })?.color).toBe(STICKY_COLOURS[0]);
+    expect(itemFields({ kind: 'sticky', ...base, color: '#123456' })?.color).toBe('#123456');
+    expect(itemFields({ kind: 'sticky', ...base, color: 'nope' })?.color).toBe(STICKY_COLOURS[0]);
+    expect(itemFields({ kind: 'sticky', ...base, color: 42 })?.color).toBe(STICKY_COLOURS[0]);
     expect(itemFields({ kind: 'sticky', ...base, color: '#b5ddf5' })?.color).toBe('#B5DDF5');
     expect(itemFields({ kind: 'text', ...base, color: '#123456' })?.color).toBe('#123456');
     expect(STICKY_COLOURS.map(stickyColourName)).toEqual(['Yellow', 'Peach', 'Pink', 'Green', 'Blue', 'Lilac']);

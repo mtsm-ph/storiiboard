@@ -1,13 +1,13 @@
 import type { ReactNode } from 'react';
 import { Ellipse, Group, Line, Rect, Text } from 'react-konva';
 import { t } from '../../core/i18n';
-import { inkOn, isDark, mutedIn } from '../../ui/canvas/canvasPalette';
+import { inkOn, isDark, mutedIn, wordsOn } from '../../ui/canvas/canvasPalette';
 import { hitsPoint } from '../../ui/canvas/hitTest';
 import { sectionContents } from '../../ui/canvas/sections';
 import { isAttached, type CanvasItem, type CanvasLink, type DrawContext, type LinkEnd } from '../../ui/canvas/types';
 import type { CardInfo } from './cards';
 import { cssFamily, fontsStore } from './fonts';
-import { isFrameKind, isShapeKind, isTextKind, BOARD_COLOURS, BOARD_INK, BOARD_MUTED, BOARD_PAPER, BOARD_WARNING, pageTitle, DEFAULT_FONT_FAMILY, LINE_HEIGHT, SECTION_COLOURS, SECTION_NAME_SIZE, SECTION_TAB_HEIGHT, sectionTitle, STICKY_COLOURS, STICKY_INK, STICKY_PADDING, type ItemFields } from './items';
+import { isFrameKind, isShapeKind, isTextKind, BOARD_COLOURS, BOARD_INK, BOARD_MUTED, BOARD_PAPER, BOARD_WARNING, pageTitle, DEFAULT_FONT_FAMILY, LINE_HEIGHT, SECTION_COLOURS, SECTION_NAME_SIZE, SECTION_TAB_HEIGHT, sectionTitle, STICKY_COLOURS, STICKY_PADDING, type ItemFields } from './items';
 import { linkLabel } from './links';
 import { PictureNode } from './PictureNode';
 import { DECK_FIELD_LABEL } from './pageFormats';
@@ -347,11 +347,13 @@ export function withDrawing(
           );
         }
         if (fields.kind === 'sticky') {
+          // Any fill (6.5.7a): its words in ink or paper, whichever reads on it, the same in every view and export.
+          const fill = fields.color ?? STICKY_COLOURS[0];
           return (
             <Group key={fontsVersion}>
-              <Rect width={context.width} height={context.height} fill={fields.color ?? STICKY_COLOURS[0]} stroke={context.colours.ink} strokeWidth={STROKE} strokeScaleEnabled={false} />
+              <Rect width={context.width} height={context.height} fill={fill} stroke={context.colours.ink} strokeWidth={STROKE} strokeScaleEnabled={false} />
               <Group clipX={0} clipY={0} clipWidth={context.width} clipHeight={context.height}>
-                {!hidden && words(fields, { width: context.width, height: context.height }, STICKY_INK, STICKY_PADDING)}
+                {!hidden && words(fields, { width: context.width, height: context.height }, wordsOn(fill), STICKY_PADDING)}
               </Group>
             </Group>
           );

@@ -157,12 +157,13 @@ export function PropertiesStrip({ fields, selectionKey, onChange, children, onAr
       {stickies[0] && (
         <ColourControl
           label={t('moodboard.stickyColour')}
+          // The six swatches, a click on one the whole choice, and as text has, the hex field and the picker (6.5.7a).
           value={stickies[0].color ?? STICKY_COLOURS[0]}
           unset={STICKY_COLOURS[0]}
           mixed={!same(stickies, (f) => f.color)}
           swatches={STICKY_COLOURS}
           nameOf={stickyColourName}
-          custom={false}
+          swatchCloses
           onChange={(stickyColor) => { onChange({ stickyColor }); }}
         />
       )}

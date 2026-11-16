@@ -420,11 +420,14 @@ schema version, listed in SBD_FORMAT.md and the report.
 - 6.5.6 (sun through the windows, heights; two rounds, reviewed once, one medium fixed) is open, stacked on #187.
   Its props are on schema 15's list. Floor light patches were left out: they need a time of day (item 16's
   slider, plan only). A window's own `height_m` is not checked against the ceiling unless sill and top are set.
+- 6.5.7a (the board's dot grid and snap; any colour for a sticky; three rounds, reviewed once, one medium fixed)
+  is open, stacked on #188. It changed three tests the brief names (the sticky's "six colours only"). For Kevin:
+  "notes and stickies" was read as the sticky note (a board has no other note); a default text box on a dark
+  sticky still prints in ink; Ctrl/⌘ suspends snap only while moving (a handle + Ctrl/⌘ is 6.5.7b's crop).
 - **Status line (keep current):** Nov 16: #180 to #184 merged; #185 (6.5.3) and #186 (6.5.4) wait for Kevin's
-  screenshot comparison; #187 (6.5.5) and 6.5.6 open, stacked; next: 6.5.7a (board grid, note colours), 6.5.7b
-  (crop, border), 6.5.8 (presets), each brief already in docs/briefs/, each stacked on the last. Then: Linux and
-  Mac baselines once at the top of the stack, the report with the private/ plans pasted in, and (when Kevin has
-  said merge and 1 to 9 are in v2) the full checkpoint he asked for by name.
+  screenshot comparison; #187, #188 and 6.5.7a open, stacked; next: 6.5.7b (crop, border), 6.5.8 (presets), each
+  brief already in docs/briefs/. Then: Linux and Mac baselines once at the top of the stack, the report with the
+  private/ plans pasted in, and (when Kevin has said merge and 1 to 9 are in v2) the full checkpoint he asked for.
 
 ### Next session: start here (Nov 15, night, older: #179 merged; 6.22 built)
 
