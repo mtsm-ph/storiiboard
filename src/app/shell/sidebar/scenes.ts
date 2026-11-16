@@ -31,3 +31,5 @@ export function sceneEntries(records: Readonly<Record<string, SbdRecord>>, proje
 
 export { sceneLabel } from '../../../core/model/storyboard';
 export { addScene as addSceneChange } from '../../../features/storyboard/board';
+// What + Add Scene applies: the new scene and, past a key that can't be read, the moves that keep it last (6.23 review).
+export { addSceneChanges as sidebarSceneChanges } from '../../../features/storyboard/board';

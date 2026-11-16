@@ -1,13 +1,13 @@
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
-import { keyBetween } from '../../core/ops/order';
+import { placeAmong } from '../../core/ops/order';
 import { boundsOf } from '../../ui/canvas/hitTest';
 import { tidy } from '../../ui/canvas/placement';
 import { sectionContents } from '../../ui/canvas/sections';
 import type { Geometry, Rect } from '../../ui/canvas/types';
 import { unionBounds } from '../../ui/canvas/viewport';
 import { attachedItems, connectorFields } from './connectorFields';
-import { clipConnectorsOf, connectorsOf, pasteConnectorChanges, pasteDelta } from './connectors';
+import { clipConnectorsOf, connectorsOf, foldMoves, madeWithJoined, pasteConnectorChanges, pasteDelta } from './connectors';
 import { clipOf, createItems, itemFields, itemsOf, pasteChanges, trashItemsChanges, type ItemFields, type ItemSeed } from './items';
 import { isPageFormat, isPaper, PAGE_GAP, pageSize, type PageFormat, type PageOrientation } from './pageFormats';
 
@@ -128,13 +128,16 @@ export function duplicatePageChanges(records: Records, boardId: string, pageId: 
   const dy = tidy(place.y - fields.y);
   // The page first, then its contents with the connectors among them; pasteChanges puts a copy of the clip's middle where it is told.
   const made0 = createItems(records, boardId, [{ ...fields, x: place.x, y: place.y }]);
-  // The copy sits right after the original in the page order: its key is made between the original's and the next sibling's.
-  const after = Object.values(records)
-    .filter((r) => r.type === 'board_item' && r.parentId === boardId && r.sortKey > (page?.sortKey ?? ''))
-    .sort((p, q) => (p.sortKey < q.sortKey ? -1 : p.sortKey > q.sortKey ? 1 : 0))[0];
+  // The copy sits right after the original in the page order: its key is made between the original's and the next
+  // sibling's. Where those two leave no key between them (one keyBetween can't read, an odd imported file's: 6.23), the
+  // board's items are written afresh in their order with the copy in its place, in the same group.
+  const siblings = boardItems(records, boardId);
+  const at = siblings.findIndex((r) => r.sortKey > (page?.sortKey ?? ''));
+  const placed = placeAmong(siblings, at < 0 ? siblings.length : at, 1);
+  const rekeyed: Change[] = [...placed.moves].map(([id, sortKey]) => ({ kind: 'move', id, parentId: boardId, sortKey }));
   const copy = {
     ids: made0.ids,
-    changes: made0.changes.map((c) => (c.kind === 'create' ? { ...c, record: { ...c.record, sortKey: keyBetween(page?.sortKey ?? null, after?.sortKey ?? null) } } : c)),
+    changes: [...made0.changes.map((c) => (c.kind === 'create' ? { ...c, record: { ...c.record, sortKey: placed.keys[0] ?? '' } } : c)), ...rekeyed],
   };
   const clip = clipOf(records, boardId, held);
   const connectors = clipConnectorsOf(records, boardId, [...held, ...wires]);
@@ -143,11 +146,12 @@ export function duplicatePageChanges(records: Records, boardId: string, pageId: 
   if (clip.length > 0 || connectors.length > 0) {
     const bounds = unionBounds(clip.map(boundsOf));
     const middle = bounds ? { x: bounds.x + bounds.width / 2 + dx, y: bounds.y + bounds.height / 2 + dy } : null;
-    // The copies are made against the records plus the page just made, so their keys come after it.
-    const withPage = { ...records, ...Object.fromEntries(copy.changes.flatMap((c): [string, SbdRecord][] => (c.kind === 'create' && c.record.id ? [[c.record.id, asRecord(c.record)]] : []))) };
+    // The copies are made against the records plus the page just made (and the keys written afresh), so their keys come after it.
+    const withPage = withMoved(withCreated(records, copy.changes), copy.changes);
     const made = pasteChanges(withPage, boardId, clip, middle);
     const joined = pasteConnectorChanges(withPage, boardId, connectors, made.ids, pasteDelta(clip, connectors, middle));
-    changes = [...changes, ...made.changes, ...joined.changes];
+    // Past a key that can't be read, the contents and their connectors are placed in one rewrite with the page (6.23 review).
+    changes = foldMoves([...changes, ...madeWithJoined(withPage, boardId, made.changes, joined.changes)]);
     videos = made.videos;
   }
   return { id: copy.ids[0] as string, changes, videos };
@@ -157,6 +161,21 @@ export function duplicatePageChanges(records: Records, boardId: string, pageId: 
 function asRecord(record: Extract<Change, { kind: 'create' }>['record']): SbdRecord {
   return { id: record.id ?? '', type: record.type, parentId: record.parentId, sortKey: record.sortKey, props: record.props ?? {}, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' };
 }
+
+/** The records with these changes' moves made: their new keys. */
+function withMoved(records: Records, changes: readonly Change[]): Records {
+  const moved = changes.flatMap((c): [string, SbdRecord][] => {
+    const was = c.kind === 'move' ? records[c.id] : undefined;
+    return c.kind === 'move' && was ? [[c.id, { ...was, parentId: c.parentId, sortKey: c.sortKey }]] : [];
+  });
+  return moved.length === 0 ? records : { ...records, ...Object.fromEntries(moved) };
+}
+
+/** Every item of the board, the Trash's too, in its order. */
+const boardItems = (records: Records, boardId: string): SbdRecord[] =>
+  Object.values(records)
+    .filter((r) => r.type === 'board_item' && r.parentId === boardId)
+    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
 
 /** Delete page: the page alone to the Trash; what it held stays on the board as working space. One group. */
 export function deletePageChanges(records: Records, pageId: string): Change[] {
@@ -172,16 +191,18 @@ export function movePageChanges(records: Records, boardId: string, pageId: strin
   const pages = pagesOf(records, boardId);
   const from = pages.findIndex((page) => page.id === pageId);
   if (from < 0 || to < 0 || to >= pages.length || to === from) return [];
-  const siblings = Object.values(records)
-    .filter((r) => r.type === 'board_item' && r.parentId === boardId && r.id !== pageId)
-    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
+  const siblings = boardItems(records, boardId).filter((r) => r.id !== pageId);
   // The page it takes the place of: it goes before that page when moving up, after it when moving down.
   const target = pages[to];
   if (!target) return [];
   const at = siblings.findIndex((r) => r.id === target.id);
-  const before = to < from ? (siblings[at - 1] ?? null) : (siblings[at] ?? null);
-  const after = to < from ? (siblings[at] ?? null) : (siblings[at + 1] ?? null);
-  return [{ kind: 'move', id: pageId, parentId: boardId, sortKey: keyBetween(before?.sortKey ?? null, after?.sortKey ?? null) }];
+  // Between its new neighbours; where they leave no key between them (one keyBetween can't read, an odd imported file's:
+  // 6.23), the board's items are written afresh in the order shown with the page moved, in the same group.
+  const placed = placeAmong(siblings, to < from ? at : at + 1, 1);
+  return [
+    { kind: 'move', id: pageId, parentId: boardId, sortKey: placed.keys[0] ?? '' },
+    ...[...placed.moves].map(([id, sortKey]): Change => ({ kind: 'move', id, parentId: boardId, sortKey })),
+  ];
 }
 
 /** The world rectangle of a page, for centring the view on it. */
@@ -236,7 +257,7 @@ export function duplicatePagesChanges(records: Records, boardId: string, pageIds
     ids.push(made.id);
     changes.push(...made.changes);
     videos.push(...made.videos);
-    working = withCreated(working, made.changes);
+    working = withMoved(withCreated(working, made.changes), made.changes);
   }
   return { ids, changes, videos, working };
 }

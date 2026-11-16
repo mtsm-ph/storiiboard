@@ -4,7 +4,7 @@ import { clipProp, fromVideoProp, videoFields, videoProps, type VideoProbe, type
 import type { SbdRecord } from '../../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../../core/model/shotNumbers';
 import type { Change } from '../../core/ops/ops';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys, keyBetween } from '../../core/ops/order';
 import type { Statement } from '../../core/storage/driver';
 import { placePictures, type FramePicture, type PictureTarget } from '../storyboard/framePictures';
 
@@ -47,11 +47,11 @@ function existingVideo(records: Records, projectId: string, storedPath: string, 
   });
 }
 
-/** The last child's sort key under a parent, so a new one goes after it. */
-function lastKey(records: Records, parentId: string): string | null {
-  let last: string | null = null;
-  for (const r of Object.values(records)) if (r.parentId === parentId && (last === null || r.sortKey > last)) last = r.sortKey;
-  return last;
+/** The sort keys of a parent's children, so a new one goes after the last. */
+function childKeys(records: Records, parentId: string): string[] {
+  const keys: string[] = [];
+  for (const r of Object.values(records)) if (r.parentId === parentId) keys.push(r.sortKey);
+  return keys;
 }
 
 export interface PlacedFiles {
@@ -81,7 +81,8 @@ export function placeFiles(
   const changes: Change[] = [];
   const videoIds: string[] = [];
   const pictures: FramePicture[] = [];
-  let key = lastKey(records, projectId);
+  const siblings = childKeys(records, projectId);
+  let key: string | null = null;
   const made = new Map<string, { id: string; probe: VideoProbe }>();
   for (const file of files) {
     if (file.kind === 'picture') {
@@ -99,7 +100,8 @@ export function placeFiles(
     if (!videoId) {
       videoId = crypto.randomUUID();
       const posterId = crypto.randomUUID();
-      key = keyBetween(key, null);
+      // The first after the last readable key (6.23: an odd imported one never makes it throw), each next after it.
+      key = key === null ? keyAfterKeys(siblings) : keyBetween(key, null);
       changes.push(
         { kind: 'create', record: { id: videoId, type: 'media', parentId: projectId, sortKey: key, props: { ...props, poster: posterId } } },
         {

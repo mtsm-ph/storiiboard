@@ -3,7 +3,7 @@ import { DEPARTMENT_LABELS, DEPARTMENTS, isDepartment, type Department } from '.
 import type { SbdRecord } from '../../core/model/record';
 import { recordsOfType } from '../../core/model/recordIndex';
 import type { Change } from '../../core/ops/ops';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys } from '../../core/ops/order';
 import { sceneFields, sceneLabel } from '../../core/model/storyboard';
 import { isPaper, type PageFormat, type PageOrientation } from './pageFormats';
 
@@ -80,8 +80,9 @@ export function trashBoardChanges(records: Records, boardId: string): Change[] {
 }
 
 function nextBoardKey(records: Records, projectId: string): string {
-  // Trashed boards count, so one restored later never shares a place with one made since.
-  return keyBetween(boardsOf(records, projectId, true).at(-1)?.sortKey ?? null, null);
+  // Trashed boards count, so one restored later never shares a place with one made since. Past an odd imported key,
+  // after the last readable one (6.23).
+  return keyAfterKeys(boardsOf(records, projectId, true).map((r) => r.sortKey));
 }
 
 export interface OpenBoard {

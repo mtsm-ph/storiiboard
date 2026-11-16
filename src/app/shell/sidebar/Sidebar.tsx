@@ -12,7 +12,7 @@ import type { Department } from '../../../core/model/department';
 import { onNavKeyDown } from './navKeys';
 import { BoardList } from './BoardList';
 import { SceneList } from './SceneList';
-import { addSceneChange, sceneEntries } from './scenes';
+import { sceneEntries, sidebarSceneChanges } from './scenes';
 import { deleteScene, focusSceneAfterDelete } from '../../../features/storyboard/deleteScene';
 import { boardsOf, boardTitle } from '../../../features/moodboards/boards';
 import { deleteBoard } from '../../../features/moodboards/boardActions';
@@ -88,9 +88,9 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
 
   const addScene = () => {
     if (!project) return;
-    const change = addSceneChange(records, project.projectId);
-    void apply([change]).then(() => {
-      onSelectScene(change.record.id);
+    const made = sidebarSceneChanges(records, project.projectId);
+    void apply(made.changes).then(() => {
+      onSelectScene(made.id);
     });
   };
 

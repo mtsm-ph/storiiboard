@@ -3,7 +3,7 @@ import { isDepartment } from '../../core/model/department';
 import { gearFields, MAX_QUANTITY, MAX_WATTS } from '../../core/model/gear';
 import type { JsonValue, SbdRecord } from '../../core/model/record';
 import { SENSOR_MODES } from '../../core/model/sensorModes';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 
 // The edits the Gear tile makes (3.9a): an item made, one field changed, one to the Trash, the project's currency.
@@ -18,10 +18,13 @@ const liveItem = (records: Records, id: string): SbdRecord | null => {
 
 /** A new item after the project's others (in the Trash too, so a restored one never shares a key): one, owned. */
 export function newGearItem(records: Records, projectId: string, id: string = crypto.randomUUID()): Extract<Change, { kind: 'create' }> {
-  const last = Object.values(records)
-    .filter((r) => r.type === 'gear_item' && r.parentId === projectId)
-    .reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
-  return { kind: 'create', record: { id, type: 'gear_item', parentId: projectId, sortKey: keyBetween(last, null), props: { name: '', quantity: 1, source: 'owned' } } };
+  // Past an odd imported key, after the last readable one (6.23).
+  const sortKey = keyAfterKeys(
+    Object.values(records)
+      .filter((r) => r.type === 'gear_item' && r.parentId === projectId)
+      .map((r) => r.sortKey),
+  );
+  return { kind: 'create', record: { id, type: 'gear_item', parentId: projectId, sortKey, props: { name: '', quantity: 1, source: 'owned' } } };
 }
 
 /** A text field (name, owner, notes); nothing when it's already that, or something other than text is there. */

@@ -1,7 +1,7 @@
 import { t } from '../../core/i18n';
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
-import { keyBetween } from '../../core/ops/order';
+import { freshKeys, keyBetweenOrNull, placeAmong } from '../../core/ops/order';
 import { MIN_SIZE, pasted, tidy } from '../../ui/canvas/placement';
 import { endPoint, sideNormal, type Anchor } from '../../ui/canvas/routing';
 import type { CanvasLink, ConnectDrop, Geometry, Head, LinkEnd, Point, Route, Side } from '../../ui/canvas/types';
@@ -109,6 +109,12 @@ const firstKey = (records: Records, boardId: string): string | null =>
     .filter((r) => r.type === 'board_item' && r.parentId === boardId)
     .reduce<string | null>((first, r) => (first === null || r.sortKey < first ? r.sortKey : first), null);
 
+/** Every item of the board, the Trash's too, in its order: what is written afresh when a key can't be read. */
+const boardItems = (records: Records, boardId: string): SbdRecord[] =>
+  Object.values(records)
+    .filter((r) => r.type === 'board_item' && r.parentId === boardId)
+    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
+
 /** What a new connector is written with: its kind's own props, nothing it doesn't use. */
 export function connectorProps(fields: Partial<ConnectorFields> & { from: LinkEnd; to: LinkEnd }): Record<string, string | number | boolean | Record<string, string | number>> {
   const props: Record<string, string | number | boolean | Record<string, string | number>> = {
@@ -127,18 +133,83 @@ export function connectorProps(fields: Partial<ConnectorFields> & { from: LinkEn
 
 /** Connectors made at the back of the board, in order, so they draw under the items they join. */
 export function createConnectors(records: Records, boardId: string, made: readonly (Partial<ConnectorFields> & { from: LinkEnd; to: LinkEnd })[]): { ids: string[]; changes: Change[] } {
+  // Before the first key: past one keyBetween can't read (an odd imported file's, 6.23), the board's items are written
+  // afresh in their order behind the new connectors, in the same group, so they still go to the back.
   const first = firstKey(records, boardId);
+  let keys: (string | null)[] = [];
   let previous: string | null = null;
+  for (let i = 0; i < made.length; i += 1) {
+    previous = keyBetweenOrNull(previous, first);
+    keys.push(previous);
+  }
+  let moves = new Map<string, string>();
+  if (keys.includes(null)) {
+    const placed = placeAmong(boardItems(records, boardId), 0, made.length);
+    keys = placed.keys;
+    moves = placed.moves;
+  }
   const ids: string[] = [];
   const changes: Change[] = [];
-  for (const fields of made) {
+  made.forEach((fields, i) => {
     const id = crypto.randomUUID();
-    const sortKey = keyBetween(previous, first);
-    previous = sortKey;
     ids.push(id);
-    changes.push({ kind: 'create', record: { id, type: 'board_item', parentId: boardId, sortKey, props: connectorProps(fields) } });
-  }
+    changes.push({ kind: 'create', record: { id, type: 'board_item', parentId: boardId, sortKey: keys[i] ?? '', props: connectorProps(fields) } });
+  });
+  for (const [id, sortKey] of moves) changes.push({ kind: 'move', id, parentId: boardId, sortKey });
   return { ids, changes };
+}
+
+/**
+ * Items made at the front and connectors made at the back in one group (quick-create, Paste, Duplicate), both worked out
+ * against `records` as they were before the group (6.23 review). On a sound board that is exactly the two lists, made then
+ * joined. Past a key that can't be read, the items' fallback key can sit under an odd one, and a connector's rewrite of the
+ * board would leave the items just made out of it: then the board is written afresh once, in the order a sound board
+ * gives (the new connectors at the back, the board's items as they are, the new items at the front), each record made
+ * taking its key in its own create and the board's others a move, so every key is unique and the order is the one asked.
+ */
+export function madeWithJoined(records: Records, boardId: string, made: readonly Change[], joined: readonly Change[] = []): Change[] {
+  const onBoard = (c: Change): c is Extract<Change, { kind: 'create' }> & { record: { id: string } } =>
+    c.kind === 'create' && c.record.type === 'board_item' && c.record.parentId === boardId && typeof c.record.id === 'string';
+  const front = made.filter(onBoard);
+  const back = joined.filter(onBoard);
+  const existing = boardItems(records, boardId);
+  const last = existing.at(-1)?.sortKey ?? null;
+  const first = existing[0]?.sortKey ?? null;
+  const sound =
+    !joined.some((c) => c.kind === 'move') &&
+    front.every((c) => last === null || c.record.sortKey > last) &&
+    back.every((c) => first === null || c.record.sortKey < first);
+  if (sound) return [...made, ...joined];
+  const sequence = [...back.map((c) => c.record.id), ...existing.map((r) => r.id), ...front.map((c) => c.record.id)];
+  const keys = freshKeys(sequence.length);
+  const fresh = new Map(sequence.map((id, i) => [id, keys[i] ?? ''] as const));
+  const rekeyed = (c: Change): Change => (onBoard(c) && fresh.has(c.record.id) ? { ...c, record: { ...c.record, sortKey: fresh.get(c.record.id) ?? c.record.sortKey } } : c);
+  const moves = existing.flatMap((r): Change[] => {
+    const key = fresh.get(r.id) ?? r.sortKey;
+    return key === r.sortKey ? [] : [{ kind: 'move', id: r.id, parentId: boardId, sortKey: key }];
+  });
+  return [...made.map(rekeyed), ...joined.filter((c) => c.kind !== 'move').map(rekeyed), ...moves];
+}
+
+/**
+ * One group's changes with each record's moves folded in (6.23 review): a move of a record made in the group sets its
+ * create's key, and a second move of the same record replaces the first, so a record is written once.
+ */
+export function foldMoves(changes: readonly Change[]): Change[] {
+  const lastMove = new Map<string, Extract<Change, { kind: 'move' }>>();
+  for (const c of changes) if (c.kind === 'move') lastMove.set(c.id, c);
+  if (lastMove.size === 0) return [...changes];
+  const created = new Set(changes.flatMap((c) => (c.kind === 'create' && c.record.id ? [c.record.id] : [])));
+  const out: Change[] = [];
+  for (const c of changes) {
+    if (c.kind === 'create' && c.record.id && lastMove.has(c.record.id)) {
+      const move = lastMove.get(c.record.id);
+      out.push(move ? { ...c, record: { ...c.record, parentId: move.parentId, sortKey: move.sortKey } } : c);
+    } else if (c.kind === 'move') {
+      if (!created.has(c.id) && lastMove.get(c.id) === c) out.push(c);
+    } else out.push(c);
+  }
+  return out;
 }
 
 const sameEnd = (a: LinkEnd, b: LinkEnd) => JSON.stringify(endProps(a)) === JSON.stringify(endProps(b));
@@ -265,7 +336,7 @@ export function quickCreateChanges(
   const made = createItems(records, boardId, [seed]);
   const newId = made.ids[0] as string;
   const joined = createConnectors(records, boardId, [{ from: { item: itemId, side }, to: { item: newId, side: OPPOSITE[side] } }]);
-  return { itemId: newId, connectorId: joined.ids[0] as string, changes: [...made.changes, ...joined.changes], edit: isTextKind(seed.kind) };
+  return { itemId: newId, connectorId: joined.ids[0] as string, changes: madeWithJoined(records, boardId, made.changes, joined.changes), edit: isTextKind(seed.kind) };
 }
 
 // ---- Copy and paste ---------------------------------------------------------------------------------------------------

@@ -6,7 +6,7 @@ import { t } from '../../core/i18n';
 import { attachmentFields, MAX_PDF_BYTES, sizeLabel, type AttachmentFields } from '../../core/model/attachment';
 import type { SbdRecord } from '../../core/model/record';
 import { readOriginal } from '../../core/media/store';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 import type { Statement } from '../../core/storage/driver';
 import { chooseExportFile, type ExportTarget } from '../../core/storage/exportFiles';
@@ -16,10 +16,13 @@ import { chooseExportFile, type ExportTarget } from '../../core/storage/exportFi
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-const lastKey = (records: Records, parentId: string): string | null =>
-  Object.values(records)
-    .filter((r) => r.parentId === parentId)
-    .reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
+/** The key after the parent's last child's, or after its last readable one past an odd imported key (6.23). */
+const nextKey = (records: Records, parentId: string): string =>
+  keyAfterKeys(
+    Object.values(records)
+      .filter((r) => r.parentId === parentId)
+      .map((r) => r.sortKey),
+  );
 
 /** Whether `parentId` is something an attachment can be on, live. */
 function canHold(records: Records, parentId: string): boolean {
@@ -41,7 +44,7 @@ export function newPdf(records: Records, parentId: string, name: string, sha256:
   return [
     {
       kind: 'create',
-      record: { id, type: 'media', parentId, sortKey: keyBetween(lastKey(records, parentId), null), props: { kind: 'pdf', file: sha256, source_name: name, byte_size: byteSize } },
+      record: { id, type: 'media', parentId, sortKey: nextKey(records, parentId), props: { kind: 'pdf', file: sha256, source_name: name, byte_size: byteSize } },
     },
   ];
 }
@@ -51,7 +54,7 @@ export function newLink(records: Records, parentId: string, url: string, title: 
   return [
     {
       kind: 'create',
-      record: { id, type: 'media', parentId, sortKey: keyBetween(lastKey(records, parentId), null), props: { kind: 'link', url, title: title.trim() } },
+      record: { id, type: 'media', parentId, sortKey: nextKey(records, parentId), props: { kind: 'link', url, title: title.trim() } },
     },
   ];
 }

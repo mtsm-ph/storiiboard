@@ -1,6 +1,6 @@
 import type { SbdRecord } from '../../../core/model/record';
 import type { Change } from '../../../core/ops/ops';
-import { keyBetween } from '../../../core/ops/order';
+import { keyAfterKeys } from '../../../core/ops/order';
 
 // A frame's sketch (1.13): each stroke is its own `stroke` record under the shot, so the History, which keeps whole
 // records, never copies every earlier stroke into each new one (decided Nov 2). Points are fractions of the frame
@@ -113,16 +113,19 @@ export function tidyPoints(points: readonly number[], pressures: readonly number
 
 /** The create op for a new stroke, after the shot's last one. */
 export function addStroke(records: Records, shotId: string, stroke: Omit<Stroke, 'id'>): Extract<Change, { kind: 'create' }> {
-  const last = Object.values(records)
-    .filter((r) => r.type === 'stroke' && r.parentId === shotId)
-    .reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
+  // Past an odd imported key, after the last readable one (6.23).
+  const sortKey = keyAfterKeys(
+    Object.values(records)
+      .filter((r) => r.type === 'stroke' && r.parentId === shotId)
+      .map((r) => r.sortKey),
+  );
   return {
     kind: 'create',
     record: {
       id: crypto.randomUUID(),
       type: 'stroke',
       parentId: shotId,
-      sortKey: keyBetween(last, null),
+      sortKey,
       props: {
         tool: stroke.tool,
         points: stroke.points,

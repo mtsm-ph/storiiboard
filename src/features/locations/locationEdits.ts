@@ -5,7 +5,7 @@ import type { Statement } from '../../core/storage/driver';
 import { countryCodeOf, HOSPITAL_PROPS, MAP_PLACE_PROPS, mapPlace, unpinnedBy } from '../../core/model/location';
 import type { Hospital } from '../../core/net/hospitals';
 import type { Place } from '../../core/net/places';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys, keyBetween } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 
 // The edits the Locations tile makes (3.3): a new location, one field changed, one sent to the Trash. Each is one op
@@ -15,10 +15,13 @@ type Records = Readonly<Record<string, SbdRecord>>;
 
 /** A new, empty location after the project's others (in the Trash too, so a restored one never shares a key). */
 export function newLocation(records: Records, projectId: string, id: string = crypto.randomUUID()): Extract<Change, { kind: 'create' }> {
-  const last = Object.values(records)
-    .filter((r) => r.type === 'location' && r.parentId === projectId)
-    .reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
-  return { kind: 'create', record: { id, type: 'location', parentId: projectId, sortKey: keyBetween(last, null), props: { name: '', status: 'tbd' } } };
+  // Past an odd imported key, after the last readable one (6.23).
+  const sortKey = keyAfterKeys(
+    Object.values(records)
+      .filter((r) => r.type === 'location' && r.parentId === projectId)
+      .map((r) => r.sortKey),
+  );
+  return { kind: 'create', record: { id, type: 'location', parentId: projectId, sortKey, props: { name: '', status: 'tbd' } } };
 }
 
 /**
@@ -184,13 +187,15 @@ export function addLocationPhotos(
 ): { changes: Change[]; alsoWrite: Statement[] } {
   const location = records[locationId];
   if (location?.type !== 'location' || location.trashedAt !== null || photos.length === 0) return { changes: [], alsoWrite: [] };
-  let last = Object.values(records)
+  const siblings = Object.values(records)
     .filter((r) => r.parentId === locationId)
-    .reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
+    .map((r) => r.sortKey);
+  let last: string | null = null;
   const changes: Change[] = [];
   const alsoWrite: Statement[] = [];
   for (const { image, source } of photos) {
-    last = keyBetween(last, null);
+    // The first after the last readable key (6.23: an odd imported one never makes it throw), each next after it.
+    last = last === null ? keyAfterKeys(siblings) : keyBetween(last, null);
     changes.push({ kind: 'create', record: { id: crypto.randomUUID(), type: 'media', parentId: locationId, sortKey: last, props: mediaProps(image, source, projectPath) } });
     alsoWrite.push(...imageStatements(image, now));
   }

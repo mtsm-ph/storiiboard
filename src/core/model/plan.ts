@@ -1,10 +1,13 @@
 import { t } from '../i18n';
 import type { Change } from '../ops/ops';
-import { keyBetween } from '../ops/order';
+import { keyAfter, keyAfterStored, keyBetween } from '../ops/order';
 import { wattsOf } from './gear';
 import type { JsonValue, Props, SbdRecord } from './record';
 import { childrenOf, keptFor, recordsOfType } from './recordIndex';
 import { sceneFields, sceneLabel } from './storyboard';
+
+// The guarded key helpers live with keyBetween (6.23); the plan's code has always found them here.
+export { keyAfter, keyBetweenStored } from '../ops/order';
 
 // The bird's-eye plan's records (6.2a, docs/PHASE6_DECISIONS.md 1 and 2; docs/SBD_FORMAT.md, Schema v14). Three
 // levels, each a `plan` record made the first time something needs it, never ahead, and an item's level is the plan it
@@ -1002,15 +1005,6 @@ export function lastKeyUnder(records: Records, parentId: string, type: SbdRecord
     .reduce<string | null>((key, r) => (key === null || r.sortKey > key ? r.sortKey : key), null);
 }
 
-/** The key after `key`, or null when keyBetween can't read it (an imported file can hold any string as a key). */
-export function keyAfter(key: string | null): string | null {
-  try {
-    return keyBetween(key, null);
-  } catch {
-    return null;
-  }
-}
-
 /** The last key among a parent's children of a type that keyBetween can read, the Trash's too; null with none. */
 export function lastReadableKeyUnder(records: Records, parentId: string, type: SbdRecord['type']): string | null {
   let readable: string | null = null;
@@ -1030,21 +1024,7 @@ export function lastReadableKeyUnder(records: Records, parentId: string, type: S
  * from the same one pass over the records.
  */
 export function keyAfterLast(records: Records, parentId: string, type: SbdRecord['type']): string {
-  return keyAfter(lastKeyUnder(records, parentId, type)) ?? keyBetween(lastReadableKeyUnder(records, parentId, type), null);
-}
-
-/**
- * A key between two stored keys (6.22): keyBetween's, or, when it can't place one there (a key it can't read, or two out
- * of order, as an imported file may hold), the key after `last`, the last readable key of the list, so the edit puts
- * its record last instead of throwing. With `last` unreadable too, the first key there is. A sound file gets exactly
- * keyBetween(before, after).
- */
-export function keyBetweenStored(before: string | null, after: string | null, last: string | null): string {
-  try {
-    return keyBetween(before, after);
-  } catch {
-    return keyAfter(last) ?? keyBetween(null, null);
-  }
+  return keyAfterStored(lastKeyUnder(records, parentId, type), () => lastReadableKeyUnder(records, parentId, type));
 }
 
 /**

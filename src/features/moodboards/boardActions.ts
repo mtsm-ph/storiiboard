@@ -19,7 +19,7 @@ import { placePage } from './deckActions';
 import { duplicatePagesChanges, isDeck, pageContents } from './pages';
 import { isLiveKind } from './liveCards';
 import { isConnector } from './connectorFields';
-import { clipConnectorsOf, connectChanges, connectorStyleChanges, createConnectors, grownQuickSeed, labelChanges, OPPOSITE, pasteConnectorChanges, pasteDelta, quickCreateChanges, quickSeedOf, type ClipConnector, type ConnectorPatch } from './connectors';
+import { clipConnectorsOf, connectChanges, connectorStyleChanges, createConnectors, foldMoves, grownQuickSeed, labelChanges, madeWithJoined, OPPOSITE, pasteConnectorChanges, pasteDelta, quickCreateChanges, quickSeedOf, type ClipConnector, type ConnectorPatch } from './connectors';
 import { boardFileChanges, type PlacedBoardFiles } from './boardFiles';
 import { boardsOf, boardTitle, newBoard, openDepartmentBoard, renameBoard, trashBoardChanges } from './boards';
 import { clipOf, type ClipItem, createItems, DEFAULT_FONT_FAMILY, isTextKind, itemFields, linkChanges, pasteChanges, reorderChanges, seedWithText, styleChanges, textEditChanges, trashItemsChanges, type StylePatch } from './items';
@@ -178,7 +178,7 @@ export async function finishEditing(text: string): Promise<void> {
         join && source?.type === 'board_item' && source.trashedAt === null
           ? createConnectors(now, boardId, [{ from: { item: join.item, side: join.side }, to: { item: id, side: OPPOSITE[join.side] } }]).changes
           : [];
-      return { changes: [...made, ...joined] };
+      return { changes: madeWithJoined(now, boardId, made, joined) };
     });
     if (written) select(boardId, [id]);
     return;
@@ -321,7 +321,7 @@ export async function pasteClipboard(
     const joined = pasteConnectorChanges(now, boardId, connectors, newIds, pasteDelta(allowed, connectors, at));
     ids = [...made.ids, ...joined.ids];
     videos = made.videos;
-    return { changes: [...made.changes, ...joined.changes] };
+    return { changes: madeWithJoined(now, boardId, made.changes, joined.changes) };
   });
   const sentences = [outcome.left === 'elsewhere' ? t('moodboard.pasteElsewhere') : outcome.left === 'gone' ? t('moodboard.pasteGone') : '', outcome.cards ? t('moodboard.pasteElsewhereCards') : '', outcome.pages ? t('moodboard.pasteDeckOnly') : ''].filter((s) => s !== '');
   if (sentences.length > 0) showNotice(sentences.join(' '));
@@ -352,7 +352,7 @@ export async function duplicateSelection(boardId: string, store: typeof projectS
       if (clip.length > 0 || connectors.length > 0) {
         const pasted = pasteChanges(made.working, boardId, clip, null);
         const joined = pasteConnectorChanges(made.working, boardId, connectors, pasted.ids, pasteDelta(clip, connectors, null));
-        changes = [...changes, ...pasted.changes, ...joined.changes];
+        changes = foldMoves([...changes, ...madeWithJoined(made.working, boardId, pasted.changes, joined.changes)]);
         out.ids.push(...pasted.ids, ...joined.ids);
         out.videos.push(...pasted.videos);
       }

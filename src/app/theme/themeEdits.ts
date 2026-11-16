@@ -2,7 +2,7 @@ import { prepareImage } from '../../core/media/image';
 import { imageStatements, mediaFields, mediaProps, type ImageSource, type PreparedImage } from '../../core/media/store';
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys } from '../../core/ops/order';
 import type { Statement } from '../../core/storage/driver';
 import { extractAccents } from '../../ui/theme/generator/extract';
 import { DEFAULT_ACCENT, themeFor } from '../../ui/theme/generator/generate';
@@ -105,12 +105,12 @@ export function setTheme(
   let candidates = current.candidates;
   if (patch.image) {
     const siblings = Object.values(records).filter((r) => r.type === 'media' && r.parentId === projectId);
-    const last = siblings.reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
     imageId = crypto.randomUUID();
     candidates = patch.image.candidates;
+    // After the last key it can read (6.23): an odd imported key never makes the edit throw.
     changes.push({
       kind: 'create',
-      record: { id: imageId, type: 'media', parentId: projectId, sortKey: keyBetween(last, null), props: mediaProps(patch.image.image, patch.image.source, options.projectPath) },
+      record: { id: imageId, type: 'media', parentId: projectId, sortKey: keyAfterKeys(siblings.map((r) => r.sortKey)), props: mediaProps(patch.image.image, patch.image.source, options.projectPath) },
     });
     alsoWrite.push(...imageStatements(patch.image.image, options.now ?? new Date()));
     if (current.imageId) changes.push({ kind: 'trash', id: current.imageId });

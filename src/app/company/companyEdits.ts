@@ -1,7 +1,7 @@
 import { COMPANY_LOGO_ROLE, companyProp, logoMark, projectCompany, type CompanyProfile } from '../../core/model/company';
 import { imageStatements, mediaProps, type PreparedImage } from '../../core/media/store';
 import type { SbdRecord } from '../../core/model/record';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 import type { Statement } from '../../core/storage/driver';
 
@@ -55,7 +55,6 @@ export function attachCompany(
     logoId = old.id;
   } else if (profile.logo && logo) {
     const siblings = Object.values(records).filter((r) => r.parentId === projectId && r.type === 'media');
-    const last = siblings.reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
     logoId = crypto.randomUUID();
     changes.push({
       kind: 'create',
@@ -63,7 +62,8 @@ export function attachCompany(
         id: logoId,
         type: 'media',
         parentId: projectId,
-        sortKey: keyBetween(last, null),
+        // After the last key it can read (6.23): an odd imported key never makes the edit throw.
+        sortKey: keyAfterKeys(siblings.map((r) => r.sortKey)),
         props: { ...mediaProps(logo, { name: 'logo.png' }, projectPath), role: COMPANY_LOGO_ROLE },
       },
     });
