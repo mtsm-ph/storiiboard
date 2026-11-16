@@ -185,8 +185,10 @@ describe('gear on a setup’s plan, not on the day’s list (6.5)', () => {
     };
     const one = scans(withSetups(1));
     const four = scans(withSetups(4));
-    // Each further setup costs only the look-up of its own plan (setupPlanOf): its items come from the one index.
-    expect(four - one).toBe(3);
+    // Every reader reads the index (6.22: setupPlanOf too), so a further setup costs no scan at all: a day's check reads
+    // fresh records whole twice, however many setups it has.
+    expect(one).toBe(2);
+    expect(four - one).toBe(0);
   });
 
   it('reads the same findings each time from the same records, and new ones from new records', () => {

@@ -5,7 +5,8 @@ import {
   blockingPlanOf,
   cameraFields,
   CAST_MARK_ICON,
-  lastKeyUnder,
+  keyAfterLast,
+  keyBetweenStored,
   MARK_ICON,
   markFields,
   NEXT_POSITION_ICON,
@@ -403,12 +404,15 @@ function viewScene(records: Records, view: PlanViewOf): SbdRecord | null {
 function blockingFor(records: Records, sceneId: string, newPlanId: string, changes: Change[]): string {
   const have = blockingPlanOf(records, sceneId);
   if (have) return have.id;
-  changes.push({ kind: 'create', record: { id: newPlanId, type: 'plan', parentId: sceneId, sortKey: keyBetween(lastKeyUnder(records, sceneId, 'plan'), null), props: { kind: 'blocking', name: '' } } });
+  changes.push({ kind: 'create', record: { id: newPlanId, type: 'plan', parentId: sceneId, sortKey: keyAfterLast(records, sceneId, 'plan'), props: { kind: 'blocking', name: '' } } });
   return newPlanId;
 }
 
-/** A new item's sort key at the front of a plan: the plan's last (the Trash's too), or the first in a plan made in this group. */
-const frontKey = (records: Records, planId: string, madeNow: boolean): string => keyBetween(madeNow ? null : lastKeyUnder(records, planId, 'plan_item'), null);
+/**
+ * A new item's sort key at the front of a plan: after the plan's last (the Trash's too; its last readable one when an
+ * imported file's key can't be read, keyAfterLast), or the first in a plan made in this group.
+ */
+const frontKey = (records: Records, planId: string, madeNow: boolean): string => (madeNow ? keyBetween(null, null) : keyAfterLast(records, planId, 'plan_item'));
 
 /**
  * A mark placed in a view, its middle at `centre` (metres), at the front of the scene's blocking plan (made now when it
@@ -540,7 +544,8 @@ export function markOwnerChanges(
   const reordered = new Set<string>();
   const lastKeys = new Map<string, string>();
   const moveTo = (id: string, planId: string, madeNow: boolean) => {
-    const sortKey = keyBetween(lastKeys.get(planId) ?? (madeNow ? null : lastKeyUnder(records, planId, 'plan_item')), null);
+    const given = lastKeys.get(planId);
+    const sortKey = given !== undefined ? keyBetween(given, null) : frontKey(records, planId, madeNow);
     lastKeys.set(planId, sortKey);
     changes.push({ kind: 'move', id, parentId: planId, sortKey });
   };
@@ -615,8 +620,11 @@ export function markOwnerChanges(
  * scene between them (a cheated mark of another setup, one in the Trash) is passed as little as it can be (6.7 second
  * review, L2): Later lands just after the mark it stepped over, Earlier just before it, so a hidden mark keeps its
  * place but for that one step. The owner's orders are made sound first (soundOrders, in the same group), so this is
- * always one key between two neighbours, and no other view is renumbered but for the mark moved. A camera's own item
- * is always its position 1: its position 2 never goes earlier. Nothing at either end, or for a plain mark.
+ * one key between two neighbours, and no other view is renumbered but for the mark moved; only where two marks shared
+ * an `order` and the view's order differs from the sound one is the view's whole sequence renumbered (6.22), after the
+ * owner's last: that owner's marks this view doesn't show (another setup's cheated mark, one in the Trash) then come
+ * before them all, in other setups' views too. A camera's
+ * own item is always its position 1: its position 2 never goes earlier. Nothing at either end, or for a plain mark.
  */
 export function movePositionChanges(records: Records, view: PlanViewOf, id: string, by: -1 | 1): Change[] {
   const mark = liveMark(records, id);
@@ -634,6 +642,13 @@ export function movePositionChanges(records: Records, view: PlanViewOf, id: stri
   moved.splice(j, 0, mark.record);
   const sound = soundOrders(records, view.sceneId, owner);
   const orderIn = (r: SbdRecord | undefined): string | null => (r ? (sound.orders.get(r.id) ?? null) : null);
+  // Two marks sharing an `order` (an imported file's) are shown in the order byPositionOrder gives them, while
+  // soundOrders gives the second a fresh one after the owner's last: the view's order and the sound orders then differ,
+  // and one key between two neighbours would land the mark somewhere the person didn't ask for (6.22 review). So when
+  // the view's positions aren't in their sound orders' order, the whole sequence is written as the view shows it with
+  // the move made: a fresh `order` for each, in that order, after the owner's last, one group.
+  const inOrder = list.every((r, k) => k === 0 || (orderIn(list[k - 1]) ?? '') < (orderIn(r) ?? ''));
+  if (!inOrder) return renumbered(sound, moved);
   let lo = orderIn(moved[j - 1]);
   let hi = orderIn(moved[j + 1]);
   // The owner's other marks the view doesn't show, between the two: passed as few as can be.
@@ -642,7 +657,21 @@ export function movePositionChanges(records: Records, view: PlanViewOf, id: stri
     if (by === 1 && (hi === null || own < hi)) hi = own;
     if (by === -1 && (lo === null || own > lo)) lo = own;
   }
-  return [...sound.changes, { kind: 'update', id, set: { order: keyBetween(lo, hi) } }];
+  // Orders are read only when they are keys (markFields), and the view's are in order here, so lo is below hi; should
+  // keyBetween still refuse the two (6.22: an odd file never makes the app throw), the mark goes after the owner's last.
+  return [...sound.changes, { kind: 'update', id, set: { order: keyBetweenStored(lo, hi, sound.last) } }];
+}
+
+/** An owner's positions given fresh orders in this sequence, after its last; the sound orders' updates for the rest. */
+function renumbered(sound: SoundOrders, sequence: readonly SbdRecord[]): Change[] {
+  const written = new Set(sequence.map((r) => r.id));
+  const changes: Change[] = sound.changes.filter((c) => c.kind !== 'update' || !written.has(c.id));
+  let last = sound.last;
+  for (const r of sequence) {
+    last = keyBetweenStored(last, null, null);
+    changes.push({ kind: 'update', id: r.id, set: { order: last } });
+  }
+  return changes;
 }
 
 /** What the Selection tile notes about a mark (6.7): a link that no longer reads, and a scene with no characters to give it. */

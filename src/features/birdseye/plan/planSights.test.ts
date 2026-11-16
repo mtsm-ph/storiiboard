@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProjectStore } from '../../../app/projectStore';
 import { setLocale } from '../../../core/i18n';
 import { cameraFields, lightFields, recordsIndexed, shownItems, startRoomChanges, stopsAtWalls, wallBetween, wallProps } from '../../../core/model/plan';
@@ -8,6 +8,7 @@ import { nextPositionChanges } from '../../../core/model/planBlocking';
 import { copySetupChanges } from '../../../core/model/planRooms';
 import { sightline, wallBlocker, type Sight } from '../../../core/model/planSightlines';
 import type { ReactElement } from 'react';
+import { keyBetween } from '../../../core/ops/order';
 import { nodeDriver } from '../../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../../core/storage/testFolder';
@@ -519,9 +520,9 @@ describe('the live cut, read cheaply and safely (6.18 last review)', () => {
   it('never works out a sort key mid-gesture, so a key it can’t read throws nothing there', async () => {
     // A door in the room's wall across at y = -3 (x -0.45 to 0.45), and a wall at y = -6 placed in this setup only, in a
     // setup plan whose items' last sort key "~~" isn't one (an imported file's). The door dragged 3 m up lands on that
-    // wall: the drop would carry it into the setup's plan, after its last key, and reading "~~" throws there. Mid-gesture
-    // only where it lands is worked out: no throw, and the camera's cone, at (0, 0) facing up, is cut by the room's wall,
-    // now without a door, at -2.95.
+    // wall: the drop carries it into the setup's plan, after the last key that can be read (6.22: an odd file never
+    // makes the app throw), so the drop throws nothing either. Mid-gesture only where it lands is worked out: no sort key,
+    // and the camera's cone, at (0, 0) facing up, is cut by the room's wall, now without a door, at -2.95.
     const s = await scene();
     const camera = await place(s.view, 'camera/camera', { x: 0, y: 0 }, { body_id: 'body', lens_mm: 35 });
     const across = drawWallsChanges(records(), s.sceneId, [
@@ -541,7 +542,21 @@ describe('the live cut, read cheaply and safely (6.18 last review)', () => {
     const door = built.find((item) => item.id === 'door');
     if (!door) throw new Error('no door');
     const live = new Map([['door', { x: door.x, y: door.y - 300, width: door.width, height: door.height, rotation: door.rotation }]]);
-    expect(() => planGeometryChanges(records(), [{ id: 'door', ...(live.get('door') as Geometry) }], shownWalls(shownItems(records(), s.sceneId, s.setupId)), s.view)).toThrow(/sort key/);
+    const drop = () => planGeometryChanges(records(), [{ id: 'door', ...(live.get('door') as Geometry) }], shownWalls(shownItems(records(), s.sceneId, s.setupId)), s.view);
+    expect(drop).not.toThrow();
+    const moved = drop().find((c) => c.kind === 'move');
+    expect(moved?.kind === 'move' ? moved.parentId : null).toBe(setupPlan);
+    expect(moved?.kind).toBe('move');
+    expect(() => keyBetween(moved?.kind === 'move' ? moved.sortKey : '~', null)).not.toThrow();
+    // The live cut itself reads the records whole not once (6.22 review): no sort key is worked out mid-gesture.
+    const shown = records();
+    const values = vi.spyOn(Object, 'values');
+    try {
+      maker.items(live, 'drag');
+      expect(values.mock.calls.filter(([read]) => read === shown)).toHaveLength(0);
+    } finally {
+      values.mockRestore();
+    }
     const made = maker.items(live, 'drag');
     const summary = maker.summaries(made)?.[camera];
     expect(summary?.cut).toBe(true);

@@ -1,7 +1,7 @@
 import { isPictureType, typeOf } from '../../../app/pictures';
 import { t } from '../../../core/i18n';
 import { imageStatements, mediaFields, mediaProps } from '../../../core/media/store';
-import { lastKeyUnder, scaledUnderlay, underlayFields, type Point, type ShownItem } from '../../../core/model/plan';
+import { keyAfterLast, scaledUnderlay, underlayFields, type Point, type ShownItem } from '../../../core/model/plan';
 import type { Props, SbdRecord } from '../../../core/model/record';
 import { childrenOf } from '../../../core/model/recordIndex';
 import type { Change } from '../../../core/ops/ops';
@@ -72,7 +72,7 @@ export function addUnderlayChanges(
   const size = underlaySize(width / height);
   const props: Props = { kind: 'underlay', media_id: mediaId, x: tidy(centre.x - size.width / 2), y: tidy(centre.y - size.height / 2), width: size.width, height: size.height, rotation: 0 };
   const changes: Change[] = [
-    { kind: 'create', record: { id, type: 'plan_item', parentId: roomId, sortKey: keyBetween(lastKeyUnder(records, roomId, 'plan_item'), null), props } },
+    { kind: 'create', record: { id, type: 'plan_item', parentId: roomId, sortKey: keyAfterLast(records, roomId, 'plan_item'), props } },
     { kind: 'create', record: { id: mediaId, type: 'media', parentId: id, sortKey: keyBetween(null, null), props: mediaProps(picture.image, picture.source, projectPath) } },
   ];
   if (unreadableAfter(records, changes)) return { id, changes: [], alsoWrite: [] };

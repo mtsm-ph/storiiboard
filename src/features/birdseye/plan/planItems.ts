@@ -17,7 +17,7 @@ import {
   isSun,
   isUnderlay,
   keptInWall,
-  lastKeyUnder,
+  keyAfterLast,
   markFields,
   MEASURE_THICKNESS,
   measureFields,
@@ -895,7 +895,7 @@ export const measureProps = (g: PlanGeometry): Props => ({ kind: 'measure', x: g
 export function drawMeasuresChanges(records: Records, sceneId: string, points: readonly Point[]): { ids: string[]; changes: Change[] } {
   const roomId = runRoomId(records, sceneId);
   if (roomId === null) return { ids: [], changes: [] };
-  let previous = lastKeyUnder(records, roomId, 'plan_item');
+  let previous: string | null = null;
   const ids: string[] = [];
   const changes: Change[] = [];
   for (let i = 1; i < points.length; i += 1) {
@@ -906,7 +906,7 @@ export function drawMeasuresChanges(records: Records, sceneId: string, points: r
     const to = { x: toMetres(b.x), y: toMetres(b.y) };
     if (Math.hypot(to.x - from.x, to.y - from.y) < MIN_PLAN_SIZE) continue;
     const id = crypto.randomUUID();
-    const sortKey = keyBetween(previous, null);
+    const sortKey: string = previous === null ? keyAfterLast(records, roomId, 'plan_item') : keyBetween(previous, null);
     previous = sortKey;
     ids.push(id);
     changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: roomId, sortKey, props: measureProps(wallBetween(from, to, MEASURE_THICKNESS)) } });
@@ -1157,7 +1157,7 @@ function geometryUpdates(records: Records, changes: readonly GeometryChange[], w
       const wallPlan = records[landed.wallId]?.parentId ?? null;
       const ownPlan = opening.record.parentId;
       if (moves && wallPlan !== null && wallPlan !== ownPlan && planKindOf(records, ownPlan) !== 'setup' && planKindOf(records, wallPlan) === 'setup') {
-        move.push({ kind: 'move', id: c.id, parentId: wallPlan, sortKey: keyBetween(lastKeyUnder(records, wallPlan, 'plan_item'), null) });
+        move.push({ kind: 'move', id: c.id, parentId: wallPlan, sortKey: keyAfterLast(records, wallPlan, 'plan_item') });
       }
       return [{ kind: 'update', id: c.id, set }, ...move];
     }
@@ -1386,7 +1386,7 @@ export function planPasteChanges(records: Records, into: string | ((item: PlanCl
     if (props.kind === 'underlay' && !picture) return null;
     const planId = planOf(item);
     if (planId === null) return null;
-    const sortKey = keyBetween(lastKeys.has(planId) ? (lastKeys.get(planId) ?? null) : lastKeyUnder(records, planId, 'plan_item'), null);
+    const sortKey = lastKeys.has(planId) ? keyBetween(lastKeys.get(planId) ?? null, null) : keyAfterLast(records, planId, 'plan_item');
     lastKeys.set(planId, sortKey);
     ids.push(id);
     // A camera's copy shoots none of the original's frames (6.4): two cameras never claim one frame.
@@ -1630,12 +1630,12 @@ export function placeOpeningChanges(records: Records, spot: OpeningSpot, kind: O
   const others = openingsInView(records, spot.wallId, view).map((o) => o.fields);
   if (!fitsAt(wall.fields.width, { along: spot.along, width: OPENING_WIDTH[kind] }, others)) return [];
   const planId = wall.record.parentId;
-  return readableOnly(records, [{ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey: keyBetween(lastKeyUnder(records, planId, 'plan_item'), null), props: openingProps(kind, spot.wallId, spot.along) } }]);
+  return readableOnly(records, [{ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey: keyAfterLast(records, planId, 'plan_item'), props: openingProps(kind, spot.wallId, spot.along) } }]);
 }
 
 /** A plan made under a parent for a level, in the same group as what needs it (6.2a's rule: never ahead). */
 function newPlanChange(records: Records, parentId: string, kind: 'blocking' | 'setup', id: string): Change {
-  return { kind: 'create', record: { id, type: 'plan', parentId, sortKey: keyBetween(lastKeyUnder(records, parentId, 'plan'), null), props: { kind, name: '' } } };
+  return { kind: 'create', record: { id, type: 'plan', parentId, sortKey: keyAfterLast(records, parentId, 'plan'), props: { kind, name: '' } } };
 }
 
 /** Why an icon can't be placed in a view, or null when it can (6.3): the Library says it in words. */
@@ -1690,7 +1690,7 @@ export function placeIconChanges(records: Records, view: PlanViewOf, icon: strin
   const kind = isCameraIcon(icon) ? 'camera' : isLightIcon(icon) ? 'light' : icon === NORTH_ICON ? 'north' : icon === SUN_ICON ? 'sun' : markIcon ? 'mark' : (gripKindOf(icon) ?? 'icon');
   const props: Props = { kind, icon, x: tidy(centre.x - size.width / 2), y: tidy(centre.y - size.depth / 2), width: size.width, height: size.depth, rotation: 0 };
   if (kind === 'sun') props.time = DEFAULT_SUN_TIME;
-  const sortKey = keyBetween(changes.length > 0 ? null : lastKeyUnder(records, planId, 'plan_item'), null);
+  const sortKey = changes.length > 0 ? keyBetween(null, null) : keyAfterLast(records, planId, 'plan_item');
   changes.push({ kind: 'create', record: { id, type: 'plan_item', parentId: planId, sortKey, props } });
   // Placed in a view centred past the plan's reach, it would never show: nothing is placed (the plan made for it neither).
   return readableOnly(records, changes);

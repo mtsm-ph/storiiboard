@@ -170,11 +170,13 @@
       Stop at walls switch per camera and light, `stop_at_walls` stored only when false), and the cut follows a drag,
       a turn and a resize live, made by the drop's own function (liveSights.ts through the canvas core's optional
       `liveItems`); an icon with a real footprint is drawn as an outline at true size, a symbol at its own size;
-      a department's print shows the room with its set pieces in full, the cameras with their cones and the cast
-      marks dimmed, and that department's items in full; the watermark on a plan sits inside the plan box
+      a department's print shows the room (walls, doors and windows in full), the set pieces, the cameras with their
+      cones and the cast marks dimmed, and that department's items in full (set pieces in full on art's); the watermark on a plan sits inside the plan box
       (src/features/export/planStamp.ts), never over the legend or the title. The canvas keeps an item's drawing
       while its `draw` function is the same: a host hands a new `draw` whenever what it shows changes. Readers that
-      tiles call on every edit read an index kept per records object (src/core/model/recordIndex.ts), never a scan.
+      tiles call on every edit read an index kept per records object (src/core/model/recordIndex.ts), never a scan. A
+      plan write asks for its sort key through `keyAfterLast` (src/core/model/plan.ts, 6.22): a key an imported file
+      made unreadable never makes it throw.
   - Setups are numbered within the scene (Setup 1, 2, 3), never lettered: shot numbers use the letters (12A). The
     number comes from the order, never stored. Built in 6.0: src/core/model/setup.ts (`frameSetupId` is the one
     reader: a setup in another scene, in the Trash or gone reads as none), the Setups tile

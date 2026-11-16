@@ -3,7 +3,9 @@ import { keyBetween } from '../ops/order';
 import {
   iconGroup,
   iconIdOf,
-  lastKeyUnder,
+  keyAfterLast,
+  keyBetweenStored,
+  lastReadableKeyUnder,
   newRoomChanges,
   NORTH_ICON,
   openingFields,
@@ -147,8 +149,11 @@ export function underlayPictureCopy(records: Records, props: Props, copyId: stri
   return { id, change: { kind: 'create', record: { id, type: 'media', parentId: copyId, sortKey: keyBetween(null, null), props: { ...from } } } };
 }
 
-/** A plan's live items copied into another, after its last (see copyItems). */
-export function copyItemsChanges(records: Records, fromPlanId: string, toPlanId: string, after: string | null = lastKeyUnder(records, toPlanId, 'plan_item')): Change[] {
+/**
+ * A plan's live items copied into another, after its last (see copyItems): its last readable key (6.22), so an imported
+ * file's odd key never makes the copy throw; in a sound file that is its last key.
+ */
+export function copyItemsChanges(records: Records, fromPlanId: string, toPlanId: string, after: string | null = lastReadableKeyUnder(records, toPlanId, 'plan_item')): Change[] {
   return copyItems(records, fromPlanId, toPlanId, after).changes;
 }
 
@@ -243,7 +248,7 @@ export function separateCopyChanges(records: Records, projectId: string, sceneId
     return wall ? [{ kind: 'update', id: r.id, set: { wall_id: wall } }] : [];
   });
   return [
-    { kind: 'create', record: { id, type: 'plan', parentId: projectId, sortKey: keyBetween(lastKeyUnder(records, projectId, 'plan'), null), props } },
+    { kind: 'create', record: { id, type: 'plan', parentId: projectId, sortKey: keyAfterLast(records, projectId, 'plan'), props } },
     ...copied.changes,
     ...repointed,
     { kind: 'update', id: sceneId, set: { room_id: id } },
@@ -290,7 +295,7 @@ export function copySetupChanges(records: Records, fromSetupId: string, toSetupI
   const copied: Change[] = existing
     ? copyItemsChanges(records, from.id, existing.id)
     : [
-        { kind: 'create', record: { id: planId, type: 'plan', parentId: toSetupId, sortKey: keyBetween(lastKeyUnder(records, toSetupId, 'plan'), null), props: { kind: 'setup', name: '' } } },
+        { kind: 'create', record: { id: planId, type: 'plan', parentId: toSetupId, sortKey: keyAfterLast(records, toSetupId, 'plan'), props: { kind: 'setup', name: '' } } },
         ...copyItemsChanges(records, from.id, planId, null),
       ];
   return to.parentId === null ? copied : [...cheatedCopyOrders(records, to.parentId, copied), ...copied];
@@ -321,7 +326,10 @@ function cheatedCopyOrders(records: Records, sceneId: string, changes: readonly 
     const from = known.orders.get(original) ?? null;
     const sorted = [...known.taken].sort();
     // An original that isn't one of the scene's marks of that character can't be told: a fresh one after the last.
-    const order = from === null ? keyBetween(sorted.at(-1) ?? null, null) : keyBetween(from, sorted.find((o) => o > from) ?? null);
+    // Orders are read only when they are keys (markFields), so these always are; should keyBetween still refuse them
+    // (6.22: an odd file never makes the app throw), the copy goes after the character's last instead.
+    const last = sorted.at(-1) ?? null;
+    const order = from === null ? keyBetween(last, null) : keyBetweenStored(from, sorted.find((o) => o > from) ?? null, last);
     props.order = order;
     known.taken.push(order);
   }
@@ -422,7 +430,7 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
     if (level === 'room') return null;
     const parentId = level === 'setup' ? setupId : sceneId;
     const id = level === 'setup' ? newPlanId : crypto.randomUUID();
-    changes.push({ kind: 'create', record: { id, type: 'plan', parentId, sortKey: keyBetween(lastKeyUnder(records, parentId, 'plan'), null), props: { kind: level, name: '' } } });
+    changes.push({ kind: 'create', record: { id, type: 'plan', parentId, sortKey: keyAfterLast(records, parentId, 'plan'), props: { kind: level, name: '' } } });
     created.set(level, id);
     return id;
   };
@@ -434,8 +442,8 @@ export function setupOnlyChanges(records: Records, sceneId: string, setupId: str
     if (planId === null) continue;
     // A mark takes a fresh key at the front of its new plan, as any item does (6.7 review): its number comes from its
     // own `order`, untouched, so a cheated mark is still the same position.
-    const previous = lastKeys.has(planId) ? (lastKeys.get(planId) ?? null) : lastKeyUnder(records, planId, 'plan_item');
-    const sortKey = keyBetween(previous, null);
+    const given = lastKeys.get(planId);
+    const sortKey = given !== undefined && given !== null ? keyBetween(given, null) : keyAfterLast(records, planId, 'plan_item');
     lastKeys.set(planId, sortKey);
     changes.push({ kind: 'move', id: record.id, parentId: planId, sortKey });
   }

@@ -347,7 +347,48 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 15, evening: Phase 6 and the audit's cover merged; Kevin's by-hand pass is next)
+### Next session: start here (Nov 15, night: #179 merged; 6.22 built and open; Kevin is doing his by-hand pass)
+
+Kevin's Nov 15 night message answered what waited for him and ended "Then stop": **build nothing more. Phase 7
+stays unbuilt until he is back from his by-hand pass (run 43789275891's installers) with what he found and his
+answers to docs/PHASE7_DECISIONS.md.**
+
+- **Merged:** #179 into `v2` (his word, Nov 15 night). `v2`'s Rust tests now compile on a Mac and start on Windows.
+- **Open, waiting for his word to merge: 6.22** (branch `phase6/6.22-nov15-night`, base `v2`;
+  docs/briefs/6.22-nov15-night.md, three rounds, reviewed twice). His installers don't have it.
+  - Set pieces print dimmed on every department's page but art's; walls, doors and windows in full (his answer).
+  - `setupPlanOf` reads the index; gearOnDay.test's scan test now asserts 2 whole reads for one call and 0 more per
+    further setup, exactly (his answer).
+  - A door dropped on a wall never throws on a sort key an imported file made unreadable, and neither does any
+    other plan write that asks for a key after the last (`keyAfterLast` in src/core/model/plan.ts: wall runs, marks,
+    copied setups, the underlay, paste, the Library). The existing test that asserted the throw (planSights.test
+    "never works out a sort key mid-gesture…") now asserts the drop doesn't throw, and that the live cut reads no
+    records whole (the main session named it in the brief's round 2: tell Kevin).
+  - Two marks of one character sharing an `order` (an odd file) reorder as the view shows them: that view's
+    sequence is renumbered after the owner's last, so the owner's marks the view doesn't show come first in other
+    setups' views.
+  - `tsBuildInfoFile` is node_modules/.cache/tsc/…, and `*.tsbuildinfo` is ignored. Nothing in the repo's scripts
+    writes it: an ad-hoc `tsc -b` did.
+  - Local checks: Vitest 2,960 passed, 1 skipped; end to end (Chromium) 546 passed, 0 failed after round 2; round 3
+    ran Vitest and the two plan specs only. Round 1's full run had one refused page load: moodboard.spec "Shift
+    keeps the proportions in a resize and snaps a turn to 15 degrees" (passed in the next full run).
+  - A builder ran an inline python script once in round 2 (rule 2 of Nov 14 covers it; told not to again).
+- **Left for Kevin to decide:**
+  - The same unguarded sort-key pattern outside 6.22's brief still throws on an odd file: Bring to front / Send to
+    back on a plan and on boards (src/ui/canvas/zOrder.ts `sortKeysFor`), a new or reordered setup
+    (src/core/model/setup.ts), src/features/moodboards/items.ts. An app-wide pass would be its own small brief.
+  - His answer "leave it" closed: a light inside a wall aimed along it.
+  - Still open: a held turn key at p95 33 ms; dimmed context at 45% ink on paper; a legend's continuation page
+    has no watermark; Spanish (his glossary pass); the icon classes.
+- **By hand, for Kevin:** as the section below lists.
+- **Leftovers:** Kevin said he deletes `playwright-full.log`, `tsconfig.tsbuildinfo` and `e2e/zz-probe.spec.ts`
+  himself.
+- **A chat started now** has the four Nov 14 rules in builder.md and reviewer.md; this one (started before #167)
+  put them at the top of every brief and review request.
+- **Status line (keep current):** Nov 15, night: #179 merged; 6.22's PR open and unmerged; no agent running;
+  stopped, waiting for Kevin's by-hand pass.
+
+### Next session: start here (Nov 15, evening, older: Phase 6 and the audit's cover merged)
 
 Kevin's Nov 15 message (from his phone) finished the Nov 14 list on the PC. **Nothing is left to build before his
 by-hand pass. Phase 7 stays unbuilt until he has done it and answered docs/PHASE7_DECISIONS.md.**
