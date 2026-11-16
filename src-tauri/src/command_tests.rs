@@ -495,7 +495,12 @@ mod backups_and_app_data {
         let listed = h.call("sbd_backups", json!({ "handle": handle })).unwrap();
         assert_eq!(listed.as_array().map(Vec::len), Some(1));
         assert_eq!(listed[0]["name"], json!(name));
-        assert!(listed[0]["bytes"].as_u64().is_some_and(|bytes| bytes > 0));
+        // The space this backup alone takes (backup::own_bytes): all of a full copy; on a Mac the backup is an APFS
+        // clone, which takes next to nothing while fresh, so 0 is right there (backup.rs tests that it is).
+        let bytes = listed[0]["bytes"].as_u64().expect("a backup lists its own bytes");
+        if !cfg!(target_os = "macos") {
+            assert!(bytes > 0);
+        }
         // Only this project's backup names, for a backup and for a deletion.
         assert_eq!(
             refused(h.call(

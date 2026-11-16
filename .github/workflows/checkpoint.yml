@@ -258,6 +258,13 @@ jobs:
           $found = Select-String -Path src-tauri/target/release/wix/*/main.wxs, src-tauri/target/release/nsis/*/installer.nsi -Pattern '\bsbd\b'
           if (-not $found) { throw 'Neither installer registers .sbd files.' }
           $found | ForEach-Object { "$($_.Path): $($_.Line.Trim())" }
+      # Uploaded before the listing below, so a check there that is itself wrong never costs the installers.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: storiiboard-${{ matrix.name }}
+          path: ${{ matrix.bundles }}
+          if-no-files-found: error
+          retention-days: 7
       # What the installer carries (the desktop gap audit, B4): a release build looks for ffmpeg and ffprobe only
       # beside the executable, and nothing else ever looked inside the bundle. The fonts themselves are in the page's
       # build (dist), which the executable embeds; their licences are bundle resources.
@@ -291,9 +298,3 @@ jobs:
             }
           }
           if (-not (Get-ChildItem dist -Recurse -Filter *.ttf)) { throw 'No fonts in the page build.' }
-      - uses: actions/upload-artifact@v7
-        with:
-          name: storiiboard-${{ matrix.name }}
-          path: ${{ matrix.bundles }}
-          if-no-files-found: error
-          retention-days: 7
