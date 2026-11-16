@@ -98,6 +98,87 @@ export function deleteCustomWorkspace(id: CustomWorkspaceId): void {
   layoutStore.getState().remove(id);
 }
 
+/** A workspace of one's own as a preset holds it (6.5.8): `layout` is its current layout, `saved` its saved one where that differs. */
+export interface ArrangedWorkspace extends SavedCustomWorkspace {
+  saved?: unknown;
+}
+
+/**
+ * The person's own workspaces as a preset holds them (6.5.8, rounds 3 and 4): what the person sees, each one's CURRENT
+ * layout in the layout store (else the one it was made from), and its saved layout where that differs, so a preset or a
+ * "Before" carries an arrangement never saved with Save layout too, and shows it unsaved again.
+ */
+export function arrangedCustomWorkspaces(): ArrangedWorkspace[] {
+  const { layouts } = layoutStore.getState();
+  return workspaceStore.getState().customs.map((c) => {
+    const entry = layouts[c.id];
+    const current = entry?.current ?? c.layout;
+    const saved = entry && JSON.stringify(entry.saved) !== JSON.stringify(current) ? { saved: structuredClone(entry.saved) } : {};
+    return { id: c.id, name: c.name, layout: structuredClone(current), order: [...c.order], ...saved };
+  });
+}
+
+/** A preset's workspaces as this version lays them out: each current layout and saved one through the shell's check, null for one it can't. */
+function usableArranged(list: readonly ArrangedWorkspace[]): (CustomWorkspace & { saved: Layout })[] | null {
+  const made = customsOf(list);
+  if (made.length !== list.length) return null;
+  const out: (CustomWorkspace & { saved: Layout })[] = [];
+  for (const [i, custom] of made.entries()) {
+    const raw = list[i]?.saved;
+    const saved = raw === undefined ? custom.layout : usable(raw);
+    if (!saved) return null;
+    out.push({ ...custom, saved });
+  }
+  return out;
+}
+
+/**
+ * The person's own workspaces replaced by a preset's (6.5.8, rounds 3 and 4), each layout through the shell's check
+ * first. Each in the preset whose current or saved layout differs from this computer's is set to them in the layout
+ * store (saved = current where the preset gives none; its layout undo cleared); an unchanged one keeps its layouts and
+ * its layout undo. One this computer lacks is added; one the preset lacks leaves the screen first and goes with its
+ * layouts (they are in the "Before" preset). A workspace kept keeps the layout it was made from here, for Reset to
+ * default. Built-in and department workspaces' layouts are never touched.
+ */
+export function replaceCustomWorkspaces(list: readonly ArrangedWorkspace[]): void {
+  const arranged = usableArranged(list);
+  if (!arranged) return;
+  const before = workspaceStore.getState().customs;
+  const next = arranged.map((c) => ({ id: c.id, name: c.name, order: c.order, layout: before.find((b) => b.id === c.id)?.layout ?? c.layout }));
+  const kept = new Set(next.map((c) => c.id));
+  const active = workspaceStore.getState().active;
+  if (isCustomWorkspaceId(active) && !kept.has(active)) showWorkspace('storyboard');
+  setCustoms(next);
+  for (const gone of before.filter((c) => !kept.has(c.id))) layoutStore.getState().remove(gone.id);
+  for (const custom of arranged) {
+    const entry = layoutStore.getState().layouts[custom.id];
+    const same = entry && JSON.stringify(entry.current) === JSON.stringify(custom.layout) && JSON.stringify(entry.saved) === JSON.stringify(custom.saved);
+    if (!same) layoutStore.getState().put(custom.id, structuredClone(custom.layout), structuredClone(custom.saved));
+  }
+}
+
+/** The department workspaces the sidebar lists, replaced by a preset's (6.5.8); one on screen that goes leaves for the Storyboard. */
+export function replaceDepartmentWorkspaces(list: readonly Department[]): void {
+  const departments = saveSettings({ departmentWorkspaces: DEPARTMENTS.filter((d) => list.includes(d)) }).departmentWorkspaces;
+  const active = workspaceStore.getState().active;
+  const shown = departmentOf(active);
+  workspaceStore.setState({ departments, active: shown !== null && !departments.includes(shown) ? 'storyboard' : active });
+}
+
+/**
+ * A preset's workspaces as this version can lay them out, current and saved layouts both (saved given only where it
+ * differs): what a preset compares and applies (6.5.8). An empty list when any one can't be laid out: the caller checks
+ * the length, so a list is never applied in part.
+ */
+export const usableCustomWorkspaces = (list: readonly ArrangedWorkspace[]): ArrangedWorkspace[] =>
+  (usableArranged(list) ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    layout: c.layout,
+    order: [...c.order],
+    ...(JSON.stringify(c.saved) === JSON.stringify(c.layout) ? {} : { saved: c.saved }),
+  }));
+
 export function useWorkspaceState<T>(select: (state: WorkspaceState) => T): T {
   return useStore(workspaceStore, select);
 }

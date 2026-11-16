@@ -308,7 +308,9 @@ test.describe('with Safari’s user agent', () => {
     // The hex field, then the colour input, the window's last stop in Chromium: WebKit skips that one.
     await settings.getByRole('textbox', { name: 'Hex' }).focus();
     await page.keyboard.press('Tab');
-    await expect(settings.getByRole('button', { name: 'Close Settings' })).toBeFocused();
+    // Round to the window's first stop, Save preset… in its title bar (6.5.8), and never out of the window.
+    await expect(settings.getByRole('button', { name: 'Save preset…' })).toBeFocused();
+    expect(await settings.evaluate((window) => window.contains(document.activeElement))).toBe(true);
   });
 
   test('⌘ held as a picture’s handle is dragged crops it, as Ctrl does elsewhere (6.5.7b)', async ({ page }) => {

@@ -331,7 +331,7 @@ or issued call sheet reads any of them.
 - `settings_preset` (record type, for 6.5.8): a named set of canvas settings under the project, props `name` (text) and
   `settings` (an object). A record's `type` is plain text with no CHECK (Schema v2's records), so the type needs only its
   line in RECORD_TYPES (src/core/model/record.ts), added in 6.5.5 with no UI; it goes out and back through the JSON
-  export as any record.
+  export as any record. Its fields are described below, under Settings presets (6.5.8).
 - Not a new prop: a location's place set by pasted coordinates (6.5.5, the Locations tile's Coordinates field) writes the
   props a moved pin writes (Location props: `latitude`, `longitude`, `map_moved`), plus `map_name` as the coordinates
   ("40.8677, -73.9212") for a location with no place yet (a place on the map always has a name; one already placed keeps
@@ -391,6 +391,66 @@ Added to this version by later 6.5 milestones:
     border is drawn on the box's edge, inside it (at most half the box's short side), so the item's size never changes.
   - Copies (Paste, Duplicate, a duplicated page) keep all four. No action replaces a board picture's file with another,
     so nothing here is dropped by one.
+- Settings presets (6.5.8): `settings_preset` records, each directly under the project (`parent_id` the project's id),
+  in the order made (`sort_key`). Made from Settings (the header's Save preset…, the Presets tab), never by anything
+  else; created, renamed, replaced and deleted through ops, so each is a step in History and ⌘Z takes it back. Applying
+  one changes only the settings of the computer it is applied on, never the file, except that the settings from before
+  are first kept as a preset named "Before [name]" (one already called that is replaced; naming below), in an op group
+  of its own. The one list of what a preset holds is `PRESET_FIELDS` in
+  src/core/model/settingsPreset.ts.
+  - `name`: text, cleaned as a profile's name is (`cleanProfileText`: trimmed, no control or direction-override
+    characters), at most 60 characters. Names are unique within the project as a person reads them (case aside):
+    saving under a name a preset has asks "Replace [name]?" and updates that record.
+  - `settings`: an object holding only these fields, each in the form its own reader (src/core/storage/settings.ts)
+    accepts, written in this order:
+    - `theme`: `project`, `system`, `light` or `dark`; `themeChosen`: true or false (applying a theme always chooses it).
+    - `canvasViews`: `{ "plan", "board" }`, each `paper` or `dark` (6.5.1; `canvasViewsOf`).
+    - `boardGrid`: `{ "boardGrid", "boardGridSnap" }`, each true or false (6.5.7a; `boardGridOf`).
+    - `customWorkspaces`: the person's own workspaces (3.6d), at most 50, each `{ "id", "name", "layout", "order",
+      "saved" }`: an id `custom-` and a UUID, a cleaned name, its tiles' numbering, and what the person sees, as the
+      shell's layout JSON: `layout` is the workspace's CURRENT layout in this computer's layout store (else the one it
+      was made from), and `saved` (optional, cleaned by the same rules and bounds) its saved layout where that differs
+      from the current one, so an arrangement never saved with Save layout travels too and still shows as unsaved.
+      Applying puts both back (current, and saved where given, else saved = current; that workspace's layout undo
+      cleared), only for the workspaces whose current or saved layout differs from the computer's: an unchanged one
+      keeps its layouts and its layout undo. It adds the ones the computer lacks and removes the ones the preset lacks,
+      with their layouts (they are in the "Before" preset). A workspace kept keeps the layout it was made from on that
+      computer, for Reset to default. Built-in and department workspaces' layouts are never in a preset and never
+      touched by one.
+    - `departmentWorkspaces`: department ids, in the call sheet's order.
+    - `planLayers`: null while the layers follow the person's department, else each layer row's
+      `{ "show": "shown" | "dimmed" | "hidden", "locked": true | false }` (6.8). Only the rows this version knows are
+      written into a preset, and only those are read from one; a row a newer version keeps in a computer's own
+      settings stays there as stored.
+    - `pdfScenePalettes`: true or false.
+  - Never in one: language, week start, every unit, paper, the directions app, backups, trackpad mode, the profile,
+    who the person is or their role in a project, company profiles, keys, Online services and this computer's
+    bookkeeping (`NEVER_IN_PRESET`). A preset holds no name, initials, role, person id, path or company detail.
+  - Read as untrusted input (it comes from other people with the project), bounded and cleaned before anything is
+    shown or written (`presetSettingsOf`, `cleanLayout`):
+    - A preset can be up to 512 KB: the whole `settings` value over 512 KB as JSON, or not writable as JSON at all, is
+      unreadable; the Apply window says
+      "This preset is too large to read" and nothing applies.
+    - A layout is rebuilt, never passed through: only each node's known keys (a stack's `kind`, `id`, `tiles`,
+      `active`; a split's `kind`, `id`, `direction`, `children`, `sizes`; the layout's `root` and `maximized`), at
+      most 16 deep, 64 stacks and 200 tiles in all, each tile once, only tiles this version knows, `maximized` null or
+      a stack's id in it, each array's length checked before it is walked.
+    - A field this version doesn't know is skipped and named. A field ANY part of which it can't read is left exactly
+      as it is on the computer and named under "Left as they are", never defaulted or emptied: `theme` outside its
+      four values; `canvasViews` with a view other than `paper` or `dark`, a key missing or one more; `boardGrid` with
+      a value that isn't true or false, or another key; `customWorkspaces` if any one workspace can't be read or laid
+      out (a newer version's tile, say), so applying never deletes someone's workspaces for it;
+      `departmentWorkspaces` with a department this version doesn't have; `planLayers` with a known row that isn't a
+      whole `{ show, locked }`; `themeChosen` or `pdfScenePalettes` that isn't true or false. Missing fields change
+      nothing.
+  - The "Before" preset's name: the Before words with the preset's name, cut so the whole fits 60 characters. Where
+    cutting makes two presets' Befores the same, they share it in the order made ("… 2", "… 3", still 60 at most), and
+    a number is added where it would be the preset's own name, so applying never overwrites the preset applied or
+    another preset's Before. Fixed when made, in the app's language then.
+  - Deleting one is a trash op (`trashed_at`, `trashed_by`): undo or History brings it back. A preset is never content:
+    the Trash tile doesn't list it, Empty Trash neither counts nor deletes it (it isn't among the kinds people delete to
+    the Trash), and no view, count, check, CSV or export but the lossless project JSON reads it. So a trashed preset
+    stays in the file (a few kilobytes at most), where undo and History can still bring it back.
 
 ## Schema v14: Phase 6's props (6.1)
 

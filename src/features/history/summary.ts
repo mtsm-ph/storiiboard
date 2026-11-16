@@ -1371,6 +1371,9 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
     }
     case 'project':
       return t('history.theProject');
+    case 'settings_preset':
+      // By its name (6.5.8), never what it holds.
+      return presetName(record) ?? t('history.aPreset');
     case 'media': {
       // A PDF or a link (3.11), by its name.
       const attachment = attachmentFields(record.props);
@@ -1458,6 +1461,32 @@ function peopleLine(change: FieldChange, day: Part, around: ReadonlyMap<string, 
   return line('history.peopleChangedDay', { day });
 }
 
+/** A settings preset's name as kept, or null for one without. */
+function presetName(record: SbdRecord | null | undefined): string | null {
+  const name = record?.props.name;
+  return typeof name === 'string' && name.trim() !== '' ? name.trim() : null;
+}
+
+/**
+ * A step on a settings preset (6.5.8): saved (a new one, or the "Before [name]" applying keeps), replaced, renamed,
+ * deleted or restored, named by its name, never by the settings it holds. Null for any other step.
+ */
+function presetLine(ops: readonly LoggedOp[]): Line | null {
+  const [op] = ops;
+  if (!op || ops.length !== 1) return null;
+  const record = op.after ?? op.before;
+  if (record?.type !== 'settings_preset') return null;
+  const name = presetName(record) ?? t('history.aPreset');
+  if (op.kind === 'create') return line('history.presetSaved', {}, { name });
+  if (op.kind === 'trash') return line('history.presetDeleted', {}, { name });
+  if (op.kind === 'restore') return line('history.presetRestored', {}, { name });
+  const was = presetName(op.before);
+  if (op.kind === 'update' && was !== null && was !== presetName(op.after) && JSON.stringify(op.before?.props.settings) === JSON.stringify(op.after?.props.settings)) {
+    return line('history.presetRenamed', {}, { before: was, after: name });
+  }
+  return line('history.presetReplaced', {}, { name });
+}
+
 /**
  * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
  * names without writing them (a sketch's frame, a scene's location), as they were then.
@@ -1470,6 +1499,9 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     op.kind === 'create' && op.after?.type === 'callsheet' ? { ...op, kind: 'update', before: { ...op.after, props: {} } } : op,
   );
   const record = (op: LoggedOp) => op.after ?? op.before;
+  // A settings preset's step (6.5.8).
+  const preset = presetLine(ops);
+  if (preset) return preset;
   // A room's underlays and measures (6.9), each step its own line.
   const underlaid = underlayMeasureLine(ops, around, unit);
   if (underlaid) return underlaid;

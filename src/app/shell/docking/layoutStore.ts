@@ -57,6 +57,8 @@ export interface LayoutState {
   add: (workspace: WorkspaceId, layout: Layout) => void;
   /** A deleted one's layouts and its layout undo steps go with it. */
   remove: (workspace: WorkspaceId) => void;
+  /** A workspace's layouts set whole, current and saved (saved = current when not given), its layout undo steps cleared: a settings preset applied (6.5.8). */
+  put: (workspace: WorkspaceId, layout: Layout, saved?: Layout) => void;
 }
 
 /** The default each workspace falls back on when it has no entry: one object per workspace, so a selector stays still. */
@@ -314,6 +316,10 @@ export function createLayoutStore(
         const layouts = Object.fromEntries(Object.entries(get().layouts).filter(([id]) => id !== workspace));
         set({ layouts, past: get().past.filter((c) => c.workspace !== workspace) });
         fallbacks.delete(workspace);
+        persist();
+      },
+      put: (workspace, layout, saved = layout) => {
+        set({ layouts: { ...get().layouts, [workspace]: { current: layout, saved } }, past: get().past.filter((c) => c.workspace !== workspace) });
         persist();
       },
     };

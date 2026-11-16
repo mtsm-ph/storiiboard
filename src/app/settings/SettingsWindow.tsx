@@ -10,6 +10,7 @@ import { BackupsPanel } from '../project/BackupsPanel';
 import { ProjectHome } from '../project/ProjectHome';
 import { StorageTile } from '../project/StorageTile';
 import { ThemeTile } from '../theme/ThemeTile';
+import { PresetsTab, SavePresetButton } from '../presets/PresetsTab';
 import { ProfileTab } from './profile';
 import { closeSettings, openSettings, SETTINGS_TABS, settingsStore, type SettingsTab } from './settingsStore';
 import { NoticeBar } from '../NoticeBar';
@@ -29,6 +30,7 @@ const TAB_LABEL: Readonly<Record<SettingsTab, string>> = labels({
   storage: 'settings.tab.storage',
   online: 'settings.tab.online',
   profile: 'settings.tab.profile',
+  presets: 'settings.tab.presets',
 });
 
 const TAB_CONTENT: Readonly<Record<SettingsTab, ComponentType>> = {
@@ -39,6 +41,7 @@ const TAB_CONTENT: Readonly<Record<SettingsTab, ComponentType>> = {
   storage: StorageTile,
   online: OnlineServicesTab,
   profile: ProfileTab,
+  presets: PresetsTab,
 };
 
 /** ⌘, on a Mac, Ctrl+, elsewhere: where every app keeps its settings. */
@@ -54,7 +57,7 @@ export function SettingsHost() {
   const Content = TAB_CONTENT[tab];
   const tabId = (id: SettingsTab) => `${baseId}-tab-${id}`;
   return (
-    <InAppWindow title={t('settings.title')} onClose={closeSettings} width={920} height={680} projectUndo>
+    <InAppWindow title={t('settings.title')} onClose={closeSettings} width={920} height={680} projectUndo actions={<SavePresetButton />}>
       {/* Above the tabs, out of the scrolling panel: a notice from the foot of a long panel never scrolls away. */}
       <NoticeBar />
       <div className="flex min-h-0 flex-1">

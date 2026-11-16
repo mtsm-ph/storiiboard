@@ -43,11 +43,13 @@ interface InAppWindowProps {
   describedBy?: string;
   /** The close button's name, when "Close <title>" would sound like the action itself ("Close Empty Trash?"). */
   closeLabel?: string;
+  /** Buttons in the title bar before the close button (Settings' Save preset…, 6.5.8); focus still starts in the body. */
+  actions?: ReactNode;
   className?: string;
   children: ReactNode;
 }
 
-export function InAppWindow({ title, onClose, width = 520, height, projectUndo = false, describedBy, closeLabel, className, children }: InAppWindowProps) {
+export function InAppWindow({ title, onClose, width = 520, height, projectUndo = false, describedBy, closeLabel, actions, className, children }: InAppWindowProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const windowId = useId();
@@ -140,6 +142,7 @@ export function InAppWindow({ title, onClose, width = 520, height, projectUndo =
           <h2 id={titleId} className="sb-label min-w-0 flex-1 truncate font-bold">
             {title}
           </h2>
+          {actions}
           <IconButton size="sm" label={closeLabel ?? t('window.close', { title })} onClick={close}>
             <CloseGlyph />
           </IconButton>
