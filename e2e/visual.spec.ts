@@ -14,6 +14,8 @@ type Language = keyof typeof LANGUAGES;
 
 /** Opens the app fresh in a theme and a language: settings cleared, then the language saved as Settings would. */
 async function start(page: Page, scheme: 'light' | 'dark', language: Language, path: string): Promise<void> {
+  // One fixed time (6.5.4): the status bar's Saved sign shows the time of the last change, the same every run.
+  await page.clock.setFixedTime(new Date('2026-11-16T14:32:00'));
   await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
   await page.goto(path);
   await page.evaluate(

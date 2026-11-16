@@ -839,6 +839,15 @@ export async function history(file: ProjectFile): Promise<{ canUndo: boolean; ca
   return { canUndo: undoTop !== null, canRedo: redoTop !== null };
 }
 
+/**
+ * When the newest op in the log was written (ISO), or null for a log with none: the status bar's "Saved" time (6.5.4)
+ * before any change this session. One lookup on the log's unique `seq`, read once when a project opens.
+ */
+export async function lastOpTime(file: ProjectFile): Promise<string | null> {
+  const [row] = await file.query('SELECT timestamp FROM ops WHERE seq = (SELECT max(seq) FROM ops)');
+  return row?.timestamp === undefined || row.timestamp === null ? null : String(row.timestamp);
+}
+
 /** One write in the log, as the History tile reads it. */
 export interface LoggedOp {
   /** The op's own id: what keeps a row of History the same row when newer steps arrive above it. */

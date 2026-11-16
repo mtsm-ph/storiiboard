@@ -334,6 +334,22 @@ export const es: Messages = {
   // src/app/shell/StatusBar.tsx
   'statusBar.workspace': 'Espacio de trabajo: {name}',
   'statusBar.version': 'v{version}',
+  'savedSign.text': '{saved} · {backup}',
+  'savedSign.saved': 'Guardado {time}',
+  'savedSign.savedNoTime': 'Guardado',
+  'savedSign.notSaved': 'No guardado',
+  'savedSign.backup': 'Respaldo {time}',
+  'savedSign.noBackup': 'Aún sin respaldo',
+  'savedSign.savedAt': 'Guardado a las {time}.',
+  'savedSign.savedOn': 'Guardado el {day} a las {time}.',
+  'savedSign.savedNoTimeLabel': 'Guardado.',
+  'savedSign.notSavedLabel': 'No guardado: {reason}',
+  'savedSign.backupAt': 'Último respaldo a las {time}.',
+  'savedSign.backupOn': 'Último respaldo el {day} a las {time}.',
+  'savedSign.noBackupLabel': 'Aún no hay respaldo.',
+  'savedSign.label': '{saved} {backup}',
+  'savedSign.description': '{label} {how}',
+  'savedSign.how': 'Cada cambio se guarda al instante; se hace un respaldo cada 5 minutos si el proyecto cambió.',
   // src/app/confirm.ts
   'common.cancel': 'Cancelar',
   // src/app/deleteForGood.ts

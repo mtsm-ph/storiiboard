@@ -125,7 +125,9 @@
   like any edit and linked to the group it undid, redid or restored to. A new edit after an undo clears ⌘⇧Z's redo
   stack, but the undone work stays in History and can be restored.
 - Restore to any earlier point in History is a new op group too, so it can be undone.
-- Each op commits to SQLite in a transaction right away. There is no Save button.
+- Each op commits to SQLite in a transaction right away. There is no Save button. The status bar's Saved sign (6.5.4)
+  shows the time of the last change that reached the file and of the newest backup, from events the app already
+  has: no timer, no polling.
 - Going back in time, one model ("snapshot" is not a term here):
   - History is the op log, inside the .sbd, kept for the life of the project. Undo, the History panel and
     notifications read it. Nothing is ever deleted from it; only Empty Trash removes trashed records' data.

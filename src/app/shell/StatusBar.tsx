@@ -6,6 +6,7 @@ import { unreadCount, useNotifications } from '../../features/notifications/noti
 import { useProject } from '../projectStore';
 import { tn } from '../../core/i18n';
 import { ThemeSwitch } from '../../ui/theme/ThemeSwitch';
+import { SavedSign } from './SavedSignButton';
 import type { Workspace } from './workspaces';
 import { t } from '../../core/i18n';
 
@@ -28,6 +29,7 @@ export function StatusBar({ workspace }: { workspace: Workspace }) {
         {t('statusBar.workspace', { name: workspace.label })}
       </span>
       <div className="ml-auto flex items-center gap-[18px]">
+        {open && <SavedSign />}
         {open && unread > 0 && (
           // The unread count (3.10): what others changed since you last read, shown while there is some. Opens
           // Notifications; its name starts with what it shows.
