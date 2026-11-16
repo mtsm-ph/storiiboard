@@ -75,7 +75,10 @@ export interface ItemFields extends Geometry {
   fill: string | null;
   /** Shapes: `#RRGGBB`, or null for the board's ink outline. */
   stroke: string | null;
-  /** A text box's colour (null: the board's ink) or a sticky note's (null: the first sticky colour). */
+  /**
+   * A text box's colour (null: the board's ink), or a sticky note's: any `#RRGGBB` from 6.5.7a, one of the six swatches
+   * or a colour of its own, the first swatch when none is stored or it isn't a colour.
+   */
   color: string | null;
   text: string;
   fontFamily: string;
@@ -148,9 +151,9 @@ export function itemFields(props: SbdRecord['props']): ItemFields | null {
     rotation: frame ? 0 : (num(props.rotation) ?? 0),
     fill: hexColour(props.fill),
     stroke: hexColour(props.stroke),
-    // A sticky colour outside the six reads as the first.
+    // A sticky takes any colour (6.5.7a); what isn't a colour reads as the first swatch. A section only its six tints.
     color: sticky
-      ? (STICKY_COLOURS.find((c) => c === hexColour(props.color)) ?? STICKY_COLOURS[0])
+      ? (hexColour(props.color) ?? STICKY_COLOURS[0])
       : section
         ? (SECTION_COLOURS.find((c) => c === hexColour(props.color)) ?? SECTION_COLOURS[0])
         : hexColour(props.color),
@@ -402,7 +405,8 @@ export function propsFor(seed: ItemSeed): Record<string, string | number | boole
   props.font_italic = seed.fontItalic ?? false;
   props.font_size = seed.fontSize ?? (seed.kind === 'sticky' ? DEFAULT_STICKY_FONT_SIZE : DEFAULT_FONT_SIZE);
   props.align = seed.align ?? 'left';
-  if (seed.kind === 'sticky') props.color = seed.color ?? STICKY_COLOURS[0];
+  // A sticky's fill is what it stores (6.5.7a): a copy of one in a colour of its own keeps that colour.
+  if (seed.kind === 'sticky') props.color = hexColour(seed.color) ?? STICKY_COLOURS[0];
   else if (seed.color) props.color = seed.color;
   return props;
 }
@@ -619,7 +623,8 @@ export function styleChanges(records: Records, ids: readonly string[], patch: St
       // A page's background (5.5): board content, never themed.
       wanted.background = hexColour(patch.pageBackground) ?? undefined;
     } else {
-      wanted.color = now.kind === 'sticky' ? patch.stickyColor : patch.textColor;
+      // A sticky takes any `#RRGGBB` (6.5.7a): one of its six swatches or a colour of its own.
+      wanted.color = now.kind === 'sticky' ? (hexColour(patch.stickyColor) ?? undefined) : patch.textColor;
       wanted.font_family = patch.fontFamily;
       wanted.font_weight = patch.fontWeight;
       wanted.font_italic = patch.fontItalic;

@@ -250,10 +250,27 @@ test('a press on the colour panel’s padding leaves it open with focus back in 
   await expect(trigger).toBeFocused();
 });
 
-test('Tab from the colour panel’s last swatch to outside it closes the panel (6.19b review)', async ({ page }) => {
+test('Tab from the colour panel’s last control to outside it closes the panel (6.19b review)', async ({ page }) => {
   const { panel } = await stickyColourPanel(page);
-  await panel.getByRole('button').last().focus();
+  // The panel's last control is the system picker, after the six swatches and the Hex field (6.5.7a).
+  await panel.getByLabel('System colour picker').focus();
   await page.keyboard.press('Tab');
+  await expect(panel).toBeHidden();
+});
+
+test('Tab from the Hex field to outside the colour panel closes it, where the Hex field is the last control Tab reaches (6.5.7a)', async ({ page }) => {
+  const { panel } = await stickyColourPanel(page);
+  const hex = panel.getByRole('textbox', { name: 'Hex' });
+  await hex.focus();
+  await expect(hex).toBeFocused();
+  await page.keyboard.press('Tab');
+  // Safari's Tab, by default, skips the system picker, so the Hex field is the last stop and this Tab leaves the panel.
+  // Where Tab does reach the picker (Chromium), it is the next stop, still inside; the Tab after it leaves.
+  const onPicker = await panel.getByLabel('System colour picker').evaluate((element) => element === document.activeElement);
+  if (onPicker) {
+    await expect(panel).toBeVisible();
+    await page.keyboard.press('Tab');
+  }
   await expect(panel).toBeHidden();
 });
 

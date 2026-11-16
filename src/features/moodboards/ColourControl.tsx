@@ -11,7 +11,8 @@ import { BOARD_PAPER, parseHex, STICKY_INK, SWATCHES } from './items';
 const tickOn = (hex: string): string => (luminance(rgbOf(hex)) > 0.18 ? STICKY_INK : BOARD_PAPER);
 
 // A colour for a shape, a text box or a sticky note (5.1a): a button showing it that opens a panel of swatches, a hex
-// field and the system colour picker (<input type="color">, no colour library). Stickies get their six colours only. A
+// field and the system colour picker (<input type="color">, no colour library). Sections get their six tints only; a
+// sticky its six swatches, a click on one closing the panel, and the hex field and picker for any colour (6.5.7a). A
 // change is one call; the picker's own choice is taken when it is committed, not at every step of the drag.
 
 interface ColourControlProps {
@@ -25,12 +26,17 @@ interface ColourControlProps {
   nameOf?: (hex: string) => string;
   /** The selected items differ: no colour is picked, and the button says so. */
   mixed?: boolean;
-  /** Whether the hex field and the system picker are offered (not for stickies). */
+  /** Whether the hex field and the system picker are offered (not for sections). */
   custom?: boolean;
+  /**
+   * Whether a click on a swatch is the whole choice and closes the panel (6.5.7a: a sticky's six, with the hex field
+   * there too). Left out, a swatch closes it only where there is no hex field to follow.
+   */
+  swatchCloses?: boolean;
   onChange: (hex: string) => void;
 }
 
-export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf, mixed = false, custom = true, onChange }: ColourControlProps) {
+export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf, mixed = false, custom = true, swatchCloses = !custom, onChange }: ColourControlProps) {
   const [open, setOpen] = useState(false);
   // Where the panel opens: beside its button, in window coordinates, since the strip scrolls sideways and would clip it.
   const [anchor, setAnchor] = useState<{ left: number; top?: number; bottom?: number }>({ left: 0, top: 0 });
@@ -165,8 +171,8 @@ export function ColourControl({ label, value, unset, swatches = SWATCHES, nameOf
                 aria-pressed={!mixed && value === hex}
                 onClick={() => {
                   onChange(hex);
-                  // A swatch is the whole choice for stickies; for the rest the hex field may follow.
-                  if (!custom) {
+                  // A swatch is the whole choice for stickies and sections; for the rest the hex field may follow.
+                  if (swatchCloses) {
                     setOpen(false);
                     trigger.current?.focus();
                   }

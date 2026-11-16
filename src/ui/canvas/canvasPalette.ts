@@ -1,6 +1,6 @@
 import tokens from '../../../design/tokens/tokens.json';
 import type { CanvasViewChoice } from '../../core/storage/settings';
-import { INK, PAPER_COLOURS } from './paperColours';
+import { INK, PAPER, PAPER_COLOURS } from './paperColours';
 import type { CanvasColours } from './types';
 
 // The two ways a plan or a board can be looked at on this computer (6.5.1, Kevin, Nov 16): Paper, as it prints, or Dark,
@@ -64,6 +64,17 @@ export function inkOn(colours: CanvasColours, fill: string | null): string {
   const dark = contrastRatio(INK, fill);
   if (light === null || dark === null) return lightInk;
   return dark > light ? INK : lightInk;
+}
+
+/**
+ * The words on a fill a person chose (6.5.7a: a sticky in a colour of its own), for words with no colour of their own:
+ * ink or paper, whichever has the higher WCAG contrast against the fill (ink on a tie, or on a fill that can't be read).
+ * The same in Paper and Dark and in every export: a chosen fill doesn't change with the view, so neither do its words.
+ */
+export function wordsOn(fill: string): string {
+  const ink = contrastRatio(INK, fill);
+  const paper = contrastRatio(PAPER, fill);
+  return ink !== null && paper !== null && paper > ink ? PAPER : INK;
 }
 
 /**

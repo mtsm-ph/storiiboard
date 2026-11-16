@@ -295,6 +295,9 @@
     light (on a fill, whichever ink reads better on it); chosen colours, pictures, an icon's fills and department
     colours don't change. Nothing of it is stored in the project, and every PDF, PNG and print stays on paper: the
     drawing takes a palette (src/ui/canvas/canvasPalette.ts), and export paths always pass the paper one.
+  - A dot grid behind a board (6.5.7a): a view on this computer, as Dark is, never stored, printed or exported;
+    its spacing follows the zoom (20 × 5^k board units) and is shown; snap to it is an option. A sticky takes any
+    colour (the six swatches or a hex); its words are ink or paper, whichever reads better on it.
   - Shot and scene cards are live, never copies. Video is a card with a still that opens the Player.
   - Fonts: the bundled ones plus this computer's (font-kit). A missing font shows its fallback and says which; a PDF
     never embeds a font whose `fsType` bits forbid it: the fallback is used and the export says so.

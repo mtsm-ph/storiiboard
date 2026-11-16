@@ -12,8 +12,9 @@ import { t } from '../../core/i18n';
 import type { SbdRecord } from '../../core/model/record';
 import { setCanvasView, useCanvasView } from '../../app/canvasView';
 import { setTrackpadMode, useTrackpadMode } from '../../app/trackpadMode';
+import { setBoardGrid, useBoardGrid } from '../../app/boardGrid';
 import { Canvas } from '../../ui/canvas/Canvas';
-import { canvasPalette, inkOn, isDark } from '../../ui/canvas/canvasPalette';
+import { canvasPalette, inkOn, isDark, mutedIn } from '../../ui/canvas/canvasPalette';
 import { LABEL_FONT_SIZE } from '../../ui/canvas/LinkShapes';
 import { boardStripTools, STRIP_INSET } from '../../ui/canvas/stripTools';
 import { ToolStrip } from '../../ui/canvas/ToolStrip';
@@ -71,7 +72,7 @@ import { fillsUnder, linkInks, withDrawing } from './drawing';
 import { LinkDialog } from './LinkDialog';
 import { useDrawnLevels } from './PictureNode';
 import { ensureFont, loadSystemFonts, newlyMissing, unreadableFamilies, unreported, useFonts } from './fonts';
-import { canvasItems, isMediaKind, pageNumbers, isTextKind, itemFields, itemsOf, KIND_LABEL, propsFor, SECTION_NAME_SIZE, STICKY_COLOURS, type ItemFields } from './items';
+import { BOARD_MUTED, canvasItems, isMediaKind, pageNumbers, isTextKind, itemFields, itemsOf, KIND_LABEL, propsFor, SECTION_NAME_SIZE, STICKY_COLOURS, type ItemFields } from './items';
 import { PropertiesStrip } from './PropertiesStrip';
 import { TextEditor } from './TextEditor';
 import { moodboardStore, useMoodboard, viewportOf } from './moodboardStore';
@@ -108,6 +109,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
   // export draw in BOARD_COLOURS whatever it says.
   const canvasView = useCanvasView('board');
   const trackpad = useTrackpadMode();
+  const grid = useBoardGrid();
   const palette = canvasPalette(canvasView);
   const placed = useMemo(() => canvasItems(records, board.id), [records, board.id]);
   const links = useMemo(() => canvasLinks(records, board.id), [records, board.id]);
@@ -613,6 +615,15 @@ export function BoardView({ board }: { board: SbdRecord }) {
             },
           }}
           trackpad={{ value: trackpad, onChange: setTrackpadMode }}
+          // The dot grid (6.5.7a): this computer's, in the view's soft ink, never part of the board.
+          dotGrid={{
+            on: grid.boardGrid,
+            snap: grid.boardGridSnap,
+            ink: mutedIn(palette, BOARD_MUTED),
+            onChange: ({ on, snap }) => {
+              setBoardGrid({ ...(on === undefined ? {} : { boardGrid: on }), ...(snap === undefined ? {} : { boardGridSnap: snap }) });
+            },
+          }}
         />
       </div>
       </div>
