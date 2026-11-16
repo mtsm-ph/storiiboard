@@ -1,12 +1,12 @@
 import { isTauriApp } from '../../app/fileAccess';
 import { planUnitNow } from '../../app/planUnits';
 import { paperNow } from '../../app/paper';
-import { timeZoneAt } from '../../app/timeZone';
+import { ownZoneStandIn, timeZoneAt } from '../../app/timeZone';
 import { canvasBlob } from '../../core/media/canvas';
 import { decodedPicture } from '../../core/media/decoded';
 import { t, tn } from '../../core/i18n';
 import { isSun, shownItems } from '../../core/model/plan';
-import { sunZonePoint } from '../../core/model/planSun';
+import { sunZonePointOf } from '../../core/model/sunSources';
 import type { SbdRecord } from '../../core/model/record';
 import { sceneSetups } from '../../core/model/setup';
 import { projectShootDays } from '../../core/model/shootDay';
@@ -85,9 +85,10 @@ async function zonesFor(records: Records, views: readonly PlanView[]): Promise<M
   for (const view of views) {
     for (const item of shownItems(records, view.sceneId, view.setupId)) {
       if (!isSun(item.fields)) continue;
-      const point = sunZonePoint(records, item.record.id);
+      const point = sunZonePointOf(records, item.record.id);
       if (!point || zones.has(point.id)) continue;
-      zones.set(point.id, isTauriApp ? await timeZoneAt(point.latitude, point.longitude) : null);
+      // A sun path's own coordinates (6.5.5) are also answered in the memory build, as the Plan tile answers them (useSunZonesAt).
+      zones.set(point.id, isTauriApp || (point.own && ownZoneStandIn) ? await timeZoneAt(point.latitude, point.longitude) : null);
     }
   }
   return zones;

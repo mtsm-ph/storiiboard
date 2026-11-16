@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useEffect, useRef, useState } from 'react';
 import { computerTimeZone } from '../core/model/location';
 import { isTimeZone } from '../core/model/sunTimes';
-import { isTauriApp } from './fileAccess';
+import { fileMode, isTauriApp } from './fileAccess';
 
 // A place's time zone (4.3): on the desktop from Rust (src-tauri/src/timezone.rs, tzf-rs: offline, from the
 // coordinates). A browser build (the end-to-end tests, `?files=memory`) has no finder and answers with this computer's
@@ -48,6 +48,8 @@ export interface ZonePoint {
   id: string;
   latitude: number;
   longitude: number;
+  /** A sun path's own coordinates (6.5.5), not a location's place. */
+  own?: boolean;
 }
 
 /**
@@ -90,8 +92,17 @@ export function useZonesAt(points: readonly ZonePoint[]): ReadonlyMap<string, st
  * answer as useZonesAt gives it (no entry while it is on its way); outside it (the browser build, where there is no
  * finder), null for every point, so a location without its own zone reads "No time zone", never this computer's zone,
  * which would draw the sun hours off. A call sheet keeps useZonesAt's behaviour (4.3).
+ *
+ * A sun path's own coordinates (6.5.5) have no location whose zone could be typed, so in the development build with
+ * projects in the page (`?files=memory`, the end-to-end tests) they are answered by the stand-in useZonesAt has there
+ * (this computer's zone, as a call sheet's): the one way a test of quick sun can draw. Any other build outside the
+ * desktop app reads "No time zone" for them, as for a location.
  */
 export function useSunZonesAt(points: readonly ZonePoint[]): ReadonlyMap<string, string | null> {
-  const found = useZonesAt(isTauriApp ? points : []);
-  return isTauriApp ? found : new Map(points.map((p) => [p.id, null]));
+  const asked = isTauriApp ? points : fileMode === 'memory' ? points.filter((p) => p.own === true) : [];
+  const found = useZonesAt(asked);
+  return isTauriApp ? found : new Map([...points.filter((p) => !asked.includes(p)).map((p): [string, null] => [p.id, null]), ...found]);
 }
+
+/** Whether a sun path's own coordinates are answered outside the desktop app: only in the memory build (useSunZonesAt). */
+export const ownZoneStandIn = fileMode === 'memory';

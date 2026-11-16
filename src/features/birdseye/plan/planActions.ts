@@ -7,6 +7,8 @@ import type { Project } from '../../../core/storage/project';
 import { CAST_MARK_ICON, MARK_ICON, NEXT_POSITION_ICON, NORTH_ICON, plansShown, renamePlanChanges, shownItems, startRoomChanges, type OpeningKind } from '../../../core/model/plan';
 import { castMarkFor, markOwnerChanges, movePositionChanges, nextPositionChanges, ownerIn, placeMarkChanges, type OwnerChoice } from '../../../core/model/planBlocking';
 import { roomNorthItem, sunTimeChanges } from '../../../core/model/planSun';
+import type { Coordinates } from '../../../core/model/coordinates';
+import { ownDateChanges, ownPlaceChanges } from '../../../core/model/sunSources';
 import { copySetupChanges, deleteRoomChanges, deleteUnusedRoomChanges, replaceRoomChanges, separateCopyChanges, setupOnlyChanges, setRoomChanges } from '../../../core/model/planRooms';
 import {
   assignFrameChanges,
@@ -85,6 +87,14 @@ export interface PlanView {
 const select = (view: PlanView, ids: readonly string[], records: Records = projectStore.getState().records, lead: readonly string[] = []) => {
   revealLayersOf(ids, records, lead);
   planStore.getState().select(viewKey(view.sceneId, view.setupId), ids);
+};
+
+/**
+ * Items selected in a view as the keyboard picks them on the canvas (the compass, 6.5.5: north and the sun path): only
+ * those on a layer that can be picked (shown and unlocked: pickableIds), and no layer is shown or unlocked for them.
+ */
+export const selectPlanItems = (view: PlanView, ids: readonly string[], records: Records = projectStore.getState().records) => {
+  planStore.getState().select(viewKey(view.sceneId, view.setupId), pickableIds(records, ids, layerStatesNow()));
 };
 
 /** The selected ids that are live items the view shows, on layers that can be picked (6.8: never a hidden or locked one). */
@@ -533,6 +543,10 @@ export const setStopAtWalls = (ids: readonly string[], on: boolean) => plannedEd
 
 /** A sun path's time of day (6.6), "HH:mm": one op group. */
 export const setSunTime = (ids: readonly string[], time: string) => plannedEdit((r) => sunTimeChanges(r, ids, time));
+/** A sun path's own place (6.5.5), both coordinates, or taken off with null: one op group. */
+export const setSunOwnPlace = (id: string, place: Coordinates | null) => plannedEdit((r) => ownPlaceChanges(r, id, place));
+/** A sun path's own date (6.5.5), YYYY-MM-DD, or taken off with null: one op group. */
+export const setSunOwnDate = (id: string, date: string | null) => plannedEdit((r) => ownDateChanges(r, id, date));
 
 // The room's underlays and measures (6.9), each one op group, only into the open project the gesture began in (`madeIn`).
 

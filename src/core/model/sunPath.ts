@@ -1,5 +1,6 @@
-import { getPosition } from 'suncalc';
-import { sunTimes, wallInstant, zoneClock, type SunDay } from './sunTimes';
+import { getPosition, getTimes } from 'suncalc';
+import { isDayDate } from './shootDay';
+import { noonIn, sunTimes, wallInstant, zoneClock, type SunDay } from './sunTimes';
 
 // The sun over a plan (6.6, docs/PHASE6_DECISIONS.md "north and the sun"), pure: from a place's latitude and longitude,
 // a date, its time zone and a time of day, where the sun is (its compass bearing and height) and its day's path from
@@ -171,6 +172,14 @@ export function sunPath(date: string, latitude: number, longitude: number, timeZ
   arc.push({ bearing: last.bearing, altitude: last.altitude, golden: golden(last.altitude) });
   const hours = wholeHours(from, to, date, timeZone).map((at): SunHourMark => ({ ...mark(at), hour: zoneClock(at, timeZone)?.hour ?? 0 }));
   return { day, arc, hours, rise, set };
+}
+
+/** The instant of solar noon (the sun highest) on a date at a place, its day read in the zone; null for one that can't be read. */
+export function solarNoon(date: string, latitude: number, longitude: number, timeZone: string): Date | null {
+  const noon = isDayDate(date) ? noonIn(date, timeZone) : null;
+  if (!noon || !(Math.abs(latitude) <= 90) || !(Math.abs(longitude) <= 180)) return null;
+  const at = getTimes(noon, latitude, longitude).solarNoon;
+  return Number.isNaN(at.getTime()) ? null : at;
 }
 
 /**

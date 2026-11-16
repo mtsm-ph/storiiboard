@@ -307,6 +307,40 @@ role on the project stands for (src/core/model/departmentStatus.ts, ROLE_DEPARTM
 - A first opening writes to the file, so a session of only looking can count as a change for the 5-minute backups
   (and a synced folder uploads it). It's bounded: once per frame and department, ever.
 
+## Schema v15: 6.5 canvas polish's props (6.5.5)
+
+Props and one record type only (Kevin Nov 16: "New props go in one schema version"): one schema version for every new
+prop the 6.5 canvas polish milestones write, with no table change and nothing rewritten (migration 015_canvas_polish.ts:
+no statements). A file from before opens with every row as it was; it is backed up first, as for every upgrade. The
+number is there so an older Storiiboard refuses a file that may hold them rather than open it and drop them. No approval
+or issued call sheet reads any of them.
+
+- `plan_item` of `kind` `sun` (6.5.5, quick sun), each optional, typed or pasted in the sun path's settings, each set or
+  taken off in one op:
+  - `own_latitude`, `own_longitude`: numbers, degrees (−90 to 90, −180 to 180), the sun path's own place, every decimal
+    pasted kept (shown "40.8677, -73.9212"). Both or neither: one alone, or one out of range, reads as no own place.
+  - `own_date`: text, YYYY-MM-DD, its own date; anything else reads as none.
+  - The reading (src/core/model/sunSources.ts, the one reader for the plan, the Selection tile, the compass and the
+    exports, and what the MCP's `get_plan` will return): the place is the frames' location's when one has a place on the
+    map, else its own; the date is the frames' shoot day's when one has a date, else its own; the zone is the location's
+    `time_zone` where the place is the location's (else the one looked up from its place), and for its own place the one
+    looked up from its coordinates, offline (tzf-rs on the desktop; the browser build's stand-in is this computer's
+    zone). Each says where it came from. The setup's own rule (Schema v14's `sun`) is kept as it is: when it finds a day
+    and a place together, those are drawn; only when it finds neither together do the setup's day and place count one at
+    a time, then the own values. A sun path with no own values reads exactly as before. Copies keep them as every prop.
+- `settings_preset` (record type, for 6.5.8): a named set of canvas settings under the project, props `name` (text) and
+  `settings` (an object). A record's `type` is plain text with no CHECK (Schema v2's records), so the type needs only its
+  line in RECORD_TYPES (src/core/model/record.ts), added in 6.5.5 with no UI; it goes out and back through the JSON
+  export as any record.
+- Not a new prop: a location's place set by pasted coordinates (6.5.5, the Locations tile's Coordinates field) writes the
+  props a moved pin writes (Location props: `latitude`, `longitude`, `map_moved`), plus `map_name` as the coordinates
+  ("40.8677, -73.9212") for a location with no place yet (a place on the map always has a name; one already placed keeps
+  its own). The address stays as typed; nothing is looked up.
+
+Added to this version by later 6.5 milestones:
+
+- (none yet)
+
 ## Schema v14: Phase 6's props (6.1)
 
 Props only (docs/PHASE6_DECISIONS.md 16, approved by Kevin Nov 13): one schema version for everything Phase 6 writes,
@@ -1618,6 +1652,7 @@ merge a database, so two guards sit around every open project:
 | 12 | 3.13 | Scene characters as ids: `characters` (names) becomes `character_ids`, characters made for names with none. No table change |
 | 13 | 3.18 | Approvals kept through schema 12: sign-offs it left "Changed" re-stamped by their own rule. No table change |
 | 14 | 6.1 | Phase 6's props (bodies and lenses on `gear_item`, a frame's `lens_id`, and the props plans write on `scene`, `plan` and `plan_item`; see Schema v14). No table change, nothing rewritten |
+| 15 | 6.5.5 | 6.5 canvas polish's props (a sun path's `own_latitude`, `own_longitude` and `own_date`; the `settings_preset` record type; see Schema v15). No table change, nothing rewritten |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.

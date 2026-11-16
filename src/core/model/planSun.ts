@@ -179,13 +179,21 @@ export interface SunZone {
  * is no lookup, the caller gives null for every place (useSunZonesAt), so only a location's own zone counts there.
  */
 export function sourceZone(source: SunSource, zones: ReadonlyMap<string, string | null>): SunZone | null {
-  const own = locationFields(source.location.props).time_zone;
+  return locationZone(source.location, zones);
+}
+
+/** A location's zone as a sun path reads it (sourceZone): its own `time_zone`, else the one looked up from its place. */
+export function locationZone(location: SbdRecord, zones: ReadonlyMap<string, string | null>): SunZone | null {
+  const own = locationFields(location.props).time_zone;
   if (own !== '') return { zone: own, source: 'location' };
-  const looked = zones.get(source.location.id) ?? null;
+  const looked = zones.get(location.id) ?? null;
   return looked !== null && isTimeZone(looked) ? { zone: looked, source: 'map' } : null;
 }
 
 /**
+ * The setup's own rule as 6.6 made it. The app reads a sun path through sunSources.ts (6.5.5), which keeps this rule and
+ * adds the sun path's own place and date as the fallback; this stays the setup's half of that reading.
+ *
  * A sun path's whole reading: what's missing, or its source with the zone its times are in. `pending`: no zone yet, the
  * lookup's answer on its way (no entry in `zones`), so nothing is said about it yet (6.6 review: no "No time zone" flash).
  */

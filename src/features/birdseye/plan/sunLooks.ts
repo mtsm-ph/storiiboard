@@ -1,14 +1,16 @@
 import { formatNumber, t, type MessageKey } from '../../../core/i18n';
 import type { ShownItem } from '../../../core/model/plan';
-import { liveSun, sunReading, type SunMissing, type SunReading } from '../../../core/model/planSun';
+import { liveSun, type SunMissing } from '../../../core/model/planSun';
 import type { SbdRecord } from '../../../core/model/record';
-import { planVector, sunAt, sunPath, SUN_RADIUS_M, type SunAt, type SunPath } from '../../../core/model/sunPath';
+import { planVector, sunAt, SUN_RADIUS_M, type SunAt, type SunPath } from '../../../core/model/sunPath';
+import { sunReadingOf, type SunReadingOf } from '../../../core/model/sunSources';
 import { toCanvas } from './planScale';
 import type { SunLook, SunTick } from './sunDraw';
 
 // What each sun path on a plan shows (6.6), worked out from the records each time they change, as a camera's and a
 // light's are: read live from the setup's frames, their day's date, their location's place and zone and the room's
-// north (planSun.ts), the maths in sunPath.ts. Never stored.
+// north, or the sun path's own place and date (6.5.5): the one reading, sunSources.ts; the maths in sunPath.ts. Never
+// stored.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
@@ -43,25 +45,12 @@ export interface SunNumbers {
   at: SunAt;
 }
 
-const paths = new Map<string, SunPath | null>();
-
-/** A day's path, kept by what it is worked out from: the same place, date and zone are worked out once. */
-function pathFor(date: string, latitude: number, longitude: number, zone: string): SunPath | null {
-  const key = `${date}|${String(latitude)}|${String(longitude)}|${zone}`;
-  if (!paths.has(key)) {
-    // A small cache: a plan shows few places and dates.
-    if (paths.size > 64) paths.clear();
-    paths.set(key, sunPath(date, latitude, longitude, zone));
-  }
-  return paths.get(key) ?? null;
-}
-
-export function sunNumbers(reading: SunReading | null, time: string): SunNumbers | null {
-  if (!reading || 'missing' in reading) return null;
-  const { day, place } = reading.source;
-  const path = pathFor(day.fields.date, place.latitude, place.longitude, reading.zone.zone);
-  const at = sunAt(day.fields.date, time, place.latitude, place.longitude, reading.zone.zone);
-  return path && at ? { path, at } : null;
+/** The day's path from the reading (sunSources.ts) and the sun at `time` (the item's, or one being typed). */
+export function sunNumbers(reading: SunReadingOf | null, time: string): SunNumbers | null {
+  if (!reading || 'missing' in reading || !reading.path) return null;
+  const { date, place, zone } = reading;
+  const at = reading.at?.time === time ? reading.at : sunAt(date.date, time, place.latitude, place.longitude, zone.zone);
+  return at ? { path: reading.path, at } : null;
 }
 
 /** The arc in stretches of one colour, round the middle (canvas units): a stretch starts where the last ended, so they join. */
@@ -85,14 +74,14 @@ const tick = (bearing: number, north: number, label: string): SunTick => ({ ...p
 export function sunLookOf(records: Records, sunId: string, zones: ReadonlyMap<string, string | null>, selected: boolean): SunLook | null {
   const sun = liveSun(records, sunId);
   if (!sun) return null;
-  const reading = sunReading(records, sunId, zones);
+  const reading = sunReadingOf(records, sunId, zones);
   // While its zone's lookup is on its way, the icon alone: no "No time zone" for a moment (6.6 review).
   if (reading && 'missing' in reading && reading.pending) return { kind: 'missing', lines: [], selected };
   if (!reading || 'missing' in reading) return { kind: 'missing', lines: [t(MISSING_WORDS[reading?.missing ?? 'noFrames'])], selected };
   const numbers = sunNumbers(reading, sun.fields.time);
   // A date or place SunCalc can't read (an import's): said as no place.
   if (!numbers) return { kind: 'missing', lines: [t(MISSING_WORDS.noPlace)], selected };
-  const { north } = reading.source;
+  const { north } = reading;
   const radius = toCanvas(SUN_RADIUS_M);
   const { path, at } = numbers;
   return {

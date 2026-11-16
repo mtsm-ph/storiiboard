@@ -126,6 +126,14 @@ function SelectionContent() {
         ) : light && selected.length === 1 ? (
           // A light (6.5): its gear item, watts, beam and height.
           <LightFieldsView id={light.id} fields={light.fields} unit={unit} records={records} />
+        ) : north && sun && selected.length === 2 ? (
+          // The room's north and a sun path together, as the compass opens them (6.5.5): both their settings.
+          <>
+            <NorthFieldsView id={north.id} fields={north.fields} records={records} />
+            <div className="border-t-[1.5px] border-text pt-3">
+              <SunFieldsView id={sun.id} fields={sun.fields} records={records} />
+            </div>
+          </>
         ) : north && selected.length === 1 ? (
           // The room's north (6.6): its angle.
           <NorthFieldsView id={north.id} fields={north.fields} records={records} />
