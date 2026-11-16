@@ -346,3 +346,40 @@ export function saveCanvasViews(views: CanvasViews, storage: Writer | undefined 
   }
   return next;
 }
+
+/**
+ * Trackpad mode (6.5.3, Kevin, Nov 16), how a canvas reads the wheel on this computer: on, two fingers pan and a pinch
+ * zooms; off, the wheel zooms. Kept under a key of its own beside the settings, as the canvas view is: never a prop of a
+ * project and never in a preset. Null is never chosen, so the platform's default stays the default until someone picks.
+ */
+export const TRACKPAD_MODE_KEY = 'storiiboard.trackpadMode';
+
+/** What is kept: true or false once chosen, null before. */
+export type TrackpadModeChoice = boolean | null;
+
+/** Anything but a real true or false (a string, a number, junk) reads as never chosen. */
+export const trackpadChoiceOf = (value: unknown): TrackpadModeChoice => (value === true || value === false ? value : null);
+
+/** Whether trackpad mode is on: the choice when there is one, else on on a Mac and off elsewhere. The one reader. */
+export function trackpadModeOf(choice: unknown, platform: 'mac' | 'windows' | 'other'): boolean {
+  return trackpadChoiceOf(choice) ?? platform === 'mac';
+}
+
+export function loadTrackpadMode(storage: Reader | undefined = browserStorage()): TrackpadModeChoice {
+  try {
+    const raw = storage?.getItem(TRACKPAD_MODE_KEY);
+    return raw ? trackpadChoiceOf(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keeps a choice; once made it is always true or false, never back to null. */
+export function saveTrackpadMode(on: boolean, storage: Writer | undefined = browserStorage()): boolean {
+  try {
+    storage?.setItem(TRACKPAD_MODE_KEY, JSON.stringify(on));
+  } catch {
+    // A full or blocked store only loses the choice, never the session.
+  }
+  return on;
+}

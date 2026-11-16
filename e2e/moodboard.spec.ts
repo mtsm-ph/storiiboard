@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
+import { trackpadModeOn } from './trackpad';
 import { wholePixelCentre } from './wholePixels';
 
 // The canvas core and boards (5.0) in the memory build: the Camera board is made when it is first opened from the
@@ -443,6 +444,7 @@ test('opens a context menu with the edit and z-order commands', async ({ page })
 
 test('pans and zooms, and the minimap moves the view', async ({ page }) => {
   await openCamera(page);
+  await trackpadModeOn(page);
   await draw(page, { x: -300, y: -100 }, { x: -100, y: 20 });
   const zoom = async () => Number(await canvas(page).getAttribute('data-zoom'));
   const o = await origin(page);

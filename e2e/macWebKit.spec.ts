@@ -294,3 +294,66 @@ test.describe('with Safari’s user agent', () => {
     await expect(settings.getByRole('button', { name: 'Close Settings' })).toBeFocused();
   });
 });
+
+test('trackpad mode off: the wheel zooms at the pointer, and a pinch zooms from its gesture events, its wheel left alone (6.5.3)', async ({ page }) => {
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Moodboard/ }).click();
+  const tile = page.getByRole('region', { name: 'Moodboard', exact: true });
+  await tile.locator('[data-department-board="camera"]').click();
+  const canvas = page.getByRole('application', { name: 'Camera board' });
+  await expect(canvas).toBeVisible();
+  const toggle = tile.getByRole('switch', { name: 'Trackpad mode' });
+  if ((await toggle.getAttribute('aria-checked')) === 'true') await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  const view = async () => ({ cx: Number(await canvas.getAttribute('data-cx')), cy: Number(await canvas.getAttribute('data-cy')), zoom: Number(await canvas.getAttribute('data-zoom')) });
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('no canvas');
+  const middle = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const at = { x: middle.x + 140, y: middle.y - 70 };
+  // The world point under the pointer, and where it is on the page now.
+  const worldAt = async () => {
+    const v = await view();
+    return { x: v.cx + (at.x - middle.x) / v.zoom, y: v.cy + (at.y - middle.y) / v.zoom };
+  };
+  const pageAt = async (world: { x: number; y: number }) => {
+    const v = await view();
+    return { x: middle.x + (world.x - v.cx) * v.zoom, y: middle.y + (world.y - v.cy) * v.zoom };
+  };
+
+  // A plain wheel zooms, the point under the pointer held within 1 px.
+  let before = await view();
+  let under = await worldAt();
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.wheel(0, -100);
+  await expect.poll(async () => (await view()).zoom).toBeGreaterThan(before.zoom * 1.1);
+  let now = await pageAt(under);
+  expect(Math.abs(now.x - at.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(now.y - at.y)).toBeLessThanOrEqual(1);
+
+  // A pinch as WebKit sends it: gesture events, and a Ctrl-flagged wheel with them that must not zoom twice.
+  before = await view();
+  under = await worldAt();
+  const fire = (type: string, scale: number) =>
+    canvas.evaluate(
+      (el, [kind, value, x, y]) => {
+        const event = new Event(kind, { bubbles: true, cancelable: true });
+        Object.assign(event, { scale: value, clientX: x, clientY: y });
+        el.dispatchEvent(event);
+      },
+      [type, scale, at.x, at.y] as const,
+    );
+  await fire('gesturestart', 1);
+  await fire('gesturechange', 1.1);
+  await expect.poll(async () => (await view()).zoom).toBeCloseTo(before.zoom * 1.1, 3);
+  await canvas.evaluate(
+    (el, [x, y]) => {
+      el.dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -4.5, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+    },
+    [at.x, at.y] as const,
+  );
+  await page.waitForTimeout(100);
+  expect((await view()).zoom).toBeCloseTo(before.zoom * 1.1, 3);
+  await fire('gestureend', 1.1);
+  now = await pageAt(under);
+  expect(Math.abs(now.x - at.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(now.y - at.y)).toBeLessThanOrEqual(1);
+});

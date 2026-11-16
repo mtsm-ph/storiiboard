@@ -11,6 +11,7 @@ import { videoDriver } from '../../app/video';
 import { t } from '../../core/i18n';
 import type { SbdRecord } from '../../core/model/record';
 import { setCanvasView, useCanvasView } from '../../app/canvasView';
+import { setTrackpadMode, useTrackpadMode } from '../../app/trackpadMode';
 import { Canvas } from '../../ui/canvas/Canvas';
 import { canvasPalette, inkOn, isDark } from '../../ui/canvas/canvasPalette';
 import { LABEL_FONT_SIZE } from '../../ui/canvas/LinkShapes';
@@ -106,6 +107,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
   // Paper or Dark (6.5.1): this computer's view of every board and deck, never part of the board. Present and every
   // export draw in BOARD_COLOURS whatever it says.
   const canvasView = useCanvasView('board');
+  const trackpad = useTrackpadMode();
   const palette = canvasPalette(canvasView);
   const placed = useMemo(() => canvasItems(records, board.id), [records, board.id]);
   const links = useMemo(() => canvasLinks(records, board.id), [records, board.id]);
@@ -610,6 +612,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
               setCanvasView('board', next);
             },
           }}
+          trackpad={{ value: trackpad, onChange: setTrackpadMode }}
         />
       </div>
       </div>

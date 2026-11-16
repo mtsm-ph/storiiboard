@@ -2099,6 +2099,8 @@ export const es: Messages = {
   'app.directionsApp.apple': 'Apple Maps',
   'app.directionsApp.osm': 'OpenStreetMap',
   'app.directionsAppNote': 'Solo un enlace: el enlace y el código QR de indicaciones de la hoja de llamado abren esta app. Storiiboard nunca contacta a Google ni a Apple por su cuenta.',
+  'app.trackpadMode': 'Modo trackpad',
+  'app.trackpadModeNote': 'Dos dedos desplazan la vista. Apagado: la rueda hace zoom.',
   // Revisiones de la hoja de llamado (4.8).
   'callSheet.checks': 'Revisiones',
   'callSheet.checks.none': 'No se encontraron problemas',
@@ -2191,6 +2193,9 @@ export const es: Messages = {
   'canvas.view.paper': 'Papel',
   'canvas.view.dark': 'Oscuro',
   'canvas.view.hint': 'Cómo se ve este lienzo en esta computadora. Las exportaciones y las impresiones siguen en papel.',
+  'canvas.trackpad.label': 'Modo trackpad',
+  'canvas.trackpad.short': 'Trackpad',
+  'canvas.trackpad.hint': 'Dos dedos desplazan la vista. Apagado: la rueda hace zoom. Para cada plano y tablero en esta computadora.',
   'canvas.minimapLabel': 'Minimapa del tablero. Haz clic o arrastra para mover la vista.',
   'canvas.selectedAt': '{label} {n} de {total} seleccionado',
   'canvas.itemsSelected.one': '{count} elemento seleccionado',

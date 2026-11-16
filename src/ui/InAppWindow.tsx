@@ -5,10 +5,12 @@ import { t } from '../core/i18n';
 import { IconButton } from './Button';
 import { cx } from './cx';
 import { CloseGlyph } from './glyphs';
+import { keepTabInWindow } from './tabWrap';
 
 // A window inside the app (polish B): Settings, Watermark Settings, Export, a question. Never a window of the system's
 // own: it moves with the app, stays behind other programs when they come forward, and goes with the app's theme.
-// Built on <dialog> opened modal, so everything behind it is inert: Tab and Shift+Tab stay inside, Escape closes, and
+// Built on <dialog> opened modal, so everything behind it is inert: Tab and Shift+Tab stay inside (wrapped here, since a
+// browser's modal dialog lets Tab out to its toolbar), Escape closes, and
 // focus goes back to what had it before. It draws like a tile: a 1.5px ink rule, a 26px title bar, no radius or shadow.
 
 /** The windows open now, the top one last: a notice shows in the top one, where it can be reached and heard. */
@@ -76,6 +78,13 @@ export function InAppWindow({ title, onClose, width = 520, height, projectUndo =
       if (!element.open) latest.current();
     };
     element.addEventListener('close', closed);
+    // Tab goes round inside the window (6.5.3 round 2), with or without the page's wrap; a window opened from inside
+    // this one keeps its own. A listener on the element, so it runs before the page's wrap on the window.
+    const keepTab = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest('dialog') !== element) return;
+      keepTabInWindow(element, event);
+    };
+    element.addEventListener('keydown', keepTab);
     windowStack.setState((s) => ({ ids: [...s.ids.filter((id) => id !== windowId), windowId] }));
     if (!element.open) {
       element.showModal();
@@ -90,6 +99,7 @@ export function InAppWindow({ title, onClose, width = 520, height, projectUndo =
     return () => {
       // Going because the caller said so: no close event back to it, which may have opened another window by then.
       element.removeEventListener('close', closed);
+      element.removeEventListener('keydown', keepTab);
       windowStack.setState((s) => ({ ids: s.ids.filter((id) => id !== windowId) }));
       if (element.open) element.close();
       // What had focus may have gone while the window was open (a project switched underneath): then the workspace

@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings } from './settings';
+import { trackpadModeOn } from './trackpad';
 
 // The tools as one vertical strip of icons at the canvas's top-left corner (6.5.2, Kevin Nov 16), on a plan and on a
 // board: where it sits, each button's name and keys, the tooltip "Name (Key)" on keyboard focus and on hover, a press
@@ -305,6 +306,7 @@ test('the pressed tool has an outline in forced colours, where its ink fill is d
 
 test('over the strip, a wheel and a middle-button drag move the plan, and a Library drop places nothing', async ({ page }) => {
   const tile = await openPlan(page);
+  await trackpadModeOn(tile);
   const canvas = canvasOf(tile);
   const wall = await stripOf(tile).getByRole('button', { name: 'Wall', exact: true }).boundingBox();
   if (!wall) throw new Error('no Wall button');
