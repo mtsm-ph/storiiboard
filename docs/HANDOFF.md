@@ -353,9 +353,16 @@ Kevin's Nov 15 message (from his phone) finished the Nov 14 list on the PC. **No
 by-hand pass. Phase 7 stays unbuilt until he has done it and answered docs/PHASE7_DECISIONS.md.**
 
 - **Merged into `v2`, in order (Nov 15):** #167 to #178 (6.12 to 6.21; docs/PLAN.md has a row for each).
-- **The checkpoint for his by-hand pass:** branch `checkpoint/nov15-v2` (v2 as merged): Actions, "Checkpoint", the
-  newest run on that branch; its installers are the ones to use. It is the first run of the installers' bundle
-  listing and of 6.16's generic commands on the Mac.
+- **The checkpoint for his by-hand pass:** run 43789275891 (branch `checkpoint/nov15-v2d`), every job green: both
+  installers (`storiiboard-Windows`, `storiiboard-macOS`), the Rust tests on Windows (303) and the Mac (313), the
+  Mac's whole suite in WebKit (546 passed, none failed or flaky). It is `v2` plus #179, which is **open and waits
+  for Kevin's word**: the first checkpoint on merged `v2` (43772904480) failed both installer jobs in 6.16's new
+  Rust tests (the Mac: the context macro expanded twice; Windows: the test program had no Common Controls 6
+  manifest; then one test expected a fresh backup to take space, which an APFS clone doesn't) and in the new
+  Windows bundle listing (a PowerShell quote). #179 fixes those and uploads the installers before the listing.
+  Until #179 merges, `v2`'s Rust tests don't compile on a Mac or start on Windows. Flaky on the Mac across the
+  four runs, each passing on retry: player.spec "a page too busy to see every frame shows a frame or two past the
+  out point…", gear.spec "gear on a day and on a frame: the check says what the day lacks…".
 - **Built on the PC on Nov 15 (after the cloud session):**
   - 6.18's fixes, three review passes (#177 and commits in #178): the cut follows a drag, a turn and a resize live,
     made by the drop's own function; a fifth of the corners; printed glow bands clipped properly. Measured on the PC
@@ -389,7 +396,7 @@ by-hand pass. Phase 7 stays unbuilt until he has done it and answered docs/PHASE
   and watch the cut follow; export a lighting print with the watermark on; the Phase 6 gate's checklist.
 - **Leftovers only Kevin deletes:** `playwright-full.log` and `tsconfig.tsbuildinfo` in the repo root (both from
   before Nov 14), `e2e/zz-probe.spec.ts`.
-- **Status line (keep current):** Nov 15, evening: everything above merged and the checkpoint pushed; no agent
+- **Status line (keep current):** Nov 15, evening: #167 to #178 merged; #179 open with the green checkpoint; no agent
   running; waiting for Kevin.
 
 ### Next session: start here (Nov 15, earlier: cloud session handed to the PC; Kevin's Nov 14 instructions under way)
