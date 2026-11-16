@@ -180,10 +180,12 @@ interface ToggleProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
+  /** The id of a line that explains the switch, read with it (6.5.3 round 3). Left out, the switch has none. */
+  describedBy?: string;
 }
 
 /** On shows an ink fill, like every selection in the app; orange stays reserved. */
-export function Toggle({ label, checked, onChange, disabled = false }: ToggleProps) {
+export function Toggle({ label, checked, onChange, disabled = false, describedBy }: ToggleProps) {
   const labelId = useId();
   return (
     <div className="flex items-center justify-between gap-3">
@@ -195,6 +197,7 @@ export function Toggle({ label, checked, onChange, disabled = false }: TogglePro
         role="switch"
         aria-checked={checked}
         aria-labelledby={labelId}
+        aria-describedby={describedBy}
         disabled={disabled}
         onClick={() => {
           onChange(!checked);

@@ -51,6 +51,7 @@ import {
 } from './types';
 import { useCanvasColours } from './useCanvasColours';
 import { BOARD_ZOOM, centreOn, middleBeside, panBy, rectsMeet, toScreen, toWorld, unionBounds, visibleWorld, zoomAround } from './viewport';
+import { WHEEL_NOTCH_STEP, wheelAction } from './wheel';
 
 // The canvas core (decision 11): a react-konva stage that pans, zooms, selects, moves, resizes and rotates rectangles in
 // world units and reports each finished gesture, never a half-done one. It knows nothing of boards: the host gives it
@@ -63,9 +64,14 @@ import { BOARD_ZOOM, centreOn, middleBeside, panBy, rectsMeet, toScreen, toWorld
 
 const ARROW_PAN = 48;
 const ARROW_PAN_LONG = 192;
-const ZOOM_STEP = 1.25;
+/** The + and − buttons' step, and a mouse-mode wheel notch's (6.5.3): one number, so the two agree. */
+const ZOOM_STEP = WHEEL_NOTCH_STEP;
 const MENU_WIDTH = 212;
-const WHEEL_ZOOM = 0.004;
+/**
+ * The pressed one of Paper and Dark, and the Trackpad switch on: an ink fill, and in forced colours (where the fill is
+ * gone) the tool strip's outline as its cue (6.5.3 round 3).
+ */
+const PRESSED_IN_BOX = 'bg-text font-bold text-text-inverse focus-visible:outline-text-inverse forced-colors:outline-2 forced-colors:outline-solid forced-colors:-outline-offset-3';
 /** How long the zoom holds still before the items are drawn for it (pictures change size with it). */
 const ZOOM_SETTLE = 150;
 /** A zoom that follows a wheel or pinch this soon is theirs: it settles; any other zoom is a jump. */
@@ -183,6 +189,12 @@ export interface CanvasProps {
    */
   view?: { value: CanvasViewChoice; onChange: (view: CanvasViewChoice) => void };
   /**
+   * Trackpad mode (6.5.3): given, the wheel follows it (src/ui/canvas/wheel.ts) and a Trackpad switch sits beside the
+   * Paper and Dark pair, handing the choice back; the host keeps it on this computer. Left out, the wheel reads as it
+   * always has (trackpad mode on) and no switch shows.
+   */
+  trackpad?: { value: boolean; onChange: (on: boolean) => void };
+  /**
    * The ink of each connector with no colour of its own, by id, where the host wants other than the canvas's ink (6.5.1
    * round 3: a board's connector inside a white page in the Dark view). Left out (a plan), every one is the canvas's ink.
    */
@@ -296,6 +308,7 @@ export function Canvas({
   announcement = '',
   fixedColours,
   view: canvasView,
+  trackpad,
   linkInk,
   tools,
   scale,
@@ -490,10 +503,11 @@ export function Canvas({
   const turnable = turnsByHandle(shown, handleIds);
 
   // What the handlers read, as it is now: they are set up once and must never act on an old view.
-  const latest = useRef({ items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale });
+  const trackpadOn = trackpad?.value ?? true;
+  const latest = useRef({ items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale, trackpadOn });
   useLayoutEffect(() => {
     canPasteRef.current = canPaste;
-    latest.current = { items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale };
+    latest.current = { items, shown, sectionsShown, itemsShown, pickSections, pickPlain, resolved, selection, tool, viewport, size, draft, onViewportChange, onToolChange, onPath, limits, scale, trackpadOn };
   });
 
   // What is drawn sized on screen (screenSized.ts: a plan's labels) keeps its size at every step of a zoom, without being
@@ -572,7 +586,8 @@ export function Canvas({
   // The wheel and a trackpad pinch. Native listeners, since React's wheel handler is passive and can't stop the page
   // zooming. Chromium sends a pinch as Ctrl + wheel; WebKit sends gesturestart and gesturechange (and may send the
   // wheel too, which is ignored between gesturestart and gestureend so it doesn't zoom twice). Set up once: everything
-  // it reads comes through `latest`, so a gesture in progress never loses its start zoom.
+  // it reads comes through `latest`, so a gesture in progress never loses its start zoom. What a wheel does, by trackpad
+  // mode (6.5.3), is wheel.ts's.
   useEffect(() => {
     const element = frame.current;
     if (!element) return;
@@ -582,19 +597,29 @@ export function Canvas({
     };
     let startZoom = 1;
     let pinching = false;
+    // Whether the Control key is down, as the key events say: with trackpad mode off, a Ctrl-flagged wheel with it up is
+    // a pinch (src/ui/canvas/wheel.ts). Caught before anything else can stop a key's event on its way.
+    let controlDown = false;
+    const onKeyEvent = (event: KeyboardEvent) => {
+      controlDown = event.ctrlKey;
+    };
+    const onBlur = () => {
+      controlDown = false;
+    };
     const onWheel = (event: WheelEvent) => {
+      // Always, in both modes: the page never scrolls, and Ctrl or ⌘ + wheel never zooms the webview itself.
       event.preventDefault();
-      const { viewport: view, size: box, onViewportChange: change, limits: range } = latest.current;
-      const lines = event.deltaMode === 1 ? 16 : 1;
-      if (event.ctrlKey || event.metaKey) {
-        if (pinching) return;
-        wheeledAt.current = performance.now();
-        change(zoomAround(view, box, view.zoom * Math.exp(-event.deltaY * lines * WHEEL_ZOOM), at(event), range));
-      } else if (event.shiftKey && event.deltaX === 0) {
-        change(panBy(view, -event.deltaY * lines, 0));
-      } else {
-        change(panBy(view, -event.deltaX * lines, -event.deltaY * lines));
+      // Mid-gesture (WebKit's pinch), any Ctrl- or ⌘-flagged wheel is the pinch's own, whatever its delta and the mode:
+      // left alone, so the pinch neither zooms twice nor moves the view under the fingers.
+      if (pinching && (event.ctrlKey || event.metaKey)) return;
+      const { viewport: view, size: box, onViewportChange: change, limits: range, trackpadOn } = latest.current;
+      const action = wheelAction(event, trackpadOn, controlDown);
+      if (action.kind === 'pan') {
+        change(panBy(view, action.dx, action.dy));
+        return;
       }
+      wheeledAt.current = performance.now();
+      change(zoomAround(view, box, view.zoom * action.factor, at(event), range));
     };
     const onPinchStart = (event: Event) => {
       event.preventDefault();
@@ -616,11 +641,17 @@ export function Canvas({
     element.addEventListener('gesturestart', onPinchStart);
     element.addEventListener('gesturechange', onPinch);
     element.addEventListener('gestureend', onPinchEnd);
+    window.addEventListener('keydown', onKeyEvent, true);
+    window.addEventListener('keyup', onKeyEvent, true);
+    window.addEventListener('blur', onBlur);
     return () => {
       element.removeEventListener('wheel', onWheel);
       element.removeEventListener('gesturestart', onPinchStart);
       element.removeEventListener('gesturechange', onPinch);
       element.removeEventListener('gestureend', onPinchEnd);
+      window.removeEventListener('keydown', onKeyEvent, true);
+      window.removeEventListener('keyup', onKeyEvent, true);
+      window.removeEventListener('blur', onBlur);
     };
   }, []);
 
@@ -1647,30 +1678,54 @@ export function Canvas({
           {path?.typed !== '' ? `${path?.typed ?? ''}▏` : scale ? scale.format(segmentLength) : String(tidy(segmentLength))}
         </div>
       )}
-      {canvasView && (
-        // Paper or Dark (6.5.1), just above the zoom, clear of the left ruler as it is: two pressed-or-not buttons, each
-        // reachable by Tab, the one in use an ink fill. A box of its own (the zoom's is 30 px high, 8 px off the foot, and
-        // this sits 4 px over it), so the zoom's box stays as wide as it was and covers no more of the canvas. Its 1.5 px
-        // rule and 2 px of surface round the buttons, as the tool strip's (6.5.2 round 2): the pressed one's ink fill
-        // stays framed where the canvas is that colour (a Paper canvas in the dark theme, whose ink is paper).
-        <div role="group" aria-label={t('canvas.view.label')} title={t('canvas.view.hint')} data-canvas-view={canvasView.value} className={cx('absolute bottom-[42px] flex items-center border-[1.5px] border-text bg-surface p-0.5', !scale && 'left-2')} style={scale ? { left: RULER_SIZE + 8 } : undefined}>
-          {(['paper', 'dark'] as const).map((choice) => {
-            const on = canvasView.value === choice;
-            return (
+      {(canvasView || trackpad) && (
+        // One row just above the zoom, clear of the left ruler as it is, so the zoom's box stays as wide as it was and
+        // nothing more covers the middle of the canvas (the zoom's box is 30 px high, 8 px off the foot, and this row sits
+        // 4 px over it).
+        <div className={cx('absolute bottom-[42px] flex items-stretch gap-1', !scale && 'left-2')} style={scale ? { left: RULER_SIZE + 8 } : undefined}>
+          {canvasView && (
+            // Paper or Dark (6.5.1): two pressed-or-not buttons, each reachable by Tab, the one in use an ink fill. Its
+            // 1.5 px rule and 2 px of surface round the buttons, as the tool strip's (6.5.2 round 2): the pressed one's ink
+            // fill stays framed where the canvas is that colour (a Paper canvas in the dark theme, whose ink is paper).
+            <div role="group" aria-label={t('canvas.view.label')} title={t('canvas.view.hint')} data-canvas-view={canvasView.value} className="flex items-center border-[1.5px] border-text bg-surface p-0.5">
+              {(['paper', 'dark'] as const).map((choice) => {
+                const on = canvasView.value === choice;
+                return (
+                  <button
+                    key={choice}
+                    type="button"
+                    aria-pressed={on}
+                    title={t('canvas.view.hint')}
+                    className={cx(BUTTON, on ? PRESSED_IN_BOX : 'text-text hover:bg-surface-raised')}
+                    onClick={() => {
+                      canvasView.onChange(choice);
+                    }}
+                  >
+                    {choice === 'paper' ? t('canvas.view.paper') : t('canvas.view.dark')}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {trackpad && (
+            // Trackpad mode (6.5.3), the same switch as Settings → App's, in a box of its own framed as Paper and Dark's:
+            // on is an ink fill, as every selection.
+            <div data-trackpad-mode={trackpad.value ? 'on' : 'off'} className="flex items-center border-[1.5px] border-text bg-surface p-0.5">
               <button
-                key={choice}
                 type="button"
-                aria-pressed={on}
-                title={t('canvas.view.hint')}
-                className={cx(BUTTON, on ? 'bg-text font-bold text-text-inverse focus-visible:outline-text-inverse' : 'text-text hover:bg-surface-raised')}
+                role="switch"
+                aria-checked={trackpad.value}
+                aria-label={t('canvas.trackpad.label')}
+                title={t('canvas.trackpad.hint')}
+                className={cx(BUTTON, trackpad.value ? PRESSED_IN_BOX : 'text-text hover:bg-surface-raised')}
                 onClick={() => {
-                  canvasView.onChange(choice);
+                  trackpad.onChange(!trackpad.value);
                 }}
               >
-                {choice === 'paper' ? t('canvas.view.paper') : t('canvas.view.dark')}
+                {t('canvas.trackpad.short')}
               </button>
-            );
-          })}
+            </div>
+          )}
         </div>
       )}
       {/* Clear of the left ruler when there is one. */}

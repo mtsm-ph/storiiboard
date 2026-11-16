@@ -180,6 +180,9 @@
   - The tools of a plan and of a board are one vertical strip of icons at the canvas's top-left (6.5.2,
     src/ui/canvas/ToolStrip.tsx; one SVG file per tool in src/ui/canvas/toolIcons, replaceable one by one). A host
     passes the strip's width as the canvas core's optional left inset, so nothing is fitted under it.
+  - Trackpad mode (6.5.3; on by default on a Mac, off elsewhere; this computer's, never a preset's): on, two
+    fingers pan and a pinch zooms; off, the wheel zooms at the pointer, Ctrl + wheel scrolls up and down, Shift +
+    wheel sideways. A pinch zooms in both. One function decides (src/ui/canvas/wheel.ts), for plans and boards.
   - Setups are numbered within the scene (Setup 1, 2, 3), never lettered: shot numbers use the letters (12A). The
     number comes from the order, never stored. Built in 6.0: src/core/model/setup.ts (`frameSetupId` is the one
     reader: a setup in another scene, in the Trash or gone reads as none), the Setups tile

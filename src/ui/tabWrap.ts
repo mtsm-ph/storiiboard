@@ -65,6 +65,14 @@ function onKeyDown(event: KeyboardEvent): void {
     }
     return;
   }
+  wrapFrom(active, scope, stops, event);
+}
+
+/** Tab past the last stop goes to the first, Shift+Tab before the first to the last; anything else is the browser's. */
+function wrapFrom(active: Element, scope: Element, stops: readonly HTMLElement[], event: KeyboardEvent): void {
+  const first = stops[0];
+  const last = stops.at(-1);
+  if (!first || !last) return;
   // At the end by position, not by being the last stop: focus is often on something scripts focus that isn't a stop
   // itself (an empty list's message, a status line, a window's own box), and from there the browser would leave too.
   if (!scope.contains(active)) {
@@ -77,6 +85,19 @@ function onKeyDown(event: KeyboardEvent): void {
     event.preventDefault();
     last.focus();
   }
+}
+
+/**
+ * A window of the app's own keeps Tab and Shift+Tab inside itself (6.5.3 round 2), as a modal dialog must, whether or
+ * not the page's wrap is installed: a browser's modal <dialog> sends Tab past its last control out to the browser's own
+ * toolbar, and focus fell to the page behind. Called from the window's own keydown, for a Tab inside it; it prevents
+ * the default when it wraps, so the page's wrap then leaves it alone.
+ */
+export function keepTabInWindow(window: Element, event: KeyboardEvent): void {
+  if (event.key !== 'Tab' || event.defaultPrevented || event.ctrlKey || event.metaKey || (event.altKey && !isMac)) return;
+  const active = document.activeElement;
+  if (!active || active === document.body) return;
+  wrapFrom(active, window, tabStops(window), event);
 }
 
 /** Once, at start-up. */

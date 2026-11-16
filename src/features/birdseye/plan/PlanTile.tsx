@@ -46,6 +46,7 @@ import { Canvas, type CanvasProps } from '../../../ui/canvas/Canvas';
 import { middleBeside, toWorld } from '../../../ui/canvas/viewport';
 import { canvasPalette } from '../../../ui/canvas/canvasPalette';
 import { setCanvasView, useCanvasView } from '../../../app/canvasView';
+import { setTrackpadMode, useTrackpadMode } from '../../../app/trackpadMode';
 import { RULER_SIZE } from '../../../ui/canvas/Rulers';
 import { hostStripTools } from '../../../ui/canvas/stripTools';
 import { ToolStrip } from '../../../ui/canvas/ToolStrip';
@@ -741,6 +742,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   // so the canvas keeps what it drew until the view changes, then draws everything again; a wall's ink is its builder's,
   // so a wall is made again with the new ink and hands the canvas a new `draw`.
   const canvasView = useCanvasView('plan');
+  const trackpad = useTrackpadMode();
   const palette = canvasPalette(canvasView);
   const built = useMemo(
     () => build(visible, unit, palette.ink, locale, looks, lights, suns, blocking, layered.looks, pictures, sights),
@@ -1143,6 +1145,7 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
               setCanvasView('plan', next);
             },
           }}
+          trackpad={{ value: trackpad, onChange: setTrackpadMode }}
           tools={PLAN_CANVAS_TOOLS}
           scale={scale}
           zoomLimits={PLAN_ZOOM}

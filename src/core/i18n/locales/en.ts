@@ -2147,6 +2147,8 @@ export const en = {
   'app.directionsApp.apple': 'Apple Maps',
   'app.directionsApp.osm': 'OpenStreetMap',
   'app.directionsAppNote': 'A link only: the call sheet’s directions link and QR code open this app. Storiiboard never contacts Google or Apple itself.',
+  'app.trackpadMode': 'Trackpad mode',
+  'app.trackpadModeNote': 'Two fingers pan. Off: the wheel zooms.',
   // Call sheet checks (4.8).
   'callSheet.checks': 'Checks',
   'callSheet.checks.none': 'No problems found',
@@ -2191,6 +2193,9 @@ export const en = {
   'canvas.view.paper': 'Paper',
   'canvas.view.dark': 'Dark',
   'canvas.view.hint': 'How this canvas looks on this computer. Exports and prints stay on paper.',
+  'canvas.trackpad.label': 'Trackpad mode',
+  'canvas.trackpad.short': 'Trackpad',
+  'canvas.trackpad.hint': 'Two fingers pan. Off: the wheel zooms. For every plan and board on this computer.',
   'canvas.minimapLabel': 'Minimap of the board. Click or drag to move the view.',
   'canvas.selectedAt': '{label} {n} of {total} selected',
   'canvas.itemsSelected.one': '{count} item selected',

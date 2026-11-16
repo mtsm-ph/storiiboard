@@ -1,17 +1,19 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { getLocale, isLocaleId, LOCALES, setLocale, t } from '../../core/i18n';
 import { isDirectionsApp, isPlanUnitsChoice, isWeatherUnitsChoice, isWeekStartChoice, saveSettings } from '../../core/storage/settings';
 import { setDirectionsApp, useDirectionsApp } from '../directionsApp';
 import { setWeekStartChoice, useWeekStartChoice } from '../weekStart';
 import { setWeatherUnitsChoice, useWeatherUnitsChoice } from '../weatherUnits';
 import { setPlanUnitsChoice, usePlanUnitsChoice } from '../planUnits';
-import { Select } from '../../ui/fields';
+import { setTrackpadMode, useTrackpadMode } from '../trackpadMode';
+import { Select, Toggle } from '../../ui/fields';
 import { CompanyProfilesPanel } from '../company/CompanyProfilesPanel';
 
 // Settings → App: what belongs to the person rather than the project. The language changes every screen at once, and
 // the next export; a project opened on another computer shows there in that person's own language. And the company
 // profiles saved on this computer, to attach to projects (3.2). And where the Calendar's week starts (3.17): as this
 // computer's region says, or Sunday or Monday, in every language. And the forecast's units (4.4), and a plan's (6.2a).
+// And trackpad mode (6.5.3), how every plan and board reads the wheel.
 
 export function AppTile() {
   const [language, setLanguage] = useState(getLocale);
@@ -19,6 +21,8 @@ export function AppTile() {
   const weatherUnits = useWeatherUnitsChoice();
   const planUnits = usePlanUnitsChoice();
   const directions = useDirectionsApp();
+  const trackpad = useTrackpadMode();
+  const trackpadNoteId = useId();
   return (
     <>
     <div className="flex max-w-[440px] flex-col gap-2 p-4">
@@ -90,6 +94,13 @@ export function AppTile() {
         <option value="osm">{t('app.directionsApp.osm')}</option>
       </Select>
       <p className="text-[12px] text-text-muted">{t('app.directionsAppNote')}</p>
+      {/* The same switch each plan and board has by its zoom (6.5.3): one choice for this computer. */}
+      <div className="mt-2">
+        <Toggle label={t('app.trackpadMode')} checked={trackpad} onChange={setTrackpadMode} describedBy={trackpadNoteId} />
+      </div>
+      <p id={trackpadNoteId} className="text-[12px] text-text-muted">
+        {t('app.trackpadModeNote')}
+      </p>
     </div>
     <CompanyProfilesPanel />
     </>

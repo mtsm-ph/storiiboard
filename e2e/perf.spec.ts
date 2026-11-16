@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { expect, test, type JSHandle, type Locator, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings } from './settings';
+import { trackpadModeOn } from './trackpad';
 
 // A 300-frame project with pictures (quality pass, Nov 5): how long the things people do all day take on a big board.
 // Run on request, not in the gate, in Chromium (WebView2's engine):
@@ -644,6 +645,7 @@ test('a 500-item board with 150 pictures pans, zooms, drags and selects smoothly
   const sway = (frame: number) => ({ dx: Math.cos(frame / 20) * 40, dy: Math.sin(frame / 27) * 30, ctrl: false });
 
   // A 3-second pan, to and fro, with the whole board in view (the most there is to draw).
+  await trackpadModeOn(tile);
   gestures.set('pan, whole board in view (3 s)', await frameTimes(page, wheelFor(3000, sway), 'pan-all'));
 
   // The same at 100%, the view of someone working on a corner of the board.
@@ -1248,6 +1250,7 @@ test('a 300-item set plan pans, zooms, drags and edits smoothly', async ({ page 
   const sway = (frame: number) => ({ dx: Math.cos(frame / 20) * 40, dy: Math.sin(frame / 27) * 30, ctrl: false });
 
   // A 3-second pan with the whole plan in view, then the same at 400% over the corridor.
+  await trackpadModeOn(tile);
   await tile.getByRole('button', { name: 'Fit all' }).click();
   await expect.poll(async () => (await view()).zoom).toBeLessThan(1);
   const fit = (await view()).zoom;

@@ -398,8 +398,15 @@ schema version, listed in SBD_FORMAT.md and the report.
   three rounds, reviewed once, one medium fixed) committed and open; it changed two plan.spec tests the brief
   names (the tools are now inside the canvas). A board's first view is still centred on its origin (existing
   board tests rely on it): tell Kevin.
-- **Status line (keep current):** Nov 16: #180 to #183 merged; 6.5.2 open; next: 6.5.3 (trackpad mode), then
-  6.5.4, 6.5.5, 6.5.6, 6.5.7a, 6.5.7b, 6.5.8, each brief already in docs/briefs/.
+- #184 (6.5.2) merged. 6.5.3 (trackpad mode; three rounds, reviewed once) is open and **waits for Kevin's
+  comparison**: it changes the four Settings screenshots (Windows baselines regenerated on its branch; Linux and
+  Mac ones come at the top of the stack). Later milestones stack on its branch. For Kevin: with the mode off (the
+  Windows default) a two-finger touchpad scroll zooms; ⌘ + wheel acts as Ctrl + wheel when off; a notch's zoom
+  follows the system's delta (1.25 per 100 px), to be felt on his own mouse.
+- Plans kept in `private/` (ignored): DEPARTMENTS_DECISIONS.md, PLAN_ITEMS_10_16.md, PHASE7_QUESTIONS_18_22.md,
+  PHASE8_PRIVATE_DAY.md, PHASE8_LIST_ADDITIONS.md. Their text goes in the final report.
+- **Status line (keep current):** Nov 16: #180 to #184 merged; 6.5.3 open, waiting for Kevin; next: 6.5.4 (the
+  Saved sign), then 6.5.5, 6.5.6, 6.5.7a, 6.5.7b, 6.5.8, each brief already in docs/briefs/, each stacked on the last.
 
 ### Next session: start here (Nov 15, night, older: #179 merged; 6.22 built)
 
