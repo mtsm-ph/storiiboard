@@ -9,6 +9,7 @@ import {
   isBackupName,
   isMigrationBackupName,
   migrationBackupName,
+  newestBackupAt,
   parseBackupFileName,
   startBackups,
 } from './backups';
@@ -236,5 +237,46 @@ describe('the 5-minute schedule', () => {
     release();
     await expect(schedule.runNow()).rejects.toThrow("isn't open");
     expect(errors).toEqual([]);
+  });
+
+  it('tells its listeners the time of each backup it writes, Compact’s too, and of no run that wrote none (6.5.4)', async () => {
+    const schedule = await startBackups(file, { now: () => clock });
+    expect(await newestBackupAt(file)).toBeNull();
+    const heard: Date[] = [];
+    const stop = schedule.onBackup((at) => heard.push(at));
+    await fiveMinutes(schedule, 5);
+    expect(heard).toEqual([]);
+
+    await edit('1A');
+    await fiveMinutes(schedule, 10);
+    expect(heard).toEqual([new Date(2026, 10, 2, 9, 10)]);
+    expect(await newestBackupAt(file)).toEqual(new Date(2026, 10, 2, 9, 10));
+
+    await edit('1B');
+    clock = new Date(2026, 10, 2, 9, 12);
+    await schedule.backUpThen(() => Promise.resolve(null));
+    expect(heard).toEqual([new Date(2026, 10, 2, 9, 10), new Date(2026, 10, 2, 9, 12)]);
+    expect(await newestBackupAt(file)).toEqual(new Date(2026, 10, 2, 9, 12));
+
+    stop();
+    await edit('1C');
+    await fiveMinutes(schedule, 20);
+    expect(heard).toHaveLength(2);
+    schedule.stop();
+  });
+
+  it('writes its backup even when a listener throws, and still tells the others (6.5.4)', async () => {
+    const schedule = await startBackups(file, { now: () => clock });
+    const heard: Date[] = [];
+    schedule.onBackup(() => {
+      throw new Error('a listener that fails');
+    });
+    schedule.onBackup((at) => heard.push(at));
+    await edit('1A');
+    clock = new Date(2026, 10, 2, 9, 10);
+    await expect(schedule.runNow()).resolves.toEqual({ created: 'Bey 2026-11-02 09-10.sbd', deleted: [] });
+    expect(await names(file)).toEqual(['Bey 2026-11-02 09-10.sbd']);
+    expect(heard).toEqual([new Date(2026, 10, 2, 9, 10)]);
+    schedule.stop();
   });
 });

@@ -405,8 +405,14 @@ schema version, listed in SBD_FORMAT.md and the report.
   follows the system's delta (1.25 per 100 px), to be felt on his own mouse.
 - Plans kept in `private/` (ignored): DEPARTMENTS_DECISIONS.md, PLAN_ITEMS_10_16.md, PHASE7_QUESTIONS_18_22.md,
   PHASE8_PRIVATE_DAY.md, PHASE8_LIST_ADDITIONS.md. Their text goes in the final report.
-- **Status line (keep current):** Nov 16: #180 to #184 merged; 6.5.3 open, waiting for Kevin; next: 6.5.4 (the
-  Saved sign), then 6.5.5, 6.5.6, 6.5.7a, 6.5.7b, 6.5.8, each brief already in docs/briefs/, each stacked on the last.
+- 6.5.4 (the Saved sign; two rounds, reviewed once) is open, stacked on 6.5.3, and **waits for Kevin's
+  comparison** too: 8 Windows baselines (board and Settings, which show the status bar); visual.spec now fixes its
+  clock (the brief's one allowed change). A builder left a stray src/app/shell/SavedSign.tsx; the main session
+  moved it to test-results/build654/ (not deleted). The backup time read at open comes from the backup's name
+  (local time), so after travel it can be off until the next backup.
+- **Status line (keep current):** Nov 16: #180 to #184 merged; 6.5.3 (#185) and 6.5.4 open, waiting for Kevin;
+  next: 6.5.5 (quick sun, compass, the 6.5 schema version), then 6.5.6, 6.5.7a, 6.5.7b, 6.5.8, each brief already
+  in docs/briefs/, each stacked on the last.
 
 ### Next session: start here (Nov 15, night, older: #179 merged; 6.22 built)
 

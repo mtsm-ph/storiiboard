@@ -333,6 +333,22 @@ export const en = {
   // src/app/shell/StatusBar.tsx
   'statusBar.workspace': 'Workspace: {name}',
   'statusBar.version': 'v{version}',
+  'savedSign.text': '{saved} · {backup}',
+  'savedSign.saved': 'Saved {time}',
+  'savedSign.savedNoTime': 'Saved',
+  'savedSign.notSaved': 'Not saved',
+  'savedSign.backup': 'Backup {time}',
+  'savedSign.noBackup': 'No backup yet',
+  'savedSign.savedAt': 'Saved at {time}.',
+  'savedSign.savedOn': 'Saved on {day} at {time}.',
+  'savedSign.savedNoTimeLabel': 'Saved.',
+  'savedSign.notSavedLabel': 'Not saved: {reason}',
+  'savedSign.backupAt': 'Last backup at {time}.',
+  'savedSign.backupOn': 'Last backup on {day} at {time}.',
+  'savedSign.noBackupLabel': 'No backup yet.',
+  'savedSign.label': '{saved} {backup}',
+  'savedSign.description': '{label} {how}',
+  'savedSign.how': 'Every change is saved at once; a backup is made every 5 minutes when the project has changed.',
   // src/app/confirm.ts
   'common.cancel': 'Cancel',
   // src/app/deleteForGood.ts

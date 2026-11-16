@@ -140,6 +140,16 @@ export function backupsOverCap(backups: readonly BackupFile[], projectStem: stri
   return deleted;
 }
 
+/**
+ * When this project's newest backup was made, from its name, or null when it has none: one listing, read when a project
+ * opens (the status bar's sign, 6.5.4); after that the schedule's `onBackup` says when a new one is written.
+ */
+export async function newestBackupAt(file: ProjectFile): Promise<Date | null> {
+  const stem = fileStem(file.path);
+  const [newest] = byNewest(stem, (await file.listBackups()).map((backup) => backup.name));
+  return newest === undefined ? null : parseBackupFileName(stem, newest);
+}
+
 /** SQLite's count of rows changed through this connection since it opened. */
 async function changeCount(file: ProjectFile): Promise<number> {
   const [row] = await file.query('SELECT total_changes() AS changes');
@@ -172,6 +182,11 @@ export interface BackupSchedule {
    * the backup's name and what `then` returned.
    */
   backUpThen<T>(then: () => Promise<T>): Promise<{ backup: string; result: T }>;
+  /**
+   * Calls `listener` with the time in a backup's name each time this schedule writes one (the 5-minute run, Back up
+   * now, Compact's), so the status bar's sign (6.5.4) learns of it without reading the disk. Returns the unsubscribe.
+   */
+  onBackup(listener: (at: Date) => void): () => void;
   stop(): void;
 }
 
@@ -202,6 +217,17 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
   let latest: string | null = null;
   let running: Promise<BackupRun> | null = null;
   let stopped = false;
+  const listeners = new Set<(at: Date) => void>();
+  const tell = (at: Date) => {
+    // A listener that throws never fails the backup it hears of: the copy is on disk either way.
+    for (const listener of listeners) {
+      try {
+        listener(at);
+      } catch {
+        // Ignored on purpose, as above.
+      }
+    }
+  };
   // Everything that copies the file takes its turn: the desktop makes one copy of a project at a time.
   let turn: Promise<unknown> = Promise.resolve();
   const inTurn = <T>(work: () => Promise<T>): Promise<T> => {
@@ -219,6 +245,7 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     await file.backup('scheduled', name);
     backedUpAt = changes;
     latest = name;
+    tell(at);
     // Listed again for the new backup's size.
     const backups = await file.listBackups();
     const byAge = backupsToDelete(
@@ -249,10 +276,12 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
       const listed = latest !== null && (await file.listBackups()).some((b) => b.name === latest);
       let backup = listed ? latest : null;
       if (backup === null || changes > backedUpAt) {
-        backup = await freshBackupName(file, now());
+        const at = now();
+        backup = await freshBackupName(file, at);
         await file.backup('scheduled', backup);
         backedUpAt = changes;
         latest = backup;
+        tell(at);
       }
       return { backup, result: await then() };
     });
@@ -267,6 +296,12 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
   return {
     runNow,
     backUpThen,
+    onBackup: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     stop: () => {
       stopped = true;
       clearInterval(timer);

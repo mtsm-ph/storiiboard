@@ -4,7 +4,8 @@ import type { SbdRecord } from '../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../core/model/shotNumbers';
 import { forgetDecoded } from '../core/media/decoded';
 import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
-import { apply, type AlsoPurge, cleanUpPictures, emptyTrash, history, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
+import { apply, type AlsoPurge, cleanUpPictures, emptyTrash, history, lastOpTime, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
+import { newestBackupAt } from '../core/storage/backups';
 import { CHANGED_ON_DISK, type Statement } from '../core/storage/driver';
 import { compactProject, type Compacted } from '../core/storage/compact';
 import type { Project } from '../core/storage/project';
@@ -15,6 +16,8 @@ import { editAuthor, profileStore } from './settings/profileStore';
 
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
 // updates, so the screen never shows a change the file doesn't have.
+
+const noop = (): void => undefined;
 
 /** What a build returns: the changes to write as one group. */
 export interface BuiltEdit {
@@ -60,6 +63,24 @@ export interface ProjectState {
   restoring: boolean;
   /** True while Compact project (1.27) runs; kept here, like `restoring`, so a tile closed and opened again knows. */
   compacting: boolean;
+  /**
+   * When the last op group was committed (ISO), for the status bar's "Saved" sign (6.5.4): set when a commit returns,
+   * and at open from the log's newest op; null for a project with none. A failed edit leaves it as it was.
+   */
+  savedAt: string | null;
+  /**
+   * Why the last edit's commit failed (6.5.4 round 2), or null: set only when the write itself threw (apply, applyWith's
+   * write, undo, redo, restore), never by a failed Compact, Clean up pictures, a build step before any write or a read
+   * after the commit, and cleared by the next committed change. The sign shows "Not saved" while it's set. A file a sync
+   * replaced is `changedOnDisk` instead.
+   */
+  saveFailed: string | null;
+  /**
+   * When this project's newest backup was made (ISO): listed once at open, then told by the schedule. The time read at
+   * open comes from the backup's name, which is the local time when it was made, so after travel across time zones it
+   * can be off by the difference until the next backup (whose time the schedule hands over as a Date).
+   */
+  backupAt: string | null;
   open: (project: Project) => Promise<void>;
   close: () => Promise<void>;
   /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
@@ -117,6 +138,8 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
   };
 
   let restoresInFlight = 0;
+  // Unsubscribes the open project's backup schedule from the store (6.5.4's sign).
+  let stopHearingBackups: () => void = noop;
   // The last slate number row the store has read, for the open project.
   let slateRead = 0;
 
@@ -143,6 +166,21 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
       return rows.length > 0 ? [...get().slateNumbers, ...rows] : get().slateNumbers;
     };
 
+    /**
+     * An edit's commit: the write itself (6.5.4 round 2). A throw here is a change that never reached the file, so the
+     * sign says "Not saved"; the error goes on to `edit`, which reports it as ever. A file a sync replaced isn't marked
+     * here: `changedOnDisk` says that.
+     */
+    const commit = async <T>(write: () => Promise<T>): Promise<T> => {
+      try {
+        return await write();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message !== CHANGED_ON_DISK) set({ saveFailed: message });
+        throw error;
+      }
+    };
+
     const edit = (run: (project: Project) => Promise<Touched | null>) => {
       // The project the edit was made in. If a switch replaced it before the edit's turn, the edit is dropped: it
       // never lands in the other project.
@@ -151,7 +189,11 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
         const { project } = get();
         if (!project || project !== madeIn) return false;
         try {
-          await merge(project, await run(project));
+          const touched = await run(project);
+          // A group was committed (null or empty: nothing was written). Recorded before the merge's reads, since the
+          // group is in the file once the commit returns, whatever they do.
+          if (touched !== null && touched.size > 0) set({ savedAt: new Date().toISOString(), saveFailed: null });
+          await merge(project, touched);
           return true;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -181,9 +223,12 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
       deletedForGood: 0,
       restoring: false,
       compacting: false,
+      savedAt: null,
+      saveFailed: null,
+      backupAt: null,
       open: (project) =>
         enqueue(async () => {
-          let loaded: Pick<ProjectState, 'records' | 'slateNumbers' | 'slateUnknown' | 'seen' | 'canUndo' | 'canRedo'>;
+          let loaded: Pick<ProjectState, 'records' | 'slateNumbers' | 'slateUnknown' | 'seen' | 'canUndo' | 'canRedo' | 'savedAt'>;
           let read = 0;
           try {
             const records = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
@@ -195,17 +240,27 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
               slateUnknown: await slateNumbersUnknown(project.file),
               seen: await loadSeen(project.file),
               ...(await history(project.file)),
+              savedAt: await lastOpTime(project.file),
             };
           } catch (error) {
             // It can't be read: it closes again (its lock with it), and the project open now stays as it was.
             await project.close().catch(() => undefined);
             throw error;
           }
+          // The sign's backup time only: a listing that fails says "No backup yet" rather than stop the project opening.
+          const newest = await newestBackupAt(project.file).catch(() => null);
           // A project already open (a switch) closes only after the new one is on screen, so there's never a
           // moment with none, and nothing on screen reads a closed file.
           const before = get().project;
           slateRead = read;
-          set({ project, ...loaded, error: null, changedOnDisk: false });
+          stopHearingBackups();
+          set({ project, ...loaded, backupAt: newest?.toISOString() ?? null, saveFailed: null, error: null, changedOnDisk: false });
+          // The schedule says when it writes a backup (no polling of the disk); one for a project no longer open is
+          // never heard.
+          stopHearingBackups =
+            project.backups?.onBackup((at) => {
+              if (get().project === project) set({ backupAt: at.toISOString() });
+            }) ?? noop;
           if (before && before !== project) {
             // Closing the old one can only fail to tidy its lock, which another computer then counts stale.
             await before.close().catch(() => undefined);
@@ -225,7 +280,12 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
           } finally {
             // Closed or not, it's no longer the open project.
             slateRead = 0;
+            stopHearingBackups();
+            stopHearingBackups = noop;
             set({
+              savedAt: null,
+              saveFailed: null,
+              backupAt: null,
               project: null,
               records: {},
               slateNumbers: NO_SLATE_NUMBERS,
@@ -240,7 +300,7 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
         }),
       apply: async (changes, options) => {
         await edit(async (project) => {
-          const touched = await apply(project.file, changes, { ...options, author: author() });
+          const touched = await commit(() => apply(project.file, changes, { ...options, author: author() }));
           if (options?.alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));
           return touched;
         });
@@ -259,7 +319,7 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
             return null;
           }
           if (changes.length === 0) return null;
-          const touched = await apply(project.file, changes, { author: author(), ...(alsoWrite ? { alsoWrite } : {}) });
+          const touched = await commit(() => apply(project.file, changes, { author: author(), ...(alsoWrite ? { alsoWrite } : {}) }));
           if (alsoWrite?.length) set((s) => ({ picturesWritten: s.picturesWritten + 1 }));
           return touched;
         });
@@ -271,7 +331,7 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
         // A holder, since the edit sets it inside a callback.
         const outcome = { changed: false };
         await edit(async (project) => {
-          const touched = await undo(project.file, { author: author() });
+          const touched = await commit(() => undo(project.file, { author: author() }));
           outcome.changed = touched !== null;
           return touched;
         });
@@ -336,7 +396,7 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
         set({ restoring: true });
         try {
           await edit(async (project) => {
-            const touched = await restoreTo(project.file, groupId, { author: author() });
+            const touched = await commit(() => restoreTo(project.file, groupId, { author: author() }));
             changed = touched !== null;
             return touched;
           });
@@ -364,7 +424,7 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
         // A holder, since the edit sets it inside a callback.
         const outcome = { changed: false };
         await edit(async (project) => {
-          const touched = await redo(project.file, { author: author() });
+          const touched = await commit(() => redo(project.file, { author: author() }));
           outcome.changed = touched !== null;
           return touched;
         });
