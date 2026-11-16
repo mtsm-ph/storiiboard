@@ -497,7 +497,9 @@ mod backups_and_app_data {
         assert_eq!(listed[0]["name"], json!(name));
         // The space this backup alone takes (backup::own_bytes): all of a full copy; on a Mac the backup is an APFS
         // clone, which takes next to nothing while fresh, so 0 is right there (backup.rs tests that it is).
-        let bytes = listed[0]["bytes"].as_u64().expect("a backup lists its own bytes");
+        let bytes = listed[0]["bytes"]
+            .as_u64()
+            .expect("a backup lists its own bytes");
         if !cfg!(target_os = "macos") {
             assert!(bytes > 0);
         }
