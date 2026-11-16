@@ -113,6 +113,11 @@
 - Two different things, never mixed in UI, code or file: the Trash (deleted items) and an archived project (the
   project record's state prop: draft, active, archived; "Archive Project" in the project menu).
 - Users can add custom props to shots, locations and people.
+- A settings preset (6.5.8) is a `settings_preset` record under the project: this computer's look and layout only
+  (one list in src/core/model/settingsPreset.ts, and a test that every setting is in it or in the never list).
+  Applying changes this computer's settings, never who "me" is, language, units, paper, backups or trackpad mode;
+  it shows what will change and saves "Before [name]" first. A preset travels with the file, so it is read as
+  untrusted input: bounded, rebuilt clean, and anything this version can't read is left as it is and named.
 
 ## Edits, undo and autosave
 - Every change is an operation: id, record_id, kind, before, after, author, timestamp.

@@ -428,10 +428,18 @@ schema version, listed in SBD_FORMAT.md and the report.
   the uncropped picture) is open, stacked on #189. For Kevin: a single selected picture shows 8 handles and a
   plain drag of a middle one keeps proportions; a PDF embeds only the kept part (the brief said "clipped"; the
   main session chose this for privacy); a builder appended to items.ts from the shell once (rule 2).
-- **Status line (keep current):** Nov 16: #180 to #184 merged; #185 (6.5.3) and #186 (6.5.4) wait for Kevin's
-  screenshot comparison; #187, #188, #189 and 6.5.7b open, stacked; next: 6.5.8 (presets; brief in docs/briefs/).
-  Then: Linux and Mac baselines once at the top of the stack, the report with the private/ plans pasted in, and
-  (when Kevin has said merge and 1 to 9 are in v2) the full checkpoint he asked for.
+- 6.5.8 (settings presets; four rounds, reviewed twice: a HIGH fixed, arranged workspace layouts were lost on
+  apply) is open at the top of the stack; it changes the four Settings screenshots (Windows regenerated) and one
+  macWebKit Tab test the brief names. The whole suite at the top of the stack on the PC: 596 passed, 0 failed.
+  For Kevin: History says "Saved settings preset Before Night" for an apply (no label on an op group without a
+  new stored field); a record crafted too deep to serialise can't be renamed or deleted through ops.
+- **Items 1 to 9 are all built.** The stack, bottom to top, each PR based on the one before: #185 (6.5.3), #186
+  (6.5.4), #187 (6.5.5), #188 (6.5.6), #189 (6.5.7a), #190 (6.5.7b), then 6.5.8. #185, #186 and 6.5.8 change
+  screenshots and wait for Kevin's comparison; none of the stack merges until he says so (merge bottom up:
+  retarget each to v2 after the one below merges, as scratch merge-stack.sh did on Nov 15).
+- **Status line (keep current):** Nov 16: #180 to #184 merged; the 6.5 stack (#185 to 6.5.8) open, waiting for
+  Kevin; next: Linux and Mac baselines once at the top of the stack, then the report with the private/ plans
+  pasted in; after his merge word, merge the stack and run the full checkpoint he asked for.
 
 ### Next session: start here (Nov 15, night, older: #179 merged; 6.22 built)
 

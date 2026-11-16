@@ -335,6 +335,18 @@ export function startUnderlayScale(underlayId: string): void {
   planStore.getState().startScale(underlayId);
 }
 
+/**
+ * The layers' state replaced by a preset's (6.5.8): chosen states, or null to follow the person's department again. Any
+ * solo ends, quietly: the preset's state is what the person asked for. A preset carries only the rows this version knows;
+ * rows a newer version keeps in this computer's own settings stay as stored (keepUnknownRows), as for any change here.
+ */
+export function setPlanLayerStates(states: PlanLayerStates | null): void {
+  saveSettings({ planLayers: states === null ? null : keepUnknownRows(loadSettings().planLayers, states) });
+  layersStore.setState({ saved: states, solo: null });
+  unsay();
+  pruneSelections(layerStatesNow());
+}
+
 /** For tests: the state as a fresh session reads it from settings. */
 export function reloadLayersForTests(): void {
   layersStore.setState({ saved: loadSettings().planLayers, solo: null, said: { text: '', by: 'tile' } });

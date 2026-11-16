@@ -91,6 +91,15 @@ export function GearGlyph() {
   );
 }
 
+/** Save a preset (6.5.8): a disk with its label and shutter, in the button's own colour. */
+export function SaveGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" className="shrink-0">
+      <path d="M0.75 0.75h8.5l2 2v8.5H0.75zM3 0.75v3.5h5.5v-3.5M3 11.25V7.25h6v4" fill="none" className="stroke-current" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /** Delete to the Trash: a bin, in the button's own colour. */
 /** Edit a title in place (Nov 5): a pencil, drawn in 1.5px strokes like the other glyphs. */
 export function PencilGlyph() {

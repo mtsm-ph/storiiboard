@@ -11,6 +11,9 @@ const store = createStore<BoardGrid>()(() => loadBoardGrid());
 /** Whether the grid shows, and whether a drag or resize snaps to it, on every board now. */
 export const useBoardGrid = (): BoardGrid => useStore(store, (s) => s);
 
+/** The grid and its snap as they are now, read outside React (a settings preset, 6.5.8). */
+export const boardGridNow = (): BoardGrid => ({ ...store.getState() });
+
 /** Changes either for every board on this computer, and keeps the choice. */
 export function setBoardGrid(patch: Partial<BoardGrid>): void {
   const now = store.getState();

@@ -169,8 +169,8 @@ export interface SavedCustomWorkspace {
 /** At most this many workspaces of the person's own; the newest are kept. */
 export const MAX_CUSTOM_WORKSPACES = 50;
 
-/** Named entries with a `custom-` id, each once, the newest kept; the layout is checked by the shell. */
-function customWorkspacesOf(value: unknown): SavedCustomWorkspace[] {
+/** Named entries with a `custom-` id, each once, the newest kept; the layout is checked by the shell. A preset's too (6.5.8). */
+export function customWorkspacesOf(value: unknown): SavedCustomWorkspace[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
   const kept: SavedCustomWorkspace[] = [];
@@ -208,7 +208,7 @@ function projectSelvesOf(value: unknown): Record<string, string> {
 }
 
 /** The departments this version knows, each once, in the call sheet's order; anything else is left out. */
-function departmentWorkspacesOf(value: unknown): Department[] {
+export function departmentWorkspacesOf(value: unknown): Department[] {
   if (!Array.isArray(value)) return [];
   return DEPARTMENTS.filter((d) => value.includes(d));
 }
@@ -262,7 +262,7 @@ function browserStorage(): Storage | undefined {
   }
 }
 
-function isThemePreference(value: unknown): value is ThemePreference {
+export function isThemePreference(value: unknown): value is ThemePreference {
   return value === 'project' || value === 'system' || value === 'light' || value === 'dark';
 }
 

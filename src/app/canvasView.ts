@@ -13,6 +13,9 @@ const store = createStore<CanvasViews>()(() => loadCanvasViews());
 /** The view every canvas of this kind is drawn in now. */
 export const useCanvasView = (kind: CanvasKind): CanvasViewChoice => useStore(store, (s) => s[kind]);
 
+/** Both views as they are now, read outside React (a settings preset, 6.5.8). */
+export const canvasViewsNow = (): CanvasViews => ({ ...store.getState() });
+
 /** Sets the view for every canvas of this kind on this computer; the other kind's stays as it is. */
 export function setCanvasView(kind: CanvasKind, view: CanvasViewChoice): void {
   if (store.getState()[kind] === view) return;

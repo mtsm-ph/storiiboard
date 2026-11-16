@@ -29,6 +29,7 @@ import { openExportDialog } from '../../features/export/exportStore';
 import { MarkSeen } from '../../features/storyboard/useMarkSeen';
 import { EyedropperHost } from '../../features/storyboard/palette/Eyedropper';
 import { isSettingsShortcut, openSettings, SettingsHost } from '../settings/SettingsWindow';
+import { PresetWindows } from '../presets/PresetsTab';
 import { AskHost } from '../ask';
 import { ManageWorkspacesHost } from './ManageWorkspaces';
 import { useNotificationSync } from '../../features/notifications/notificationsStore';
@@ -251,6 +252,8 @@ export function AppShell() {
       <ImportScriptHost />
       <ExportHost />
       <SettingsHost />
+      {/* Save preset… and Apply… (6.5.8), opened from Settings and drawn over it as windows of their own. */}
+      <PresetWindows />
       <ManageWorkspacesHost />
       <AskHost />
     </div>
