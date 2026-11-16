@@ -354,7 +354,7 @@ stays unbuilt until he is back from his by-hand pass (run 43789275891's installe
 answers to docs/PHASE7_DECISIONS.md.**
 
 - **Merged:** #179 into `v2` (his word, Nov 15 night). `v2`'s Rust tests now compile on a Mac and start on Windows.
-- **Open, waiting for his word to merge: 6.22** (branch `phase6/6.22-nov15-night`, base `v2`;
+- **Open, waiting for his word to merge: #180, 6.22** (branch `phase6/6.22-nov15-night`, base `v2`;
   docs/briefs/6.22-nov15-night.md, three rounds, reviewed twice). His installers don't have it.
   - Set pieces print dimmed on every department's page but art's; walls, doors and windows in full (his answer).
   - `setupPlanOf` reads the index; gearOnDay.test's scan test now asserts 2 whole reads for one call and 0 more per
@@ -385,7 +385,7 @@ answers to docs/PHASE7_DECISIONS.md.**
   himself.
 - **A chat started now** has the four Nov 14 rules in builder.md and reviewer.md; this one (started before #167)
   put them at the top of every brief and review request.
-- **Status line (keep current):** Nov 15, night: #179 merged; 6.22's PR open and unmerged; no agent running;
+- **Status line (keep current):** Nov 15, night: #179 merged; #180 (6.22) open and unmerged; no agent running;
   stopped, waiting for Kevin's by-hand pass.
 
 ### Next session: start here (Nov 15, evening, older: Phase 6 and the audit's cover merged)
