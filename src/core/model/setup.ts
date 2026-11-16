@@ -1,6 +1,6 @@
 import { t } from '../i18n';
 import type { Change } from '../ops/ops';
-import { keyBetween } from '../ops/order';
+import { keyAfterKeys, placeAmong } from '../ops/order';
 import { framesOffCameras } from './cameraLinks';
 import type { JsonValue, Props, SbdRecord } from './record';
 import { childrenOf, keptFor } from './recordIndex';
@@ -116,8 +116,9 @@ export function setupLabel(setup: Pick<Setup, 'number' | 'fields'>): string {
 export function addSetup(records: Records, sceneId: string, id: string = crypto.randomUUID()): Change[] {
   const scene = records[sceneId];
   if (scene?.type !== 'scene' || scene.trashedAt !== null) return [];
-  const last = allSetups(records, sceneId).at(-1)?.sortKey ?? null;
-  return [{ kind: 'create', record: { id, type: 'setup', parentId: sceneId, sortKey: keyBetween(last, null), props: { name: '' } } }];
+  // Past an odd imported key, after the last one that can be read (6.23).
+  const sortKey = keyAfterKeys(allSetups(records, sceneId).map((r) => r.sortKey));
+  return [{ kind: 'create', record: { id, type: 'setup', parentId: sceneId, sortKey, props: { name: '' } } }];
 }
 
 /** A setup's name, trimmed; '' takes it off. Nothing when it's that already or the setup isn't live. */
@@ -142,16 +143,17 @@ export function moveSetup(records: Records, id: string, to: number): Change[] {
   const others = live.filter((r) => r.id !== id);
   const all = allSetups(records, setup.parentId).filter((r) => r.id !== id);
   const before = others[target - 1] ?? null;
-  let sortKey: string;
-  if (before) {
-    const next = all[all.indexOf(before) + 1] ?? null;
-    sortKey = keyBetween(before.sortKey, next?.sortKey ?? null);
-  } else {
-    const first = others[0] ?? null;
-    const previous = first ? (all[all.indexOf(first) - 1] ?? null) : null;
-    sortKey = keyBetween(previous?.sortKey ?? null, first?.sortKey ?? null);
-  }
-  return [{ kind: 'move', id, parentId: setup.parentId, sortKey }];
+  // Right after the live setup it follows, or just before the first live one.
+  const first = others[0] ?? null;
+  const at = before ? all.indexOf(before) + 1 : first ? all.indexOf(first) : 0;
+  // Where the two neighbours leave no key between them (one keyBetween can't read, two out of order: an odd imported
+  // file's, 6.23), the scene's setups, the Trash's too, are written afresh in the order shown with the move made.
+  const placed = placeAmong(all, at, 1);
+  const sceneId = setup.parentId;
+  return [
+    { kind: 'move', id, parentId: sceneId, sortKey: placed.keys[0] ?? '' },
+    ...[...placed.moves].map(([other, sortKey]): Change => ({ kind: 'move', id: other, parentId: sceneId, sortKey })),
+  ];
 }
 
 /** A setup to the Trash; its frames keep their `setup_id`, so they read as "no setup" until a restore brings it back. */

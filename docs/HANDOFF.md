@@ -347,7 +347,46 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 15, night: #179 merged; 6.22 built and open; Kevin is doing his by-hand pass)
+### Next session: start here (Nov 16: "6.5 canvas polish" under way; plans 10, 11 and 16 to write; Phase 7 waits)
+
+**Kevin's Nov 16 message is the work list** (it is in this chat's transcript; its substance is below). Order:
+merge #180 (done), the app-wide sort-key pass (6.23), then build his items 1 to 9 as "6.5 canvas polish" in small
+milestones under the usual rules, every milestone that changes screenshots the baseline way (regenerated on its
+PR's branch, a PR comment, Kevin compares and says merge). Items 10, 11 and 16 are plans only. **Phase 7 still
+waits.** When 1 to 9 are merged: a full checkpoint on `v2` for new installers, and a report. New props go in ONE
+schema version, listed in SBD_FORMAT.md and the report.
+
+- **Briefs are in docs/briefs/** (each starts with Kevin's four Nov 14 rules, word for word, since this chat's
+  agents predate #167; a new chat has them in builder.md and reviewer.md, but keep them in briefs anyway):
+  - 6.23-sort-keys-app-wide.md: built, reviewed twice (see below).
+  - 6.5.1-dark-canvas.md (item 1), 6.5.2-tool-strip.md (items 2 and 3), 6.5.3-trackpad-mode.md (item 4),
+    6.5.4-saved-sign.md (item 6): written, not yet built.
+  - 6.5.8-presets.md (item 7): a draft holding Kevin's decisions (look and layout only: theme, canvas settings,
+    his workspaces and the department workspaces, the plan's layer states, scene palettes in the PDF; never
+    language, units, paper, directions, backups, trackpad mode, the profile; applying shows what changes first
+    and saves "Before [name]").
+  - Still to write: item 5 (the sun and the compass: quick sun with its own coordinates and date, coordinates
+    pasted onto a location, the compass at the plan's top right, sun through the windows, heights for 3D later;
+    probably two briefs), item 8 (moodboard: dot grid and snap, any colour for notes and stickies, crop with
+    Ctrl/Cmd + drag and Reset crop, a border on a picture; probably two briefs), item 7's full brief.
+  - Item 9 is only lines on Phase 8's list (his own icon set, a display font for titles, a shortcuts pass).
+- **Plans (10, 11, 16), drafted, not committed:** docs/DEPARTMENTS_DECISIONS.md (item 11, untracked in the
+  checkout); the PLAN.md additions for 10 and 16 were drafted in the chat's scratch folder (if lost, rewrite from
+  Kevin's message); still to add: questions 18 to 22 in docs/PHASE7_DECISIONS.md (background cast as records;
+  extras found by rule or by the assistant; photo coordinates as contact details; a read tool for a room's
+  photos and measurements; a propose tool for a room), and the proposed edits to CLAUDE.md, which wait for Kevin.
+  They go in one docs PR at the end.
+- **6.23 (branch `fix/6.23-sort-keys`):** every caller that hands `keyBetween` a stored key goes through guarded
+  helpers in src/core/ops/order.ts (`keyAfterKeys`, `keyBetweenOrNull`, `placeAmong`, `freshKeys`…); a list
+  whose keys leave no room is rewritten whole in one op group. Left for Kevin: migration 012 can still throw on
+  an odd key in a pre-12 file (migrations are frozen); pasting items with connectors into an EMPTY board gives a
+  connector and an item the same key (older than 6.23; fixing changes a sound file's keys); no door (open, JSON
+  import) checks sort keys. A builder used `sed` once on its own new test file (rule 2).
+- **Merging in this run:** a milestone with no screenshot change merges once reviewed and its quick checks pass
+  (the run rules below); one that changes screenshots waits for Kevin's word, and later milestones stack on it.
+- **Status line (keep current):** Nov 16: #180 merged; 6.23 reviewed, being committed; no agent running.
+
+### Next session: start here (Nov 15, night, older: #179 merged; 6.22 built)
 
 Kevin's Nov 15 night message answered what waited for him and ended "Then stop": **build nothing more. Phase 7
 stays unbuilt until he is back from his by-hand pass (run 43789275891's installers) with what he found and his

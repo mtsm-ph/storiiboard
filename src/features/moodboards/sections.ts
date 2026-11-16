@@ -1,6 +1,6 @@
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
-import { keyBetween } from '../../core/ops/order';
+import { placeAmong } from '../../core/ops/order';
 import { alignItems, distributeItems, tidyItems } from '../../ui/canvas/arrange';
 import { boundsOf, marqueeHolds } from '../../ui/canvas/hitTest';
 import { tidy } from '../../ui/canvas/placement';
@@ -52,8 +52,17 @@ export function createSectionChanges(records: Records, boardId: string, geometry
     .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
   const held = siblings.find((r) => itemFields(r.props)?.kind === 'section' && r.trashedAt === null && marqueeHolds(itemFields(r.props) as Geometry, box));
   const at = held ? siblings.indexOf(held) : siblings.length;
-  const sortKey = keyBetween(siblings[at - 1]?.sortKey ?? null, held?.sortKey ?? null);
-  return { id, changes: [{ kind: 'create', record: { id, type: 'board_item', parentId: boardId, sortKey, props: propsFor({ ...box, kind: 'section', name: seed.name ?? '' }) } }] };
+  // Where the two neighbours leave no key between them (one keyBetween can't read, an odd imported file's: 6.23), the
+  // board's items are written afresh in their order with the section in its place, in the same group.
+  const placed = placeAmong(siblings, at, 1);
+  const sortKey = placed.keys[0] ?? '';
+  return {
+    id,
+    changes: [
+      { kind: 'create', record: { id, type: 'board_item', parentId: boardId, sortKey, props: propsFor({ ...box, kind: 'section', name: seed.name ?? '' }) } },
+      ...[...placed.moves].map(([other, key]): Change => ({ kind: 'move', id: other, parentId: boardId, sortKey: key })),
+    ],
+  };
 }
 
 /**

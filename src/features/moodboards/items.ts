@@ -1,7 +1,7 @@
 import { t, tn } from '../../core/i18n';
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys, keyBetween } from '../../core/ops/order';
 import { atLeastMinimum, MIN_SIZE, pasted, tidy } from '../../ui/canvas/placement';
 import { sectionContents } from '../../ui/canvas/sections';
 import type { CanvasColours, CanvasItem, Geometry, GeometryChange, ReorderMode, SectionLook } from '../../ui/canvas/types';
@@ -349,10 +349,13 @@ export const estimateTextHeight: MeasureText = (box) => {
 
 // Every sibling holds a key: the Trash's, the kinds this version doesn't show and the connectors (which sit at the back) too,
 // so a new item never ties with one of them.
-const lastKey = (records: Records, boardId: string): string | null =>
-  Object.values(records)
-    .filter((r) => r.type === 'board_item' && r.parentId === boardId)
-    .reduce<string | null>((last, r) => (last === null || r.sortKey > last ? r.sortKey : last), null);
+// Past an odd imported key, after the last one that can be read (6.23).
+const keyAfterItems = (records: Records, boardId: string): string =>
+  keyAfterKeys(
+    Object.values(records)
+      .filter((r) => r.type === 'board_item' && r.parentId === boardId)
+      .map((r) => r.sortKey),
+  );
 
 /** An item to make: its place and kind, and whatever style it begins with (the rest is the kind's default). */
 export type ItemSeed = Geometry & { kind: ItemKind } & Partial<Omit<ItemFields, keyof Geometry | 'kind'>>;
@@ -406,12 +409,12 @@ export function propsFor(seed: ItemSeed): Record<string, string | number | boole
 
 /** Items made at the front, in order, each after the last. A given id is used for the first (an item typed into before it existed). */
 export function createItems(records: Records, boardId: string, seeds: readonly ItemSeed[], firstId?: string): { ids: string[]; changes: Change[] } {
-  let previous = lastKey(records, boardId);
+  let previous: string | null = null;
   const ids: string[] = [];
   const changes: Change[] = [];
   for (const seed of seeds) {
     const id = ids.length === 0 && firstId ? firstId : crypto.randomUUID();
-    const sortKey = keyBetween(previous, null);
+    const sortKey: string = previous === null ? keyAfterItems(records, boardId) : keyBetween(previous, null);
     previous = sortKey;
     ids.push(id);
     changes.push({ kind: 'create', record: { id, type: 'board_item', parentId: boardId, sortKey, props: propsFor(seed) } });

@@ -4,7 +4,7 @@ import type { SbdRecord } from '../../core/model/record';
 import { isDayDate } from '../../core/model/shootDay';
 import { scenesOfFrames } from '../../core/model/schedule';
 import { sceneFields } from '../../core/model/storyboard';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 import type { SlateNumbers } from '../../core/model/shotNumbers';
 import { lockNotice, relettered, setNumbersLocked } from '../storyboard/board';
@@ -58,21 +58,26 @@ export function issueChanges(records: Records, slate: SlateNumbers, input: Issue
   if (sheet === null) {
     sheet = input.ids?.callsheet ?? crypto.randomUUID();
     // After every call sheet the day has had (in the Trash too), so a restored one never shares a key.
-    const last = Object.values(records)
-      .filter((r) => r.type === 'callsheet' && r.parentId === input.dayId)
-      .reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
-    changes.push({ kind: 'create', record: { id: sheet, type: 'callsheet', parentId: input.dayId, sortKey: keyBetween(last, null), props: {} } });
+    // Past an odd imported key, after the last readable one (6.23), here and for the issue below.
+    const sortKey = keyAfterKeys(
+      Object.values(records)
+        .filter((r) => r.type === 'callsheet' && r.parentId === input.dayId)
+        .map((r) => r.sortKey),
+    );
+    changes.push({ kind: 'create', record: { id: sheet, type: 'callsheet', parentId: input.dayId, sortKey, props: {} } });
   }
-  const lastIssue = Object.values(records)
-    .filter((r) => r.parentId === sheet)
-    .reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
+  const issueKey = keyAfterKeys(
+    Object.values(records)
+      .filter((r) => r.parentId === sheet)
+      .map((r) => r.sortKey),
+  );
   changes.push({
     kind: 'create',
     record: {
       id: input.ids?.media ?? crypto.randomUUID(),
       type: 'media',
       parentId: sheet,
-      sortKey: keyBetween(lastIssue, null),
+      sortKey: issueKey,
       props: {
         kind: 'pdf',
         file: input.sha256,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { keyBetween } from '../../core/ops/order';
 import { reordered, sortKeysFor } from './zOrder';
 
 const order = ['a', 'b', 'c', 'd', 'e'];
@@ -74,5 +75,42 @@ describe('z order', () => {
     expect(bd('backward')).toEqual([['b', '7'], ['d', 'I']]);
     expect(bd('front')).toEqual([['b', 'l'], ['d', 't']]);
     expect(bd('back')).toEqual([['b', '7'], ['d', 'A']]);
+  });
+});
+
+// 6.23 (Kevin: an unreadable sort key from an odd imported file never makes the app throw): a key keyBetween can't
+// read, or two out of order, has the whole list written afresh in the order asked for.
+describe('z order past a key that can’t be read (6.23)', () => {
+  // Back to front as their keys sort: "!" before every digit, "~" after.
+  const odd = new Map([['c', '!'], ['a', 'D'], ['b', 'H'], ['d', 'R'], ['e', '~']]);
+  const shown = [...odd.keys()];
+  const keys = new Map([['a', 'D'], ['b', 'H'], ['c', 'M'], ['d', 'R'], ['e', 'W']]);
+  const sorted = (base: Map<string, string>, final: Map<string, string>) =>
+    [...new Map([...base, ...final])].sort((x, y) => (x[1] < y[1] ? -1 : 1)).map(([id]) => id);
+
+  it('gives the order asked for in every mode, never throwing', () => {
+    for (const mode of ['forward', 'backward', 'front', 'back'] as const) {
+      for (const moved of [set('b'), set('e'), set('c'), set('a', 'd')]) {
+        const next = reordered(shown, moved, mode);
+        let written = new Map<string, string>();
+        expect(() => (written = sortKeysFor(shown, next, odd, moved))).not.toThrow();
+        expect(sorted(odd, written)).toEqual(next);
+        expect(new Set(shown.map((id) => written.get(id) ?? odd.get(id))).size).toBe(shown.length);
+      }
+    }
+  });
+
+  it('Bring to front past an odd last key, and Send to back past an odd first key', () => {
+    const front = reordered(shown, set('b'), 'front');
+    expect(sorted(odd, sortKeysFor(shown, front, odd, set('b')))).toEqual(['c', 'a', 'd', 'e', 'b']);
+    const back = reordered(shown, set('d'), 'back');
+    expect(sorted(odd, sortKeysFor(shown, back, odd, set('d')))).toEqual(['d', 'c', 'a', 'b', 'e']);
+  });
+
+  it('a sound list’s keys are keyBetween’s, as before', () => {
+    const front = sortKeysFor(order, reordered(order, set('b'), 'front'), keys, set('b'));
+    expect([...front]).toEqual([['b', keyBetween('W', null)]]);
+    const back = sortKeysFor(order, reordered(order, set('d'), 'back'), keys, set('d'));
+    expect([...back]).toEqual([['d', keyBetween(null, 'D')]]);
   });
 });

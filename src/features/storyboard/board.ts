@@ -5,7 +5,7 @@ import { lettersOf, NO_SLATE_NUMBERS, sceneNumberBetween, shotNumbers, type Slat
 import { projectStoryboard, sceneFields, sceneLabel, shotFields, type SceneFields, type ShotFields } from '../../core/model/storyboard';
 import type { ShotStatus } from '../../core/model/shotStatus';
 import type { Change } from '../../core/ops/ops';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys, placeAmong } from '../../core/ops/order';
 import { list, t } from '../../core/i18n';
 
 // The storyboard as views read it, and the changes the board makes. Views read records and never copy them
@@ -169,16 +169,29 @@ function sceneItems(records: Records, sceneId: string): SbdRecord[] {
   return [...childrenOf(records, sceneId, 'shot', true), ...childrenOf(records, sceneId, 'note', true)].sort(bySortKey);
 }
 
-/** The keys either side of the place after `afterId` (or the end of the scene with null). */
-function slotAfter(records: Records, sceneId: string, afterId: string | null): { before: string | null; after: string | null } {
+/**
+ * Keys for `count` new items in the place after `afterId` (or the end of the scene with null): keyBetween's, between the
+ * keys either side. Where those leave no key between them (one keyBetween can't read, two out of order: an odd imported
+ * file's, 6.23), the scene's shots and notes, the Trash's too, are written afresh in their order with the new ones in
+ * place: `moves`, their new keys, for the same group.
+ */
+function slotAfter(records: Records, sceneId: string, afterId: string | null, count: number): { keys: string[]; moves: Map<string, string> } {
   const items = sceneItems(records, sceneId);
   const at = afterId === null ? items.length - 1 : items.findIndex((item) => item.id === afterId);
-  return { before: items[at]?.sortKey ?? null, after: items[at + 1]?.sortKey ?? null };
+  return placeAmong(items, at + 1, count);
+}
+
+/** Moves for keys written afresh under one parent. */
+const movesOf = (keys: ReadonlyMap<string, string>, parentId: string): Change[] => [...keys].map(([id, sortKey]): Change => ({ kind: 'move', id, parentId, sortKey }));
+
+/** The records with these moves' new keys, to work out an order after them. */
+function rekeyed(list: readonly SbdRecord[], keys: ReadonlyMap<string, string>): SbdRecord[] {
+  return keys.size === 0 ? [...list] : list.map((r) => (keys.has(r.id) ? { ...r, sortKey: keys.get(r.id) ?? r.sortKey } : r));
 }
 
 /** A scene's shots in order once `changed` takes its new place among them. */
-function shotsWith(records: Records, sceneId: string, changed: SbdRecord): SbdRecord[] {
-  return [...sceneShots(records, sceneId).filter((s) => s.id !== changed.id), changed].sort(bySortKey);
+function shotsWith(records: Records, sceneId: string, changed: SbdRecord, keys: ReadonlyMap<string, string> = new Map()): SbdRecord[] {
+  return [...rekeyed(sceneShots(records, sceneId), keys).filter((s) => s.id !== changed.id), changed].sort(bySortKey);
 }
 
 /** A new frame after `afterShotId` (or at the end of the scene), and the scene's numbers after it. */
@@ -206,24 +219,21 @@ export function addShots(
   props: readonly SbdRecord['props'][],
   slate: SlateNumbers = NO_SLATE_NUMBERS,
 ): { changes: Change[]; shotIds: string[] } {
-  const slot = slotAfter(records, sceneId, afterShotId);
-  let before = slot.before;
-  const after = slot.after;
-  const created = props.map((own): SbdRecord => {
-    before = keyBetween(before, after);
-    return {
+  const slot = slotAfter(records, sceneId, afterShotId, props.length);
+  const created = props.map(
+    (own, i): SbdRecord => ({
       id: crypto.randomUUID(),
       type: 'shot',
       parentId: sceneId,
-      sortKey: before,
+      sortKey: slot.keys[i] ?? '',
       props: { status: 'need', ...own },
       trashedAt: null,
       trashedBy: null,
       createdAt: '',
       updatedAt: '',
-    };
-  });
-  const order = [...sceneShots(records, sceneId), ...created].sort(bySortKey);
+    }),
+  );
+  const order = [...rekeyed(sceneShots(records, sceneId), slot.moves), ...created].sort(bySortKey);
   const numbers = renumber(records, projectId, sceneId, order, { slate });
   const isNew = new Set(created.map((shot) => shot.id));
   const numberOf = (id: string) => {
@@ -247,6 +257,7 @@ export function addShots(
           },
         };
       }),
+      ...movesOf(slot.moves, sceneId),
       ...numbers.filter((c) => !(c.kind === 'update' && isNew.has(c.id))),
     ],
   };
@@ -377,9 +388,13 @@ export function moveItem(
   const target = sceneItems(records, targetSceneId).filter((s) => s.id !== id);
   const at = beforeId === null ? target.length : target.findIndex((s) => s.id === beforeId);
   if (at === -1) return [];
-  const sortKey = keyBetween(target[at - 1]?.sortKey ?? null, target[at]?.sortKey ?? null);
+  // Between its new neighbours; where they leave no key between them (one keyBetween can't read, two out of order: an
+  // odd imported file's, 6.23), the target scene's shots and notes are written afresh in the order shown with it moved.
+  const placed = placeAmong(target, at, 1);
+  const sortKey = placed.keys[0] ?? '';
   const move: Change = { kind: 'move', id, parentId: targetSceneId, sortKey };
-  if (item.type === 'note') return [move];
+  const rekeys = movesOf(placed.moves, targetSceneId);
+  if (item.type === 'note') return [move, ...rekeys];
   const changesScene = sourceSceneId !== targetSceneId;
   const moved: SbdRecord = {
     ...item,
@@ -395,10 +410,11 @@ export function moveItem(
   const leaves = changesScene && item.props.setup_id !== undefined;
   return [
     move,
+    ...rekeys,
     ...(back !== '' ? [{ kind: 'update' as const, id, set: { number: back } }] : []),
     ...(leaves ? [{ kind: 'update' as const, id, unset: ['setup_id'] }] : []),
     ...(changesScene ? framesOffCameras(records, [id]) : []),
-    ...renumber(records, projectId, targetSceneId, shotsWith(records, targetSceneId, moved), { slate }),
+    ...renumber(records, projectId, targetSceneId, shotsWith(records, targetSceneId, moved, placed.moves), { slate }),
     ...(changesScene
       ? renumber(records, projectId, sourceSceneId, sceneShots(records, sourceSceneId).filter((s) => s.id !== id), { slate })
       : []),
@@ -428,17 +444,36 @@ export function leavesLockedScene(records: Records, id: string, targetSceneId: s
 /** moveItem for a frame. */
 export const moveShot = moveItem;
 
-/** A note card after `afterId` (or at the end of the scene). Notes take no shot number. */
+/**
+ * A note card after `afterId` (or at the end of the scene). Notes take no shot number. One create alone: where the keys
+ * either side leave no room (6.23 review), it goes after the scene's last readable key instead, a key right with no
+ * other record moved; addNoteChanges keeps the place asked for.
+ */
 export function addNote(
   records: Records,
   sceneId: string,
   afterId: string | null,
   text = '',
 ): Extract<Change, { kind: 'create' }> & { record: { id: string } } {
-  const { before, after } = slotAfter(records, sceneId, afterId);
+  const made = noteAdded(records, sceneId, afterId, text);
+  if (made.moves.length === 0) return made.create;
+  return { ...made.create, record: { ...made.create.record, sortKey: keyAfterKeys(sceneItems(records, sceneId).map((r) => r.sortKey)) } };
+}
+
+/**
+ * addNote with the moves that keep the order asked for past a key that can't be read (6.23: the scene's items written
+ * afresh, see slotAfter); in a sound file the create alone, as addNote's. What the board writes.
+ */
+export function addNoteChanges(records: Records, sceneId: string, afterId: string | null, text = ''): { id: string; changes: Change[] } {
+  const made = noteAdded(records, sceneId, afterId, text);
+  return { id: made.create.record.id, changes: [made.create, ...made.moves] };
+}
+
+function noteAdded(records: Records, sceneId: string, afterId: string | null, text: string): { create: Extract<Change, { kind: 'create' }> & { record: { id: string } }; moves: Change[] } {
+  const slot = slotAfter(records, sceneId, afterId, 1);
   return {
-    kind: 'create',
-    record: { id: crypto.randomUUID(), type: 'note', parentId: sceneId, sortKey: keyBetween(before, after), props: { text } },
+    create: { kind: 'create', record: { id: crypto.randomUUID(), type: 'note', parentId: sceneId, sortKey: slot.keys[0] ?? '', props: { text } } },
+    moves: movesOf(slot.moves, sceneId),
   };
 }
 
@@ -507,7 +542,8 @@ export function setSceneLocation(records: Records, projectId: string, sceneId: s
   return [
     {
       kind: 'create',
-      record: { id, type: 'location', parentId: projectId, sortKey: keyBetween(all.at(-1)?.sortKey ?? null, null), props: { name: trimmed } },
+      // Past an odd imported key, after the last one that can be read (6.23).
+      record: { id, type: 'location', parentId: projectId, sortKey: keyAfterKeys(all.map((r) => r.sortKey)), props: { name: trimmed } },
     },
     { kind: 'update', id: sceneId, set: { location_id: id } },
   ];
@@ -674,13 +710,36 @@ export function compareSceneNumbers(a: string, b: string): number {
  * + New scene and + Add Scene: a scene at the end of the board, numbered one past the highest. With `afterSceneId`
  * (the "/" menu), right after that scene instead, numbered between it and the next as scripts do: 4A after 4. When
  * that number would sort past the scenes that follow (4B, with 4A already next), it goes after them, so the board
- * always reads in slate order.
+ * always reads in slate order. One create alone: where the keys either side leave no room (6.23 review), it goes after
+ * the project's last readable scene key instead, a key right with no other record moved; addSceneChanges keeps the
+ * place asked for.
  */
 export function addScene(
   records: Records,
   projectId: string,
   afterSceneId: string | null = null,
 ): Extract<Change, { kind: 'create' }> & { record: { id: string } } {
+  const made = sceneAdded(records, projectId, afterSceneId);
+  if (made.moves.length === 0) return made.create;
+  const keys = childrenOf(records, projectId, 'scene', true).map((r) => r.sortKey);
+  return { ...made.create, record: { ...made.create.record, sortKey: keyAfterKeys(keys) } };
+}
+
+/**
+ * addScene with the moves that keep the order asked for past a key that can't be read (6.23: the project's scenes, the
+ * Trash's too, written afresh in their order with the new one in place); in a sound file the create alone, as
+ * addScene's. What the board, the Scenes tile and the sidebar write.
+ */
+export function addSceneChanges(records: Records, projectId: string, afterSceneId: string | null = null): { id: string; changes: Change[] } {
+  const made = sceneAdded(records, projectId, afterSceneId);
+  return { id: made.create.record.id, changes: [made.create, ...made.moves] };
+}
+
+function sceneAdded(
+  records: Records,
+  projectId: string,
+  afterSceneId: string | null,
+): { create: Extract<Change, { kind: 'create' }> & { record: { id: string } }; moves: Change[] } {
   // Trashed scenes count, so a restored one never shares a number or a place with one added since.
   const all = childrenOf(records, projectId, 'scene', true);
   const taken = all.map((scene) => sceneFields(scene.props).number);
@@ -705,16 +764,19 @@ export function addScene(
   }
   // After the last scene, trashed ones included, when it goes at the end, as + Scene does; else between neighbours.
   const before = at === -1 || !live[at + 1] ? (all.at(-1) ?? null) : (live[at] ?? null);
-  const nextKey = before ? (all[all.indexOf(before) + 1]?.sortKey ?? null) : null;
+  const placed = placeAmong(all, before ? all.indexOf(before) + 1 : 0, 1);
   return {
-    kind: 'create',
-    record: {
-      // Made here, not by the op, so the caller can make the new scene the active one.
-      id: crypto.randomUUID(),
-      type: 'scene',
-      parentId: projectId,
-      sortKey: keyBetween(before?.sortKey ?? null, nextKey),
-      props: { number, name: '' },
+    create: {
+      kind: 'create',
+      record: {
+        // Made here, not by the op, so the caller can make the new scene the active one.
+        id: crypto.randomUUID(),
+        type: 'scene',
+        parentId: projectId,
+        sortKey: placed.keys[0] ?? '',
+        props: { number, name: '' },
+      },
     },
+    moves: movesOf(placed.moves, projectId),
   };
 }

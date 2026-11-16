@@ -2,7 +2,7 @@ import type { Props, SbdRecord } from '../../core/model/record';
 import { sceneNumberBetween } from '../../core/model/shotNumbers';
 import { isSceneNumber, sceneFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys, keyBetween } from '../../core/ops/order';
 import type { Script, ScriptScene } from '../../core/script/script';
 import { compareSceneNumbers, locations, trashedLocationNamed } from '../storyboard/board';
 import { t } from '../../core/i18n';
@@ -175,19 +175,21 @@ function characterIdsOf(names: readonly string[], ids: ReadonlyMap<string, strin
 /** The one op group an import writes: new locations and characters, then the scenes after the board's last. */
 export function importChanges(records: Records, projectId: string, plan: ImportPlan): Change[] {
   const changes: Change[] = [];
-  const lastKey = (type: SbdRecord['type']) =>
+  const keysOf = (type: SbdRecord['type']) =>
     Object.values(records)
       .filter((r) => r.type === type && r.parentId === projectId)
-      .reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
+      .map((r) => r.sortKey);
+  // `after` is null for a type's first: it goes after the board's last readable key of that type (6.23: an odd imported
+  // one never makes the import throw); each next one after the one made before it.
   const create = (type: SbdRecord['type'], props: Props, after: string | null) => {
     const id = crypto.randomUUID();
-    const sortKey = keyBetween(after, null);
+    const sortKey = after === null ? keyAfterKeys(keysOf(type)) : keyBetween(after, null);
     changes.push({ kind: 'create', record: { id, type, parentId: projectId, sortKey, props } });
     return { id, sortKey };
   };
 
   const placeIds = new Map([...liveNames(records, projectId, 'location')].map(([k, v]) => [k, v.id]));
-  let placeKey = lastKey('location');
+  let placeKey: string | null = null;
   for (const name of plan.locations.created) {
     // One in the Trash by that name comes back, its address and contact with it, rather than a second (3.3).
     const trashed = trashedLocationNamed(records, projectId, name);
@@ -202,14 +204,14 @@ export function importChanges(records: Records, projectId: string, plan: ImportP
   }
   // A scene lists its characters by id (3.13): the project's own by name, trimmed and in any case, or those made here.
   const characterIds = new Map([...liveNames(records, projectId, 'character')].map(([k, v]) => [k, v.id]));
-  let personKey = lastKey('character');
+  let personKey: string | null = null;
   for (const name of plan.characters.created) {
     const made = create('character', { name }, personKey);
     personKey = made.sortKey;
     characterIds.set(key(name), made.id);
   }
 
-  let sceneKey = lastKey('scene');
+  let sceneKey: string | null = null;
   for (const { scene, number, status } of plan.scenes) {
     if (status !== 'new') continue;
     const place = placeOf(scene);

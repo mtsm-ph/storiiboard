@@ -2,7 +2,7 @@ import { showInfo } from '../../app/notice';
 import { useProject } from '../../app/projectStore';
 import { sceneFields } from '../../core/model/storyboard';
 import { chooseScriptToImport } from '../script/chooseAndRead';
-import { addScene, board, coverage, lockNotice, relettered, setNumbersLocked } from './board';
+import { addSceneChanges, board, coverage, lockNotice, relettered, setNumbersLocked } from './board';
 import { ScenesView } from './ScenesView';
 import { paletteOf } from '../../core/model/palette';
 import { deleteScene, focusSceneAfterDelete } from './deleteScene';
@@ -58,9 +58,9 @@ export function ScenesTile() {
       }}
       onAdd={() => {
         if (!project) return;
-        const change = addScene(records, project.projectId);
-        void apply([change]).then(() => {
-          selectScene(change.record.id);
+        const made = addSceneChanges(records, project.projectId);
+        void apply(made.changes).then(() => {
+          selectScene(made.id);
         });
       }}
     />

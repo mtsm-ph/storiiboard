@@ -117,6 +117,8 @@
 ## Edits, undo and autosave
 - Every change is an operation: id, record_id, kind, before, after, author, timestamp.
 - The UI, MCP, imports and web suggestions all apply edits through src/core/ops.
+- A stored sort key can be any string (an imported or hand-edited file): code never hands one to `keyBetween`
+  directly, but through the guarded helpers beside it in src/core/ops/order.ts (6.22, 6.23), so an edit never throws.
 - Undo and redo walk the op log. Every canvas action is undoable. ⌘Z undoes project edits only, never a layout change
   (the Layout menu has Undo layout change for those).
 - The log is append-only; undo never destroys history. Every undo, redo and restore is an op group of its own, saved
@@ -174,9 +176,7 @@
       cones and the cast marks dimmed, and that department's items in full (set pieces in full on art's); the watermark on a plan sits inside the plan box
       (src/features/export/planStamp.ts), never over the legend or the title. The canvas keeps an item's drawing
       while its `draw` function is the same: a host hands a new `draw` whenever what it shows changes. Readers that
-      tiles call on every edit read an index kept per records object (src/core/model/recordIndex.ts), never a scan. A
-      plan write asks for its sort key through `keyAfterLast` (src/core/model/plan.ts, 6.22): a key an imported file
-      made unreadable never makes it throw.
+      tiles call on every edit read an index kept per records object (src/core/model/recordIndex.ts), never a scan.
   - Setups are numbered within the scene (Setup 1, 2, 3), never lettered: shot numbers use the letters (12A). The
     number comes from the order, never stored. Built in 6.0: src/core/model/setup.ts (`frameSetupId` is the one
     reader: a setup in another scene, in the Trash or gone reads as none), the Setups tile

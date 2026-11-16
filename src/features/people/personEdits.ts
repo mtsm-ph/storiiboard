@@ -1,7 +1,7 @@
 import { DEPARTMENTS, type Department } from '../../core/model/department';
 import type { SbdRecord } from '../../core/model/record';
 import { isRole } from '../../core/model/role';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 import { personDepartments } from '../../core/model/person';
 
@@ -17,10 +17,13 @@ const live = (records: Records, id: string): SbdRecord | null => {
 
 /** A new, empty person after the project's others (in the Trash too, so a restored one never shares a key). */
 export function newPerson(records: Records, projectId: string, id: string = crypto.randomUUID()): Extract<Change, { kind: 'create' }> {
-  const last = Object.values(records)
-    .filter((r) => r.type === 'person' && r.parentId === projectId)
-    .reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
-  return { kind: 'create', record: { id, type: 'person', parentId: projectId, sortKey: keyBetween(last, null), props: { name: '' } } };
+  // Past an odd imported key, after the last readable one (6.23).
+  const sortKey = keyAfterKeys(
+    Object.values(records)
+      .filter((r) => r.type === 'person' && r.parentId === projectId)
+      .map((r) => r.sortKey),
+  );
+  return { kind: 'create', record: { id, type: 'person', parentId: projectId, sortKey, props: { name: '' } } };
 }
 
 /** One text field of a person; nothing when it's already that, or they're gone. */

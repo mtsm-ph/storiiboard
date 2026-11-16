@@ -2,7 +2,7 @@ import { isClockTime, isDayDate, SETUP_MINUTES, shootDayFields } from '../../cor
 import type { SbdRecord } from '../../core/model/record';
 import { dayPeopleIds } from '../../core/model/schedule';
 import { projectPeople } from '../../core/model/person';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 
 // The edits the Days tile makes (3.7). Each is one op group, so one ⌘Z: a new day, one field, frames moved into a
@@ -30,11 +30,12 @@ export function nextDate(date: string): string {
  */
 export function newDay(records: Records, projectId: string, today: string, id: string = crypto.randomUUID()): Extract<Change, { kind: 'create' }> {
   const siblings = Object.values(records).filter((r) => r.type === 'shoot_day' && r.parentId === projectId);
-  const last = siblings.reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
+  // Past an odd imported key, after the last readable one (6.23).
+  const sortKey = keyAfterKeys(siblings.map((r) => r.sortKey));
   const dates = siblings.filter((r) => r.trashedAt === null).map((r) => shootDayFields(r.props).date).filter((d) => d !== '');
   const latest = dates.reduce<string | null>((max, d) => (max === null || d > max ? d : max), null);
   const date = latest ? nextDate(latest) : isDayDate(today) ? today : '';
-  return { kind: 'create', record: { id, type: 'shoot_day', parentId: projectId, sortKey: keyBetween(last, null), props: { date, people_ids: [] } } };
+  return { kind: 'create', record: { id, type: 'shoot_day', parentId: projectId, sortKey, props: { date, people_ids: [] } } };
 }
 
 export type DayField = 'date' | 'call_time' | 'wrap_time' | 'notes';

@@ -4,7 +4,7 @@ import type { Props, SbdRecord } from '../../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../../core/model/shotNumbers';
 import { shotFields, type ShotFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys, keyBetween } from '../../core/ops/order';
 import type { Statement } from '../../core/storage/driver';
 import { addShots } from './board';
 import type { FramePictureView } from './FrameImage';
@@ -92,7 +92,8 @@ export function setPicture(
 ): PictureEdit {
   if (!records[shotId]) return { changes: [], alsoWrite: [] };
   const old = currentMedia(records, shotId);
-  const create = mediaCreate(shotId, keyBetween(mediaOf(records, shotId).at(-1)?.sortKey ?? null, null), picture, projectPath);
+  // After the last picture's key, or its last readable one past an odd imported key (6.23).
+  const create = mediaCreate(shotId, keyAfterKeys(mediaOf(records, shotId).map((r) => r.sortKey)), picture, projectPath);
   return {
     changes: [
       create,

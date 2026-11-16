@@ -1,7 +1,7 @@
 import { dayCallsheet } from '../../core/model/callsheet';
 import type { JsonValue, SbdRecord } from '../../core/model/record';
 import { HMU_MINUTES, isClockTime } from '../../core/model/shootDay';
-import { keyBetween } from '../../core/ops/order';
+import { keyAfterKeys } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
 
 // The edits the call sheet makes: its two notes (4.1), and its department and person times (4.2). The `callsheet` record under a day is made by the
@@ -29,10 +29,13 @@ function sheetProp(records: Records, dayId: string, prop: string, value: JsonVal
   if (!sheet) {
     if (value === undefined) return [];
     // After every call sheet the day has had (in the Trash too), so a restored one never shares a key.
-    const last = Object.values(records)
-      .filter((r) => r.type === 'callsheet' && r.parentId === dayId)
-      .reduce<string | null>((max, r) => (max === null || r.sortKey > max ? r.sortKey : max), null);
-    return [{ kind: 'create', record: { id, type: 'callsheet', parentId: dayId, sortKey: keyBetween(last, null), props: { [prop]: value } } }];
+    // Past an odd imported key, after the last readable one (6.23).
+    const sortKey = keyAfterKeys(
+      Object.values(records)
+        .filter((r) => r.type === 'callsheet' && r.parentId === dayId)
+        .map((r) => r.sortKey),
+    );
+    return [{ kind: 'create', record: { id, type: 'callsheet', parentId: dayId, sortKey, props: { [prop]: value } } }];
   }
   return value === undefined ? [{ kind: 'update', id: sheet.id, unset: [prop] }] : [{ kind: 'update', id: sheet.id, set: { [prop]: value } }];
 }

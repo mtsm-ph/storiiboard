@@ -10,8 +10,8 @@ import { addPictures, usePicturesBusy } from './addPictures';
 import { readClip } from '../../core/media/video';
 import { useMissingVideos } from '../video/videoStatus';
 import {
-  addNote,
-  addScene,
+  addNoteChanges,
+  addSceneChanges,
   addShot,
   board,
   leavesLockedScene,
@@ -266,9 +266,9 @@ export function StoryboardTile() {
           onAddScene={() => {
             let sceneId = '';
             void applyWith((now) => {
-              const change = addScene(now, projectId);
-              sceneId = change.record.id;
-              return { changes: [change] };
+              const made = addSceneChanges(now, projectId);
+              sceneId = made.id;
+              return { changes: made.changes };
             }).then(() => {
               if (projectStore.getState().records[sceneId]) selectionStore.getState().selectScene(sceneId);
             });
@@ -337,14 +337,14 @@ export function StoryboardTile() {
             let id = '';
             await applyWith((now, slate) => {
               if (choice.kind === 'scene') {
-                const change = addScene(now, projectId, place.sceneId);
-                id = change.record.id;
-                return { changes: [change] };
+                const made = addSceneChanges(now, projectId, place.sceneId);
+                id = made.id;
+                return { changes: made.changes };
               }
               if (choice.kind === 'note') {
-                const change = addNote(now, place.sceneId, place.afterId);
-                id = change.record.id;
-                return { changes: [change] };
+                const made = addNoteChanges(now, place.sceneId, place.afterId);
+                id = made.id;
+                return { changes: made.changes };
               }
               const added = addShot(now, projectId, place.sceneId, place.afterId, {}, slate);
               id = added.shotId;

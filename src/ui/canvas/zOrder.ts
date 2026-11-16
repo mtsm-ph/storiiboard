@@ -1,4 +1,4 @@
-import { keyBetween } from '../../core/ops/order';
+import { keyBetweenOrNull, sequenceKeys } from '../../core/ops/order';
 import type { ReorderMode } from './types';
 
 // Z order is the items' sibling order (docs/SBD_FORMAT.md, Boards): the first is at the back. These work on a list of
@@ -42,7 +42,8 @@ export function reordered(order: readonly string[], selected: ReadonlySet<string
  * The new sort keys that give `after` as the order, for the moved ids only: everything else keeps its key, so a reorder
  * of several items writes those items' rows and no others. Empty when the order didn't change. Two items that stay put
  * sharing one key (existing data: a plan's, 6.7 review) leave no key between them: the item moved takes one after the
- * last key before it, below the next key above that, so a reorder never throws; with distinct keys nothing changes.
+ * last key before it, below the next key above that, so a reorder never throws; with distinct keys nothing changes. A
+ * key that can't be read (6.23) has every item of `after` written a fresh key, moved or not.
  */
 export function sortKeysFor(
   before: readonly string[],
@@ -80,7 +81,10 @@ export function sortKeysFor(
       previous = own;
       continue;
     }
-    const key = keyBetween(previous, next);
+    const key = keyBetweenOrNull(previous, next);
+    // A key keyBetween can't read, or two out of order (an odd imported file's, 6.23): the whole list is written afresh
+    // in the new order, so the reorder still gives the order asked for, and never throws.
+    if (key === null) return sequenceKeys(after.map((other) => ({ id: other, sortKey: keyOf.get(other) ?? '' })));
     keys.set(id, key);
     previous = key;
   }
