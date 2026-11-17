@@ -410,9 +410,20 @@ report.** He also said: **use Fable for every agent this week** (start the build
   fonts; the Mac's trace of that test would settle it, if the checkpoint uploaded traces). **Needs one Mac run to
   confirm (`checkpoint/e2e-<name>`): ask Kevin to name it.** Left as it always was: with an odd canvas width the
   plan's origin sits on a half pixel.
-- **Status line (keep current):** Nov 16, evening: #180 to #191 merged; #192 (6.24), #193 (6.25) and 6.28 open,
-  stacked, green on Linux, waiting for Kevin's word; checkpoint 43982486430 red on the Mac; next builder: 6.26
-  (held-key cost), then 6.27 (scout photos), then 6.6.1 to 6.6.5 (all five briefs written in docs/briefs/).
+- **PAUSED (Kevin, Nov 16, late: "a small pause, wait for a reset").** The 6.26 builder (held-key cost) was
+  stopped mid-work on branch `fix/6.26-held-key-cost` (local only, not pushed), which sits on #194. It left
+  UNFINISHED, UNCOMMITTED, UNREVIEWED edits in the working tree: src/app/shell/AppShell.tsx, SavedSignButton.tsx,
+  savedSign.ts, src/core/i18n/index.ts, src/core/model/planCompass.ts, recordIndex.ts, sunSources.ts,
+  src/features/birdseye/plan/PlanCompass.tsx, src/features/notifications/notificationsStore.ts,
+  src/ui/canvas/Canvas.tsx and a new src/features/birdseye/plan/editCost.test.ts. No check was run on them. To
+  resume: start a builder on docs/briefs/6.26-held-key-cost.md and tell it these edits are a stopped builder's
+  unfinished work to read, judge and finish or redo (never trust them untested); or discard them only on Kevin's
+  word. Don't commit them as they are.
+- **Status line (keep current):** Nov 16, late: PAUSED for Kevin's usage reset. #180 to #191 merged; #192 (6.24),
+  #193 (6.25), #194 (6.28) open, stacked, green on Linux, waiting for his word to merge; checkpoint 43982486430
+  red on the Mac (the fixes in #194 need one Mac run he names); 6.26 half-built as above; then 6.27 (scout
+  photos) and 6.6.1 to 6.6.5: every brief is written in docs/briefs/ (untracked files in the checkout). No agent
+  running.
 
 ### Next session: start here (Nov 16, earlier: "6.5 canvas polish"; older)
 
