@@ -14,7 +14,7 @@ describe('the own place field', () => {
     expect(first).toEqual({ kind: 'set', place: pasted });
     // The field now shows the short form; the blur reads it as the place it stands for, before or after the store has it.
     const short = formatCoordinates(pasted);
-    expect(short).toBe('40.8677, -73.9212');
+    expect(short).toBe('40.86771, -73.92123');
     expect(ownPlaceCommit(short, null, pasted)).toEqual({ kind: 'none' });
     expect(ownPlaceCommit(short, pasted, pasted)).toEqual({ kind: 'none' });
     // The same place pasted again, in full, is no new edit either.
@@ -24,7 +24,7 @@ describe('the own place field', () => {
   it('writes a new place, clears on an emptied field, and refuses what isn’t one', () => {
     expect(ownPlaceCommit('33.8688 S, 151.2093 E', pasted, pasted)).toEqual({ kind: 'set', place: { latitude: -33.8688, longitude: 151.2093 } });
     // Typed as the short form of the stored place but meant as itself: still that place, never rounded.
-    expect(ownPlaceCommit('40.8677, -73.9212', pasted, null)).toEqual({ kind: 'none' });
+    expect(ownPlaceCommit('40.86771, -73.92123', pasted, null)).toEqual({ kind: 'none' });
     expect(ownPlaceCommit('   ', pasted, pasted)).toEqual({ kind: 'clear' });
     expect(ownPlaceCommit('', null, null)).toEqual({ kind: 'none' });
     expect(ownPlaceCommit('40,8677, -73,9212', pasted, pasted)).toEqual({ kind: 'refused', reason: 'decimalComma' });

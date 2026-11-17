@@ -56,7 +56,7 @@ describe('pasting coordinates on a location', () => {
   it('is one op setting the place as read, placed by hand, the address kept, and requests nothing', async () => {
     const outcome = await putPastedCoordinates('l1', '40.867712, -73.921234');
     expect(outcome).toEqual({ ok: true, place: { latitude: 40.867712, longitude: -73.921234 }, written: true });
-    expect(groups).toEqual([[{ kind: 'update', id: 'l1', set: { latitude: 40.867712, longitude: -73.921234, map_moved: true, map_name: '40.8677, -73.9212' } }]]);
+    expect(groups).toEqual([[{ kind: 'update', id: 'l1', set: { latitude: 40.867712, longitude: -73.921234, map_moved: true, map_name: '40.86771, -73.92123' } }]]);
     // Nothing touches the address.
     expect(JSON.stringify(groups)).not.toContain('address');
     expect(search.searchOnline).not.toHaveBeenCalled();
@@ -83,7 +83,7 @@ describe('pasting coordinates on a location', () => {
   it('names a searched place’s pin by its new coordinates, leaves its hospital, and is nothing where the pin already is', () => {
     const records = { l1: location({ ...placed, hospital_name: 'Hospital Regional', hospital_latitude: -13.52, hospital_longitude: -71.97 }) };
     const changes = pasteCoordinatesChanges(records, 'l1', 40.8677, -73.9212);
-    expect(changes).toEqual([{ kind: 'update', id: 'l1', set: { latitude: 40.8677, longitude: -73.9212, map_moved: true, map_name: '40.8677, -73.9212' } }]);
+    expect(changes).toEqual([{ kind: 'update', id: 'l1', set: { latitude: 40.8677, longitude: -73.9212, map_moved: true, map_name: '40.86770, -73.92120' } }]);
     // A dragged pin (movePin) touches no hospital prop, and nor does this.
     expect(JSON.stringify(changes)).not.toContain('hospital');
     expect(pasteCoordinatesChanges(records, 'l1', placed.latitude, placed.longitude)).toEqual([]);

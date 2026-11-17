@@ -116,7 +116,8 @@ kind `blocking` under the scene) and the **setup** (cameras, lights, grip, sound
 | 6.5.7a Canvas polish: the board's dot grid; any colour for a sticky | A dot grid behind a board or deck, on or off on this computer, its spacing 20 × 5^k board units by zoom and shown by the switch; snap to it as an option (moves, and resizes with proportions kept); never stored, printed or exported. A sticky takes any colour: the six swatches plus the Hex field and picker, its words in ink or paper by contrast | #189 | Built Nov 16 |
 | 6.5.7b Canvas polish: crop and a border on a board's picture | Ctrl (Cmd on a Mac) + a handle crops a picture; without the key it resizes. The crop is stored on the item as fractions (`crop`), the files are never touched, Reset crop undoes it; a PDF embeds only the kept part. A border: on or off, any colour, a width (`border`, `border_color`, `border_width`), on schema 15's list. A single selected picture shows eight handles | #190 | Built Nov 16 |
 | 6.5.8 Canvas polish: settings presets | A save icon in Settings saves this computer's look and layout as a named preset in the project (`settings_preset`): theme, the canvas views, the board's grid and snap, the person's own workspaces as arranged, the department workspaces, the plan's layer states, scene palettes in the PDF; never language, units, paper, directions, backups, trackpad mode or anything of who "me" is. Apply… shows what will change, saves "Before [name]" first, and reads the preset as untrusted input (512 KB at most, layouts rebuilt clean, a half-readable field left as it is and named). Changes the four Settings screenshots | #191 | Built Nov 16 |
-| 6.24 Steps never share a time | An op group's time is strictly later than every earlier one in its file (src/core/ops/ops.ts `stepTime`), so two steps in one millisecond are never one step: the Trash's "what went with it" (a wall's doors, a room's items, a camera's marks, a connector and its item, a board's items, a scene's frames) is right however fast steps arrive | (PR open) | Built Nov 16 |
+| 6.24 Steps never share a time | An op group's time is strictly later than every earlier one in its file (src/core/ops/ops.ts `stepTime`), so two steps in one millisecond are never one step: the Trash's "what went with it" (a wall's doors, a room's items, a camera's marks, a connector and its item, a board's items, a scene's frames) is right however fast steps arrive | #192 (open) | Built Nov 16 |
+| 6.25 Small fixes | Pasting items with connectors into an empty board gives no two records the same key; a place's coordinates show to 5 decimals wherever a pair is shown, and a pasted pin's show once; tests that an old file migration 012 refuses loses nothing | (PR open, stacked) | Built Nov 16 |
 | Phase 6 gate | A checkpoint and Kevin's checklist: he plans a real Bey County setup and shows the PDF to a gaffer | | Everything merged into `v2` (Nov 15); the checkpoint and the checklist are in docs/HANDOFF.md |
 
 Not in Phase 6: the 3D set and Blender (Phase 10, which reads these plans and their heights), the plan on the web
@@ -1436,7 +1437,7 @@ information three times: moodboard in Milanote, deck in Canva or Keynote, shot l
   sunrise, golden hour and maps pulled in automatically.
 
 **Who and how:** built for filmmakers, producers and creators. Kevin uses it first on real jobs (Bey County is the natural
-pilot), then releases it as a free, open-source desktop app for Mac and Windows. Projects live on the user's own drive,
+pilot), then releases it as a free desktop app for Mac and Windows. Projects live on the user's own drive,
 saved automatically, with no account or server. Anyone can run it, fork it and improve it; Patreon funds the work.
 
 ## Where the repo stands (before v2)
@@ -1776,7 +1777,7 @@ Calendar, Notifications and Trash are main navigation items. Cast and crew see o
 The web companion is the only part that needs a server, so it has a running cost and holds private data such as phone
 numbers and addresses. Each person gets a private invite link (the optional view-only link never shows private data), contact details show only to people on that call sheet,
 and review copies expire after the shoot. Supabase's free tier covers testing; client work needs paid plans (about $45
-a month, see Hosting the review copy). Open-source users can host their own.
+a month, see Hosting the review copy). People using the free app can host their own.
 
 ### Who uses what
 
@@ -2337,7 +2338,7 @@ src/features/export holds a registry of formats, so adding one is a new file plu
     signing up.
 - **What it needs:** a Supabase project and an email sender for the magic links (Supabase's built-in mailer is for
   testing only; Resend and Postmark have free tiers). A domain for the invite links is optional.
-- **Self-hosting:** open-source users point the app at their own Supabase project and any static host.
+- **Self-hosting:** people using the free app point it at their own Supabase project and any static host.
 - **Sooner, if wanted:** the review copy could split off as Phase 9's first milestone and move up to follow Phase 4.
   It needs only the storyboard, Team and the review screen.
 
@@ -2455,7 +2456,7 @@ Plan first, then build in PRs of one milestone each.
 
 ## Decisions
 
-Audience is settled: Kevin first, then a free open-source desktop app for filmmakers, producers and creators, with a web
+Audience is settled: Kevin first, then a free desktop app for filmmakers, producers and creators, with a web
 companion for everyone on set. Three calls unblock Phase 0; the rest can wait until Phase 8.
 
 | Decision | Options | Recommendation | Needed by | Status |
@@ -2504,7 +2505,7 @@ Still open:
 | AI proposes a wrong change | AI can only suggest; a person approves everything |
 | Big image boards get slow | Thumbnails on the canvas, originals only on export |
 | Claude Code drifts or breaks earlier work | CLAUDE.md rules, CI tests, one milestone per PR |
-| Open-source support load after release | Issue templates, a clear README, a Patreon tier for priority requests |
+| Support load of a free app after release | Issue templates, a clear README, a Patreon tier for priority requests |
 | Limited build hours alongside client work | Each phase is usable on its own |
 
 ## Next steps

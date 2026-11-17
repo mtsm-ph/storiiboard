@@ -386,8 +386,27 @@ report.** He also said: **use Fable for every agent this week** (start the build
 - **Rules that changed today:** Storiiboard is free and closed source; the repo stays public until the app is
   built; plans for unbuilt features live in `private/` (ignored); a checkpoint only when Kevin names one; no
   public release until the app reads the switch file from the public home.
-- **Status line (keep current):** Nov 16, evening: #180 to #191 merged; checkpoint 43982486430 running; 6.24
-  built and reviewed, its PR open; next: 6.25, 6.26, 6.27, then the 6.6 briefs, one builder at a time.
+- **Checkpoint 43982486430 finished RED on the Mac** (Kevin was told at once): both installers built and passed
+  their checks (Rust: Windows 303, Mac 313), Linux smoke 26 passed; the Mac's whole suite in WebKit: 591 passed,
+  4 failed, 1 flaky. Failed: planUnderlay.spec "an underlay set to scale by two clicks and "4m"…" and "Set scale
+  takes its clicks exactly where they are…" (half a centimetre off: suspect, the plan's first view beside the
+  tool strip puts the origin on a half pixel, PLAN_STRIP_INSET 69); macWebKit.spec "Tab from the Hex field to
+  outside the colour panel closes it…" (6.5.7a's test waits for a picker a Mac doesn't have); boardGrid.spec
+  "snap to grid: a picture's and a deck page's corner…" (a click on a page's edge doesn't select it in WebKit).
+  Flaky: planLayers.spec "hides, locks, dims and solos layers…". The Mac's log is saved at
+  test-results/perf1116/mac-nov16.log. Brief docs/briefs/6.28-mac-failures.md is written; its fixes can only be
+  confirmed by a Mac run (`checkpoint/e2e-<name>`, no installers), which needs Kevin's word.
+- **Merging:** Kevin named #185 to #191 only. #192 (6.24) is green and NOT merged (an attempt was held back as
+  not named); everything after it stacks on it and waits for his word: 6.25 (small fixes; two rounds, reviewed),
+  then 6.28, 6.26, 6.27 and the 6.6 milestones.
+- Migration 012 for Kevin: a schema-11 file it refuses is left byte-identical; an older file ends at schema 11
+  (earlier migrations commit one by one), nothing lost, the original in the first backup; each failed try in a
+  new minute leaves another backup beside the project, and a retry in the same minute fails at "A backup named …
+  already exists". No product change made; his call.
+- **Status line (keep current):** Nov 16, evening: #180 to #191 merged; #192 (6.24) and 6.25 open, stacked,
+  waiting for Kevin's word; checkpoint 43982486430 red on the Mac (4 failed, 1 flaky); next builder: 6.28 (the
+  Mac failures), then 6.26 (held-key cost), 6.27 (scout photos), then 6.6.1 and 6.6.2 (briefs written), then the
+  remaining 6.6 briefs (slider and light patches; Library by room; templates and the styled rooms' pictures).
 
 ### Next session: start here (Nov 16, earlier: "6.5 canvas polish"; older)
 
