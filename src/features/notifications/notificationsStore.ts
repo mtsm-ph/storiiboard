@@ -100,6 +100,15 @@ export function useNotificationSync(): void {
   }, [project, records, canUndo, userId, me]);
 }
 
+/**
+ * useNotificationSync as a component of its own that draws nothing (6.26), as MarkSeen is: it reads the records, so
+ * every edit draws it again, and in the shell that drew the top bar, the sidebar and every tile again with it.
+ */
+export function NotificationSync(): null {
+  useNotificationSync();
+  return null;
+}
+
 /** Whether the store is still the open project's, read for `userId`: a write lands for whoever it was made for, or not at all. */
 const current = (userId: string): boolean => {
   const { file, userId: reader } = notificationsStore.getState();

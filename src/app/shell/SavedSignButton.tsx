@@ -4,7 +4,7 @@ import { openSettings } from '../settings/settingsStore';
 import { t } from '../../core/i18n';
 import { cx } from '../../ui/cx';
 import { Trans } from '../../ui/Trans';
-import { savedSignText, say, type Phrase } from './savedSign';
+import { savedSignText, say, signMinute, type Phrase } from './savedSign';
 
 // The status bar's "Saved 14:32 · Backup 14:30" (6.5.4). A button: it opens Settings → Backups. Its name is what it
 // shows, so a person using voice control can say it (WCAG 2.5.3, axe's label-content-name-mismatch), and its
@@ -41,7 +41,8 @@ function useNow(): Date {
 }
 
 export function SavedSign() {
-  const savedAt = useProject((s) => s.savedAt);
+  // To the minute, which is all the sign shows (savedSign.ts, signMinute): the store's time changes with every edit.
+  const savedAt = useProject((s) => signMinute(s.savedAt));
   const backupAt = useProject((s) => s.backupAt);
   const saveFailed = useProject((s) => s.saveFailed);
   const changedOnDisk = useProject((s) => s.changedOnDisk);

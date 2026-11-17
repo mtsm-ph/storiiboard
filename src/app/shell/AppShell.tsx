@@ -32,7 +32,7 @@ import { isSettingsShortcut, openSettings, SettingsHost } from '../settings/Sett
 import { PresetWindows } from '../presets/PresetsTab';
 import { AskHost } from '../ask';
 import { ManageWorkspacesHost } from './ManageWorkspaces';
-import { useNotificationSync } from '../../features/notifications/notificationsStore';
+import { NotificationSync } from '../../features/notifications/notificationsStore';
 import { NoticeBar } from '../NoticeBar';
 import { t } from '../../core/i18n';
 
@@ -47,8 +47,6 @@ export function AppShell() {
   // Hidden or shown as the person last left it (polish 2); the workspace takes the room, its tiles keeping their shares.
   const sidebarHidden = useSidebarHidden();
   useOpenedFiles();
-  // Notifications' read state kept in step with the project and whoever is reading (3.10), for the count and the tile.
-  useNotificationSync();
   // Read through the store, so a rename of one of the person's own workspaces (3.6d) names it anew everywhere.
   const workspace = useWorkspaceState((s) => workspaceById(s.active));
   const projectTitle = useProject((s) => {
@@ -199,6 +197,9 @@ export function AppShell() {
       {/* A frame opened marks it Seen by this person's department (polish 6b), whichever tile opened it. Its own
           component, so a new selection re-renders it alone, never the shell. */}
       <MarkSeen />
+      {/* Notifications' read state kept in step with the project and whoever is reading (3.10), for the count and the
+          tile. Its own component too (6.26): it reads the records, and the shell must not draw again for every edit. */}
+      <NotificationSync />
       {/* The palette's eyedropper (polish PP): on while a scene's palette is picking from a frame. */}
       <EyedropperHost />
       <TopBar projectName={projectTitle} workspace={workspace} onOpenHistory={openHistoryHere} />

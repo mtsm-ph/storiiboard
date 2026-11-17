@@ -847,7 +847,10 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
   }, []);
   // What the plan holds, in metres, as plain data for the end-to-end tests (the canvas is pixels).
   // Only what is drawn (6.8: a hidden layer's items are left out), each with how its layer draws it.
+  // In development builds only (6.26 round 2), as data-plan-live is: nothing in the app reads it, and it is a string of
+  // every item made again on every edit, which an installed app has no use for.
   const data = useMemo(() => {
+    if (!import.meta.env.DEV) return undefined;
     const walls = new Map(visible.flatMap((item) => (isWallFields(item.fields) ? [[item.record.id, item.fields] as const] : [])));
     const itemData = ({ record, fields, level }: ShownItem): Record<string, unknown> => {
       // An icon (6.3): its box, its middle and its layer, worked out from its group.

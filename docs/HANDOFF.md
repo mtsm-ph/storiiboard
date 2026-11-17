@@ -410,9 +410,20 @@ report.** He also said: **use Fable for every agent this week** (start the build
   fonts; the Mac's trace of that test would settle it, if the checkpoint uploaded traces). **Needs one Mac run to
   confirm (`checkpoint/e2e-<name>`): ask Kevin to name it.** Left as it always was: with an odd canvas width the
   plan's origin sits on a half pixel.
-- **Status line (keep current):** Nov 16, evening: #180 to #191 merged; #192 (6.24), #193 (6.25) and 6.28 open,
-  stacked, green on Linux, waiting for Kevin's word; checkpoint 43982486430 red on the Mac; next builder: 6.26
-  (held-key cost), then 6.27 (scout photos), then 6.6.1 to 6.6.5 (all five briefs written in docs/briefs/).
+- **6.26 (the held turn key's cost; branch `fix/6.26-held-key-cost`, stacked on #194; two rounds, reviewed: no
+  staleness):** built after the pause (Kevin said continue, Nov 17). The held key passes its budget 12 runs of
+  12 on the PC (p95 33.3 to 33.4 ms); perf.spec untouched. Guards: editCost.test.ts, sunRecords.test.ts.
+  `data-plan-data` and `data-handles` are dev-build-only test hooks now.
+- **Refused page loads keep happening in full local e2e runs, each time on a different test, each passing
+  alone:** connectors.spec (Nov 15), moodboard.spec "Shift keeps the proportions…" (Nov 16), deckExport.spec
+  "prints an original only when it is the picture the deck shows…" (Nov 16), moodboard.spec "opens the Camera
+  board from the picker…" (Nov 17). Kevin's rule: a second time, find the cause, no retry. As a class this is
+  well past a second time: a brief to find the cause (the dev server refusing a connection under 8 workers) is
+  owed; tell Kevin.
+- **Status line (keep current):** Nov 17: #180 to #191 merged; #192 (6.24), #193 (6.25), #194 (6.28) and 6.26
+  open, stacked, waiting for Kevin's word to merge; checkpoint 43982486430 red on the Mac (the fixes in #194 need
+  one Mac run he names); next builder: 6.27 (scout photos), then 6.6.1 to 6.6.5 (briefs in docs/briefs/), then
+  the refused-page-load cause.
 
 ### Next session: start here (Nov 16, earlier: "6.5 canvas polish"; older)
 

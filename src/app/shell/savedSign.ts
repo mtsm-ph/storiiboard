@@ -56,6 +56,18 @@ export function signTime(at: Date, now: Date): string {
   return t('time.dayAndTime', { day: shortDay(at), time: clockTime(at) });
 }
 
+/**
+ * A stored time cut to its minute (6.26), ISO: all the sign shows of it is its day, hour and minute, so the component
+ * reads the store through this and draws again once a minute of edits, not once an edit (a held key is 30 edits a
+ * second). A minute starts at the same instant in every zone a computer keeps today. One that can't be read stays as
+ * it is.
+ */
+export function signMinute(iso: string | null): string | null {
+  if (iso === null) return null;
+  const at = Date.parse(iso);
+  return Number.isNaN(at) ? iso : new Date(Math.floor(at / 60_000) * 60_000).toISOString();
+}
+
 const when = (iso: string | null): Date | null => {
   if (iso === null) return null;
   const at = new Date(iso);

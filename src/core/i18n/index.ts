@@ -138,6 +138,8 @@ export function formatMoney(amount: number, currency: string): string {
   }
 }
 
+const numberFormats = new Map<string, Intl.NumberFormat>();
+
 /**
  * A number the way the app's language writes it ("4,200", "1.5"), to `digits` decimals at most, grouped. By the
  * language's own tag (the one t() and plural rules use), never the computer's region: a German-region computer in
@@ -145,7 +147,15 @@ export function formatMoney(amount: number, currency: string): string {
  * follows the region (Kevin, Nov 10, with weather units and the week's first day).
  */
 export function formatNumber(value: number, digits = 1): string {
-  return new Intl.NumberFormat(current.tag, { maximumFractionDigits: digits, useGrouping: true }).format(value);
+  // One formatter per language and precision, kept (6.26), as the plural rules are: making one costs far more than
+  // using it, and a plan asks for a number per light's watts on every edit.
+  const key = `${current.tag}|${String(digits)}`;
+  let format = numberFormats.get(key);
+  if (!format) {
+    format = new Intl.NumberFormat(current.tag, { maximumFractionDigits: digits, useGrouping: true });
+    numberFormats.set(key, format);
+  }
+  return format.format(value);
 }
 
 /** A date or time the way the current language writes it. */
