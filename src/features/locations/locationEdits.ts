@@ -1,6 +1,7 @@
 import { imageStatements, mediaProps, type ImageSource, type PreparedImage } from '../../core/media/store';
 import { formatCoordinates } from '../../core/model/coordinates';
-import type { SbdRecord } from '../../core/model/record';
+import type { JsonValue, SbdRecord } from '../../core/model/record';
+import { locationPhoto, photoTakenOf, takenProps, type PhotoExif } from '../../core/model/scoutPhoto';
 import { isTimeZone } from '../../core/model/sunTimes';
 import type { Statement } from '../../core/storage/driver';
 import { countryCodeOf, HOSPITAL_PROPS, MAP_PLACE_PROPS, mapPlace, unpinnedBy } from '../../core/model/location';
@@ -195,12 +196,14 @@ export function trashLocation(records: Records, id: string): Change[] {
 
 /**
  * Photos added to a location (3.3), after its others, in one edit: each a picture under the location, stored as a
- * frame's picture is. Nothing when the location isn't live.
+ * frame's picture is. What its EXIF said (6.27: when it was taken and where, read on this computer) is written on the
+ * photo's record in the same op, through the one reader (takenProps: only what reads); a photo with none is stored
+ * exactly as before. Nothing when the location isn't live.
  */
 export function addLocationPhotos(
   records: Records,
   locationId: string,
-  photos: readonly { image: PreparedImage; source: ImageSource }[],
+  photos: readonly { image: PreparedImage; source: ImageSource; exif?: PhotoExif | null }[],
   projectPath: string,
   now = new Date(),
 ): { changes: Change[]; alsoWrite: Statement[] } {
@@ -212,13 +215,41 @@ export function addLocationPhotos(
   let last: string | null = null;
   const changes: Change[] = [];
   const alsoWrite: Statement[] = [];
-  for (const { image, source } of photos) {
+  for (const { image, source, exif } of photos) {
     // The first after the last readable key (6.23: an odd imported one never makes it throw), each next after it.
     last = last === null ? keyAfterKeys(siblings) : keyBetween(last, null);
-    changes.push({ kind: 'create', record: { id: crypto.randomUUID(), type: 'media', parentId: locationId, sortKey: last, props: mediaProps(image, source, projectPath) } });
+    changes.push({ kind: 'create', record: { id: crypto.randomUUID(), type: 'media', parentId: locationId, sortKey: last, props: { ...mediaProps(image, source, projectPath), ...takenProps(exif) } } });
     alsoWrite.push(...imageStatements(image, now));
   }
   return { changes, alsoWrite };
+}
+
+/**
+ * "Use this photo's place and time" (6.27), ONE op on the photo's location, so one undo: where the photo has a place,
+ * the location's coordinates become the photo's exactly as pasted coordinates do (pasteCoordinatesChanges: `latitude`
+ * and `longitude` as read, `map_moved` set, `map_name` the coordinates' text; its zone is then found from the place,
+ * offline); where it has a time, the photo becomes the location's light reference (`light_photo_id`, one per location,
+ * replacing an earlier one). Nothing is requested, ever. Nothing when the photo isn't a live photo of a live location,
+ * has neither, or the location reads so already.
+ */
+export function photoPlaceTimeChanges(records: Records, photoId: string): Change[] {
+  const found = locationPhoto(records, photoId);
+  if (!found || found.photo.trashedAt !== null) return [];
+  const { photo, location } = found;
+  const taken = photoTakenOf(photo.props);
+  const set: Record<string, JsonValue> = {};
+  for (const change of taken.place ? pasteCoordinatesChanges(records, location.id, taken.place.latitude, taken.place.longitude) : []) {
+    if (change.kind === 'update') Object.assign(set, change.set);
+  }
+  if (taken.takenAt !== null && location.props.light_photo_id !== photo.id) set.light_photo_id = photo.id;
+  return Object.keys(set).length === 0 ? [] : [{ kind: 'update', id: location.id, set }];
+}
+
+/** The location's light reference taken off ("Clear", 6.27), one op; nothing when it has none stored. */
+export function clearLightPhotoChanges(records: Records, locationId: string): Change[] {
+  const location = records[locationId];
+  if (location?.type !== 'location' || location.trashedAt !== null || !('light_photo_id' in location.props)) return [];
+  return [{ kind: 'update', id: locationId, unset: ['light_photo_id'] }];
 }
 
 /** A location's photo to the Trash. */

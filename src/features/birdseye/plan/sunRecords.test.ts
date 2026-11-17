@@ -3,7 +3,7 @@ import { setLocale } from '../../../core/i18n';
 import { compassModel } from '../../../core/model/planCompass';
 import { liveSun } from '../../../core/model/planSun';
 import { RECORD_TYPES, type JsonValue, type Props, type SbdRecord } from '../../../core/model/record';
-import { sunReadingFresh, sunReadingOf, sunZonePointFresh, sunZonePointOf } from '../../../core/model/sunSources';
+import { sunLightFresh, sunLightOf, sunLightZonePoint, sunReadingFresh, sunReadingOf, sunZonePointFresh, sunZonePointOf } from '../../../core/model/sunSources';
 import { sunLookFrom, sunLookOf } from './sunLooks';
 
 // The records a sun path's reading is kept by (6.26 round 2): sunSources.ts names the record types it reads (SUN_TYPES,
@@ -33,7 +33,10 @@ const box = { x: 0, y: 0, width: 0.6, height: 0.6, rotation: 0 };
 const base = (): Records =>
   recordsOf(
     record('p', 'project', null, { name: 'Bey County', title: 'Bey County' }),
-    record('diner', 'location', 'p', { name: 'Diner', ...NYC, time_zone: 'America/New_York' }),
+    // The Diner's light reference (6.27): a photo of it with the time it was taken, and a second photo to choose instead.
+    record('diner', 'location', 'p', { name: 'Diner', ...NYC, time_zone: 'America/New_York', light_photo_id: 'photo1' }),
+    record('photo1', 'media', 'diner', { kind: 'image', file: 'a'.repeat(64), mime: 'image/jpeg', width: 800, height: 600, taken_at: '2026-11-03T16:42:07' }, 'a'),
+    record('photo2', 'media', 'diner', { kind: 'image', file: 'b'.repeat(64), mime: 'image/jpeg', width: 800, height: 600, taken_at: '2026-03-20T08:15:00', taken_offset: '+01:00' }, 'b'),
     record('bar', 'location', 'p', { name: 'Bar', ...LA }),
     record('room', 'plan', 'p', { kind: 'room', name: 'Diner', location_id: 'diner' }),
     record('room2', 'plan', 'p', { kind: 'room', name: 'Bar', location_id: 'bar' }),
@@ -85,6 +88,9 @@ const ZONES: ReadonlyMap<string, string | null>[] = [
 
 /** The kept reading, zone point, look and compass of these records equal ones worked out anew, for every zone answer. */
 function expectFresh(records: Records, why: string) {
+  // The light reference beside the switch (6.27 round 4), and the point its zone is looked up at.
+  expect(sunLightOf(records, 'sun'), `${why}: light`).toEqual(sunLightFresh(records, 'sun'));
+  expect(sunLightZonePoint(sunLightOf(records, 'sun')), `${why}: light point`).toEqual(sunLightZonePoint(sunLightFresh(records, 'sun')));
   for (const [n, zones] of ZONES.entries()) {
     const said = `${why} (zones ${String(n)})`;
     const fresh = sunReadingFresh(records, 'sun', zones);
@@ -167,6 +173,94 @@ describe('the records a sun path’s reading is kept by (6.26 round 2)', () => {
     });
   }
 
+  // 6.27: the reading follows the location's light reference photo, a `media` record, only while the sun path shows the
+  // sun at the photo's time. The walk above changes the photos with the switch off (the reading then reads none of
+  // them); this one changes them with it on, when a kept reading that didn't name `media` would go stale.
+  it('media, with the sun shown at the photo’s time: every plain change to the location’s photos leaves the kept reading equal to one worked out anew', () => {
+    const lit = (): Records => patched(base(), 'sun', { at_photo: true });
+    expect(sunReadingOf(lit(), 'sun', new Map())).toMatchObject({ date: { source: 'photo', date: '2026-11-03', time: '16:42' } });
+    for (const id of ['photo1', 'photo2', 'media1']) {
+      const records = lit();
+      for (const [name, changed] of changesTo(records, id)) {
+        expectFresh(records, `${id} before: ${name}`);
+        expectFresh(changed, `${id} ${name}`);
+      }
+      expectFresh({ ...records }, `${id}: back as it was`);
+    }
+  });
+
+  // 6.27 round 3: with no shoot day the sun is drawn wholly from the light reference photo, at its own GPS (its zone
+  // looked up by the photo's id) or its location's place. Each input of that, changed by name, with the zone answers
+  // for the photo's point among those the plan may hold.
+  it('scouting before a schedule: every input of the sun drawn from the photo, changed by name, one step after another', () => {
+    const zonesWithPhoto: ReadonlyMap<string, string | null>[] = [
+      ...ZONES,
+      new Map<string, string | null>([['photo1', 'Europe/Lisbon']]),
+      new Map<string, string | null>([['photo1', 'Atlantic/Azores'], ['photo2', 'Europe/Madrid'], ['diner', 'America/Chicago']]),
+      new Map<string, string | null>([['photo1', null], ['photo2', null]]),
+    ];
+    const fresh = (records: Records, why: string) => {
+      expect(sunLightOf(records, 'sun'), `${why}: light`).toEqual(sunLightFresh(records, 'sun'));
+      expect(sunLightZonePoint(sunLightOf(records, 'sun')), `${why}: light point`).toEqual(sunLightZonePoint(sunLightFresh(records, 'sun')));
+      for (const [n, zones] of zonesWithPhoto.entries()) {
+        const said = `${why} (zones ${String(n)})`;
+        const anew = sunReadingFresh(records, 'sun', zones);
+        expect(sunReadingOf(records, 'sun', zones), said).toEqual(anew);
+        expect(sunZonePointOf(records, 'sun'), said).toEqual(sunZonePointFresh(records, 'sun'));
+        const sun = liveSun(records, 'sun');
+        expect(sunLookOf(records, 'sun', zones, false), said).toEqual(sun ? sunLookFrom(anew, sun.fields.time, false) : null);
+        const model = compassModel(records, view, zones);
+        expect(model.reading, said).toEqual(model.sunId === null ? null : sunReadingFresh(records, model.sunId, zones));
+      }
+    };
+    const steps: [string, (records: Records) => Records][] = [
+      ['the frames taken off their days', (r) => patched(patched(r, 'a', {}, ['shoot_day_id']), 'b', {}, ['shoot_day_id'])],
+      ['the sun shown at the photo’s time', (r) => patched(r, 'sun', { at_photo: true })],
+      ['the photo’s GPS set', (r) => patched(r, 'photo1', { gps_latitude: 38.7223, gps_longitude: -9.1393 })],
+      ['the photo’s GPS changed', (r) => patched(r, 'photo1', { gps_latitude: 37.7412, gps_longitude: -25.6756 })],
+      ['the photo given an offset', (r) => patched(r, 'photo1', { taken_offset: '-01:00' })],
+      ['the photo’s offset changed', (r) => patched(r, 'photo1', { taken_offset: '+05:30' })],
+      ['the photo’s offset taken off', (r) => patched(r, 'photo1', {}, ['taken_offset'])],
+      ['the photo’s GPS removed', (r) => patched(r, 'photo1', {}, ['gps_latitude', 'gps_longitude'])],
+      ['the location’s zone cleared', (r) => patched(r, 'diner', {}, ['time_zone'])],
+      ['the photo’s GPS set again, with no zone on the location', (r) => patched(r, 'photo1', { gps_latitude: 38.7223, gps_longitude: -9.1393 })],
+      // Round 5: exactly the location's own pin, then off it again, with no zone typed and then with one.
+      ['the photo’s GPS set exactly to its location’s pin, with no zone on the location', (r) => patched(r, 'photo1', { gps_latitude: NYC.latitude, gps_longitude: NYC.longitude })],
+      ['the photo’s GPS moved off its location’s pin, with no zone on the location', (r) => patched(r, 'photo1', { gps_latitude: 38.7223, gps_longitude: -9.1393 })],
+      ['the location’s zone typed', (r) => patched(r, 'diner', { time_zone: 'America/New_York' })],
+      ['the photo’s GPS set exactly to its location’s pin', (r) => patched(r, 'photo1', { gps_latitude: NYC.latitude, gps_longitude: NYC.longitude })],
+      ['the photo’s GPS moved off its location’s pin', (r) => patched(r, 'photo1', { gps_latitude: 38.7223, gps_longitude: -9.1393 })],
+      ['the location’s place removed', (r) => patched(r, 'diner', {}, ['latitude', 'longitude'])],
+      ['the photo’s GPS removed with no place on the location', (r) => patched(r, 'photo1', {}, ['gps_latitude', 'gps_longitude'])],
+      ['the location’s place back', (r) => patched(r, 'diner', { latitude: NYC.latitude, longitude: NYC.longitude })],
+      ['the other photo chosen, with its offset', (r) => patched(r, 'diner', { light_photo_id: 'photo2' })],
+      ['the other photo given GPS', (r) => patched(r, 'photo2', { gps_latitude: 40.4168, gps_longitude: -3.7038 })],
+      ['the sun path’s own place and date set', (r) => patched(r, 'sun', { own_latitude: 48.8566, own_longitude: 2.3522, own_date: '2026-03-20' })],
+      ['the scene’s location taken off', (r) => patched(r, 's1', {}, ['location_id'])],
+      ['the frame given the Bar as its location', (r) => patched(r, 'a', { location_id: 'bar' })],
+      ['the frame’s location taken off', (r) => patched(r, 'a', {}, ['location_id'])],
+      ['the scene’s location back', (r) => patched(r, 's1', { location_id: 'diner' })],
+      ['north trashed', (r) => trashed(r, 'north')],
+      ['north restored', (r) => restored(r, 'north')],
+      ['the photo trashed', (r) => trashed(r, 'photo2')],
+      ['the photo restored', (r) => restored(r, 'photo2')],
+      ['the sun no longer shown at the photo’s time', (r) => patched(r, 'sun', {}, ['at_photo'])],
+      ['the frames back on their days', (r) => patched(patched(r, 'a', { shoot_day_id: 'd1' }), 'b', { shoot_day_id: 'd2' })],
+      ['the sun shown at the photo’s time again, with a day', (r) => patched(r, 'sun', { at_photo: true })],
+    ];
+    let records = base();
+    fresh(records, 'as it is');
+    for (const [name, step] of steps) {
+      const next = step(records);
+      expect(next, name).not.toBe(records);
+      fresh(next, name);
+      records = next;
+    }
+    // On the way it was drawn from the photo with no day at all.
+    const scouting = patched(patched(patched(base(), 'a', {}, ['shoot_day_id']), 'b', {}, ['shoot_day_id']), 'sun', { at_photo: true });
+    expect(sunReadingOf(scouting, 'sun', new Map())).toMatchObject({ date: { source: 'photo', date: '2026-11-03' }, place: { source: 'location' } });
+  });
+
   it('every input the reading has, changed by name, one step after another', () => {
     const steps: [string, (records: Records) => Records][] = [
       // The zone: typed on the location, cleared, typed on the other.
@@ -236,6 +330,25 @@ describe('the records a sun path’s reading is kept by (6.26 round 2)', () => {
       ['a shoot day redated', (r) => patched(r, 'd1', { date: '2026-12-24' })],
       ['a shoot day’s date taken off', (r) => patched(r, 'd1', {}, ['date'])],
       ['the new day redated after the others', (r) => patched(r, 'd0', { date: '2027-02-02' })],
+      // The light reference photo (6.27): the sun shown at its time, then every change to the photo and to which one it is.
+      ['the sun shown at the photo’s time', (r) => patched(r, 'sun', { at_photo: true })],
+      ['the photo’s time changed', (r) => patched(r, 'photo1', { taken_at: '2026-12-21T09:30:00' })],
+      ['the photo given an offset', (r) => patched(r, 'photo1', { taken_offset: '+09:00' })],
+      ['the photo’s offset taken off', (r) => patched(r, 'photo1', {}, ['taken_offset'])],
+      ['the photo trashed', (r) => trashed(r, 'photo1')],
+      ['the photo restored', (r) => restored(r, 'photo1')],
+      ['the photo’s time made unreadable', (r) => patched(r, 'photo1', { taken_at: 'sometime' })],
+      ['the photo’s time back', (r) => patched(r, 'photo1', { taken_at: '2026-11-03T16:42:07' })],
+      ['another photo chosen', (r) => patched(r, 'diner', { light_photo_id: 'photo2' })],
+      ['the other photo’s time changed', (r) => patched(r, 'photo2', { taken_at: '2026-06-01T19:00:00' })],
+      ['the other photo moved to another location', (r) => moved(r, 'photo2', 'bar')],
+      ['the other photo moved back', (r) => moved(r, 'photo2', 'diner')],
+      ['the light reference cleared', (r) => patched(r, 'diner', {}, ['light_photo_id'])],
+      ['the first photo chosen again', (r) => patched(r, 'diner', { light_photo_id: 'photo1' })],
+      ['the location’s zone cleared, the photo still chosen', (r) => patched(r, 'diner', {}, ['time_zone'])],
+      ['the location’s zone typed again', (r) => patched(r, 'diner', { time_zone: 'America/New_York' })],
+      ['the sun no longer shown at the photo’s time', (r) => patched(r, 'sun', {}, ['at_photo'])],
+      ['the photo’s time changed while it isn’t shown', (r) => patched(r, 'photo1', { taken_at: '2026-01-02T03:04:05' })],
     ];
     let records = base();
     expectFresh(records, 'as it is');

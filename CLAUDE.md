@@ -45,7 +45,8 @@
   no console error is ever filtered.
 - CI (Kevin, Nov 4): every PR runs quick checks on Linux (lint, types, unit tests, Rust tests); a newer push cancels
   the outdated run. A checkpoint run (.github/workflows/checkpoint.yml) adds the end-to-end smoke set
-  (e2e/smoke.spec.ts) on Linux, the whole end-to-end suite in WebKit on a Mac (Kevin, Nov 14), and the Mac and
+  (e2e/smoke.spec.ts) on Linux, the whole end-to-end suite in WebKit on a Mac (Kevin, Nov 14) and in Chromium on
+  Linux at 8 workers (Kevin, Nov 17), and the Mac and
   Windows installers, each listing what its bundle carries.
 - The end-to-end tests run under the installed app's content security policy (6.13): a violation fails the test.
   src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
@@ -225,6 +226,12 @@
     are typed or pasted in any form Google Maps copies (src/core/model/coordinates.ts), on a sun path and on a
     location (no address search, no request). A compass at the plan's top right shows north and the sun: chrome,
     never printed, never stored.
+    Scout photos (6.27, Kevin Nov 16 and 17): a location's photo keeps its EXIF date, time and GPS (read in Rust,
+    src-tauri/src/exif.rs, which checks every block itself before the library reads it; a refused or HEIC photo
+    still imports and the status line says so); one photo can be the location's light reference. With a setup's
+    "light reference" switch on (`at_photo`), the sun is drawn wholly from the photo, with or without a shoot
+    day: its date and time, its own GPS or else its location's place, and the zone of the place used (the
+    location's at its own pin); the mark and the Selection tile say which place.
     Sun through the windows (6.5.6, src/core/model/windowSun.ts): for a window in an outside wall, its facing and
     the hours direct sun can come through on that date, always with "Buildings and trees outside aren't known";
     a rollup, never stored. Heights for the 3D set (planHeights.ts), optional, in metres: a room's ceiling, a
@@ -473,7 +480,7 @@
 - Start each phase in plan mode and wait for Kevin's approval.
 - One PR per milestone, small enough to review in 15 minutes.
 - Every PR adds or updates tests for the flow it touches.
-- Before saying done: `npm run lint && npm test && npm run e2e` (local end-to-end runs use 8 workers: playwright.config.ts). On Windows, run the end-to-end tests with
+- Before saying done: `npm run lint && npm test && npm run e2e` (local end-to-end runs use 4 workers, so other projects still run beside them: playwright.config.ts, Kevin, Nov 17). On Windows, run the end-to-end tests with
   `--project=chromium` (WebView2's engine): Playwright's Windows WebKit lacks OffscreenCanvas, which Safari has, so
   WebKit runs on a Mac.
 - Ask before adding a dependency or changing the .sbd schema or the MCP tools.

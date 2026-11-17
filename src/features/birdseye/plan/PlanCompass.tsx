@@ -7,6 +7,7 @@ import { compassModel, sameCompassModel, type CompassModel } from '../../../core
 import { roomNorthItem } from '../../../core/model/planSun';
 import { sceneRoomId } from '../../../core/model/plan';
 import type { SbdRecord } from '../../../core/model/record';
+import { dateTimeLabel } from '../../../core/model/scoutPhoto';
 import { Button } from '../../../ui/Button';
 import { useForwardToCanvas } from '../../../ui/canvas/forwardToCanvas';
 import { RULER_SIZE } from '../../../ui/canvas/Rulers';
@@ -48,8 +49,17 @@ export function compassName(model: CompassModel): string {
   return t('compass.label', { north, sun: sunWords(model) });
 }
 
-/** What the compass says of the sun. */
+/**
+ * What the compass says of the sun. Drawn for the location's light reference photo's date (6.27), it says so after the
+ * sun's own words: "From the photo: Nov 3, 16:42", where the shoot day's date would otherwise be the plan's.
+ */
 export function sunWords(model: CompassModel): string {
+  const date = model.reading && !('missing' in model.reading) ? model.reading.date : null;
+  const words = sunWordsOf(model);
+  return date?.source === 'photo' ? t('compass.fromPhoto', { sun: words, when: dateTimeLabel(date.date, date.time) }) : words;
+}
+
+function sunWordsOf(model: CompassModel): string {
   if (model.pending) return t('compass.pending');
   if (model.missing === 'noSunPath') return t('compass.noSunPath');
   if (model.missing !== null) return t(MISSING_WORDS[model.missing]);

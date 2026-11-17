@@ -651,6 +651,61 @@ mod this_computer {
     }
 
     #[test]
+    fn photo_exif_reads_the_raw_body_and_answers_in_the_shape_photo_exif_ts_reads() {
+        let h = Harness::new("exif");
+        // A made-up photo: only its EXIF, a point in the open sea (exif.rs's fixture).
+        let photo = crate::exif::tests::jpeg(&crate::exif::tests::Fixture {
+            original: Some("2026:11:03 16:42:07"),
+            offset_original: Some("+02:00"),
+            latitude: Some(([(12, 1), (30, 1), (3600, 100)], "N")),
+            longitude: Some(([(45, 1), (15, 1), (0, 1)], "W")),
+            ..Default::default()
+        });
+        assert_eq!(
+            h.call_raw("photo_exif", photo),
+            Ok(json!({
+                "takenAt": "2026-11-03T16:42:07",
+                "takenOffset": "+02:00",
+                "latitude": 12.51,
+                "longitude": -45.25,
+                "reason": "read"
+            }))
+        );
+        // A picture with no EXIF, and bytes that are no picture: an answer with nothing in it, never a refusal.
+        let nothing = json!({ "takenAt": null, "takenOffset": null, "latitude": null, "longitude": null, "reason": "none" });
+        assert_eq!(
+            h.call_raw("photo_exif", vec![0xff, 0xd8, 0xff, 0xd9]),
+            Ok(nothing.clone())
+        );
+        assert_eq!(h.call_raw("photo_exif", b"garbage".to_vec()), Ok(nothing));
+        // Round 3 (Kevin, Nov 17): why there are none, in the same answer: a refused block and a HEIC each say so.
+        let empty = |reason: &str| json!({ "takenAt": null, "takenOffset": null, "latitude": null, "longitude": null, "reason": reason });
+        // A block the walk refuses.
+        let mut refused_block = b"II*\0".to_vec();
+        refused_block.extend(8u32.to_le_bytes());
+        refused_block.extend(2u16.to_le_bytes());
+        for tag in [0x8769u16, 0xa005] {
+            refused_block.extend(tag.to_le_bytes());
+            refused_block.extend(4u16.to_le_bytes());
+            refused_block.extend(1u32.to_le_bytes());
+            refused_block.extend(8u32.to_le_bytes());
+        }
+        refused_block.extend(0u32.to_le_bytes());
+        assert_eq!(
+            h.call_raw("photo_exif", refused_block),
+            Ok(empty("refused"))
+        );
+        let mut heic = 20u32.to_be_bytes().to_vec();
+        heic.extend(b"ftypheic\0\0\0\0mif1");
+        assert_eq!(h.call_raw("photo_exif", heic), Ok(empty("heic")));
+        // Arguments as JSON are not a picture.
+        assert_eq!(
+            refused(h.call("photo_exif", json!({ "bytes": [1, 2, 3] }))),
+            "Expected the picture as raw bytes."
+        );
+    }
+
+    #[test]
     fn lists_this_computers_fonts_and_reads_one() {
         let h = Harness::new("fonts");
         let families = h.call("fonts_list", json!({})).unwrap();

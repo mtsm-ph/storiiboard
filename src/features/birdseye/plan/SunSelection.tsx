@@ -11,16 +11,32 @@ import { locationFields } from '../../../core/model/location';
 import { NORTH_ICON, parseDegrees, type NorthFields, type SunFields } from '../../../core/model/plan';
 import { parseSunTime, roomNorthItem, steppedTime, type SunMissing } from '../../../core/model/planSun';
 import type { Props, SbdRecord } from '../../../core/model/record';
+import { dateTimeLabel, photoName } from '../../../core/model/scoutPhoto';
 import { dayDateLabel, dayLabel } from '../../../core/model/shootDay';
-import { ownPlaceText, ownSunOf, sunReadingOf, sunZonePointOf, type SunDate, type SunPlace, type SunReadingOf } from '../../../core/model/sunSources';
+import {
+  ownPlaceText,
+  ownSunOf,
+  photoWhen,
+  sunAtPhoto,
+  sunLightOf,
+  sunLightZone,
+  sunLightZonePoint,
+  sunReadingOf,
+  sunZonePointOf,
+  type SunDate,
+  type SunLight,
+  type SunPlace,
+  type SunReadingOf,
+  type SunZonePoint,
+} from '../../../core/model/sunSources';
 import type { SunBand, SunRange } from '../../../core/model/sunTimes';
 import { Button } from '../../../ui/Button';
-import { TextField } from '../../../ui/fields';
+import { TextField, Toggle } from '../../../ui/fields';
 import { COORDINATES_REFUSED } from '../../locations/coordinatesWords';
 import { openLocation } from '../../locations/shownLocation';
 import { openShootDay, openShootDays } from '../../schedule/shownDay';
 import { ownDateCommit, ownPlaceCommit } from './ownSunFields';
-import { changeIcons, setSunOwnDate, setSunOwnPlace, setSunTime } from './planActions';
+import { changeIcons, setSunAtPhoto, setSunOwnDate, setSunOwnPlace, setSunTime } from './planActions';
 import { degreesText, TypedField } from './selectionFields';
 import { MISSING_WORDS, shownHeight, sunNumbers } from './sunLooks';
 
@@ -160,7 +176,8 @@ function Missing({ reading }: { reading: Extract<SunReadingOf, { missing: SunMis
   const workspaceId = useWorkspaceId();
   const { missing } = reading;
   // Its own coordinates with no zone found (6.5.5): there is no location to fix, so no button; said for these coordinates.
-  const ownZone = missing === 'noZone' && reading.place?.source === 'own';
+  // The light reference photo's GPS likewise (6.27 round 3): its zone is the point's, not one to type on a location.
+  const ownZone = missing === 'noZone' && (reading.place?.source === 'own' || reading.place?.source === 'photo');
   let action: { words: string; run: () => void } | null = null;
   if (ownZone) action = null;
   else if (missing === 'noDay') action = { words: t('selection.sun.openDays'), run: () => { openShootDays(workspaceId); } };
@@ -209,18 +226,67 @@ function Missing({ reading }: { reading: Extract<SunReadingOf, { missing: SunMis
   );
 }
 
-/** A place as the sun path's settings name it: its location's name, or its own coordinates. */
-const placeWords = (place: SunPlace): string => (place.source === 'location' ? locationFields(place.location.props).name || t('locations.unnamed') : formatCoordinates(place));
+/** A place as the sun path's settings name it: its location's name, or its own (or the photo's) coordinates. */
+const placeWords = (place: SunPlace): string => (place.source === 'location' ? locationName(place.location) : formatCoordinates(place));
 
-/** A date as the settings name it: its shoot day ("Day 1 · Sun, Jun 21"), or its own date. */
-const dateWords = (date: SunDate): string => (date.source === 'shootDay' ? dayLabel(date.day) : dayDateLabel(date.date));
+const locationName = (location: SbdRecord): string => locationFields(location.props).name || t('locations.unnamed');
 
-/** Where the place comes from, said always (6.5.5): "From the location: Diner", "Its own", or none yet. */
-const placeFrom = (place: SunPlace | null): string =>
-  place === null ? t('selection.sun.noneYet') : place.source === 'location' ? t('selection.sun.fromLocation', { name: placeWords(place) }) : t('selection.sun.itsOwn');
+/** A date as the settings name it: its shoot day ("Day 1 · Sun, Jun 21"), its own date, or the light reference photo's date and time ("Nov 3, 16:42", 6.27). */
+const dateWords = (date: SunDate): string =>
+  date.source === 'shootDay' ? dayLabel(date.day) : date.source === 'photo' ? dateTimeLabel(date.date, date.time) : dayDateLabel(date.date);
+
+/**
+ * Where the place comes from, said always (6.5.5): "From the location: Diner", "Its own", or none yet; with the sun at
+ * the light reference photo's time (6.27 round 3), "From the photo" (its GPS) or "From Quay (the photo's location)".
+ */
+const placeFrom = (place: SunPlace | null, date: SunDate | null): string => {
+  if (place === null) return t('selection.sun.noneYet');
+  if (place.source === 'photo') return t('selection.sun.fromPhotoPlace');
+  if (place.source === 'own') return t('selection.sun.itsOwn');
+  return date?.source === 'photo' ? t('selection.sun.fromPhotoLocation', { name: locationName(place.location) }) : t('selection.sun.fromLocation', { name: placeWords(place) });
+};
 
 const dateFrom = (date: SunDate | null): string =>
-  date === null ? t('selection.sun.noneYet') : date.source === 'shootDay' ? t('selection.sun.fromShootDay', { day: dateWords(date) }) : t('selection.sun.itsOwn');
+  date === null
+    ? t('selection.sun.noneYet')
+    : date.source === 'shootDay'
+      ? t('selection.sun.fromShootDay', { day: dateWords(date) })
+      : date.source === 'photo'
+        ? t('selection.sun.fromPhoto', { when: dateWords(date) })
+        : t('selection.sun.itsOwn');
+
+/**
+ * The location's light reference in a sun path's settings (6.27): which photo and when it was taken, and the switch
+ * "Show the sun at the photo's time" (one op, `at_photo` on the sun path). Shown wherever the sun path's setup's frames
+ * give a location that has a light reference, with or without a shoot day (6.27 round 3: scouting before a schedule).
+ * A photo in the Trash, one whose time can't be read, or one with no place (neither its GPS nor its location's) can't
+ * be drawn for: the switch shows off, can't be turned, and says why; the sun is then drawn exactly as before.
+ */
+function LightReferenceSection({ id, props, light, zone }: { id: string; props: Props; light: SunLight | null; zone: string | null }) {
+  const note = useId();
+  if (!light) return null;
+  const { reference } = light;
+  const why = reference.kind !== 'ready' ? reference.kind : light.place === null ? 'noPlace' : 'ready';
+  const ready = why === 'ready';
+  const on = ready && sunAtPhoto(props);
+  // In the zone of the place the photo's sun is drawn at whenever it is known (typed or looked up), the camera's clock
+  // until then: the same time the date's source says (photoWhen).
+  const when = reference.kind === 'ready' ? photoWhen(reference.takenAt, reference.offset, zone) : null;
+  const noteWords = ready ? t('selection.sun.atPhotoNote') : t(why === 'trashed' ? 'selection.sun.photoTrashed' : why === 'noTime' ? 'selection.sun.photoNoTime' : 'selection.sun.photoNoPlace');
+  return (
+    <section className="flex flex-col gap-2 border-t border-border pt-3" data-sun-light-reference={why}>
+      {when && (
+        <p className="text-[13px]" data-sun-light-reference-words="">
+          {t('selection.sun.lightReference', { photo: photoName(reference.photo) || t('photo.unnamed'), when: dateTimeLabel(when.date, when.time) })}
+        </p>
+      )}
+      <Toggle label={t('selection.sun.atPhoto')} checked={on} disabled={!ready} describedBy={note} onChange={(next) => void setSunAtPhoto(id, next)} />
+      <p id={note} className={ready ? 'text-[12px] text-text-muted' : 'text-[12px] font-bold'} data-sun-at-photo-note={why}>
+        {noteWords}
+      </p>
+    </section>
+  );
+}
 
 /**
  * A sun path's own place (6.5.5): coordinates typed or pasted as Google Maps copies them, read by the one parser; left
@@ -328,14 +394,17 @@ function SunSources({ id, props, place, date }: { id: string; props: Props; plac
   const help = useId();
   // "Not used" only where a setup value really replaces a value typed here in what's drawn (6.5.5 review).
   const own = ownSunOf(props);
-  const placeUnused = place?.source === 'location' && own.place !== null;
-  const dateUnused = date?.source === 'shootDay' && own.date !== null;
+  const placeUnused = (place?.source === 'location' || place?.source === 'photo') && own.place !== null;
+  // A typed date gives way to the shoot day's, and to the light reference photo's while the sun is shown at its time
+  // (6.27): each in its own words.
+  const dateUnused = (date?.source === 'shootDay' || date?.source === 'photo') && own.date !== null;
+  const dateUnusedWords = date?.source === 'photo' ? t('selection.sun.ownDateUnusedPhoto') : t('selection.sun.ownDateUnused');
   return (
     <section className="flex flex-col gap-2 border-t border-border pt-3" data-sun-sources="">
       <h3 className="sb-label">{t('selection.sun.sources')}</h3>
       <p className="text-[13px]" data-sun-place-from={place?.source ?? 'none'}>
         <span className="sb-label">{t('selection.sun.place')} </span>
-        {placeFrom(place)}
+        {placeFrom(place, date)}
       </p>
       <p className="text-[13px]" data-sun-date-from={date?.source ?? 'none'}>
         <span className="sb-label">{t('selection.sun.date')} </span>
@@ -347,7 +416,7 @@ function SunSources({ id, props, place, date }: { id: string; props: Props; plac
       </p>
       <OwnDateField id={id} props={props} describedBy={`${dateNote} ${help}`} />
       <p id={dateNote} className={dateUnused ? 'text-[12px] font-bold' : 'sr-only'} data-sun-own-date-unused={dateUnused ? '' : undefined}>
-        {dateUnused ? t('selection.sun.ownDateUnused') : ''}
+        {dateUnused ? dateUnusedWords : ''}
       </p>
       <p id={help} className="text-[12px] text-text-muted">
         {t('selection.sun.ownNote')} {t('coordinates.help')}
@@ -358,7 +427,10 @@ function SunSources({ id, props, place, date }: { id: string; props: Props; plac
 
 export function SunFieldsView({ id, fields, records }: { id: string; fields: SunFields; records: Records }) {
   const point = sunZonePointOf(records, id);
-  const zones = useSunZonesAt(point ? [point] : []);
+  // The light reference's place too (6.27 round 3), so its line says the place's time whenever its zone is known.
+  const light = sunLightOf(records, id);
+  const lightPoint = sunLightZonePoint(light);
+  const zones = useSunZonesAt([point, lightPoint].filter((p, i, all): p is SunZonePoint => p !== null && all.findIndex((q) => q?.id === p.id) === i));
   const reading = sunReadingOf(records, id, zones);
   const numbers = sunNumbers(reading, fields.time);
   const noteId = useId();
@@ -373,6 +445,7 @@ export function SunFieldsView({ id, fields, records }: { id: string; fields: Sun
         {t('selection.sun.timeNote')}
       </p>
       <SunSources id={id} props={props} place={reading?.place ?? null} date={reading?.date ?? null} />
+      <LightReferenceSection id={id} props={props} light={light} zone={sunLightZone(light, zones)} />
       {/* While its zone's lookup is on its way, nothing is said about it yet. */}
       {!reading || ('missing' in reading && reading.pending) ? null : 'missing' in reading ? (
         <Missing reading={reading} />
@@ -384,7 +457,7 @@ export function SunFieldsView({ id, fields, records }: { id: string; fields: Sun
               {t('selection.sun.dayAt', { day: dateWords(reading.date), place: placeWords(reading.place) })}
             </p>
             <p className="text-[12px] text-text-muted" data-sun-zone="">
-              {reading.place.source === 'own'
+              {reading.place.source === 'own' || reading.place.source === 'photo'
                 ? t('selection.sun.zoneFromCoordinates', { zone: reading.zone.zone })
                 : reading.zone.source === 'map'
                   ? t('selection.sun.zoneFromMap', { zone: reading.zone.zone })
@@ -436,6 +509,17 @@ export function SunFieldsView({ id, fields, records }: { id: string; fields: Sun
                 <p className="text-[13px]">{numbers.path.day.state === 'up' ? t('callSheet.sunUp') : t('callSheet.sunDown')}</p>
               )}
               <GoldenHour band={numbers.path.day.golden} />
+              {/* Where the sun stood when the light reference photo was taken (6.27), to compare with the light in it. */}
+              {reading.photoAt && (
+                <p className="text-[13px]" data-sun-photo-at={reading.photoAt.up ? 'up' : 'down'}>
+                  <span className="sb-label">{t('selection.sun.photoSun')} </span>
+                  <span className="font-mono">
+                    {reading.photoAt.up
+                      ? t('selection.sun.photoSunAt', { time: reading.photoAt.time, bearing: degreesText(Math.round(reading.photoAt.bearing) % 360), height: String(shownHeight(reading.photoAt.altitude)) })
+                      : t('selection.sun.photoSunDown', { time: reading.photoAt.time })}
+                  </span>
+                </p>
+              )}
             </section>
           )}
         </>

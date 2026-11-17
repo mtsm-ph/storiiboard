@@ -347,7 +347,73 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 16, evening: the 6.5 stack merged; Kevin's evening answers under way)
+### Next session: start here (Nov 17, evening: scout photos at round 4, uncommitted; new chat because the old one grew too long)
+
+**Status.** `v2` is 7d17eb4: #192 to #195 merged Nov 17, checkpoint `checkpoint/nov17-v2` (run 44051079024) green
+(Linux smoke 26; Mac WebKit 597 passed, 1 flaky: player.spec "a page too busy to see every frame shows a frame or
+two past the out point…", not diagnosed; Rust Mac 313, Windows 303; both installers). The checkout is on
+`polish/6.27-scout-photos` with all of 6.27 (rounds 1 to 4) **uncommitted**. Nothing else is in flight.
+
+**Kevin's Nov 17 message (A to E) is the work order; it replaces the Nov 16 evening list where they differ.**
+- A. kamadak-exif stays `=0.6.1` in 6.27 with our own check (`block_is_safe` in src-tauri/src/exif.rs: permanent,
+  one-line comment, no more detail than a published advisory, the repo being public). The pin to 0.6.2 is its own
+  small PR **on or after Nov 19** (cargo test and the refused-photo fixtures, each refused, the app still up); its
+  request states the release notes and advisories (memory: dependency-request-advisories). Kevin named
+  GHSA-53gf-vqf6-qvp8; it was not found in GitHub's advisory API or RustSec (asked where he saw it, unanswered).
+- B. HEIC waits for a library release (private/PHASE8_LIST_ADDITIONS.md has the entry). No reader of our own.
+- C. Scouting before a schedule: built in round 3 (the photo's date, time and place; the mark and panel say which
+  place). **Still to write: the new reading rule next to the old one in CLAUDE.md** (main session, at commit).
+- D. "Refused page load" in two specs: find the cause before the next full run, no retry
+  (docs/briefs/6.29-refused-page-loads.md, untracked, not started). It showed only under 8 workers, and local runs
+  are now 4, so the investigation runs with `--workers=8` on purpose, when Kevin isn't using the PC. The four
+  first-load timeouts on the busy PC are a different symptom: no timeout raised for them.
+- E. Build mode 6.6.1 to 6.6.5 starts on `v2` (briefs already in v2), not stacked on scout photos. Each of the
+  five styled rooms goes to Kevin as a picture, with its tagged set pieces, before it is built.
+
+**6.27, where it stands** (brief: docs/briefs/6.27-scout-photos.md, rounds 1 to 4; its round 2 EXIF detail was
+trimmed for the public repo).
+- Round 3 review: no HIGH, one MEDIUM (public words about the guard), seven LOWs; all sent to round 4.
+- Round 4 (builder, Nov 17 17:31): tsc, eslint, lint:rust clean; cargo 321 passed, 1 ignored; Vitest 3,439 passed,
+  1 skipped; scoutPhotos, locations and planSun specs 15 passed. One test failed once and was fixed in the round:
+  scoutPhotos.spec "scouting before a schedule: a setup with no shoot day shows the light reference, and the
+  switch draws the sun wholly from the photo (round 3)" (item 2 made its untyped zone unanswerable in the memory
+  build; the test now types the zone; no expectation changed).
+- Round 4 item 5 **not built** (one line per photo in the status line): the status line holds one string, so the
+  notes stay joined by a space. Decide: leave, or brief a small change to the status line.
+- "At the location's own pin" (item 2) means exactly equal coordinates.
+- Round 4 review (Nov 17, new chat; diff4.patch against origin/v2, since the local `v2` is stale at d597a4c): no
+  HIGH or MEDIUM, six LOWs, all sent to round 5 except the import-note test's id-based calls (accepted: same
+  strings; the "couldn't be prepared" note can no longer come from `importNote`, it has its own notice). The
+  brief's own round 2 and 4 wording about the guard was trimmed by the main session.
+- Round 5 (builder, model check passed: claude-opus-5-5): tsc, eslint, lint:rust clean; cargo 321 passed, 1
+  ignored; Vitest 3,440 passed, 1 skipped; scoutPhotos and planSun specs 8 passed; nothing failed or flaky.
+  The main session fixed SBD_FORMAT's HEIC sentence (it answers `heic`). Not reviewed again (LOW fixes only).
+- **Next:** (3) 6.29's cause (8 workers, when Kevin isn't using the PC); (4) the full local run
+  (`--project=chromium`), every failed or flaky test named; (5) CLAUDE.md's reading rule, PLAN.md, SBD_FORMAT
+  check; (6) commit with explicit paths, PR on `v2`. Kevin names the merge.
+- Also uncommitted, to go in with it: playwright.config.ts (4 workers) and its CLAUDE.md line; .vscode/
+  settings.json; src-tauri/tauri.conf.json's shortDescription and design/DESIGN.md:265 ("Free to use.").
+- The round 2 reviewer wanted `block_is_safe` compared with `read_raw` on real JPEGs: needs Kevin's photos.
+
+**The PC (Nov 17).** Kevin's PC froze or crawled during runs. Changed: local e2e runs use 4 workers (Kevin: his
+other projects must still run); he excluded the repo folder from Defender; Python analysis is off in this
+workspace; `cargo test -j 12` in builders' checks. Measured: 64 GB, never under 48 GB free; processor peaked at
+35% during Vitest and the specs; so memory is not the cause, and the graphics card can't take this work. A
+read-only watch, test-results/freeze-watch.ps1, logs every 5 s to freeze-watch.log (start it before a heavy
+run). Best guess for what Kevin sees as a freeze: the VS Code window hanging on a very long chat (the session was
+also cut off four times mid-builder). So: **keep chats short; start a new one per milestone.** A full Rust
+compile has not been measured yet. Unanswered: whether the whole PC freezes or only VS Code.
+
+**Waiting on Kevin:** where he saw the advisory id; whether to diagnose the player.spec flake now; whether the
+photo's place should be used even when a shoot day exists (round 3 applies it always); migration 012's notice; a
+Mac by-hand pass of HEIC; iPhone photos; item 5 above. Phase 7 and the departments work wait for his by-hand pass.
+
+**Rules that are easy to miss:** the four Nov 14 rules open every brief and review request; one builder at a
+time, started without a model (the first builder run of a chat is the model check: claude-opus-5-5); no edits,
+lint or Vitest while local e2e runs; stage explicit paths; new plans in private/; a checkpoint only when Kevin
+names it; no public release until the app reads the switch file from the public home.
+
+### Next session: start here (Nov 16, evening, older: the 6.5 stack merged; Kevin's evening answers)
 
 **Kevin's Nov 16 evening message is the work list** (in this chat's transcript). Its order: A (the 6.5 stack) in
 order, then D's scout photos, then E (build mode, "6.6"). B, C and F are answers on plans: recorded in `private/`

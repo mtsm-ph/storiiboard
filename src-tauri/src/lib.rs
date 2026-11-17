@@ -6,6 +6,7 @@ mod app_data;
 mod backup;
 #[cfg(test)]
 mod command_tests;
+mod exif;
 mod export;
 mod fonts;
 mod geocode;
@@ -110,6 +111,7 @@ pub(crate) fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> ta
             fonts::fonts_list,
             fonts::font_bytes,
             timezone::time_zone_at,
+            exif::photo_exif,
             tiles::map_tile,
             tiles::map_tiles_info,
             tiles::map_tiles_clear,

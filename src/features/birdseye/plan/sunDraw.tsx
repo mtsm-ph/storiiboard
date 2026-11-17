@@ -44,6 +44,13 @@ export type SunLook =
       /** "shadows". */
       shadows: string;
       selected: boolean;
+      /**
+       * Toward the sun when the location's light reference photo was taken (6.27), with its date and time, "Photo Nov 3,
+       * 16:42", and whether the sun was up then: only while the sun path shows the sun at the photo's time. The words
+       * are drawn either way (the arc, Rise and Set are for that date); the mark on the path only when it was up.
+       * Left out otherwise.
+       */
+      photo?: SunTick & { up: boolean };
     };
 
 const LABEL_PIXELS = 11;
@@ -52,6 +59,8 @@ const TICK_PIXELS = 5;
 /** The gap between a tick or a line and the word beside it, screen pixels. */
 const GAP_PIXELS = 4;
 const SUN_PIXELS = 5;
+/** The light reference photo's ring on the path (6.27), screen pixels: a little larger than the sun, so both show when they meet. */
+const PHOTO_PIXELS = 7;
 /**
  * How far the drawing can reach past the arc, screen pixels: its ticks, and at a far zoom out, where the arc is smaller on
  * screen than they are, the words beside the sun's line (the sun's label, the widest).
@@ -168,6 +177,97 @@ export function sideOf(sun: { x: number; y: number }): { x: number; y: number } 
   return n.y > 0 || (n.y === 0 && n.x > 0) ? n : { x: -n.x, y: -n.y };
 }
 
+/** A word's upright box on the drawing: its middle and half its width and height, canvas units. */
+export interface WordBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  text: string;
+}
+
+const boxAt = (at: { x: number; y: number }, text: string, size: number): WordBox => ({ ...at, ...halfBox(text, size), text });
+
+/** Whether two upright boxes overlap. */
+export const boxesMeet = (a: Pick<WordBox, 'x' | 'y' | 'w' | 'h'>, b: Pick<WordBox, 'x' | 'y' | 'w' | 'h'>): boolean => Math.abs(a.x - b.x) < a.w + b.w && Math.abs(a.y - b.y) < a.h + b.h;
+
+/**
+ * The light reference photo's words as drawn (6.27 round 3): wrapped by the sun's own label's rule (sunLabelLines), and
+ * at most two lines, its date and time on the first and the place on the second, cut with "…" to fit it (as long as
+ * the first line, or the room between the icon and the arc when that is wider).
+ */
+export function photoLabelLines(label: string, room: number, size: number): string {
+  const wrapped = sunLabelLines(label, room, size);
+  if (!wrapped.includes('\n')) return wrapped;
+  const [first = '', ...rest] = label.split(' · ');
+  const place = rest.join(' · ');
+  const fits = Math.max(first.length, Math.floor(room / (MONO_ADVANCE * size)));
+  return place === '' ? first : `${first}\n${place.length <= fits ? place : `${place.slice(0, Math.max(1, fits - 1))}…`}`;
+}
+
+/** The drawing's words and the icon, where SunBeyond puts them: what a test checks for overlaps. */
+export interface SunWords {
+  /** Too small on screen for words: only the arc, the sun and the photo's ring. */
+  wordless: boolean;
+  icon: Pick<WordBox, 'x' | 'y' | 'w' | 'h'>;
+  /** The sun's label beside its line, and "shadows" beside its own, while the sun is up. */
+  sun: WordBox | null;
+  shadows: WordBox | null;
+  /** The sun's label under the icon, while it is down. */
+  down: WordBox | null;
+  /** The light reference photo's words, clear of all of the above. */
+  photo: WordBox | null;
+}
+
+/**
+ * Where each word of a drawn sun path goes, round its middle (canvas units, upright). The photo's words (6.27) go first
+ * where they belong (a row inside sunrise and sunset's along the mark's direction; under the icon for a photo taken
+ * with the sun down) and, when that would sit on the icon, the sun's label or "shadows" (or its down label), further
+ * out step by step (past the arc for the mark, below or above the icon for the night words) until they are clear.
+ */
+export function sunWords(look: Extract<SunLook, { kind: 'drawn' }>, width: number, height: number, zoom: number): SunWords {
+  const size = LABEL_PIXELS / zoom;
+  const tick = TICK_PIXELS / zoom;
+  const gap = GAP_PIXELS / zoom;
+  const r = look.radius;
+  const iconHalf = Math.hypot(width, height) / 2;
+  const below = iconHalf + size;
+  const hourRing = r - tick - gap;
+  const edgeRing = hourRing - size * 1.6;
+  const wordless = edgeRing < iconHalf + size;
+  const icon = { x: 0, y: 0, w: iconHalf, h: iconHalf };
+  const room = r - iconHalf - 3 * gap;
+  const side = sideOf(look.sun);
+  const away = { x: -look.sun.x, y: -look.sun.y };
+  const label = sunLabelLines(look.label, room, size);
+  const up = !wordless && look.sun.up;
+  const sun = up ? boxAt(besideLine(look.sun, side, iconHalf + gap, gap, label, size), label, size) : null;
+  const shadows = up ? boxAt(besideLine(away, side, iconHalf + gap, gap, look.shadows, size), look.shadows, size) : null;
+  const down = !wordless && !look.sun.up ? boxAt({ x: 0, y: below }, look.label, size) : null;
+  let photo: WordBox | null = null;
+  if (look.photo && !wordless) {
+    const text = photoLabelLines(look.photo.label, room, size);
+    const half = halfBox(text, size);
+    const others = [icon, sun, shadows, down].filter((b): b is NonNullable<typeof b> => b !== null);
+    const clear = (at: { x: number; y: number }) => !others.some((other) => boxesMeet({ ...at, ...half }, other));
+    const step = size * LINE_HEIGHT;
+    const candidates: { x: number; y: number }[] = [];
+    if (look.photo.up) {
+      const dir = look.photo;
+      candidates.push(insideAt(dir, edgeRing - size * 1.6, text, size));
+      // Past the arc and its ticks, a row further out each time (within the reach the canvas keeps: WORDS_REACH_PIXELS).
+      const out = r + 2 * tick + gap + extentAlong(dir, half);
+      for (let k = 0; k <= 12; k += 1) candidates.push({ x: dir.x * (out + k * step), y: dir.y * (out + k * step) });
+    } else {
+      const start = below + size * 1.6;
+      for (let k = 0; k <= 12; k += 1) candidates.push({ x: 0, y: start + k * step }, { x: 0, y: -(start + k * step) });
+    }
+    const at = candidates.find(clear) ?? candidates[candidates.length - 1] ?? { x: 0, y: 0 };
+    photo = { ...at, ...half, text };
+  }
+  return { wordless, icon, sun, shadows, down, photo };
+}
+
 interface SunProps {
   width: number;
   height: number;
@@ -204,6 +304,8 @@ export function SunBeyond({ width, height, zoom, rotation, colours, look }: SunP
   // below the zoom at which the arc would be drawn wordless, so they never pile up before it settles (6.11 review, L1).
   const hideBelow = wordsFrom(r, iconHalf);
   const words = { size, zoom, hideBelow, colours };
+  // The light reference photo's words, placed clear of the icon and the sun's own words (sunWords).
+  const photoWords = look.photo ? sunWords(look, width, height, zoom).photo : null;
   return (
     // Named upright: while a move or resize is under way the canvas keeps it so (it is never turned by the handles).
     <Group x={width / 2} y={height / 2} rotation={-rotation} name={UPRIGHT} listening={false}>
@@ -249,6 +351,18 @@ export function SunBeyond({ width, height, zoom, rotation, colours, look }: SunP
       ) : (
         <MonoText x={0} y={below} text={look.label} {...words} bold anchor={{ x: 0, y: iconHalf }} />
       )}
+      {/* The light reference photo's moment (6.27): a ring on the path, hollow where the sun at the item's time is a
+          filled disc (the shape is the cue, not a colour; where they meet, the ring goes round the disc), and its time
+          and date a row inside sunrise and sunset's. Zoomed out too far for words, the ring alone. A photo taken with
+          the sun down has no place on the path: its date and time are said under the icon, below the sun's own line
+          when that is there. */}
+      {look.photo?.up && (
+        <Group listening={false} name="photo-mark">
+          <Circle x={look.photo.x * r} y={look.photo.y * r} radius={PHOTO_PIXELS / zoom} stroke={colours.ink} strokeWidth={2} strokeScaleEnabled={false} listening={false} />
+          {photoWords && <MonoText x={photoWords.x} y={photoWords.y} text={photoWords.text} {...words} bold anchor={at(look.photo, r)} />}
+        </Group>
+      )}
+      {look.photo && !look.photo.up && photoWords && <MonoText x={photoWords.x} y={photoWords.y} text={photoWords.text} {...words} bold anchor={{ x: 0, y: iconHalf }} />}
     </Group>
   );
 }

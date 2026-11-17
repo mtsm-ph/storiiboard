@@ -307,6 +307,64 @@ role on the project stands for (src/core/model/departmentStatus.ts, ROLE_DEPARTM
 - A first opening writes to the file, so a session of only looking can count as a change for the 5-minute backups
   (and a synced folder uploads it). It's bounded: once per frame and department, ever.
 
+## Schema v16: scout photos' props, and build mode's (6.27)
+
+Props only (Kevin Nov 16), ONE schema version for 6.27 (scout photos) and for the 6.6 build-mode milestones that
+follow, with no table change and nothing rewritten (migration 016_scout_photos.ts: no statements). A file from before
+opens with every row as it was; it is backed up first, as for every upgrade. The number is there so an older Storiiboard
+refuses a file that may hold them rather than open it and drop them. No approval or issued call sheet reads any of them.
+
+- A location's photo (a `media` record of kind `image` under its `location`: Location props, 3.3b), each optional,
+  written once, in the same op as the photo's import, from what the photo file's EXIF said. One reader
+  (src/core/model/scoutPhoto.ts, `photoTakenOf`): a value it can't read is the same as none.
+  - `taken_at`: text, `YYYY-MM-DDTHH:mm:ss`, the wall-clock time the photo was taken as its camera wrote it
+    (`DateTimeOriginal`, else `DateTime`), with no zone. Anything else, or a date or time that isn't one, reads as none.
+  - `taken_offset`: text, `+02:00` or `-05:30` (up to 14 hours either way), the camera's offset from UTC at that time,
+    only when the file said (`OffsetTimeOriginal`, or `OffsetTime` beside `DateTime`). Read only beside a `taken_at`.
+  - `gps_latitude`, `gps_longitude`: numbers, degrees (−90 to 90, −180 to 180, WGS 84), where it was taken, every
+    decimal the file gave kept (shown to 5: "40.86771, -73.92123"). Both or neither: one alone, or one out of range,
+    reads as no place. 0, 0 (what a camera with no fix writes) is no place either: it is never written, and reads as
+    none if a file holds it. A `taken_at` before 1970 reads as none too (a clock never set).
+  - The EXIF is read on this computer (in the desktop app by Rust, src-tauri/src/exif.rs, from the bytes being
+    imported: a JPEG's or a TIFF's today; its block is checked before it is parsed; a HEIC answers `heic` and a
+    PNG or WebP `none`, so none of the four props is stored for them for now) and is never sent anywhere, logged
+    or written back to any file. The stored picture (`media_files`,
+    `thumbnails`) is drawn again from the photo's pixels, as every picture is, so its bytes carry no EXIF at all: these
+    four props are all that is kept of it.
+  - A photo's place and time say where and when a shoot was scouted: History names these fields and never shows the two
+    coordinates (as a location's own), and they count as contact details for what an assistant may read (Phase 7,
+    decision 14).
+  - Exports: the JSON export (Project data and Full archive) is the project itself, lossless by rule, so it DOES carry
+    these four props on the photo's record, as it carries a location's address and coordinates; it is not an export for
+    others. The CSV exports carry none of them. No PDF, PNG, deck or plan shows a location's photo today.
+- `location`: `light_photo_id`, text, the id of the one photo of this location (a `media` record under it) that is its
+  light reference, set by "Use this photo's place and time" on a photo that has a `taken_at` and taken off by Clear, each
+  one op. Choosing another photo replaces it. Read through `lightReferenceOf`: an id that names nothing, another
+  location's photo, a PDF or a link reads as none; a photo in the Trash, or one whose `taken_at` can't be read, is said
+  as such and can't be drawn for. The same action puts the photo's place, where it has one, on the location exactly as
+  pasted coordinates do (Schema v15: `latitude`, `longitude`, `map_moved`, `map_name` as the coordinates' text), in the
+  same op, so one undo takes back both. The op itself looks nothing up and requests nothing; once the location has a
+  place, its map fetches the tiles in view as it does for any pin (Location props, 4.9).
+- `plan_item` of `kind` `sun`: `at_photo`, `true` when the sun path shows the sun at its location's light reference
+  photo's time ("Show the sun at the photo's time"); stored only as `true` (off takes the prop off; anything else reads
+  as off), one op. The reading (sunSources.ts, Schema v15's, what `get_plan` will return) gains one more source of the
+  date and one of the place, each `photo`. Where the setup's frames give a location whose light reference is a live
+  photo with a `taken_at`, and `at_photo` is `true`, the sun is drawn wholly from the photo, with or without a shoot day
+  (it is the person's explicit choice, over the shoot day's date or the sun path's own):
+  - the date and time of day are the photo's, and the reading carries `photoAt`, the sun at the instant it was taken;
+  - the place is the photo's GPS (place source `photo`), else its location's (`location`), never another frame's;
+  - the zone: the location's (typed `time_zone`, else looked up at its place) for the location's place, and for a GPS
+    exactly equal to the location's own pin; for any other GPS, looked up offline at that point, keyed by the photo's id;
+  - the instant is the photo's own when it has a `taken_offset`, said in that zone; else its `taken_at` read as that
+    zone's wall clock. No zone yet: the photo's date is said as its camera wrote it, and nothing is drawn;
+  - while the date is the photo's, the reading names no other days or places of the setup.
+  With `at_photo` off, no light reference, a photo in the Trash, an unreadable time, or neither a GPS nor a place on
+  its location, the reading is exactly Schema v15's.
+
+Added to this version by later 6.6 milestones:
+
+- (none yet)
+
 ## Schema v15: 6.5 canvas polish's props (6.5.5)
 
 Props and one record type only (Kevin Nov 16: "New props go in one schema version"): one schema version for every new
@@ -979,7 +1037,9 @@ private: shown in the app, never logged. No table change.
 
 3.3b, also no table change:
 - Photos are `media` records (kind `image`, as a frame's pictures) whose parent is the location, ordered by sort key;
-  their bytes are in `media_files` and `thumbnails` as any picture's.
+  their bytes are in `media_files` and `thumbnails` as any picture's. From schema 16 (6.27) a photo may carry when and
+  where it was taken (`taken_at`, `taken_offset`, `gps_latitude`, `gps_longitude`) and the location its light reference
+  (`light_photo_id`): see Schema v16.
 - `custom` on a location: its own fields, an object of name to text, as a shot's `custom`.
 - `location_id` on a shot: where that frame is shot when it isn't its scene's location. Missing means the scene's.
   A location in the Trash reads as none, for the shot as for the scene.
@@ -1768,6 +1828,7 @@ merge a database, so two guards sit around every open project:
 | 13 | 3.18 | Approvals kept through schema 12: sign-offs it left "Changed" re-stamped by their own rule. No table change |
 | 14 | 6.1 | Phase 6's props (bodies and lenses on `gear_item`, a frame's `lens_id`, and the props plans write on `scene`, `plan` and `plan_item`; see Schema v14). No table change, nothing rewritten |
 | 15 | 6.5.5 | 6.5 canvas polish's props (a sun path's `own_latitude`, `own_longitude` and `own_date`; the `settings_preset` record type; see Schema v15). No table change, nothing rewritten |
+| 16 | 6.27 | Scout photos' props, and the 6.6 build-mode milestones' after them (a location's photo's `taken_at`, `taken_offset`, `gps_latitude` and `gps_longitude`; a location's `light_photo_id`; a sun path's `at_photo`; see Schema v16). No table change, nothing rewritten |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.

@@ -262,7 +262,7 @@ A technical film poster printed on paper. Boxed tiles with 1.5px ink rules, tiny
 
 ## Website
 - **Layout:** a page that resizes, max width 1440px, with 16 to 48px side gutters. Grids collapse to one column on phones. Light and dark modes, with a toggle in the nav.
-- **Hero:** "PLAN THE SHOT.", then an orange block framing a still with a face, then "SHOOT THE PLAN.", then "Built by a DP. Free and open source.", then the Mac and Windows downloads.
+- **Hero:** "PLAN THE SHOT.", then an orange block framing a still with a face, then "SHOOT THE PLAN.", then "Built by a DP. Free to use.", then the Mac and Windows downloads.
 
 ## Web companion (phone)
 - **Size:** 390 x 844, light and dark.

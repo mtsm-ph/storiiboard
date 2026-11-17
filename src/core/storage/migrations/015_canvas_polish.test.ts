@@ -66,8 +66,9 @@ async function v14File(): Promise<string> {
 }
 
 describe('schema 15: the props of 6.5 canvas polish', () => {
-  it('is the newest schema, after 14, with no table change and nothing rewritten', () => {
-    expect(SCHEMA_VERSION).toBe(15);
+  it('is migration 15, after 14, with no table change and nothing rewritten', () => {
+    // 015 is migration 15, its own version; which schema is the newest is the newest migration's test to say (016, 6.27).
+    expect(canvasPolish.version).toBe(15);
     expect(MIGRATIONS[14]).toBe(canvasPolish);
     expect(canvasPolish.version).toBe(15);
     expect(MIGRATIONS[13]?.version).toBe(14);
@@ -82,11 +83,11 @@ describe('schema 15: the props of 6.5 canvas polish', () => {
       const before = await everything(file);
       const steps = (await log(file)).length;
       const result = await migrate(file, { isNew: false, migrations: MIGRATIONS, now: () => new Date(late) });
-      expect(result).toMatchObject({ from: 14, to: 15 });
+      expect(result).toMatchObject({ from: 14, to: SCHEMA_VERSION });
       expect(result.backup).not.toBeNull();
       expect(readdirSync(folder.dir).some((name) => name.startsWith('Bey County.sbd.bak-v14-'))).toBe(true);
       const [version] = await file.query("SELECT value FROM meta WHERE key = 'schema_version'");
-      expect(version?.value).toBe('15');
+      expect(version?.value).toBe(String(SCHEMA_VERSION));
       expect(await everything(file)).toEqual(before);
       // No step in History: nothing to undo.
       expect(await log(file)).toHaveLength(steps);

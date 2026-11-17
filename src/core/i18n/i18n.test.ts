@@ -169,6 +169,9 @@ describe('errors raised below the UI', () => {
       // A bug in the app, never something a person did: shown as they are.
       'Expected the export as raw bytes.',
       'Expected the transaction as raw bytes.',
+      // A photo's EXIF asked for with something other than its bytes (src-tauri/src/exif.rs): the page catches it and
+      // imports the photo with no date or place (src/app/photoExif.ts). Never shown.
+      'Expected the picture as raw bytes.',
       'Pass objects and arrays as JSON text.',
       "That column doesn't hold bytes.",
       "A query can't return bytes; read them with readBlob.",
