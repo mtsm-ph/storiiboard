@@ -173,6 +173,28 @@ test('a click on a section’s empty middle starts a marquee and picks the notes
   expect(await selection(page)).toEqual([]);
 });
 
+// 6.28: the outline is a 1.5 px rule centred on the edge, so it inks the pixel outside the box too. A pointer on whole
+// pixels (a mouse; every pointer in a Mac's WebKit) on that pixel picked nothing, where a deck page's edge fell a
+// fraction of a pixel below it.
+test('a click on the pixel of a section’s outline just outside its box picks it; three pixels out picks nothing (6.28)', async ({ page }) => {
+  const { section: s } = await sectionWithStickies(page);
+  await click(page, 300, 250);
+  await expect.poll(() => selection(page)).toEqual([]);
+  // The top edge is at −250, the right at 180: a pixel above, then a pixel right.
+  await click(page, -100, -251);
+  await expect.poll(() => selection(page)).toEqual([s.id]);
+  await click(page, 300, 250);
+  await expect.poll(() => selection(page)).toEqual([]);
+  await click(page, 181, 100);
+  await expect.poll(() => selection(page)).toEqual([s.id]);
+  await click(page, 300, 250);
+  await expect.poll(() => selection(page)).toEqual([]);
+  // Off the outline: empty board.
+  await click(page, -100, -253);
+  await page.waitForTimeout(150);
+  expect(await selection(page)).toEqual([]);
+});
+
 test('resizing a section moves nothing inside it', async ({ page }) => {
   const { notes } = await sectionWithStickies(page);
   await click(page, -100, -248);

@@ -264,9 +264,13 @@ test('Tab from the Hex field to outside the colour panel closes it, where the He
   await hex.focus();
   await expect(hex).toBeFocused();
   await page.keyboard.press('Tab');
-  // Safari's Tab, by default, skips the system picker, so the Hex field is the last stop and this Tab leaves the panel.
-  // Where Tab does reach the picker (Chromium), it is the next stop, still inside; the Tab after it leaves.
-  const onPicker = await panel.getByLabel('System colour picker').evaluate((element) => element === document.activeElement);
+  // Safari's Tab, by default, skips the system picker, so the Hex field is the last stop and this Tab leaves the panel,
+  // which closes and takes the picker with it: the picker is never waited for (6.28; it was, for the whole of the
+  // test's time on a Mac). Where Tab does reach the picker (Chromium), it is the next stop, still inside; the Tab after
+  // it leaves. Read from the page as it is now: no picker, or one without the focus, is the panel left already.
+  const onPicker =
+    (await panel.getByLabel('System colour picker').count()) > 0 &&
+    (await page.evaluate(() => document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'color'));
   if (onPicker) {
     await expect(panel).toBeVisible();
     await page.keyboard.press('Tab');

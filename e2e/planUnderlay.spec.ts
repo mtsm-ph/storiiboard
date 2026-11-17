@@ -547,3 +547,51 @@ test('Copy marks the system clipboard as the plan’s; a pasted picture is an un
   await pasteOnPlan(token, []);
   await expect.poll(() => kinds(page)).toEqual(['underlay', 'wall', 'wall']);
 });
+
+// 6.28: the first view sits beside the tools' strip by a whole number of pixels. With the strip's odd inset halved it sat
+// half a pixel off, so at 100% no whole centimetre was on a whole pixel: Chromium, which delivers a pointer on fractions
+// of a pixel, still read a click to the millimetre; a Mac's WebKit, which delivers whole pixels only, read it half a
+// centimetre off. Here the aims themselves must be whole pixels, which is what both engines can press.
+test('the first view at 100% has whole centimetres on whole pixels from the canvas’s middle, and a click on one reads back that point to the millimetre (6.28)', async ({ page }) => {
+  await startRoom(page);
+  await addUnderlayFromMenu(page);
+  await expect(canvas(page)).toHaveAttribute('data-zoom', '1');
+  const cx = Number(await canvas(page).getAttribute('data-cx'));
+  const cy = Number(await canvas(page).getAttribute('data-cy'));
+  expect(Number.isInteger(cx)).toBe(true);
+  expect(Number.isInteger(cy)).toBe(true);
+  // The underlay went to the middle of what is seen beside the strip, which the first view makes the plan's origin.
+  const added = await one(page, 'underlay');
+  expect(added.x + added.width / 2).toBeCloseTo(0, 6);
+  expect(added.y + added.height / 2).toBeCloseTo(0, 6);
+
+  await planTile(page).locator('[data-underlay-scale-now]').click();
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:scale');
+  const [first, second] = await screens(page, { x: -196, y: -197 }, { x: 104, y: -197 });
+  if (!first || !second) throw new Error('no points');
+  // The canvas's centre is whole (screens), so each whole centimetre's place is a whole pixel.
+  for (const at of [first, second]) {
+    expect(Math.abs(at.x - Math.round(at.x))).toBeLessThan(1e-6);
+    expect(Math.abs(at.y - Math.round(at.y))).toBeLessThan(1e-6);
+  }
+  // The canvas takes its middle from its own whole size, the aims from its box, which the dock puts on fractions of a
+  // pixel: under a quarter pixel apart, and the same for both clicks.
+  const skew = await canvas(page).evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return { x: (box.width - element.clientWidth) / 2, y: (box.height - element.clientHeight) / 2 };
+  });
+  expect(Math.abs(skew.x)).toBeLessThanOrEqual(0.25);
+  expect(Math.abs(skew.y)).toBeLessThanOrEqual(0.25);
+  await page.mouse.click(Math.round(first.x), Math.round(first.y));
+  await page.mouse.click(Math.round(second.x), Math.round(second.y));
+  const question = page.locator('[data-scale-window]');
+  await expect(question).toContainText('3.00 m');
+  await question.getByRole('textbox', { name: 'Distance between the points' }).fill('6m');
+  await question.getByRole('textbox', { name: 'Distance between the points' }).press('Enter');
+  await expect.poll(async () => (await one(page, 'underlay')).scaled).toBe(true);
+  // Doubled about the first click: the middle, at the origin before, is now as far the other way as the click was, so
+  // it tells where the click was read, in metres. Within a millimetre of the point aimed at.
+  const scaled = await one(page, 'underlay');
+  expect(Math.abs(scaled.x + scaled.width / 2 - (1.96 - skew.x / 100))).toBeLessThan(0.001);
+  expect(Math.abs(scaled.y + scaled.height / 2 - (1.97 - skew.y / 100))).toBeLessThan(0.001);
+});

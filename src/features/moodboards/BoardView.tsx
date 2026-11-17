@@ -19,7 +19,7 @@ import { LABEL_FONT_SIZE } from '../../ui/canvas/LinkShapes';
 import { boardStripTools, STRIP_INSET } from '../../ui/canvas/stripTools';
 import { ToolStrip } from '../../ui/canvas/ToolStrip';
 import { isHostTool, type CanvasCommand, type Point } from '../../ui/canvas/types';
-import { fitBeside, toWorld } from '../../ui/canvas/viewport';
+import { evenInset, fitBeside, toWorld } from '../../ui/canvas/viewport';
 import { EditableTitle } from '../../ui/EditableTitle';
 import { useMissingVideos } from '../video/videoStatus';
 import { boardFields, boardTitle, linkedLine } from './boards';
@@ -323,8 +323,8 @@ export function BoardView({ board }: { board: SbdRecord }) {
   const centreOnPage = (page: PageInfo) => {
     const frame = wrapper.current?.querySelector<HTMLElement>('[data-canvas]');
     const size = { width: Math.max(80, Math.round(frame?.clientWidth ?? 800)), height: Math.max(80, Math.round(frame?.clientHeight ?? 600)) };
-    // Beside the tools' strip, never under it (6.5.2 round 2).
-    moodboardStore.getState().setViewport(board.id, fitBeside(pageRect(page.fields), size, STRIP_INSET));
+    // Beside the tools' strip, never under it (6.5.2 round 2), moved by whole pixels (6.28).
+    moodboardStore.getState().setViewport(board.id, fitBeside(pageRect(page.fields), size, evenInset(STRIP_INSET)));
   };
 
   // A deck opens fitted to its first page, unless the person has looked around in it already (L10).
@@ -553,8 +553,8 @@ export function BoardView({ board }: { board: SbdRecord }) {
         <Canvas
           label={t('moodboard.canvasLabel', { name: title })}
           // Fits beside the tools' strip. A board's first view and keyboard placing stay at the canvas's middle, as its
-          // 100% view always had them.
-          insetLeft={STRIP_INSET}
+          // 100% view always had them. An even inset (6.28), so a fit moves the view by whole pixels.
+          insetLeft={evenInset(STRIP_INSET)}
           items={drawn}
           selection={selection}
           onSelectionChange={(ids) => {

@@ -72,6 +72,16 @@ export function fitBeside(bounds: Rect | null, size: Size, left: number, padding
   return { ...fitted, cx: fitted.cx - left / 2 / fitted.zoom };
 }
 
+/**
+ * A strip's inset as a host gives it to the three functions around this one: the next even number of pixels (6.28).
+ * They all move the view by half the inset, and half of an odd one (a board's 51, a plan's 69) is half a pixel: at 100%
+ * the world's whole units then fell between the screen's pixels, so a pointer, which is on whole pixels wherever the
+ * engine or the mouse reports only those, could no longer reach a whole unit (a click read back half a centimetre off
+ * on a plan), and the 1.5 px rules were drawn blurred. Rounded up, never down, so nothing fitted lies under the strip.
+ * With an even inset the view is a whole number of pixels from where it is without a strip, whatever the zoom.
+ */
+export const evenInset = (left: number): number => 2 * Math.ceil(left / 2);
+
 /** The world point in the middle of what the canvas shows beside a strip `left` screen pixels wide. */
 export const middleBeside = (view: Viewport, left: number): Point => ({ x: view.cx + left / 2 / view.zoom, y: view.cy });
 
