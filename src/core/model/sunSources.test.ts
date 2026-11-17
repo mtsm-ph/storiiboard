@@ -214,7 +214,7 @@ describe('what a sun path is drawn for (6.5.5)', () => {
     expect(ownSunOf({ own_latitude: 40.7128 })).toEqual({ place: null, date: null, ownTime: false });
     expect(ownSunOf({ own_latitude: 95, own_longitude: 10, own_date: '2026-02-30' })).toEqual({ place: null, date: null, ownTime: false });
     expect(ownSunOf({ own_latitude: '40', own_longitude: -74, own_date: 'June 21' }).place).toBeNull();
-    expect(ownPlaceText({ own_latitude: 40.867712, own_longitude: -73.921234 })).toBe('40.8677, -73.9212');
+    expect(ownPlaceText({ own_latitude: 40.867712, own_longitude: -73.921234 })).toBe('40.86771, -73.92123');
     expect(ownPlaceText({})).toBe('');
   });
 

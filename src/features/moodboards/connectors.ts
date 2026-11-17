@@ -161,11 +161,16 @@ export function createConnectors(records: Records, boardId: string, made: readon
 
 /**
  * Items made at the front and connectors made at the back in one group (quick-create, Paste, Duplicate), both worked out
- * against `records` as they were before the group (6.23 review). On a sound board that is exactly the two lists, made then
- * joined. Past a key that can't be read, the items' fallback key can sit under an odd one, and a connector's rewrite of the
- * board would leave the items just made out of it: then the board is written afresh once, in the order a sound board
- * gives (the new connectors at the back, the board's items as they are, the new items at the front), each record made
- * taking its key in its own create and the board's others a move, so every key is unique and the order is the one asked.
+ * against `records` as they were before the group (6.23 review). On a sound board that has items that is exactly the two
+ * lists, made then joined: the items there keep the new connectors' keys below the new items'. Two cases are keyed as
+ * one sequence instead (the new connectors at the back, the board's items as they are, the new items at the front), each
+ * record made taking its key in its own create and the board's others a move, so every key is unique and the order is
+ * the one asked:
+ * - Past a key that can't be read, the items' fallback key can sit under an odd one, and a connector's rewrite of the
+ *   board would leave the items just made out of it.
+ * - On an empty board (6.25) nothing stands between the two lists: each starts from the same first key, so a connector
+ *   would share its key with an item, and a tie is broken by id, which can draw the connector above the item. The same
+ *   holds wherever a new connector's key isn't below every new item's.
  */
 export function madeWithJoined(records: Records, boardId: string, made: readonly Change[], joined: readonly Change[] = []): Change[] {
   const onBoard = (c: Change): c is Extract<Change, { kind: 'create' }> & { record: { id: string } } =>
@@ -178,7 +183,9 @@ export function madeWithJoined(records: Records, boardId: string, made: readonly
   const sound =
     !joined.some((c) => c.kind === 'move') &&
     front.every((c) => last === null || c.record.sortKey > last) &&
-    back.every((c) => first === null || c.record.sortKey < first);
+    back.every((c) => first === null || c.record.sortKey < first) &&
+    // Every new connector under every new item: on a board with items their keys already say so.
+    back.every((b) => front.every((f) => b.record.sortKey < f.record.sortKey));
   if (sound) return [...made, ...joined];
   const sequence = [...back.map((c) => c.record.id), ...existing.map((r) => r.id), ...front.map((c) => c.record.id)];
   const keys = freshKeys(sequence.length);

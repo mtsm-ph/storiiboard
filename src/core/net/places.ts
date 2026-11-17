@@ -1,3 +1,4 @@
+import { formatCoordinates, parseCoordinates } from '../model/coordinates';
 import type { JsonValue } from '../model/record';
 
 // The address search's answers (3.4): places as the desktop's Rust side finds them on Nominatim (src-tauri/src/
@@ -36,8 +37,19 @@ export function searchKey(query: string, language: string): string {
   return `${language}|${query.trim().replace(/\s+/g, ' ').toLowerCase()}`;
 }
 
-/** "-13.51677, -71.97878": five places, about a metre, as a coordinate is written on a call sheet. */
-export const coordinatesLabel = (place: Pick<Place, 'latitude' | 'longitude'>): string => `${place.latitude.toFixed(5)}, ${place.longitude.toFixed(5)}`;
+/** "-13.51677, -71.97878": five places, about a metre. The one way a place is shown (6.25): `formatCoordinates`. */
+export const coordinatesLabel = (place: Pick<Place, 'latitude' | 'longitude'>): string => formatCoordinates(place);
+
+/**
+ * Whether a place's name is its own coordinates' text (6.25): a pin placed by pasted coordinates is named by them, so
+ * showing the name and then the coordinates would say the same thing twice. The name is read as coordinates and
+ * compared with the place, within what five places (and an older four-place name) round away, so a name written
+ * before 6.25 counts too. A searched place's name, or coordinates of somewhere else (a pin dragged since), don't.
+ */
+export function namedByCoordinates(place: Place): boolean {
+  const read = parseCoordinates(place.name);
+  return read.ok && Math.abs(read.latitude - place.latitude) <= 0.00006 && Math.abs(read.longitude - place.longitude) <= 0.00006;
+}
 
 /** A coordinate as geocode.rs reads one: a number, or text that is one; anything else (empty, null) is none. */
 function coordinate(value: unknown): number {

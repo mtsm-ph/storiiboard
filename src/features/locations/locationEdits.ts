@@ -95,7 +95,7 @@ export function movePin(records: Records, id: string, latitude: number, longitud
 /**
  * Pasted coordinates put on the location (6.5.5), in one edit, with no address search: the new `latitude` and `longitude`
  * as read (every place kept), `map_moved` set as a moved pin sets it (placed by hand, not by the search), and `map_name`
- * the coordinates themselves ("40.8677, -73.9212"): a searched place's name would no longer describe a pin pasted
+ * the coordinates themselves ("40.86770, -73.92120"): a searched place's name would no longer describe a pin pasted
  * anywhere (a place on the map always has a name). The address stays as typed. A hospital found for the old place is
  * left as it is, as a dragged pin leaves it (movePin touches no hospital prop). Its zone is then found from the place as
  * a moved pin's is (offline, by tzf-rs). Nothing when the location isn't live, the point isn't on the Earth, or the pin

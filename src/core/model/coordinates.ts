@@ -3,8 +3,8 @@
 // them ("40.8677, -73.9212", with or without the space, or a space for the comma), with the hemisphere's letter before
 // or after ("40.8677° N, 73.9212° W", "N 40.8677 W 73.9212"), and degrees, minutes and seconds as Google Maps shows them
 // (40°52'03.7"N 73°55'16.3"W). Latitude first unless the letters say otherwise. A decimal comma is refused, never
-// guessed: "40,8677" could as well be two numbers. Written back as "40.8677, -73.9212", four places (about 10 m); the
-// file keeps every place read.
+// guessed: "40,8677" could as well be two numbers. Written back as "40.86771, -73.92123", five places (about 1 m), the
+// same as the Locations tile shows (6.25); the file keeps every place read.
 
 export interface Coordinates {
   latitude: number;
@@ -107,11 +107,15 @@ export function parseCoordinates(text: string): ParsedCoordinates {
   return { ok: true, latitude: lat === 0 ? 0 : lat, longitude: lon === 0 ? 0 : lon };
 }
 
-/** Four places, never "-0.0000". */
-const four = (value: number): string => {
-  const text = value.toFixed(4);
+/** Five places, never "-0.00000". */
+const five = (value: number): string => {
+  const text = value.toFixed(5);
   return /^-0\.0+$/.test(text) ? text.slice(1) : text;
 };
 
-/** "40.8677, -73.9212": how a place is shown and offered back to copy (the file keeps every place). */
-export const formatCoordinates = (place: Coordinates): string => `${four(place.latitude)}, ${four(place.longitude)}`;
+/**
+ * "40.86771, -73.92123": how a place is shown and offered back to copy (the file keeps every place). The one number of
+ * decimals a person sees for a place (6.25, Kevin Nov 16): the Locations tile, the map, a paste's status and the sun
+ * path's own place all come through here.
+ */
+export const formatCoordinates = (place: Coordinates): string => `${five(place.latitude)}, ${five(place.longitude)}`;

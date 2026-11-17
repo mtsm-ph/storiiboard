@@ -145,7 +145,7 @@ test('quick sun: its own place and date for a setup with none, then the setup’
   await expect(sources.locator('[data-sun-place-from]')).toHaveText('Place Its own');
   await expect(sources.locator('[data-sun-date-from]')).toHaveText('Date Its own');
   await expect(selectionTile(page).locator('[data-sun-zone]')).toHaveText('Times in America/New_York, from the coordinates');
-  await expect(ownPlace).toHaveValue('40.8677, -73.9212');
+  await expect(ownPlace).toHaveValue('40.86770, -73.92120');
   // The compass shows the sun at the sun path's time, its arc round the rim.
   await expect(compass(page)).toHaveAccessibleName(/^North is 0°\. Sun: \d+° at 12:00, \d+° high$/);
   await expect(planTile(page).locator('[data-compass-arc]')).toHaveCount(1);
@@ -155,7 +155,7 @@ test('quick sun: its own place and date for a setup with none, then the setup’
   await ownPlace.fill('40,8677, -73,9212');
   await ownPlace.press('Enter');
   await expect(page.getByText('Write decimals with a point, not a comma: 40.8677, -73.9212. The comma separates latitude from longitude.')).toBeVisible();
-  await expect(ownPlace).toHaveValue('40.8677, -73.9212');
+  await expect(ownPlace).toHaveValue('40.86770, -73.92120');
 
   // The compass opens the settings of north and the sun: both selected, both shown.
   await canvas(page).focus();
@@ -208,7 +208,7 @@ test('quick sun: its own place and date for a setup with none, then the setup’
   await expect(editor.getByText('On the map')).toBeVisible();
   await expect(editor.locator('[data-address-search]')).toContainText('40.71280, -74.00600');
   await expect(editor.locator('[data-location-map]')).toBeVisible();
-  await expect(editor.locator('[data-coordinates-said]')).toHaveText('Pin placed at 40.7128, -74.0060.');
+  await expect(editor.locator('[data-coordinates-said]')).toHaveText('Pin placed at 40.71280, -74.00600.');
   await expect(coordinates).toHaveValue('');
   // The address as typed.
   await expect(editor.getByRole('textbox', { name: 'Address', exact: true })).toHaveValue('Margaret Corbin Dr, New York');
@@ -237,7 +237,7 @@ test('quick sun: its own place and date for a setup with none, then the setup’
   await expect(sources.locator('[data-sun-date-from]')).toHaveText(/^Date From the shoot day: Day 1 · Sun, Jun 21$/i);
   await expect(sources.locator('[data-sun-own-place-unused]')).toHaveText('Not used while the setup has a location with a place on the map.');
   await expect(sources.locator('[data-sun-own-date-unused]')).toHaveText('Not used while the setup has a shoot day with a date.');
-  await expect(selectionTile(page).getByRole('textbox', { name: 'Its own place', exact: true })).toHaveValue('40.8677, -73.9212');
+  await expect(selectionTile(page).getByRole('textbox', { name: 'Its own place', exact: true })).toHaveValue('40.86770, -73.92120');
   await expect(selectionTile(page).getByLabel('Its own date', { exact: true })).toHaveValue('2026-06-21');
   await expect(selectionTile(page).locator('[data-sun-zone]')).toHaveText('Times in America/New_York');
   const { violations } = await new AxeBuilder({ page }).include('[data-sun-sources]').withTags(tags).analyze();

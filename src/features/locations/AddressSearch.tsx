@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { projectStore } from '../../app/projectStore';
 import { formatDate, localizeError, t, tn } from '../../core/i18n';
-import { coordinatesLabel, type Place } from '../../core/net/places';
+import { coordinatesLabel, namedByCoordinates, type Place } from '../../core/net/places';
 import { Button } from '../../ui/Button';
 import { findPlaces, type Found } from './findPlaces';
 import { placeLocation, unplaceLocation } from './locationEdits';
@@ -138,7 +138,9 @@ export function AddressSearch({ locationId, place, query }: AddressSearchProps) 
         <div className="flex items-start gap-2">
           <p className="min-w-0 flex-1 text-[13px]">
             <span className="sb-label mr-1">{t('location.onMap')}</span>
-            {place.name} <span className="font-mono text-[12px]">{coordinatesLabel(place)}</span>
+            {/* A pin placed by pasted coordinates is named by them: said once, not twice (6.25). */}
+            {namedByCoordinates(place) ? null : <>{place.name} </>}
+            <span className="font-mono text-[12px]">{coordinatesLabel(place)}</span>
           </p>
           <Button
             onClick={() => {

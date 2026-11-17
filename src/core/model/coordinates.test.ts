@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { coordinatesLabel } from '../net/places';
 import { formatCoordinates, parseCoordinates } from './coordinates';
 
 // Coordinates typed or pasted (6.5.5): every form Google Maps and people write, the bounds, the refusals with their
@@ -99,10 +100,20 @@ describe('coordinates as text (6.5.5)', () => {
     expect(refusal(`40.5°52'N 73°55'W`)).toBe('unreadable');
   });
 
-  it('writes a place back as “40.8677, -73.9212”, four places, never “-0.0000”', () => {
-    expect(formatCoordinates({ latitude: 40.867712, longitude: -73.921234 })).toBe('40.8677, -73.9212');
-    expect(formatCoordinates({ latitude: -0.00001, longitude: 0.00004 })).toBe('0.0000, 0.0000');
-    expect(formatCoordinates({ latitude: 90, longitude: -180 })).toBe('90.0000, -180.0000');
+  it('writes a place back as “40.86771, -73.92123”, five places', () => {
+    expect(formatCoordinates({ latitude: 40.867712, longitude: -73.921234 })).toBe('40.86771, -73.92123');
+    expect(formatCoordinates({ latitude: -0.00001, longitude: 0.00004 })).toBe('-0.00001, 0.00004');
+    expect(formatCoordinates({ latitude: 90, longitude: -180 })).toBe('90.00000, -180.00000');
+  });
+
+  it('shows five places, as the Locations tile does, and never “-0.00000” (6.25)', () => {
+    expect(formatCoordinates({ latitude: -13.516772, longitude: -71.978781 })).toBe('-13.51677, -71.97878');
+    // Under half of the fifth place rounds to nothing: no sign is left on it.
+    expect(formatCoordinates({ latitude: -0.000001, longitude: 0.000004 })).toBe('0.00000, 0.00000');
+    expect(formatCoordinates({ latitude: -0, longitude: -0.000004 })).toBe('0.00000, 0.00000');
+    // One formatter: the map's and the address search's label is the same text.
+    expect(coordinatesLabel({ latitude: -13.516772, longitude: -71.978781 })).toBe(formatCoordinates({ latitude: -13.516772, longitude: -71.978781 }));
+    expect(coordinatesLabel({ latitude: -0.000001, longitude: 40.7128 })).toBe('0.00000, 40.71280');
   });
 
   it('round-trips: what it writes reads back as the same place, to the places shown', () => {
