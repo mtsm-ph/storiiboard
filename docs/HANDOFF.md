@@ -403,10 +403,16 @@ report.** He also said: **use Fable for every agent this week** (start the build
   (earlier migrations commit one by one), nothing lost, the original in the first backup; each failed try in a
   new minute leaves another backup beside the project, and a retry in the same minute fails at "A backup named …
   already exists". No product change made; his call.
-- **Status line (keep current):** Nov 16, evening: #180 to #191 merged; #192 (6.24) and 6.25 open, stacked,
-  waiting for Kevin's word; checkpoint 43982486430 red on the Mac (4 failed, 1 flaky); next builder: 6.28 (the
-  Mac failures), then 6.26 (held-key cost), 6.27 (scout photos), then 6.6.1 and 6.6.2 (briefs written), then the
-  remaining 6.6 briefs (slider and light patches; Library by room; templates and the styled rooms' pictures).
+- **6.28 (the Mac's failures; branch `fix/6.28-mac-failures`, stacked on #193; reviewed, nothing high):** the
+  plan's and the board's insets are even (`evenInset`, src/ui/canvas/viewport.ts: 70 and 52), a section's or
+  page's edge picks up to 2 px outside its box (src/ui/canvas/sections.ts), macWebKit's Hex Tab test changed as
+  the brief names. The planLayers flake has no known cause (lead: the Layers tile may overflow with the Mac's
+  fonts; the Mac's trace of that test would settle it, if the checkpoint uploaded traces). **Needs one Mac run to
+  confirm (`checkpoint/e2e-<name>`): ask Kevin to name it.** Left as it always was: with an odd canvas width the
+  plan's origin sits on a half pixel.
+- **Status line (keep current):** Nov 16, evening: #180 to #191 merged; #192 (6.24), #193 (6.25) and 6.28 open,
+  stacked, green on Linux, waiting for Kevin's word; checkpoint 43982486430 red on the Mac; next builder: 6.26
+  (held-key cost), then 6.27 (scout photos), then 6.6.1 to 6.6.5 (all five briefs written in docs/briefs/).
 
 ### Next session: start here (Nov 16, earlier: "6.5 canvas polish"; older)
 

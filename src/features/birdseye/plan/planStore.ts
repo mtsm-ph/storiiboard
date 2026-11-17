@@ -4,7 +4,7 @@ import { projectStore } from '../../../app/projectStore';
 import type { Tool, Viewport } from '../../../ui/canvas/types';
 import { RULER_SIZE } from '../../../ui/canvas/Rulers';
 import { STRIP_INSET } from '../../../ui/canvas/stripTools';
-import { firstViewBeside } from '../../../ui/canvas/viewport';
+import { evenInset, firstViewBeside } from '../../../ui/canvas/viewport';
 import type { PlanClip } from './planItems';
 import { SCALE_TOOL } from './planScale';
 import { useShownPlan } from './shownPlan';
@@ -86,9 +86,10 @@ export function usePlan<T>(select: (state: PlanState) => T): T {
 
 /**
  * What the tools' strip takes along a plan's left edge, px (6.5.2 round 3): the strip's own, plus the left ruler, since on
- * a plan the strip sits inside the rulers.
+ * a plan the strip sits inside the rulers. An even number (6.28: 51 + 18 = 69 made 70), so the half of it that the first
+ * view, the keyboard's middle and every fit move by is whole pixels, and at 100% a whole centimetre is on a whole pixel.
  */
-export const PLAN_STRIP_INSET = STRIP_INSET + RULER_SIZE;
+export const PLAN_STRIP_INSET = evenInset(STRIP_INSET + RULER_SIZE);
 
 /** A plan's view, or its first: at 100%, the plan's origin in the middle of what is seen beside the tools' strip (6.5.2). */
 const FIRST_VIEW = firstViewBeside(PLAN_STRIP_INSET);

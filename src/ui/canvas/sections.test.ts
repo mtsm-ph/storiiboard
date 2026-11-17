@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { drawOrder, EDGE_BAND_PIXELS, sectionContents, sectionHit, tabRect, topmostSectionAt } from './sections';
+import { drawOrder, EDGE_BAND_PIXELS, EDGE_REACH_PIXELS, sectionContents, sectionHit, tabRect, topmostSectionAt } from './sections';
 import type { CanvasItem } from './types';
 
 // Sections (5.3): what one holds is worked out from where things are, and it is picked only by its name or its edge band.
@@ -51,6 +51,37 @@ describe('picking a section', () => {
     // At 50% eight pixels are 16 world units; at 200% they are 4.
     expect(sectionHit(s, { x: 300, y: 114 }, 0.5)).toBe(true);
     expect(sectionHit(s, { x: 300, y: 105 }, 2)).toBe(false);
+  });
+
+  it('is by the pixels its outline inks just outside the box, 2 screen pixels at any zoom, wherever the edge falls (6.28)', () => {
+    expect(EDGE_REACH_PIXELS).toBe(2);
+    // Each edge, a pixel and two outside it; three is off the outline.
+    expect(sectionHit(s, { x: 300, y: 99 }, 1)).toBe(true);
+    expect(sectionHit(s, { x: 300, y: 98 }, 1)).toBe(true);
+    expect(sectionHit(s, { x: 300, y: 97 }, 1)).toBe(false);
+    expect(sectionHit(s, { x: 98.5, y: 250 }, 1)).toBe(true);
+    expect(sectionHit(s, { x: 97, y: 250 }, 1)).toBe(false);
+    expect(sectionHit(s, { x: 501.5, y: 250 }, 1)).toBe(true);
+    expect(sectionHit(s, { x: 503, y: 250 }, 1)).toBe(false);
+    expect(sectionHit(s, { x: 300, y: 402 }, 1)).toBe(true);
+    expect(sectionHit(s, { x: 300, y: 403 }, 1)).toBe(false);
+    // A corner, outside on both sides.
+    expect(sectionHit(s, { x: 99, y: 99 }, 1)).toBe(true);
+    expect(sectionHit(s, { x: 97, y: 99 }, 1)).toBe(false);
+    // In screen pixels: at 50% two pixels are 4 world units, at 200% one.
+    expect(sectionHit(s, { x: 300, y: 96.5 }, 0.5)).toBe(true);
+    expect(sectionHit(s, { x: 300, y: 95 }, 0.5)).toBe(false);
+    expect(sectionHit(s, { x: 300, y: 99.5 }, 2)).toBe(true);
+    expect(sectionHit(s, { x: 300, y: 98.5 }, 2)).toBe(false);
+    // The Mac's case: a 1920 × 1080 page fitted at 41%, the pointer's whole pixel 0.66 px above its top edge, and
+    // every other fraction of a pixel the edge can fall on under a pointer on whole pixels.
+    const page = section('page', 0, 0, 1920, 1080);
+    const zoom = 787 / 1920;
+    expect(sectionHit(page, { x: 960, y: -0.65625 / zoom }, zoom)).toBe(true);
+    for (let sixteenth = 0; sixteenth < 16; sixteenth += 1) expect(sectionHit(page, { x: 960, y: -sixteenth / 16 / zoom }, zoom)).toBe(true);
+    // The pixel above the one the edge is in, which the 1.5 px rule still inks when the edge is in a pixel's top.
+    expect(sectionHit(page, { x: 960, y: -1.74 / zoom }, zoom)).toBe(true);
+    expect(sectionHit(page, { x: 960, y: -2.5 / zoom }, zoom)).toBe(false);
   });
 
   it('is not by its empty middle, where a click starts a marquee, nor from outside', () => {
