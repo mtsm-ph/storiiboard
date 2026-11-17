@@ -109,7 +109,8 @@ describe('operations', () => {
   });
 
   it('moves to the Trash and back, and undo reverses either', async () => {
-    await apply(project.file, [scene('sc4', '4')]);
+    // An earlier time than the trash's: a step is never earlier than the one before it (6.24).
+    await apply(project.file, [scene('sc4', '4')], { now: () => new Date('2026-11-02T14:00:00.000Z') });
     await apply(project.file, [{ kind: 'trash', id: 'sc4' }], { author: 'local', now: () => new Date('2026-11-02T14:05:00Z') });
     const trashed = await getRecord(project.file, 'sc4');
     expect(trashed?.trashedAt).toBe('2026-11-02T14:05:00.000Z');
@@ -163,8 +164,10 @@ describe('operations', () => {
 
 describe('an append-only history', () => {
   it('records every undo and redo as its own group, linked to the group it reverses or replays', async () => {
-    await apply(project.file, [scene('sc4', '4')]);
-    await apply(project.file, [{ kind: 'update', id: 'sc4', set: { number: '5' } }]);
+    // Earlier times than the undo's: a step is never earlier than the one before it (6.24).
+    const earlier = { now: () => new Date('2026-11-02T14:00:00.000Z') };
+    await apply(project.file, [scene('sc4', '4')], earlier);
+    await apply(project.file, [{ kind: 'update', id: 'sc4', set: { number: '5' } }], earlier);
     await undo(project.file, { author: 'kevin', now: () => new Date('2026-11-02T15:00:00Z') });
     await undo(project.file);
     await redo(project.file);

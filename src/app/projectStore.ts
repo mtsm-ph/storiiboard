@@ -4,7 +4,7 @@ import type { SbdRecord } from '../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../core/model/shotNumbers';
 import { forgetDecoded } from '../core/media/decoded';
 import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
-import { apply, type AlsoPurge, cleanUpPictures, emptyTrash, history, lastOpTime, loadRecords, redo, restoreTo, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
+import { apply, type AlsoPurge, cleanUpPictures, emptyTrash, history, lastOpTime, loadRecords, redo, restoreTo, startStepClock, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { newestBackupAt } from '../core/storage/backups';
 import { CHANGED_ON_DISK, type Statement } from '../core/storage/driver';
 import { compactProject, type Compacted } from '../core/storage/compact';
@@ -247,6 +247,9 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
             await project.close().catch(() => undefined);
             throw error;
           }
+          // The newest step's time (6.24), read while the project comes up and never waited for here: the first edit
+          // finds it read, rather than scanning a long History itself.
+          startStepClock(project.file);
           // The sign's backup time only: a listing that fails says "No backup yet" rather than stop the project opening.
           const newest = await newestBackupAt(project.file).catch(() => null);
           // A project already open (a switch) closes only after the new one is on screen, so there's never a

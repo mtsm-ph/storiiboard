@@ -200,6 +200,72 @@ interface GroupRow extends Tops {
 
 const isNumbered = (record: SbdRecord | null) => record?.type === 'shot' || record?.type === 'scene';
 
+/** Per open file: the newest time any op group in it has, in ms; -Infinity for a log with none. */
+const stepClocks = new WeakMap<ProjectFile, Promise<{ last: number }>>();
+
+/**
+ * The time a new op group gets (6.24): the caller's clock, but always at least a millisecond later than every group
+ * already in this file. The one place a group's time comes from, for apply, undo, redo, restoreTo, Empty Trash and a
+ * migration's rewrite, and so for every `trashed_at`, `updated_at` and `created_at` stamped from it.
+ *
+ * Why: the Trash tells what went with a room, a wall, a camera or a board item by "trashed at the same time by the same
+ * person" (trashedWithPlan and its like). That is only true of one step if no two steps share a time, and a change
+ * file or an assistant applying many steps can put two in one millisecond; a person's hands can't.
+ *
+ * A clock that jumps back (a time-zone fix, a corrected clock), or a file whose newest step is in the future because
+ * another computer's clock ran ahead: times keep rising from the newest one, a millisecond a step, until the clock
+ * passes them. Nothing already in the log is rewritten.
+ *
+ * The newest time is read once per open file (one read of op_groups' timestamps, which have no index: a scan of that
+ * one column, once), then kept here as groups are written. The store starts the read as the project opens
+ * (startStepClock), so no edit waits on a long History's scan; a step that comes before it has finished awaits it, and
+ * a file never opened through the store reads it on its first step. A time handed out is never handed out again, even
+ * if its write then fails.
+ *
+ * The one writer of groups that doesn't come through here is migration 2's backfill, which makes a v1 file's first
+ * groups and writes their times itself: those may share a time (docs/SBD_FORMAT.md).
+ *
+ * The clock is kept per open file object, never shared between two projects, and it only knows the groups this object
+ * wrote and the ones it read. That is sound because the driver checks before every write that the file on disk is
+ * still the one open (CHANGED_ON_DISK), so nothing else has written groups meanwhile. A second writer of the same
+ * file (the MCP server, Phase 7) needs that same check, or the time taken inside the commit's own transaction.
+ */
+async function stepTime(file: ProjectFile, now: () => Date): Promise<string> {
+  // Before the clock is touched: a `now` that isn't a time fails this one step, as it always did (toISOString throws),
+  // and leaves the clock as it was for the next.
+  const asked = now();
+  asked.toISOString();
+  // A read begun at open that failed (or fails while this step waits on it) is asked once more, by this step itself.
+  const clock = await readStepClock(file).catch(() => readStepClock(file));
+  // No await between reading `last` and setting it, so no two callers can ever be handed the same time.
+  const at = Math.max(asked.getTime(), clock.last + 1);
+  clock.last = at;
+  return new Date(at).toISOString();
+}
+
+function readStepClock(file: ProjectFile): Promise<{ last: number }> {
+  let reading = stepClocks.get(file);
+  if (!reading) {
+    reading = file.query('SELECT max(timestamp) AS last FROM op_groups').then(([row]) => {
+      const last = typeof row?.last === 'string' ? Date.parse(row.last) : Number.NaN;
+      return { last: Number.isNaN(last) ? Number.NEGATIVE_INFINITY : last };
+    });
+    stepClocks.set(file, reading);
+    // A read that failed is asked again by the next step, never remembered.
+    void reading.catch(() => stepClocks.delete(file));
+  }
+  return reading;
+}
+
+/**
+ * Starts reading the file's newest step time (6.24, stepTime) without waiting for it: called as a project opens, so
+ * the open isn't held up and the first edit finds the time already read. A read that fails is asked again by the
+ * first step, which then fails or not on its own.
+ */
+export function startStepClock(file: ProjectFile): void {
+  void readStepClock(file).catch(() => undefined);
+}
+
 /** Writes the records, the op rows and the group row in one transaction. Nothing already in the log is touched. */
 async function commit(
   file: ProjectFile,
@@ -261,7 +327,7 @@ async function commit(
 export async function apply(file: ProjectFile, changes: readonly Change[], options: OpOptions = {}): Promise<Touched> {
   const { author = 'local', now = () => new Date() } = options;
   if (changes.length === 0) return new Map();
-  const at = now().toISOString();
+  const at = await stepTime(file, now);
 
   // Every record the changes name, as it is now, read in one query rather than one a change (each is a round trip in
   // the desktop app: a drop of 30 pictures was 60 of them, renumbering a long scene hundreds; quality pass).
@@ -318,7 +384,7 @@ export async function undo(file: ProjectFile, options: OpOptions = {}): Promise<
     },
     ops,
     author,
-    now().toISOString(),
+    await stepTime(file, now),
   );
   return touchedBy(ops);
 }
@@ -345,7 +411,7 @@ export async function redo(file: ProjectFile, options: OpOptions = {}): Promise<
     },
     ops,
     author,
-    now().toISOString(),
+    await stepTime(file, now),
   );
   return touchedBy(ops);
 }
@@ -494,7 +560,7 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     { kind: 'restore', restoreTo: groupId, stackBelow: undoTop, undoTop: null, redoTop: null },
     ops,
     author,
-    now().toISOString(),
+    await stepTime(file, now),
   );
   return touchedBy(ops);
 }
@@ -629,18 +695,21 @@ function deletePictures(pictures: readonly StoredPicture[]): Statement[] {
 export async function loggedRewrite(
   file: ProjectFile,
   changes: readonly { before: SbdRecord; props: Props }[],
-  at: string,
+  asked: string,
   author = 'local',
   created: readonly SbdRecord[] = [],
 ): Promise<Statement[]> {
   if (changes.length === 0 && created.length === 0) return [];
+  // A step like any other (6.24): later than every group in the file, the one before it in this same upgrade included.
+  const at = await stepTime(file, () => new Date(asked));
   const [top] = await file.query(
     'SELECT (SELECT coalesce(max(seq), 0) FROM ops) AS op, (SELECT coalesce(max(seq), 0) FROM op_groups) AS grp',
   );
   const firstSeq = Number(top?.op ?? 0) + 1;
   const groupId = crypto.randomUUID();
   const ops: { kind: 'create' | 'update'; before: SbdRecord | null; after: SbdRecord }[] = [
-    ...created.map((record) => ({ kind: 'create' as const, before: null, after: record })),
+    // Made in this step, so stamped with its time, like the records it changes.
+    ...created.map((record) => ({ kind: 'create' as const, before: null, after: { ...record, createdAt: at, updatedAt: at } })),
     ...changes.map(({ before, props }) => ({ kind: 'update' as const, before, after: { ...before, props, updatedAt: at } })),
   ];
   return [
@@ -682,7 +751,7 @@ export async function emptyTrash(
   if (ids.length === 0) return null;
   const unreachable = await onlyInHistoryUnder(file, all, ids);
   const pictures = await unusedPictures(file, [...ids, ...unreachable]);
-  const at = now().toISOString();
+  const at = await stepTime(file, now);
   const groupId = crypto.randomUUID();
   const gone = JSON.stringify([...ids, ...unreachable]);
   const [top] = await file.query(
