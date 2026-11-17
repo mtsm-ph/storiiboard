@@ -1,4 +1,4 @@
-import { formatNumber, t, type MessageKey } from '../../../core/i18n';
+import { formatNumber, getLocale, t, type MessageKey } from '../../../core/i18n';
 import type { ShownItem } from '../../../core/model/plan';
 import { liveSun, type SunMissing } from '../../../core/model/planSun';
 import type { SbdRecord } from '../../../core/model/record';
@@ -70,15 +70,42 @@ function segmentsOf(path: SunPath, north: number, radius: number): { golden: boo
 
 const tick = (bearing: number, north: number, label: string): SunTick => ({ ...planVector(bearing, north), label });
 
-/** One sun path's look. */
+const looks = new WeakMap<object, Map<string, SunLook>>();
+let looksMade = 0;
+
+/** How many sun path looks have been worked out: for tests, which check an edit a sun path doesn't read works none out. */
+export const sunLooksMade = (): number => looksMade;
+
+/**
+ * One sun path's look. Kept by its reading (6.26 round 2), which is the same object while no record the sun path reads
+ * changed (sunSources.ts) and which its time is part of, with whether it is selected and the language its words are in:
+ * a light turned on the plan gives the look it had, its arc's stretches not made again.
+ */
 export function sunLookOf(records: Records, sunId: string, zones: ReadonlyMap<string, string | null>, selected: boolean): SunLook | null {
   const sun = liveSun(records, sunId);
   if (!sun) return null;
   const reading = sunReadingOf(records, sunId, zones);
+  if (!reading) return sunLookFrom(reading, sun.fields.time, selected);
+  let known = looks.get(reading);
+  if (!known) {
+    known = new Map();
+    looks.set(reading, known);
+  }
+  const key = `${selected ? 'selected' : 'plain'}|${getLocale()}|${sun.fields.time}`;
+  const found = known.get(key);
+  if (found) return found;
+  const look = sunLookFrom(reading, sun.fields.time, selected);
+  known.set(key, look);
+  return look;
+}
+
+/** A sun path's look from its reading and its time, worked out anew: what sunLookOf keeps. */
+export function sunLookFrom(reading: SunReadingOf | null, time: string, selected: boolean): SunLook {
+  looksMade += 1;
   // While its zone's lookup is on its way, the icon alone: no "No time zone" for a moment (6.6 review).
   if (reading && 'missing' in reading && reading.pending) return { kind: 'missing', lines: [], selected };
   if (!reading || 'missing' in reading) return { kind: 'missing', lines: [t(MISSING_WORDS[reading?.missing ?? 'noFrames'])], selected };
-  const numbers = sunNumbers(reading, sun.fields.time);
+  const numbers = sunNumbers(reading, time);
   // A date or place SunCalc can't read (an import's): said as no place.
   if (!numbers) return { kind: 'missing', lines: [t(MISSING_WORDS.noPlace)], selected };
   const { north } = reading;

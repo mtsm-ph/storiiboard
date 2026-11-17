@@ -70,6 +70,17 @@ export function compassModel(records: Records, view: { sceneId: string; setupId:
   return model;
 }
 
+/**
+ * Whether two models show the same compass (6.26). A model is worked out from the room's north, the sun path's id,
+ * whether its time is its own and its reading, and a reading is the same object while no record it reads changed
+ * (sunSources.ts): so two models from two records objects say the same exactly when these do, with nothing compared
+ * point by point. What draws the compass keeps the model it has while this holds.
+ */
+export function sameCompassModel(a: CompassModel, b: CompassModel): boolean {
+  if (a === b) return true;
+  return a.reading === b.reading && a.north === b.north && a.sunId === b.sunId && a.missing === b.missing && a.pending === b.pending && a.sun?.timeFrom === b.sun?.timeFrom;
+}
+
 function workedOut(records: Records, view: { sceneId: string }, zones: ReadonlyMap<string, string | null>, sunItem: ShownItem | undefined): CompassModel {
   made += 1;
   const north = sceneNorth(records, view.sceneId);

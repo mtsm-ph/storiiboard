@@ -4,6 +4,7 @@ import { frameLocationId, locationFields, mapPlace } from './location';
 import { cameraSetupFrames } from './planCamera';
 import { liveSun, locationZone, sceneNorth, setupSunBase, sunSetupId, type SunMissing, type SunZone } from './planSun';
 import type { JsonValue, Props, SbdRecord } from './record';
+import { unchangedToken } from './recordIndex';
 import { frameDayId, isDayDate, projectShootDays, type ShootDay } from './shootDay';
 import { solarNoon, sunAt, sunPath, type SunAt, type SunPath } from './sunPath';
 import { isTimeZone, zoneClock } from './sunTimes';
@@ -175,6 +176,35 @@ interface Drawn {
 type Base = { drawn: Drawn } | { missing: Extract<SunReadingOf, { missing: SunMissing }> };
 
 /**
+ * Every record a sun path's reading can read (6.26): the project, its scenes, setups, frames, shoot days, locations and
+ * plans, and of the plans' items only the sun paths and the rooms' norths. A reading is kept while these are the same
+ * records (recordIndex.ts, unchangedToken), so an edit to anything else on the plan (a light turned, a wall moved, a
+ * mark placed) works no sun out again. A reader added here that reads another type adds it to this list;
+ * sunRecords.test.ts changes every record of every type and fails when a kept reading differs from one worked out anew.
+ */
+const SUN_TYPES: readonly SbdRecord['type'][] = ['project', 'scene', 'setup', 'shot', 'shoot_day', 'location', 'plan'];
+const SUN_ITEMS = { type: 'plan_item' as const, counts: (record: SbdRecord) => record.props.kind === 'sun' || record.props.kind === 'north' };
+
+/** The same object while no record a sun path's reading reads has changed: what its readings and the compass are kept by. */
+export const sunRecordsToken = (records: Records): object => unchangedToken(records, 'sunSources', SUN_TYPES, SUN_ITEMS);
+
+const bases = new WeakMap<object, Map<string, Base | null>>();
+const kept = new WeakMap<object, Map<string, SunReadingOf>>();
+let made = 0;
+
+/** How many sun readings have been worked out (sunReadingOf): for tests, which check an edit a sun path doesn't read works none out. */
+export const sunReadingsOfMade = (): number => made;
+
+function keptBy<T>(memo: WeakMap<object, Map<string, T>>, token: object): Map<string, T> {
+  let known = memo.get(token);
+  if (!known) {
+    known = new Map();
+    memo.set(token, known);
+  }
+  return known;
+}
+
+/**
  * What a sun path draws from, its zone aside (6.5.5, the rule after review). It never pairs a day from one frame with a
  * place from another, and never claims a source it doesn't draw:
  * (a) one frame gives both a dated day and a placed location: 6.6's rule (setupSunBase), unchanged; own values unused.
@@ -190,6 +220,14 @@ type Base = { drawn: Drawn } | { missing: Extract<SunReadingOf, { missing: SunMi
  * a pair is settled are north and the zone asked for; the pair is then kept on what's missing (noNorth, noZone).
  */
 function baseOf(records: Records, sunId: string): Base | null {
+  const known = keptBy(bases, sunRecordsToken(records));
+  if (known.has(sunId)) return known.get(sunId) ?? null;
+  const base = baseWorkedOut(records, sunId);
+  known.set(sunId, base);
+  return base;
+}
+
+function baseWorkedOut(records: Records, sunId: string): Base | null {
   const sun = liveSun(records, sunId);
   if (!sun) return null;
   const setupId = sunSetupId(records, sun.record);
@@ -231,7 +269,13 @@ function baseOf(records: Records, sunId: string): Base | null {
 
 /** The point a sun path's zone is looked up at: its location's place (one with no zone of its own), or its own coordinates; else null. */
 export function sunZonePointOf(records: Records, sunId: string): SunZonePoint | null {
-  const base = baseOf(records, sunId);
+  return zonePointFrom(baseOf(records, sunId), sunId);
+}
+
+/** sunZonePointOf worked out anew, nothing kept (6.26 round 2): for the test that guards SUN_TYPES, as sunReadingFresh. */
+export const sunZonePointFresh = (records: Records, sunId: string): SunZonePoint | null => zonePointFrom(baseWorkedOut(records, sunId), sunId);
+
+function zonePointFrom(base: Base | null, sunId: string): SunZonePoint | null {
   if (!base || !('drawn' in base)) return null;
   const { place } = base.drawn;
   if (place.source === 'own') return { id: sunId, latitude: place.latitude, longitude: place.longitude, own: true };
@@ -273,7 +317,32 @@ export function sunReadingOf(records: Records, sunId: string, zones: ReadonlyMap
   const base = baseOf(records, sunId);
   if (!base) return null;
   if ('missing' in base) return base.missing;
-  const { place, date } = base.drawn;
+  // Kept by the records it reads and the one zone answer it reads (6.26): the same reading, the same object, until one
+  // of them changes.
+  const asked = base.drawn.place.source === 'location' ? base.drawn.place.location.id : sunId;
+  const known = keptBy(kept, sunRecordsToken(records));
+  const key = `${sunId}|${zones.has(asked) ? `=${String(zones.get(asked))}` : '?'}`;
+  const found = known.get(key);
+  if (found) return found;
+  const reading = readingWorkedOut(records, sunId, zones, base.drawn);
+  known.set(key, reading);
+  return reading;
+}
+
+/**
+ * A sun path's reading worked out anew, nothing kept and nothing read from what is kept (6.26 round 2): what the kept
+ * reading must always equal. For the test that guards SUN_TYPES (sunRecords.test.ts): a reader of a record type the list
+ * doesn't name gives a kept reading that differs from this one.
+ */
+export function sunReadingFresh(records: Records, sunId: string, zones: ReadonlyMap<string, string | null>): SunReadingOf | null {
+  const base = baseWorkedOut(records, sunId);
+  if (!base) return null;
+  return 'missing' in base ? base.missing : readingWorkedOut(records, sunId, zones, base.drawn);
+}
+
+function readingWorkedOut(records: Records, sunId: string, zones: ReadonlyMap<string, string | null>, drawn: Drawn): SunReadingOf {
+  made += 1;
+  const { place, date } = drawn;
   let zone: SunZone | null;
   let pendingId: string;
   if (place.source === 'location') {
@@ -293,7 +362,7 @@ export function sunReadingOf(records: Records, sunId: string, zones: ReadonlyMap
   const at = sunAt(date.date, time, place.latitude, place.longitude, zone.zone);
   const noonAt = noonClock(date.date, place.latitude, place.longitude, zone.zone);
   const noon = noonAt === null ? null : sunAt(date.date, noonAt, place.latitude, place.longitude, zone.zone);
-  return { ...base.drawn, zone, path, at, noon };
+  return { ...drawn, zone, path, at, noon };
 }
 
 // The edits.

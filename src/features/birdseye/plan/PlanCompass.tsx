@@ -1,9 +1,9 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useRef, useState } from 'react';
 import { layoutsOf, layoutStore } from '../../../app/shell/docking/layoutStore';
 import { openTile } from '../../../app/shell/docking/layout';
 import { useWorkspaceId } from '../../../app/shell/workspaceContext';
 import { t } from '../../../core/i18n';
-import { compassModel, type CompassModel } from '../../../core/model/planCompass';
+import { compassModel, sameCompassModel, type CompassModel } from '../../../core/model/planCompass';
 import { roomNorthItem } from '../../../core/model/planSun';
 import { sceneRoomId } from '../../../core/model/plan';
 import type { SbdRecord } from '../../../core/model/record';
@@ -11,6 +11,7 @@ import { Button } from '../../../ui/Button';
 import { useForwardToCanvas } from '../../../ui/canvas/forwardToCanvas';
 import { RULER_SIZE } from '../../../ui/canvas/Rulers';
 import { cx } from '../../../ui/cx';
+import { useLocale } from '../../../ui/useLocale';
 import { degreesText } from './selectionFields';
 import { selectPlanItems, type PlanView } from './planActions';
 import { MISSING_WORDS, shownHeight } from './sunLooks';
@@ -127,14 +128,48 @@ interface PlanCompassProps {
   passThrough: boolean;
 }
 
+/**
+ * The compass for the records as they are (6.26): the model is read on every edit (a look-up while nothing a sun path
+ * reads changed: sunSources.ts), and the compass itself is drawn again only when the model says something else, north's
+ * item is another or a drawing tool comes or goes. A light turned or a wall moved on the plan draws no compass.
+ */
 export function PlanCompass({ records, view, zones, onAddSun, passThrough }: PlanCompassProps) {
+  const read = compassModel(records, view, zones);
+  // The model shown stays the one it was while the one just read says the same (a new records object gives a new one).
+  const [kept, setKept] = useState(read);
+  const model = sameCompassModel(kept, read) ? kept : read;
+  if (model !== kept) setKept(model);
+  const northId = roomNorthItem(records, sceneRoomId(records, records[view.sceneId]))?.record.id ?? null;
+  // The host's own function is made anew on each of its renders: the compass calls the latest through one that stays.
+  const add = useRef(onAddSun);
+  useEffect(() => {
+    add.current = onAddSun;
+  });
+  const addSun = useCallback(() => {
+    add.current();
+  }, []);
+  return <CompassView model={model} sceneId={view.sceneId} setupId={view.setupId} northId={northId} passThrough={passThrough} onAddSun={addSun} />;
+}
+
+interface CompassViewProps {
+  model: CompassModel;
+  sceneId: string;
+  setupId: string | null;
+  /** The room's north item, which a press selects with the sun path; null for a room with none. */
+  northId: string | null;
+  passThrough: boolean;
+  onAddSun: () => void;
+}
+
+const CompassView = memo(function CompassView({ model, sceneId, setupId, northId, passThrough, onAddSun }: CompassViewProps) {
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const [offer, setOffer] = useState(false);
   const panel = useId();
   const workspaceId = useWorkspaceId();
+  // Its words are read through t(): a change of language draws it again, as every kept component (LayersTile's rows).
+  useLocale();
   useForwardToCanvas(root);
-  const model = compassModel(records, view, zones);
   // The offer closes by a press outside or by Escape (the focus back to the compass), and shows only while there is no
   // sun path to open.
   useEffect(() => {
@@ -148,9 +183,8 @@ export function PlanCompass({ records, view, zones, onAddSun, passThrough }: Pla
     };
   }, [offer]);
   const open = () => {
-    const north = roomNorthItem(records, sceneRoomId(records, records[view.sceneId]))?.record.id ?? null;
-    const ids = [north, model.sunId].filter((id): id is string => id !== null);
-    if (ids.length > 0) selectPlanItems(view, ids);
+    const ids = [northId, model.sunId].filter((id): id is string => id !== null);
+    if (ids.length > 0) selectPlanItems({ sceneId, setupId }, ids);
     // The Selection tile shows their settings: opened in this workspace when it isn't.
     if (!document.querySelector('[data-selection-tile]')) {
       const { layouts, change } = layoutStore.getState();
@@ -202,8 +236,8 @@ export function PlanCompass({ records, view, zones, onAddSun, passThrough }: Pla
       </div>
       {offer && model.sunId === null && (
         <div id={panel} role="group" aria-label={t('compass.title')} className="pointer-events-auto z-30 mt-1 flex w-56 flex-col gap-2 border-[1.5px] border-text bg-surface p-2 text-text" data-compass-offer="">
-          <p className="text-[12px]">{view.setupId === null ? t('compass.noSetup') : t('compass.noSunHere')}</p>
-          {view.setupId !== null && (
+          <p className="text-[12px]">{setupId === null ? t('compass.noSetup') : t('compass.noSunHere')}</p>
+          {setupId !== null && (
             <div>
               <Button
                 data-compass-add-sun=""
@@ -220,4 +254,4 @@ export function PlanCompass({ records, view, zones, onAddSun, passThrough }: Pla
       )}
     </div>
   );
-}
+});

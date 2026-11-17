@@ -187,7 +187,11 @@
       cones and the cast marks dimmed, and that department's items in full (set pieces in full on art's); the watermark on a plan sits inside the plan box
       (src/features/export/planStamp.ts), never over the legend or the title. The canvas keeps an item's drawing
       while its `draw` function is the same: a host hands a new `draw` whenever what it shows changes. Readers that
-      tiles call on every edit read an index kept per records object (src/core/model/recordIndex.ts), never a scan.
+      tiles call on every edit read an index kept per records object (src/core/model/recordIndex.ts), never a scan. A
+      reader that depends on only some records keeps its result by a token of those records (`unchangedToken`,
+      6.26; the sun's list of record types is `SUN_TYPES` in sunSources.ts and a new reader's type joins it), and
+      chrome that an edit doesn't concern doesn't redraw: src/features/birdseye/plan/editCost.test.ts counts the
+      work one edit causes and fails when a per-edit reader appears.
   - The tools of a plan and of a board are one vertical strip of icons at the canvas's top-left (6.5.2,
     src/ui/canvas/ToolStrip.tsx; one SVG file per tool in src/ui/canvas/toolIcons, replaceable one by one). A host
     passes the strip's width as the canvas core's optional left inset, so nothing is fitted under it.

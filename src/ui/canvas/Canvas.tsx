@@ -89,6 +89,8 @@ const ZOOM_SETTLE = 150;
 /** A zoom that follows a wheel or pinch this soon is theirs: it settles; any other zoom is a jump. */
 const WHEEL_WINDOW = 250;
 const DRAG_THRESHOLD = 3;
+/** How long the items hold still before the tests' `data-handles` is written (6.26), ms: longer than a key's repeat. */
+const HANDLES_REPORT_AFTER = 100;
 /** A crop leaves at least this many screen pixels a side (6.5.7b), and never less than the host's least size. */
 const CROP_MIN_PIXELS = 8;
 const BUTTON = 'sb-label flex h-7 items-center justify-center px-2.5 focus-visible:-outline-offset-4';
@@ -727,27 +729,45 @@ export function Canvas({
   // The handles are given their nodes only when the picked ones change: Konva detaches and resets a transform in
   // progress when its nodes are set again (pressing Shift mid-turn would do it).
   /**
-   * Where the handles are, on the frame for the end-to-end tests (6.5.7b round 2; the canvas is pixels): each shown
-   * anchor's middle in the stage's pixels, or nothing while none shows.
+   * Where the handles are, for the end-to-end tests (6.5.7b round 2; the canvas is pixels): `data-handles` on the frame,
+   * each shown anchor's middle in the stage's pixels, or nothing while none shows. Written once the items have held still
+   * for a moment, never with each change (6.26): written with every change, it was eight look-ups in the handles and a
+   * string on every edit, pointer move and key repeat, in the build the performance run measures. A held key or a drag
+   * now takes the attribute off once and puts the write off; the tests wait for the handles to be where they expect, so
+   * they read it once it lands, and never a value from before the change.
+   * (Answering the attribute only when it is read can't be done: Playwright reads from its own world, which sees the
+   * page's elements and none of the page's own functions on them.) In development builds only.
    */
+  const handlesTimer = useRef<number | undefined>(undefined);
   const reportHandles = () => {
-    // Only where the tests run (as the plan's data-plan-live): an installed app writes nothing per pointer move.
     if (!import.meta.env.DEV) return;
-    const tr = transformer.current;
-    const element = frame.current;
-    if (!tr || !element) return;
-    const at: Record<string, { x: number; y: number }> = {};
-    if (tr.nodes().length > 0) {
-      for (const name of HANDLE_ANCHORS) {
-        const anchor = tr.findOne(`.${name}`);
-        if (!anchor?.visible()) continue;
-        const point = anchor.getAbsolutePosition();
-        at[name] = { x: Math.round(point.x * 10) / 10, y: Math.round(point.y * 10) / 10 };
+    // Taken off at once (round 2), one write for a whole burst: until the settled value is written, a test reads none,
+    // never the handles as they were before the change.
+    const shownNow = frame.current;
+    if (shownNow?.hasAttribute('data-handles')) shownNow.removeAttribute('data-handles');
+    window.clearTimeout(handlesTimer.current);
+    handlesTimer.current = window.setTimeout(() => {
+      const tr = transformer.current;
+      const element = frame.current;
+      if (!tr || !element) return;
+      const at: Record<string, { x: number; y: number }> = {};
+      if (tr.nodes().length > 0) {
+        for (const name of HANDLE_ANCHORS) {
+          const anchor = tr.findOne(`.${name}`);
+          if (!anchor?.visible()) continue;
+          const point = anchor.getAbsolutePosition();
+          at[name] = { x: Math.round(point.x * 10) / 10, y: Math.round(point.y * 10) / 10 };
+        }
       }
-    }
-    const text = JSON.stringify(at);
-    if (element.dataset.handles !== text) element.dataset.handles = text;
+      element.dataset.handles = JSON.stringify(at);
+    }, HANDLES_REPORT_AFTER);
   };
+  useEffect(
+    () => () => {
+      window.clearTimeout(handlesTimer.current);
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const tr = transformer.current;
     if (!tr) return;
