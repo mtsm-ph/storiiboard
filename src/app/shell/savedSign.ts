@@ -69,6 +69,8 @@ const sentence = (at: Date, now: Date, atKey: MessageKey, onKey: MessageKey): Ph
     : { key: onKey, params: { day: shortDay(at), time: clockTime(at) } };
 
 export function savedSignText({ savedAt, backupAt, saveFailed, changedOnDisk }: SavedSignState, now = new Date()): SavedSignText {
+  // Known (6.24): a stored time can be ahead of this computer's clock (a file from a computer whose clock was ahead, or
+  // steps whose times ran ahead of a clock that went back, a millisecond each). It is shown as it is, never corrected.
   const saved = when(savedAt);
   const backup = when(backupAt);
   // A change that never reached the file never reads "Saved": the words are the ones its notice shows, translated. A

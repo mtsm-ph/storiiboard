@@ -53,6 +53,23 @@ describe('attachments', () => {
     ]);
   });
 
+  it('made in one step keep the order they were made in: by sort key, then id (6.24)', () => {
+    const link = (id: string, parentId: string, sortKey: string): SbdRecord => ({ ...record(id, 'media', parentId, { kind: 'link', url: `https://example.com/${id}` }), sortKey });
+    // One step, so one time. Held in an order that is neither the order made nor the ids' order.
+    const first = link('z', 'p', 'a0');
+    const second = link('m', 'p', 'a1');
+    const third = link('b', 'p', 'a2');
+    const made = ['z', 'm', 'b'];
+    const project = record('p', 'project', null, {});
+    expect(projectAttachments(recordsOf(project, third, first, second), 'p').map((a) => a.record.id)).toEqual(made);
+    expect(projectAttachments(recordsOf(second, third, project, first), 'p').map((a) => a.record.id)).toEqual(made);
+    // The same key under two parents: by id. An older one still comes first, whatever its key.
+    const scene = record('s1', 'scene', 'p', { number: '1' });
+    const onScene = link('k', 's1', 'a1');
+    const older: SbdRecord = { ...link('y', 'p', 'zz'), createdAt: '2026-11-09T09:00:00.000Z' };
+    expect(projectAttachments(recordsOf(project, scene, third, second, onScene, first, older), 'p').map((a) => a.record.id)).toEqual(['y', 'z', 'k', 'm', 'b']);
+  });
+
   it('stay out of a location’s photos', () => {
     expect(locationPhotos(base(), 'diner').map((r) => r.id)).toEqual(['photo']);
   });

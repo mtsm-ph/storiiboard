@@ -105,7 +105,18 @@ export function projectAttachments(records: Readonly<Record<string, SbdRecord>>,
       if (!fields || !on || !(ATTACHED_TO as readonly string[]).includes(on.type) || !inProject(on)) return [];
       return [{ record, fields, on }];
     })
-    .sort((a, b) => (a.record.createdAt < b.record.createdAt ? -1 : a.record.createdAt > b.record.createdAt ? 1 : 0));
+    .sort((a, b) => byMade(a.record, b.record));
+}
+
+/**
+ * Oldest first. Since 6.24 each step has a time of its own, and dropped PDFs are each a step of their own, so two
+ * attachments rarely share a time. The tie-break is for older files and imported data, where they can: by sort key,
+ * the order they were made in, then by id, so the list is the same every time, whatever order the records are in.
+ */
+function byMade(a: SbdRecord, b: SbdRecord): number {
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+  if (a.sortKey !== b.sortKey) return a.sortKey < b.sortKey ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 /** "2.4 MB", "830 KB": a PDF's size as a file list writes it. */

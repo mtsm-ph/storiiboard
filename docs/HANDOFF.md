@@ -347,7 +347,49 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 16: "6.5 canvas polish" under way; plans 10, 11 and 16 to write; Phase 7 waits)
+### Next session: start here (Nov 16, evening: the 6.5 stack merged; Kevin's evening answers under way)
+
+**Kevin's Nov 16 evening message is the work list** (in this chat's transcript). Its order: A (the 6.5 stack) in
+order, then D's scout photos, then E (build mode, "6.6"). B, C and F are answers on plans: recorded in `private/`
+(DEPARTMENTS_DECISIONS.md, PHASE7_ANSWERS_NOV16.md, PHASE8_PRIVATE_DAY.md, PHASE8_LIST_ADDITIONS.md), nothing of
+them built until his by-hand pass. **Phase 7 still waits. New plans stay in `private/` and are pasted in the
+report.** He also said: **use Fable for every agent this week** (start the builder and the reviewer with
+`model: "fable"`), and **tell him about every red check, also a suspected flake**.
+
+- **A1, A2 done:** #185 to #191 merged into `v2` (d597a4c) after #185's Linux check was rerun green (it had been
+  red from the planHost test below, which the Nov 16 report failed to say).
+- **A3:** the full checkpoint is run 43982486430 (branch `checkpoint/nov16-v2` = v2 at d597a4c). Read its result
+  and give Kevin the installers' run number. Perf, measured on the PC (logs in test-results/perf1116/): every
+  step at one frame at #181's merge and at v2's head; **the held turn key drifted**: p95 50.0 ms on 4 runs of 5
+  at the head (fails its < 50 budget) against 1 of 5 at #181. No one milestone: the per-edit cost crept up, most
+  at #188, #190 and #191. Brief docs/briefs/6.26-held-key-cost.md (find and remove the added cost; a count-based
+  guard test; the budget never moves) is written, NOT yet built.
+- **A4 (6.24, branch `fix/6.24-trash-steps`):** every op group's time is strictly later than every earlier one in
+  the file (`stepTime` in src/core/ops/ops.ts; the newest time read as the project opens), so equal trash times
+  mean one step everywhere (walls, rooms, cameras' marks, connectors, boards, scenes, approvals). Three rounds,
+  reviewed once (nothing high or medium). ops.test.ts's two tests changed by setup only, as the brief names.
+  Kevin was told the choice (a later time per step, not the step recorded on the record) and may still prefer
+  the other.
+- **A5 (6.25):** brief docs/briefs/6.25-small-fixes.md written, not built: empty-board paste keys; 5 decimals for
+  coordinates; what a person sees if migration 012 throws and that the file is left as it was. PLAN.md's five
+  "open-source" passages become "free" (the main session edits them in that PR).
+- **D:** docs/briefs/6.27-scout-photos.md written, not built: EXIF read in Rust with `kamadak-exif` at EXACTLY
+  0.6.1 (0.6.2 not before Nov 19); schema 16, shared with the 6.6 milestones; "Use this photo's place and time".
+- **E (6.6, build mode):** docs/briefs/6.6.1-room-tool.md written (the room tool; push and pull a wall), not
+  built. Still to write: the eyedropper (E) and the delete tool; the time-of-day slider with floor light patches
+  if they fit; the Library by room (tags proposed to Kevin in the report: living room: sofa, table, chair,
+  plant; kitchen: counter-bar, table, chair; bedroom: bed, chair, table, plant; office: table, chair, sofa,
+  plant; bar: counter-bar, chair, table, column; car, stairs, column also under "Anywhere"); templates saved on
+  this computer as company profiles are, placing one copies it into the project; the five styled rooms are
+  SHOWN to Kevin as pictures before they are built (a probe that draws each through the plan's own PNG export).
+  The kit has only nine set pieces, so the styled rooms will be sparse until Kevin draws more (tell him).
+- **Rules that changed today:** Storiiboard is free and closed source; the repo stays public until the app is
+  built; plans for unbuilt features live in `private/` (ignored); a checkpoint only when Kevin names one; no
+  public release until the app reads the switch file from the public home.
+- **Status line (keep current):** Nov 16, evening: #180 to #191 merged; checkpoint 43982486430 running; 6.24
+  built and reviewed, its PR open; next: 6.25, 6.26, 6.27, then the 6.6 briefs, one builder at a time.
+
+### Next session: start here (Nov 16, earlier: "6.5 canvas polish"; older)
 
 **Kevin's Nov 16 message is the work list** (it is in this chat's transcript; its substance is below). Order:
 merge #180 (done), the app-wide sort-key pass (6.23), then build his items 1 to 9 as "6.5 canvas polish" in small

@@ -131,6 +131,9 @@
   like any edit and linked to the group it undid, redid or restored to. A new edit after an undo clears ⌘⇧Z's redo
   stack, but the undone work stays in History and can be restored.
 - Restore to any earlier point in History is a new op group too, so it can be undone.
+- An op group's time is strictly later than every earlier group's in its file (6.24, `stepTime` in
+  src/core/ops/ops.ts): two steps never share a time, so "trashed at the same time by the same person" means one
+  step. Never treat equal times from anywhere else as one step.
 - Each op commits to SQLite in a transaction right away. There is no Save button. The status bar's Saved sign (6.5.4)
   shows the time of the last change that reached the file and of the newest backup, from events the app already
   has: no timer, no polling.

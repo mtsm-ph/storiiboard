@@ -69,7 +69,7 @@ with the file (or when a file without one is opened), not as an op, so undo can 
 | kind | text | `create`, `update` (props patch), `move` (parent and sort key), `retype` (keeps every prop), `trash`, `restore` (from the Trash), `revert` (set back by a restore group), or `purge` (deleted for good by Empty Trash, 1.21; `before` and `after` null). An undo or redo group's ops keep the kind of the op they reverse or replay |
 | before, after | JSON | The whole record either side of the op, as its row with `props` as an object: `id`, `type`, `parent_id`, `sort_key`, `props`, `trashed_at`, `trashed_by`, `created_at`, `updated_at`. Null where there's no record on that side (before a create) |
 | author | text | Who made it, as their profile on that computer named them: their name, or their initials if they chose that or gave no name (Settings → Profile). `local` means no name (a person named exactly "local" reads the same): every edit before names were kept (Nov 5), and any made with an empty profile. Free text, never an id: two people can share a name, and a renamed person's older edits keep the old one |
-| timestamp | text | When the edit happened |
+| timestamp | text | When the edit happened: its op group's time. Since 6.24 that is strictly later than every earlier group's in the file, so it can be later than the wall clock (a clock that went back, or a file from a computer whose clock was ahead). A file upgraded from v1 may hold backfilled groups sharing a time |
 
 Indexes: `ops_by_group (group_id)` for undo, and `ops_by_record (record_id, seq)` for an item's history.
 
@@ -86,7 +86,7 @@ One row per op group: one user action, or one undo, redo or restore.
 | stack_below | text, null | On `edit` and `restore`: the group ⌘Z takes once this one is undone. On `undo`: the group ⌘⇧Z takes once the undone group is redone. Null on `redo` |
 | undo_top, redo_top | text, null | The next group ⌘Z and ⌘⇧Z would take, as of the end of this group. Null when that stack is empty |
 | author | text | Who made it, as their profile on that computer named them: their name, or their initials if they chose that or gave no name (Settings → Profile). `local` means no name (a person named exactly "local" reads the same): every edit before names were kept (Nov 5), and any made with an empty profile. Free text, never an id: two people can share a name, and a renamed person's older edits keep the old one |
-| timestamp | text | When it happened |
+| timestamp | text | When it happened. Since 6.24 strictly later than every earlier group's in the file, so two steps never share a time, and it can be later than the wall clock (a clock that went back, or a file from a computer whose clock was ahead). A file upgraded from v1 may hold backfilled groups sharing a time |
 
 Index: `op_groups_by_target (target_group_id, seq)`, for redo. `target_group_id`, `restore_to`, `stack_below`,
 `undo_top` and `redo_top` all point at op_groups rows; an edit's or restore's `undo_top` is the row itself.
@@ -1170,6 +1170,8 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
   frame's scene's numbers (unless locked). A frame's
   old picture comes back as the frame's picture, sending the one it has now to the Trash. A scene comes back with
   the frames and notes trashed in its op group (same `trashed_at` and `trashed_by`), not ones trashed before it.
+  Since 6.24 an op group's time is strictly later than every earlier group's in the file, so two steps never share a
+  time; files written before may hold such ties.
   Erased sketch strokes aren't listed in the Trash; undo brings them back.
 - A deletion approved from a change file is the same `trash` op, with the approver as `trashed_by`. Its op group also
   marks the suggestion approved, so undoing the approval undoes both.
@@ -1277,7 +1279,9 @@ were always in the list, so there is no migration and no schema number (additive
     connector is given a sort key before every other sibling's, so it draws under the items it joins. A connector whose
     attached item is in the Trash, or gone, is not shown until the item is back. A connector may be attached to an item of
     its own board only.
-  - Trashing an item trashes the connectors attached to it in the same op group (same `trashed_at` and `trashed_by`). The
+  - Trashing an item trashes the connectors attached to it in the same op group (same `trashed_at` and `trashed_by`).
+    Since 6.24 an op group's time is strictly later than every earlier group's in the file, so two steps never share a
+    time; files written before may hold such ties. The
     Trash does not list those: it lists the item, and Restore brings the item back with every connector trashed with it, even
     when the connector's other item is still in the Trash: it then stays hidden until that item is back, and is never listed on
     its own. A connector deleted on its own is listed ("Connector on Camera board")
