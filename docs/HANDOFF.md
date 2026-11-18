@@ -388,7 +388,12 @@ trimmed for the public repo).
 - Round 5 (builder, model check passed: claude-opus-5-5): tsc, eslint, lint:rust clean; cargo 321 passed, 1
   ignored; Vitest 3,440 passed, 1 skipped; scoutPhotos and planSun specs 8 passed; nothing failed or flaky.
   The main session fixed SBD_FORMAT's HEIC sentence (it answers `heic`). Not reviewed again (LOW fixes only).
-- **Next:** (3) 6.29's cause (8 workers, when Kevin isn't using the PC); (4) the full local run
+- **Committed and pushed (Nov 17, Kevin: "do it"):** eefb838, PR #196 on v2 (CLAUDE.md's reading rule and PLAN.md
+  row in it). checkpoint.yml gains a whole-suite Chromium job on Linux at 8 workers (CI can now stand in for the
+  local Chromium run, and is a first place for 6.29 to show). Checkpoint `checkpoint/nov17-627`, run
+  44194206185. Next: read its failed and flaky tests by name (all three jobs); 6.29 on the PC only if CI
+  doesn't show it; Kevin names the merge.
+- **Older next list:** (3) 6.29's cause (8 workers, when Kevin isn't using the PC); (4) the full local run
   (`--project=chromium`), every failed or flaky test named; (5) CLAUDE.md's reading rule, PLAN.md, SBD_FORMAT
   check; (6) commit with explicit paths, PR on `v2`. Kevin names the merge.
 - Also uncommitted, to go in with it: playwright.config.ts (4 workers) and its CLAUDE.md line; .vscode/
