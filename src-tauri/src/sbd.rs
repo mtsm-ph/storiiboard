@@ -367,7 +367,6 @@ impl SbdFile {
         let mut statement = self.conn.prepare(sql).map_err(text)?;
         let names: Vec<String> = statement
             .column_names()
-            .iter()
             .map(|name| name.to_string())
             .collect();
         let mut rows = statement
@@ -1774,6 +1773,16 @@ mod tests {
         )])
         .unwrap();
         file
+    }
+
+    #[test]
+    fn bundled_sqlite_is_at_least_3_54_0() {
+        // RUSTSEC-2026-0459: before 3.54.0 a sibling -wal with another page size can hand back uninitialised memory.
+        assert!(
+            rusqlite::version_number() >= 3_054_000,
+            "bundled SQLite is {}",
+            rusqlite::version()
+        );
     }
 
     #[test]
