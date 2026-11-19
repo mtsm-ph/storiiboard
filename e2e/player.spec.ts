@@ -38,16 +38,32 @@ interface Presented {
 }
 
 /**
+ * What the webview handed one frame callback, as it gave it: kept so a run records how its engine reports frames (the
+ * busy-page test attaches them, pass or fail). Times in ms rounded to 0.1, media times in seconds to 6 places.
+ */
+interface RawReport {
+  now: number;
+  mediaTime: number;
+  presentedFrames: number | null;
+  expectedDisplayTime: number | null;
+  presentationTime: number | null;
+  currentTime: number;
+  paused: boolean;
+}
+
+/**
  * The frames the preview presents over two seconds of play, as the webview reports them, and how many frames each report
  * came late by: the webview's own count of frames presented where it gives one, else the time since the last report. The
- * first report has nothing before it and counts as on time.
+ * first report has nothing before it and counts as on time. With each, what the webview reported.
  */
-const presentedFrames = (clip: Locator) =>
+const presentedReports = (clip: Locator) =>
   clip.evaluate(
     (video: HTMLVideoElement) =>
-      new Promise<Presented[]>((resolve) => {
+      new Promise<{ seen: Presented[]; raw: RawReport[] }>((resolve) => {
         const frameMs = 1001000 / 24000;
         const seen: Presented[] = [];
+        const raw: RawReport[] = [];
+        const ms = (value: number | undefined) => (typeof value === 'number' ? Math.round(value * 10) / 10 : null);
         const until = performance.now() + 2000;
         let before: { now: number; presented: number | null } | null = null;
         const next: VideoFrameRequestCallback = (now, metadata) => {
@@ -55,13 +71,24 @@ const presentedFrames = (clip: Locator) =>
           const missed =
             before === null ? 0 : presented !== null && before.presented !== null ? presented - before.presented - 1 : Math.round((now - before.now) / frameMs) - 1;
           seen.push({ frame: Math.round((metadata.mediaTime * 24000) / 1001), missed: Math.max(0, missed) });
+          raw.push({
+            now: ms(now) ?? 0,
+            mediaTime: Math.round(metadata.mediaTime * 1e6) / 1e6,
+            presentedFrames: presented,
+            expectedDisplayTime: ms(metadata.expectedDisplayTime),
+            presentationTime: ms(metadata.presentationTime),
+            currentTime: Math.round(video.currentTime * 1e6) / 1e6,
+            paused: video.paused,
+          });
           before = { now, presented };
           if (performance.now() < until) video.requestVideoFrameCallback(next);
-          else resolve(seen);
+          else resolve({ seen, raw });
         };
         video.requestVideoFrameCallback(next);
       }),
   );
+
+const presentedFrames = (clip: Locator) => presentedReports(clip).then((reports) => reports.seen);
 
 /**
  * Every frame shown is inside the clip, from `from` to `to`. The clip turns on the callback that reports its out frame, so
@@ -398,7 +425,7 @@ test('the frame’s clip plays in the inspector, in to out, round and round, onl
   await expect(preview.getByRole('button', { name: 'Play clip' })).toBeDisabled();
 });
 
-test('a page too busy to see every frame shows a frame or two past the out point, never more than it was late by (2.8)', async ({ page }) => {
+test('a page too busy to see every frame shows a frame or two past the out point, never more than it was late by (2.8)', async ({ page }, testInfo) => {
   await linkAndOpen(page);
   await player(page).getByRole('slider', { name: 'Playhead' }).focus();
   await page.keyboard.press('Shift+Period');
@@ -418,7 +445,12 @@ test('a page too busy to see every frame shows a frame or two past the out point
     }, 250);
   });
   await preview.getByRole('button', { name: 'Play clip' }).click();
-  const seen = await presentedFrames(clip);
+  const { seen, raw } = await presentedReports(clip);
+  // What this engine reported, kept pass or fail, so a run that passes still shows how its frame times and counts behave.
+  await testInfo.attach('frame-reports.json', {
+    body: JSON.stringify({ engine: testInfo.project.name, clip: { in: 10, out: 20, fps: '24000/1001' }, seen, raw }),
+    contentType: 'application/json',
+  });
   expect(seen.some((s) => s.missed >= 1)).toBe(true);
   expectInside(seen, 10, 20);
   // And it still goes round: back at its start more than once.
