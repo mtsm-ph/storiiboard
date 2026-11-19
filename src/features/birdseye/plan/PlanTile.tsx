@@ -914,7 +914,9 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         const says = look?.kind === 'missing' ? look.lines.join(' · ') : (look?.label ?? '');
         // Where its place and date come from (6.5.5): the setup's location and shoot day, or its own.
         const from = { place: reading?.place?.source ?? null, date: reading?.date?.source ?? null };
-        return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), drawn: look?.kind === 'drawn', says, sun, from };
+        // The light reference photo's mark on the path (6.27), "Photo 16:42", only while it is drawn.
+        const photo = look?.kind === 'drawn' && look.photo ? { photo: look.photo.label } : {};
+        return { id: record.id, level, layer: planItemLayer(record.props), ...fields, centre: iconCentre(fields), drawn: look?.kind === 'drawn', says, sun, from, ...photo };
       }
       if (isWallFields(fields)) {
         const [start, end] = wallEnds(fields);

@@ -4,6 +4,12 @@ Written Nov 5, 2026, at a pause, so the work can go on from a cloud session that
 2.3a, D1, D2 and 2.3b, all merged). Read `CLAUDE.md` first (the working rules), then `docs/PLAN.md` (scope, phases, status), then this file.
 It replaces nothing in either; it says where the work stands and what comes next.
 
+## Only Kevin (keep current; the same list ends every report)
+
+What only Kevin can do or answer, one line each, with what it unblocks. Nothing a session, a review or CI can settle.
+
+- Nothing waiting on Kevin (Nov 18, night 4).
+
 ## What a cloud session can and can't do
 
 - **Can:** read and change the code; run `npm run lint`, `npm test` (Vitest) and the Chromium end-to-end tests on
@@ -347,7 +353,156 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 16, evening: the 6.5 stack merged; Kevin's evening answers under way)
+### Next session: start here (Nov 18: the nov17-627 checkpoint read; by-hand passes no longer hold any phase)
+
+- **By-hand passes (Kevin, Nov 18):** none holds a phase any more. Kevin tests once, thoroughly, when the alpha is
+  fully built: through Phase 7 and the web page export, plus the plans in private/. Phase 8 (release work)
+  follows his alpha test and its fixes; the 3D set follows the first release. One list, docs/ALPHA_TEST.md, by
+  feature in a production's order, added to with every milestone; things only Kevin can judge are marked.
+  Reviews, full runs and checkpoints are unchanged; every red or flaky result is reported to him.
+- **Still waiting on other things:** #196 on a green checkpoint; rooms from scans on Kevin's real files; HEIC dates
+  on the library.
+- **Checkpoint nov17-627 (run 44194206185), three red jobs, reported Nov 18:**
+  - Mac WebKit: scoutPhotos.spec "…what is stored has no EXIF" failed on every try. WebKit's JPEG encoder on the
+    Mac writes its own blocks: an Exif block holding only the picture's width and height (PixelXDimension 640,
+    PixelYDimension 345 or 346), an empty Photoshop/IPTC block and a Display P3 colour profile. No date or place.
+    Fix: strip in our code as the picture is stored (Kevin: in Rust); see the open question in the report.
+  - Mac installer: 16 playback tests failed (each stalled ~100 s, "That video stopped being read partway"),
+    `ffmpeg: IOServiceMatchingfailed for: AppleM2ScalerParavirtDriver`. Runner image 20261102.0473.1 on another
+    host; the green run of Nov 17 (44051079024) had 20261112.0504.1, 313 passed. No playback code changed between.
+  - Linux Chromium, whole suite at 8 workers: 4 failed (planUnderlay.spec ×3, themes.spec axe) and 3 flaky
+    (bodiesLenses, planCameras, player), all timeouts. The runner has 4 cores. No refused page load (6.29).
+- **Kevin's answers (Nov 18, night), the work list in order:**
+  - A. 6.27b (docs/briefs/6.27b-clean-pictures.md): one clean in TypeScript in canvasBlob, keep-list, Rust refusing
+    at the door, the JSON import through its own command for older pictures; with it, the real-JPEG guard check
+    (`SB_SAMPLE_JPEGS`, run by the main session; prints yes/no only). Then review; its Linux check green; checkpoint
+    `checkpoint/627-clean` (Kevin named it); every job green: merge #196; then kamadak-exif 0.6.2 as its own PR,
+    on or after Nov 19.
+  - B. A job red only because of GitHub's machine is rerun and said so; twice for one cause goes to Kevin. The Linux
+    whole suite at `--workers=100%` (on #196's branch). 6.29's hunt stopped (reopen only if a refusal shows at 4
+    workers); its brief stays uncommitted. After A: a small brief for player.spec "a page too busy to see every
+    frame…" (flaky on the Mac in five runs): its cause, no retry or wait. Small-fixes list (not in #196):
+    - a stalled encoder shouldn't tell people to check their drive;
+    - (Kevin, Nov 18) the words where a picture's bytes are gone must be true both when it was deleted for good and
+      when an import left it out: for one, "This picture is no longer in the project." (en and es), on the board and
+      wherever else those words show; if a screenshot shows them, the baseline way, stacked with Settings, the Undo
+      and Redo buttons and the tile accent.
+  - C. Docs PR #197 (ALPHA_TEST.md, PLAN.md, PHASE7_DECISIONS.md) merges after its checks. The repo's Website field
+    was cleared Nov 18. ALPHA_TEST.md gets the stored-photo line when A is built.
+  - D. The kamadak-exif advisory id is unconfirmed: cite only the library's 0.6.2 notes. Migration notices, and
+    reading GitHub's alerts once v2 is the default branch: on Phase 8's list (private/).
+  - E. Kevin's sample photos stay in private/ and are read only where they are: nothing from them (files, names,
+    paths, anything read) goes into the repo. Checks print yes or no, never a date, a time or a place.
+  - F. An Advisories job (ci.yml on every PR, and the checkpoint): npm audit plus OSV-Scanner v2.7.0 (Apache-2.0)
+    on package-lock.json and Cargo.lock, malware included; red only for what ships; an ignore needs Kevin's word,
+    reason and date. First run Nov 18, v2 and #196 the same: pdfjs-dist and libsqlite3-sys ship; minimatch and
+    typescript-eslint are dev only; glib is Linux only; five crates unmaintained (listed, not red).
+  - G. Every report ends with "Only Kevin"; the same list tops this file.
+  - **Nov 18, late, the order:** A (with Kevin's four additions, sent to the builder mid-run and appended to the
+    brief), the guard check on Kevin's JPEGs and on ExifTool's public sample set (outside the repo), checkpoint
+    `checkpoint/627-clean`, merge #196; then rusqlite 0.41.1 (Rust 1.89, rust-version moves; every forced code change
+    named) and kamadak-exif 0.6.2 as two small PRs sharing one full checkpoint (Mac and Windows) before either
+    merges; then the Advisories job, wired in after rusqlite merges so it starts green: OSV-Scanner 2.7.0 fetched from
+    its release with its SHA-256 checked; pdfjs-dist ignored until Feb 1, 2027 or Phase 8's oldest-Mac decision,
+    with its reason in the config, a test that keeps the reason true (only readPdf.ts imports pdfjs-dist, nothing
+    from pdfjs-dist/web, no AnnotationLayer or enableScripting, the policy never allows inline script or eval),
+    readPdf.ts's comment corrected, and the PDF worker's policy in the installed app reported. 2.7.1 on or after
+    Nov 23. A new advisory reaching what ships goes to Only Kevin the same day.
+  - **Nov 18, night 3:** A gets round 3 (brief's last section): ring 0.17.14 as a direct dependency for SHA-256, and
+    an import with a damaged stored file imports the rest (left out, named by place, counted, in History). The
+    profile cap is 64 KiB as stored, no unpacking anywhere (round 2, Kevin's night 2). After #196 merges: one small
+    PR replaces e2e/fixtures/images/photo-a.jpg, photo-b.jpg and v2's prototype/uploads/ four (film stills of real
+    actors) with pictures a script in the repo draws (same sizes and profiles; uploads keep their names; main's four
+    stay); deckPictures.ts's thresholds measured again; every changed expectation in deckExport, swatches,
+    boardMedia (and scoutPhotos) listed. No screenshot test uses them. Rooms from scans: plan in private/. The whole
+    suite never runs on Kevin's PC.
+  - Docs PR #198 (no user name in public files; ALPHA_TEST's [Other PC] section): merged.
+  - **Nov 18, night 4:** no History line for left-out files (Kevin took it back): the import's notice carries it, with
+    Copy list (every place). A's last round adds one shared statement list (JSON) both readers are tested against,
+    a static scan and a run-time check in the memory driver that fail on a new statement. After #196: LUTs under the
+    same hash rule as their own small PR (a damaged LUT left out and named; its videos play ungraded and never reuse
+    a playback copy made with it), then the photo PR. SQLite TEMP triggers instead of the readers: Phase 8's list.
+  - Vitest fails every file when the shell's folder is spelled `c:\` (lower case); run it with `C:\` (the builder's
+    test-results/build627b/vitestUpper.cjs). Not a config change.
+    ALPHA_TEST.md and the build stay in step from now on.
+  - H. Kevin's Nov 17 afternoon note is in private/. Then the History lines milestone (after 6.6) and the rest of
+    the order in private/.
+
+### Next session: start here (Nov 17, evening: scout photos at round 4, uncommitted; new chat because the old one grew too long)
+
+**Status.** `v2` is 7d17eb4: #192 to #195 merged Nov 17, checkpoint `checkpoint/nov17-v2` (run 44051079024) green
+(Linux smoke 26; Mac WebKit 597 passed, 1 flaky: player.spec "a page too busy to see every frame shows a frame or
+two past the out point…", not diagnosed; Rust Mac 313, Windows 303; both installers). The checkout is on
+`polish/6.27-scout-photos` with all of 6.27 (rounds 1 to 4) **uncommitted**. Nothing else is in flight.
+
+**Kevin's Nov 17 message (A to E) is the work order; it replaces the Nov 16 evening list where they differ.**
+- A. kamadak-exif stays `=0.6.1` in 6.27 with our own check (`block_is_safe` in src-tauri/src/exif.rs: permanent,
+  one-line comment, no more detail than a published advisory, the repo being public). The pin to 0.6.2 is its own
+  small PR **on or after Nov 19** (cargo test and the refused-photo fixtures, each refused, the app still up); its
+  request states the release notes and advisories (memory: dependency-request-advisories). Kevin named
+  GHSA-53gf-vqf6-qvp8; it was not found in GitHub's advisory API or RustSec (asked where he saw it, unanswered).
+- B. HEIC waits for a library release (private/PHASE8_LIST_ADDITIONS.md has the entry). No reader of our own.
+- C. Scouting before a schedule: built in round 3 (the photo's date, time and place; the mark and panel say which
+  place). **Still to write: the new reading rule next to the old one in CLAUDE.md** (main session, at commit).
+- D. "Refused page load" in two specs: find the cause before the next full run, no retry
+  (docs/briefs/6.29-refused-page-loads.md, untracked, not started). It showed only under 8 workers, and local runs
+  are now 4, so the investigation runs with `--workers=8` on purpose, when Kevin isn't using the PC. The four
+  first-load timeouts on the busy PC are a different symptom: no timeout raised for them.
+- E. Build mode 6.6.1 to 6.6.5 starts on `v2` (briefs already in v2), not stacked on scout photos. Each of the
+  five styled rooms goes to Kevin as a picture, with its tagged set pieces, before it is built.
+
+**6.27, where it stands** (brief: docs/briefs/6.27-scout-photos.md, rounds 1 to 4; its round 2 EXIF detail was
+trimmed for the public repo).
+- Round 3 review: no HIGH, one MEDIUM (public words about the guard), seven LOWs; all sent to round 4.
+- Round 4 (builder, Nov 17 17:31): tsc, eslint, lint:rust clean; cargo 321 passed, 1 ignored; Vitest 3,439 passed,
+  1 skipped; scoutPhotos, locations and planSun specs 15 passed. One test failed once and was fixed in the round:
+  scoutPhotos.spec "scouting before a schedule: a setup with no shoot day shows the light reference, and the
+  switch draws the sun wholly from the photo (round 3)" (item 2 made its untyped zone unanswerable in the memory
+  build; the test now types the zone; no expectation changed).
+- Round 4 item 5 **not built** (one line per photo in the status line): the status line holds one string, so the
+  notes stay joined by a space. Decide: leave, or brief a small change to the status line.
+- "At the location's own pin" (item 2) means exactly equal coordinates.
+- Round 4 review (Nov 17, new chat; diff4.patch against origin/v2, since the local `v2` is stale at d597a4c): no
+  HIGH or MEDIUM, six LOWs, all sent to round 5 except the import-note test's id-based calls (accepted: same
+  strings; the "couldn't be prepared" note can no longer come from `importNote`, it has its own notice). The
+  brief's own round 2 and 4 wording about the guard was trimmed by the main session.
+- Round 5 (builder, model check passed: claude-opus-5-5): tsc, eslint, lint:rust clean; cargo 321 passed, 1
+  ignored; Vitest 3,440 passed, 1 skipped; scoutPhotos and planSun specs 8 passed; nothing failed or flaky.
+  The main session fixed SBD_FORMAT's HEIC sentence (it answers `heic`). Not reviewed again (LOW fixes only).
+- **Committed and pushed (Nov 17, Kevin: "do it"):** eefb838, PR #196 on v2 (CLAUDE.md's reading rule and PLAN.md
+  row in it). checkpoint.yml gains a whole-suite Chromium job on Linux at 8 workers (CI can now stand in for the
+  local Chromium run, and is a first place for 6.29 to show). Checkpoint `checkpoint/nov17-627`, run
+  44194206185. Next: read its failed and flaky tests by name (all three jobs); 6.29 on the PC only if CI
+  doesn't show it; Kevin names the merge.
+- **Older next list:** (3) 6.29's cause (8 workers, when Kevin isn't using the PC); (4) the full local run
+  (`--project=chromium`), every failed or flaky test named; (5) CLAUDE.md's reading rule, PLAN.md, SBD_FORMAT
+  check; (6) commit with explicit paths, PR on `v2`. Kevin names the merge.
+- Also uncommitted, to go in with it: playwright.config.ts (4 workers) and its CLAUDE.md line; .vscode/
+  settings.json; src-tauri/tauri.conf.json's shortDescription and design/DESIGN.md:265 ("Free to use.").
+- The round 2 reviewer wanted `block_is_safe` compared with `read_raw` on real JPEGs: needs Kevin's photos.
+
+**The PC (Kevin, Nov 18): only the specs a change touches run here.** It was the whole PC slowing down, not only the
+VS Code window, and it stopped once the whole suite moved to GitHub. Here: only the specs a change touches; the whole
+end-to-end suite and anything else heavy run on GitHub (a checkpoint). **The PC (Nov 17).** Kevin's PC froze or crawled during runs. Changed: local e2e runs use 4 workers (Kevin: his
+other projects must still run); he excluded the repo folder from Defender; Python analysis is off in this
+workspace; `cargo test -j 12` in builders' checks. Measured: 64 GB, never under 48 GB free; processor peaked at
+35% during Vitest and the specs; so memory is not the cause, and the graphics card can't take this work. A
+read-only watch, test-results/freeze-watch.ps1, logs every 5 s to freeze-watch.log (start it before a heavy
+run). Best guess for what Kevin sees as a freeze: the VS Code window hanging on a very long chat (the session was
+also cut off four times mid-builder). So: **keep chats short; start a new one per milestone.** A full Rust
+compile has not been measured yet. Unanswered: whether the whole PC freezes or only VS Code.
+
+**Waiting on Kevin:** where he saw the advisory id; whether to diagnose the player.spec flake now; whether the
+photo's place should be used even when a shoot day exists (round 3 applies it always); migration 012's notice; a
+Mac by-hand pass of HEIC; iPhone photos; item 5 above. (Nov 18: by-hand passes no longer hold any phase; see the
+Nov 18 "start here".)
+
+**Rules that are easy to miss:** the four Nov 14 rules open every brief and review request; one builder at a
+time, started without a model (the first builder run of a chat is the model check: claude-opus-5-5); no edits,
+lint or Vitest while local e2e runs; stage explicit paths; new plans in private/; a checkpoint only when Kevin
+names it; no public release until the app reads the switch file from the public home.
+
+### Next session: start here (Nov 16, evening, older: the 6.5 stack merged; Kevin's evening answers)
 
 **Kevin's Nov 16 evening message is the work list** (in this chat's transcript). Its order: A (the 6.5 stack) in
 order, then D's scout photos, then E (build mode, "6.6"). B, C and F are answers on plans: recorded in `private/`

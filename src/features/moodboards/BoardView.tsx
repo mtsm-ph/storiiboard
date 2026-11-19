@@ -72,7 +72,7 @@ import { connectorFields } from './connectorFields';
 import { ConnectorProperties } from './ConnectorProperties';
 import { fillsUnder, linkInks, withDrawing } from './drawing';
 import { LinkDialog } from './LinkDialog';
-import { useDrawnLevels } from './PictureNode';
+import { useDrawnLevels, useGonePictures } from './PictureNode';
 import { ensureFont, loadSystemFonts, newlyMissing, unreadableFamilies, unreported, useFonts } from './fonts';
 import { BOARD_MUTED, canvasItems, isMediaKind, pageNumbers, isTextKind, itemFields, itemsOf, KIND_LABEL, propsFor, SECTION_NAME_SIZE, STICKY_COLOURS, type ItemFields } from './items';
 import { PropertiesStrip } from './PropertiesStrip';
@@ -180,9 +180,19 @@ export function BoardView({ board }: { board: SbdRecord }) {
 
   // What the items are, as plain data on the canvas's wrapper: the canvas is pixels, so the end-to-end tests read the
   // board's kinds, colours and words from here.
+  // A picture item whose picture is gone from the file carries `missing: true` (round 5): the same condition the canvas
+  // draws its "deleted for good" words by (PictureNode).
+  const gone = useGonePictures();
   const data = useMemo(
-    () => JSON.stringify(itemsOf(records, board.id).flatMap((r) => { const f = itemFields(r.props); return f ? [{ id: r.id, ...f }] : []; })),
-    [records, board.id],
+    () =>
+      JSON.stringify(
+        itemsOf(records, board.id).flatMap((r) => {
+          const f = itemFields(r.props);
+          if (!f) return [];
+          return [f.kind === 'picture' && gone.has(r.id) ? { id: r.id, ...f, missing: true } : { id: r.id, ...f }];
+        }),
+      ),
+    [records, board.id, gone],
   );
 
   // What the live cards show, as plain data too (5.4): the strokes are left out.

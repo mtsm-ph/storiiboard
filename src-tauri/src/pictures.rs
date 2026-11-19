@@ -15,7 +15,7 @@ use tauri::{
 use tauri_plugin_dialog::DialogExt;
 
 /// The largest file read as a picture. A 48 MP ProRAW photo is about 75 MB; a file far past that isn't for a board.
-const MAX_BYTES: u64 = 200 * 1024 * 1024;
+pub(crate) const MAX_BYTES: u64 = 200 * 1024 * 1024;
 
 /// What the Open dialog offers. The webview decides what it can read (HEIC only on a Mac); the rest gets a message.
 const EXTENSIONS: &[&str] = &[

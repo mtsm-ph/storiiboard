@@ -2,8 +2,11 @@ import { formatNumber, getLocale, t, type MessageKey } from '../../../core/i18n'
 import type { ShownItem } from '../../../core/model/plan';
 import { liveSun, type SunMissing } from '../../../core/model/planSun';
 import type { SbdRecord } from '../../../core/model/record';
+import { dateTimeLabel } from '../../../core/model/scoutPhoto';
 import { planVector, sunAt, SUN_RADIUS_M, type SunAt, type SunPath } from '../../../core/model/sunPath';
-import { sunReadingOf, type SunReadingOf } from '../../../core/model/sunSources';
+import { sunReadingOf, type SunPlace, type SunReadingOf } from '../../../core/model/sunSources';
+import { formatCoordinates } from '../../../core/model/coordinates';
+import { locationFields } from '../../../core/model/location';
 import { toCanvas } from './planScale';
 import type { SunLook, SunTick } from './sunDraw';
 
@@ -70,6 +73,10 @@ function segmentsOf(path: SunPath, north: number, radius: number): { golden: boo
 
 const tick = (bearing: number, north: number, label: string): SunTick => ({ ...planVector(bearing, north), label });
 
+/** The place a light reference photo's sun is drawn at, as its mark says it: "photo's place", or the location's name. */
+const photoPlaceWords = (place: SunPlace): string =>
+  place.source === 'photo' ? t('plan.sun.photoPlace') : place.source === 'location' ? locationFields(place.location.props).name || t('locations.unnamed') : formatCoordinates(place);
+
 const looks = new WeakMap<object, Map<string, SunLook>>();
 let looksMade = 0;
 
@@ -123,6 +130,18 @@ export function sunLookFrom(reading: SunReadingOf | null, time: string, selected
     label: sunLabel(at),
     shadows: t('plan.sun.shadows'),
     selected,
+    // Where the sun stood when the light reference photo was taken (6.27): a mark on the path while it was up (the path
+    // runs from sunrise to sunset), and always its date with its time, "Photo Nov 3, 16:42": the arc, Rise and Set are
+    // for that date, and a printed page must say so. Absent for every other source of the date.
+    // And which place it is drawn at (6.27 round 3): "· photo's place" for its GPS, else its location's name.
+    ...(reading.photoAt && reading.date.source === 'photo'
+      ? {
+          photo: {
+            ...tick(reading.photoAt.bearing, north, t('plan.sun.photo', { when: dateTimeLabel(reading.date.date, reading.date.time), place: photoPlaceWords(reading.place) })),
+            up: reading.photoAt.up,
+          },
+        }
+      : {}),
   };
 }
 

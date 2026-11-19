@@ -32,6 +32,8 @@ let project: Project;
 const at = () => new Date('2026-11-07T12:00:00.000Z');
 
 const bytes = (seed: number, length: number) => new Uint8Array(length).map((_, i) => (i * seed + 7) % 256);
+/** The SHA-256 of bytes(3, 512), the project's picture: a stored file is named by its own hash (6.27b round 3). */
+const PICTURE_SHA = 'e4546bbb050e861f8e5a54dff16ebccdcdc809c88220d2b3af6e0b6da3d2a5ff';
 
 beforeEach(async () => {
   folder = makeTestFolder();
@@ -39,7 +41,8 @@ beforeEach(async () => {
   const file = project.file;
   const root = project.projectId;
   // A picture and its thumbnail (bytes of every value 0 to 255), a LUT, frames, one in the Trash, an undone edit.
-  const sha = 'a'.repeat(64);
+  // The picture's real SHA-256 (of bytes(3, 512)): an import leaves out a file whose bytes aren't the ones its name says.
+  const sha = PICTURE_SHA;
   await file.tx([
     {
       sql: `INSERT INTO media_files (id, sha256, mime, width, height, byte_size, color_space, created_at, updated_at, bytes)
@@ -706,7 +709,8 @@ describe('project data as JSON (2.9)', () => {
   it('as Project data (3.14), leaves out the Trash and History, and imports back as exactly that', async () => {
     const file = project.file;
     // A second picture only a frame in the Trash shows: deleted material, so it stays out too.
-    const other = 'b'.repeat(64);
+    // SHA-256 of bytes(7, 4).
+    const other = 'ec2e6853d5606e0ebca599ae54a4e0d35aaa8f96140e41ba4bed08e08fd67a9a';
     await file.tx([
       {
         sql: `INSERT INTO media_files (id, sha256, mime, width, height, byte_size, color_space, created_at, updated_at, bytes)
@@ -722,7 +726,8 @@ describe('project data as JSON (2.9)', () => {
     await file.tx([markSeenStatement('s3', ['camera'], at().toISOString())]);
     // A stroke erased on a frame that stays (a kind Empty Trash doesn't take), and a third picture a live frame and a
     // trashed one both show, in the app's own shape (`file`).
-    const shared = 'c'.repeat(64);
+    // SHA-256 of bytes(11, 4).
+    const shared = '1f5fbdfc558d608aa5ce3bcf18400080ea4d5d9e13cf297b7dfcb38139b92ec6';
     await file.tx([
       {
         sql: `INSERT INTO media_files (id, sha256, mime, width, height, byte_size, color_space, created_at, updated_at, bytes)
@@ -757,8 +762,8 @@ describe('project data as JSON (2.9)', () => {
     expect(ids('records', 'trashed_at').every((value) => value === null)).toBe(true);
     expect(ids('shot_seen', 'shot_id')).toEqual(['s1', 's1']);
     // A picture a live frame shows stays, though a trashed one shows it too.
-    expect(ids('media_files', 'sha256')).toEqual(['a'.repeat(64), shared]);
-    expect(ids('thumbnails', 'sha256')).toEqual(['a'.repeat(64)]);
+    expect(ids('media_files', 'sha256')).toEqual([PICTURE_SHA, shared]);
+    expect(ids('thumbnails', 'sha256')).toEqual([PICTURE_SHA]);
     // The estimate counts only what's written: close to the file (the bytes are checked again once written), and less
     // than the archive's.
     const estimate = await projectJsonSize(file, 'project_data');

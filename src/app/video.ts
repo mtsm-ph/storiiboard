@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { canvasBlob } from '../core/media/canvas';
 import { probeMp4 } from '../core/media/mp4';
 import { frameSeconds, type Rational } from '../core/media/timecode';
 import type { VideoProbe } from '../core/media/video';
@@ -114,12 +115,10 @@ const browser: VideoDriver = {
       canvas.width = element.videoWidth;
       canvas.height = element.videoHeight;
       canvas.getContext('2d')?.drawImage(element, 0, 0);
-      return await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error(t('error.notAVideo')));
-        }, 'image/png');
-      });
+      // Through the app's one encoder, so the still carries only its picture and colour (cleanPicture.ts).
+      const blob = await canvasBlob(canvas, 'image/png');
+      if (!blob) throw new Error(t('error.notAVideo'));
+      return blob;
     } finally {
       element.removeAttribute('src');
       element.load();

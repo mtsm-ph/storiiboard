@@ -83,6 +83,44 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  # The whole suite in Chromium (Kevin, Nov 17), the engine of the Windows app's WebView2, which no other job runs
+  # whole; until now only the local run on the Windows PC did. One worker per core (Kevin, Nov 18): at 8 on GitHub's
+  # 4-core machine the canvas tests timed out. 100% follows the machine (4 cores public, 2 private); if timeouts still
+  # show, drop to the default rather than raise a timeout.
+  e2e-chromium-linux:
+    name: End to end (Linux, Chromium)
+    if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Playwright's browsers
+        run: npx playwright install --with-deps chromium
+      - name: The whole end-to-end suite in Chromium
+        run: npx playwright test --project=chromium --workers=100% $(cat e2e/ONLY.txt 2>/dev/null | tr '\n' ' ')
+      - name: List the failed and flaky Chromium tests
+        if: ${{ !cancelled() && hashFiles('test-results/e2e.json') != '' }}
+        run: npm run failed-tests -- test-results/e2e.json
+      - name: Keep the Chromium end-to-end report
+        if: ${{ !cancelled() && hashFiles('test-results/e2e.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-test-report-linux-chromium
+          path: test-results/e2e.json
+          retention-days: 14
+      - name: Upload the Playwright results
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-results-linux-chromium
+          path: test-results/
+          retention-days: 7
+
   smoke-mac:
     name: End to end (macOS, WebKit)
     # Pinned like the Linux job: the darwin baselines come from this image (macOS 26), and WebKit and font rendering

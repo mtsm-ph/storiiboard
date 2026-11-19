@@ -49,7 +49,12 @@ function tauriFile(handle: number, path: string): ProjectFile {
   return {
     path,
     nativeHandle: handle,
-    tx: async (statements) => {
+    tx: async (statements, options) => {
+      // Import project data: an older build's pictures as they came, through the one command without the door (sbd.rs).
+      if (options?.imported) {
+        await command('sbd_import_tx_raw', packRawTx(handle, statements));
+        return;
+      }
       // Bytes can't ride in JSON, so a transaction carrying an image goes raw; everything else stays plain.
       if (statements.some(({ params = [] }) => params.some((p) => p instanceof Uint8Array))) {
         await command('sbd_tx_raw', packRawTx(handle, statements));

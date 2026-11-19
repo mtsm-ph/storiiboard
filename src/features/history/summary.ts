@@ -96,6 +96,12 @@ const FIELD: Readonly<Record<string, string>> = labels({
   longitude: 'history.field.mapPlace',
   map_name: 'history.field.mapPlace',
   map_moved: 'history.field.mapPlace',
+  // Scout photos (6.27): what a location's photo's EXIF said, and the location's light reference.
+  taken_at: 'history.field.takenAt',
+  taken_offset: 'history.field.takenOffset',
+  gps_latitude: 'history.field.gpsLatitude',
+  gps_longitude: 'history.field.gpsLongitude',
+  light_photo_id: 'history.field.lightPhoto',
   setup_minutes: 'history.field.setupMinutes',
   hmu_minutes: 'history.field.hmuMinutes',
   crew: 'history.field.crew',
@@ -332,6 +338,9 @@ export function valueText(prop: string, value: JsonValue | undefined): string {
     return typeof value.item === 'string' ? t('history.anItem') : t('moodboard.connector.point');
   }
   if (prop === 'media_id') return t('history.aPicture');
+  // A location's light reference (6.27), kept by its photo's id; a sun path shown at its time, in words.
+  if (prop === 'light_photo_id') return t('history.aPhoto');
+  if (prop === 'at_photo' && typeof value === 'boolean') return t(value ? 'history.atPhotoOn' : 'history.atPhotoOff');
   if (prop === 'clip') return t('history.aClip');
   // A video's LUT (2.5), kept by the id of its row.
   if (prop === 'lut') return t('history.aLut');
@@ -610,6 +619,8 @@ const PLAN_ITEM_FIELD: Readonly<Record<string, string>> = labels({
   own_latitude: 'history.field.ownLatitude',
   own_longitude: 'history.field.ownLongitude',
   own_date: 'history.field.ownDate',
+  // A sun path shown at the location's light reference photo's time (6.27).
+  at_photo: 'history.field.atPhoto',
   // A window's sill and top (6.5.6).
   sill_height_m: 'history.field.sillHeight',
   top_height_m: 'history.field.topHeight',
@@ -702,7 +713,10 @@ export const changeLabel = (change: FieldChange, around?: ReadonlyMap<string, Sb
  */
 // A location's place on the map (3.4) says where its address is, so it's kept as the address is.
 // A sun path's own place (6.5.5) says where a shoot is, so it's kept as a location's place is.
+// Where a scout photo was taken (6.27, its EXIF's GPS) is the same kind of place: never shown.
 const PRIVATE_PROPS: ReadonlySet<string> = new Set([
+  'gps_latitude',
+  'gps_longitude',
   'address',
   'latitude',
   'longitude',

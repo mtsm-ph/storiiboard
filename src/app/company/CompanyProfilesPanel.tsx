@@ -115,6 +115,10 @@ function CompanyEditor({ company, index, fontListId, onSaved }: { company: Compa
                 onSaved('notSaved', t('company.logoUnreadable', { name: picked.name }));
                 return;
               }
+              if (made === 'notSaved' || made === 'pictureUnreadable') {
+                onSaved('notSaved', t(made === 'notSaved' ? 'error.pictureNotSaved' : 'error.pictureUnreadable'));
+                return;
+              }
               onSaved(saveCompany({ ...company, logo: made.logo }));
             })();
           }}

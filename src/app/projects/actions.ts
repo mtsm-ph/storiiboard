@@ -2,7 +2,8 @@ import type { ProjectState } from '../../core/model/project';
 import { CHANGED_ON_DISK } from '../../core/storage/driver';
 import { appDataDir } from '@tauri-apps/api/path';
 import { copyBackup, folderOfPath } from '../../core/storage/openBackup';
-import { importProjectJson, ProjectJsonError, projectJsonText, projectJsonTitle, readProjectJson, type ProjectJson } from '../../core/storage/projectJson';
+import { importProjectJson, ProjectJsonError, projectJsonText, projectJsonTitle, readProjectJson, type ImportReport, type ProjectJson } from '../../core/storage/projectJson';
+import { leftOutNote } from './leftOutFiles';
 import { chooseProjectJson } from '../projectJsonFile';
 import { safeName } from '../../features/export/names';
 import type { NamedVersion } from '../../core/storage/versions';
@@ -130,7 +131,13 @@ export async function importProjectData(): Promise<void> {
   if (importing) return;
   importing = true;
   try {
-    await attempt(() => importChosen());
+    // An object, so the check after the closure sees what the closure set.
+    const made = { note: NO_NOTE };
+    const worked = await attempt(async () => {
+      made.note = await importChosen();
+    });
+    // After attempt, which clears the notice once the action worked. Copy list keeps every place (round 4).
+    if (worked && made.note.short !== '') showInfo(made.note.short, { copy: made.note.every });
   } finally {
     importing = false;
   }
@@ -141,9 +148,18 @@ async function readChosen(chosen: { name: string; bytes(): Promise<ArrayBuffer> 
   return readProjectJson(projectJsonText(await chosen.bytes()));
 }
 
-async function importChosen(): Promise<void> {
+/** What an import left out, in words: the notice's (at most 10 places) and Copy list's (every place); '' for nothing. */
+interface LeftOutWords {
+  short: string;
+  every: string;
+}
+
+const NO_NOTE: LeftOutWords = { short: '', every: '' };
+
+/** Imports the file the person picks; what the import left out, in words. */
+async function importChosen(): Promise<LeftOutWords> {
   const chosen = await chooseProjectJson();
-  if (chosen === null) return;
+  if (chosen === null) return NO_NOTE;
   let data: ProjectJson | null;
   try {
     data = await readChosen(chosen);
@@ -153,15 +169,21 @@ async function importChosen(): Promise<void> {
   }
   const title = projectJsonTitle(data);
   const path = await pickNewProjectPath(title ? safeName(title) : undefined, t('dialogs.importProjectData'));
-  if (path === null) return;
+  if (path === null) return NO_NOTE;
+  let report: ImportReport;
   try {
-    await importProjectJson(appDriver, path, data);
+    report = await importProjectJson(appDriver, path, data);
   } catch (error) {
     if (error instanceof ProjectJsonError) throw new Error(projectJsonWords(error, chosen.name));
     throw error;
   }
   data = null;
   await openProjectFile(path, files);
+  // Stored files whose bytes didn't match their hash were left out (6.27b round 3): worked out once the project is
+  // open, so the places read the records as the person now sees them.
+  const { project, records } = projectStore.getState();
+  if (!project) return NO_NOTE;
+  return { short: leftOutNote(records, project.projectId, report), every: leftOutNote(records, project.projectId, report, true) };
 }
 
 export async function openWithDialog(): Promise<void> {

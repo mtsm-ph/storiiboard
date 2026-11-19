@@ -628,7 +628,15 @@ test(`the map picture is composed from the frame’s tiles on a canvas into one 
       canvasBlob: (canvas: unknown, type: string, quality?: number) => Promise<Blob | null>;
     };
     const blobOf = async (canvas: unknown, type: string) => {
-      const blob = await canvasBlob(canvas, type);
+      // The WebP tile is test input, not app output: made with the canvas's own encoder, since canvasBlob keeps only
+      // JPEG and PNG (6.27b).
+      const native = (c: unknown) =>
+        c instanceof HTMLCanvasElement
+          ? new Promise<Blob | null>((resolve) => {
+              c.toBlob(resolve, type);
+            })
+          : (c as OffscreenCanvas).convertToBlob({ type });
+      const blob = type === 'image/webp' ? await native(canvas) : await canvasBlob(canvas, type);
       if (!blob) throw new Error('no encoder');
       return blob;
     };

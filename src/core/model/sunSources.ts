@@ -5,9 +5,10 @@ import { cameraSetupFrames } from './planCamera';
 import { liveSun, locationZone, sceneNorth, setupSunBase, sunSetupId, type SunMissing, type SunZone } from './planSun';
 import type { JsonValue, Props, SbdRecord } from './record';
 import { unchangedToken } from './recordIndex';
+import { lightReferenceOf, photoTakenOf, takenClock, takenDate, type LightReference } from './scoutPhoto';
 import { frameDayId, isDayDate, projectShootDays, type ShootDay } from './shootDay';
-import { solarNoon, sunAt, sunPath, type SunAt, type SunPath } from './sunPath';
-import { isTimeZone, zoneClock } from './sunTimes';
+import { isSunUp, solarNoon, sunAt, sunPath, sunPosition, type SunAt, type SunPath } from './sunPath';
+import { isTimeZone, wallInstant, zoneClock } from './sunTimes';
 
 // Quick sun (6.5.5, Kevin Nov 16): what a sun path is drawn for, the ONE reading the Selection tile, the plan's drawing,
 // the compass and the exports use, and that the MCP's `get_plan` will return for each sun path, with Phase 10's 3D scene.
@@ -21,14 +22,37 @@ import { isTimeZone, zoneClock } from './sunTimes';
 // together, that is what is drawn, its other days and places said as before; only when it finds none do the setup's day
 // and place count one at a time, then the item's own values. A sun path with no own values reads exactly as 6.6 made it.
 // Nothing is stored but the own values; nothing is requested.
+//
+// The light reference (6.27, Kevin Nov 16 and 17), by the person's explicit choice: a sun path with "Show the sun at
+// the photo's time" on (`at_photo: true`), in a setup whose frames give a location (the location half of the rule
+// above: the location drawn from, else the setup's first placed location, else its first location) that has a light
+// reference photo with a time (scoutPhoto.ts), is drawn wholly from the photo, with or without a shoot day (one rule):
+// - the date and time are the photo's, and `photoAt` says where the sun stood then;
+// - the place is the photo's own GPS when it has one (source `photo`), else its location's (source `location`): the
+//   photo is filed under that location, so no half comes from another frame, nor from the sun path's own values;
+// - the zone is the location's typed `time_zone` when the place is the location's (else the one looked up from it, as
+//   before), and for the photo's GPS the one looked up from that point, keyed by the photo's id. A photo with its own
+//   offset is that instant, said in the zone; without one, the camera's clock is read as wall time there.
+// With the switch off, no reference photo, one in the Trash, with no time that reads, or with no place (neither its
+// GPS nor its location's), the reading is exactly what it was before 6.27.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
-/** Where a sun path's place comes from: the frames' location, or its own coordinates. */
-export type SunPlace = (Coordinates & { source: 'location'; location: SbdRecord }) | (Coordinates & { source: 'own' });
+/**
+ * Where a sun path's place comes from: the frames' location, its own coordinates, or (6.27 round 3, with the sun shown at
+ * the light reference photo's time) the photo's own GPS, `location` being the location the photo is filed under.
+ */
+export type SunPlace =
+  | (Coordinates & { source: 'location'; location: SbdRecord })
+  | (Coordinates & { source: 'own' })
+  | (Coordinates & { source: 'photo'; photo: SbdRecord; location: SbdRecord });
 
-/** Where a sun path's date (YYYY-MM-DD) comes from: the frames' shoot day, or its own. */
-export type SunDate = { source: 'shootDay'; date: string; day: ShootDay } | { source: 'own'; date: string };
+/**
+ * Where a sun path's date (YYYY-MM-DD) comes from: the frames' shoot day, its own, or the location's light reference
+ * photo (6.27): then `time` is the photo's time of day ("HH:mm"), both in the zone the sun is drawn in (a photo that
+ * carries its own offset is that instant, read in the location's zone; until the zone is known, as its camera wrote it).
+ */
+export type SunDate = { source: 'shootDay'; date: string; day: ShootDay } | { source: 'own'; date: string } | { source: 'photo'; date: string; time: string; photo: SbdRecord };
 
 /**
  * What a sun path is drawn for, worked out live (6.5.5): this is what `get_plan` will return for each sun path, and what
@@ -41,6 +65,8 @@ export type SunDate = { source: 'shootDay'; date: string; day: ShootDay } | { so
  *   of its own. Null for a date or place SunCalc can't read.
  * - `frame`, `otherDays` and `otherPlaces`: the frame the setup's rule drew from and the setup's other days and places,
  *   said, never drawn (none when a value is the item's own).
+ * - `photoAt` (6.27): only when the date's source is `photo`: the sun at the instant the light reference photo was
+ *   taken (its `time` in the zone drawn), or null when that can't be worked out. Absent for every other source.
  * Missing: what it lacks, the first of them in the order a person fixes them, with the place and date it has so far.
  */
 export type SunReadingOf =
@@ -67,6 +93,7 @@ export type SunReadingOf =
       path: SunPath | null;
       at: SunAt | null;
       noon: SunAt | null;
+      photoAt?: SunAt | null;
     };
 
 /** A sun path's own place and date as stored; each null when it has none, or none that reads. */
@@ -104,6 +131,8 @@ function projectOf(records: Records, record: SbdRecord): string | null {
 interface SetupSources {
   date: { date: string; day: ShootDay } | null;
   place: { location: SbdRecord; latitude: number; longitude: number } | null;
+  /** The first of its frames' locations in the same order, placed or not (6.27 round 3: whose light reference counts). */
+  location: SbdRecord | null;
   dateMissing: { missing: 'noFrames' | 'noDay' | 'noDate'; frameId?: string; dayId?: string };
   placeMissing: { missing: 'noFrames' | 'noLocation' | 'noPlace'; frameId?: string; locationId?: string };
 }
@@ -149,6 +178,7 @@ function setupSources(records: Records, setupId: string): SetupSources {
   const sources: SetupSources = {
     date: earliest ? { date: earliest.day.fields.date, day: earliest.day } : null,
     place: placed[0] ?? null,
+    location: located[0]?.location ?? null,
     // In 6.6's words: a setup with no frames says so whichever half it lacks.
     dateMissing: withDay[0] ? { missing: 'noDate', dayId: withDay[0].day.record.id } : frames[0] ? { missing: 'noDay', frameId: frames[0].id } : { missing: 'noFrames' },
     placeMissing: located[0] ? { missing: 'noPlace', locationId: located[0].location.id } : frames[0] ? { missing: 'noLocation', frameId: frames[0].id } : { missing: 'noFrames' },
@@ -177,12 +207,14 @@ type Base = { drawn: Drawn } | { missing: Extract<SunReadingOf, { missing: SunMi
 
 /**
  * Every record a sun path's reading can read (6.26): the project, its scenes, setups, frames, shoot days, locations and
- * plans, and of the plans' items only the sun paths and the rooms' norths. A reading is kept while these are the same
+ * plans, a location's light reference photo (6.27: a `media` record, so every media record; one changes when a picture
+ * is added or removed, never while a plan is being drawn), and of the plans' items only the sun paths and the rooms'
+ * norths. A reading is kept while these are the same
  * records (recordIndex.ts, unchangedToken), so an edit to anything else on the plan (a light turned, a wall moved, a
  * mark placed) works no sun out again. A reader added here that reads another type adds it to this list;
  * sunRecords.test.ts changes every record of every type and fails when a kept reading differs from one worked out anew.
  */
-const SUN_TYPES: readonly SbdRecord['type'][] = ['project', 'scene', 'setup', 'shot', 'shoot_day', 'location', 'plan'];
+const SUN_TYPES: readonly SbdRecord['type'][] = ['project', 'scene', 'setup', 'shot', 'shoot_day', 'location', 'plan', 'media'];
 const SUN_ITEMS = { type: 'plan_item' as const, counts: (record: SbdRecord) => record.props.kind === 'sun' || record.props.kind === 'north' };
 
 /** The same object while no record a sun path's reading reads has changed: what its readings and the compass are kept by. */
@@ -227,7 +259,107 @@ function baseOf(records: Records, sunId: string): Base | null {
   return base;
 }
 
+/** A sun path's "Show the sun at the photo's time" (6.27): only a stored `true` is on. */
+export const sunAtPhoto = (props: Props): boolean => props.at_photo === true;
+
+/**
+ * A sun path's light reference (6.27 round 3), whether or not its switch is on: the location its setup's frames give
+ * (the location drawn from, else the setup's first placed location, else its first location), that location's light
+ * reference, and the place the sun would be drawn at for it (the photo's GPS, else the location's place; null for
+ * neither). Null when the setup gives no location or the location has no light reference.
+ */
+export interface SunLight {
+  location: SbdRecord;
+  reference: Exclude<LightReference, { kind: 'none' }>;
+  place: SunPlace | null;
+}
+
+function lightOf(records: Records, sunId: string, base: Base | null): SunLight | null {
+  const sun = liveSun(records, sunId);
+  const setupId = sun ? sunSetupId(records, sun.record) : null;
+  if (!base || setupId === null) return null;
+  const drawn = 'drawn' in base ? base.drawn.place : null;
+  const setup = setupSources(records, setupId);
+  const location = drawn?.source === 'location' ? drawn.location : (setup.place?.location ?? setup.location);
+  if (!location) return null;
+  const reference = lightReferenceOf(records, location);
+  if (reference.kind === 'none') return null;
+  const gps = photoTakenOf(reference.photo.props).place;
+  const mapped = mapPlace(location.props);
+  const place: SunPlace | null = gps
+    ? { source: 'photo', ...gps, photo: reference.photo, location }
+    : mapped
+      ? { source: 'location', location, latitude: mapped.latitude, longitude: mapped.longitude }
+      : null;
+  return { location, reference, place };
+}
+
+const lights = new WeakMap<object, Map<string, SunLight | null>>();
+
+/** A sun path's light reference (SunLight), kept as its reading is: what its settings say beside the switch. */
+export function sunLightOf(records: Records, sunId: string): SunLight | null {
+  const known = keptBy(lights, sunRecordsToken(records));
+  if (known.has(sunId)) return known.get(sunId) ?? null;
+  const light = lightOf(records, sunId, baseBeforePhoto(records, sunId));
+  known.set(sunId, light);
+  return light;
+}
+
+/** The point a light reference's place has its zone looked up at: the photo's GPS (by the photo's id), or its location's place when it has no zone typed. */
+export function sunLightZonePoint(light: SunLight | null): SunZonePoint | null {
+  const place = light?.place;
+  if (!place) return null;
+  if (place.source === 'photo' && !atLocationPin(place)) return { id: place.photo.id, latitude: place.latitude, longitude: place.longitude, own: true };
+  if (place.source === 'own' || zoneOfLocation(place.location) !== null) return null;
+  return { id: place.location.id, latitude: place.latitude, longitude: place.longitude, own: false };
+}
+
+/** The zone a light reference's place is in, when it is known (typed on the location, or looked up); else null. */
+export function sunLightZone(light: SunLight | null, zones: ReadonlyMap<string, string | null>): string | null {
+  const place = light?.place;
+  if (!place || place.source === 'own') return null;
+  if (place.source === 'location' || atLocationPin(place)) return locationZone(place.location, zones)?.zone ?? null;
+  const looked = zones.get(place.photo.id) ?? null;
+  return looked !== null && isTimeZone(looked) ? looked : null;
+}
+
+/**
+ * The base, drawn wholly from the light reference photo where the person chose it (6.27 round 3): its date and time,
+ * its GPS or its location's place, the room's north; the setup's frame and other days and places still said when the
+ * setup's rule drew. Anything that keeps the photo from being drawn for leaves the base exactly as it was.
+ */
 function baseWorkedOut(records: Records, sunId: string): Base | null {
+  const base = baseBeforePhoto(records, sunId);
+  const sun = liveSun(records, sunId);
+  if (!base || !sun || !sunAtPhoto(sun.record.props)) return base;
+  const light = lightOf(records, sunId, base);
+  if (!light?.place || light.reference.kind !== 'ready') return base;
+  const { reference } = light;
+  const date: SunDate = { source: 'photo', date: takenDate(reference.takenAt), time: takenClock(reference.takenAt), photo: reference.photo };
+  const setupId = sunSetupId(records, sun.record);
+  const north = setupId === null ? null : sceneNorth(records, records[setupId]?.parentId ?? '');
+  // As the setup's rule says a missing north: nothing claimed as drawn.
+  if (north === null) return { missing: { missing: 'noNorth', place: null, date: null } };
+  const kept = 'drawn' in base ? base.drawn : null;
+  // No other days or places said (round 4): the date drawn is the photo's, so "also shoots on…" would be about days
+  // that aren't drawn.
+  return { drawn: { place: light.place, date, north, frame: kept?.frame ?? null, otherDays: [], otherPlaces: [] } };
+}
+
+/** sunLightOf worked out anew, nothing kept: for the test that guards SUN_TYPES (sunRecords.test.ts). */
+export const sunLightFresh = (records: Records, sunId: string): SunLight | null => lightOf(records, sunId, baseBeforePhoto(records, sunId));
+
+/**
+ * Whether a photo's GPS is its location's own pin (round 4): then the place is still said as the photo's, but its zone
+ * is the location's (typed, else looked up at the pin), so a typed zone always wins at the location's own place.
+ */
+function atLocationPin(place: SunPlace): boolean {
+  if (place.source !== 'photo') return false;
+  const pin = mapPlace(place.location.props);
+  return pin !== null && pin.latitude === place.latitude && pin.longitude === place.longitude;
+}
+
+function baseBeforePhoto(records: Records, sunId: string): Base | null {
   const sun = liveSun(records, sunId);
   if (!sun) return null;
   const setupId = sunSetupId(records, sun.record);
@@ -279,9 +411,16 @@ function zonePointFrom(base: Base | null, sunId: string): SunZonePoint | null {
   if (!base || !('drawn' in base)) return null;
   const { place } = base.drawn;
   if (place.source === 'own') return { id: sunId, latitude: place.latitude, longitude: place.longitude, own: true };
+  // The photo's GPS is a point of its own, with no location to type a zone on (6.27 round 3), unless it is the
+  // location's own pin (round 4).
+  if (place.source === 'photo' && !atLocationPin(place)) return { id: place.photo.id, latitude: place.latitude, longitude: place.longitude, own: true };
   if (zoneOfLocation(place.location) !== null) return null;
   return { id: place.location.id, latitude: place.latitude, longitude: place.longitude, own: false };
 }
+
+/** The id a place's looked-up zone is kept by: its location's, the photo's (its GPS), or the sun path's own. */
+const zoneKeyOf = (place: SunPlace, sunId: string): string =>
+  place.source === 'own' ? sunId : place.source === 'location' || atLocationPin(place) ? place.location.id : place.photo.id;
 
 /** A location's own zone, typed on it, or null (planSun.ts reads it the same way). */
 const zoneOfLocation = (location: SbdRecord): string | null => {
@@ -319,7 +458,7 @@ export function sunReadingOf(records: Records, sunId: string, zones: ReadonlyMap
   if ('missing' in base) return base.missing;
   // Kept by the records it reads and the one zone answer it reads (6.26): the same reading, the same object, until one
   // of them changes.
-  const asked = base.drawn.place.source === 'location' ? base.drawn.place.location.id : sunId;
+  const asked = zoneKeyOf(base.drawn.place, sunId);
   const known = keptBy(kept, sunRecordsToken(records));
   const key = `${sunId}|${zones.has(asked) ? `=${String(zones.get(asked))}` : '?'}`;
   const found = known.get(key);
@@ -344,25 +483,64 @@ function readingWorkedOut(records: Records, sunId: string, zones: ReadonlyMap<st
   made += 1;
   const { place, date } = drawn;
   let zone: SunZone | null;
-  let pendingId: string;
-  if (place.source === 'location') {
-    zone = locationZone(place.location, zones);
-    pendingId = place.location.id;
-  } else {
-    const looked = zones.get(sunId) ?? null;
+  const pendingId = zoneKeyOf(place, sunId);
+  // The location's zone at its own place, and at its pin when that is where the photo was taken (round 4).
+  const byLocation = place.source === 'location' || atLocationPin(place);
+  if (place.source !== 'own' && byLocation) zone = locationZone(place.location, zones);
+  else {
+    const looked = zones.get(pendingId) ?? null;
     zone = looked !== null && isTimeZone(looked) ? { zone: looked, source: 'map' } : null;
-    pendingId = sunId;
   }
   if (!zone) {
-    const pending = (place.source === 'own' || zoneOfLocation(place.location) === null) && !zones.has(pendingId);
-    return { missing: 'noZone', ...(place.source === 'location' ? { locationId: place.location.id } : {}), ...(pending ? { pending: true as const } : {}), place, date };
+    const pending = (place.source === 'own' || !byLocation || zoneOfLocation(place.location) === null) && !zones.has(pendingId);
+    // A photo at its location's own pin takes the location's zone, so "Open Locations" opens it too (round 5): typing
+    // the zone there is the fix.
+    return { missing: 'noZone', ...(byLocation && place.source !== 'own' ? { locationId: place.location.id } : {}), ...(pending ? { pending: true as const } : {}), place, date };
   }
   const time = liveSun(records, sunId)?.fields.time ?? '12:00';
-  const path = pathFor(date.date, place.latitude, place.longitude, zone.zone);
-  const at = sunAt(date.date, time, place.latitude, place.longitude, zone.zone);
-  const noonAt = noonClock(date.date, place.latitude, place.longitude, zone.zone);
-  const noon = noonAt === null ? null : sunAt(date.date, noonAt, place.latitude, place.longitude, zone.zone);
-  return { ...drawn, zone, path, at, noon };
+  // The light reference photo (6.27): the instant it was taken, read in the zone drawn, gives the date and the sun then.
+  const photo = date.source === 'photo' ? photoMoment(date, place, zone.zone) : null;
+  const day = photo ? photo.date : date;
+  const path = pathFor(day.date, place.latitude, place.longitude, zone.zone);
+  const at = sunAt(day.date, time, place.latitude, place.longitude, zone.zone);
+  const noonAt = noonClock(day.date, place.latitude, place.longitude, zone.zone);
+  const noon = noonAt === null ? null : sunAt(day.date, noonAt, place.latitude, place.longitude, zone.zone);
+  return { ...drawn, date: day, zone, path, at, noon, ...(date.source === 'photo' ? { photoAt: photo?.at ?? null } : {}) };
+}
+
+/**
+ * When a light reference photo was taken, in the zone the sun is drawn in (6.27): the instant is the photo's own when it
+ * carries its offset (a phone's), else its camera's clock read as the location's wall clock; its date and time of day
+ * are that instant's in the zone, the minute as the clock showed it (never rounded up); and the sun then. Null when the
+ * instant can't be worked out (the date is then left as the camera wrote it, with no sun for it).
+ */
+function photoMoment(date: Extract<SunDate, { source: 'photo' }>, place: Coordinates, zone: string): { date: Extract<SunDate, { source: 'photo' }>; at: SunAt } | null {
+  const taken = photoTakenOf(date.photo.props);
+  const when = taken.takenAt === null ? null : photoWhen(taken.takenAt, taken.offset, zone);
+  if (!when?.instant || !(Math.abs(place.latitude) <= 90) || !(Math.abs(place.longitude) <= 180)) return null;
+  const position = sunPosition(when.instant, place.latitude, place.longitude);
+  return { date: { ...date, date: when.date, time: when.time }, at: { ...position, time: when.time, instant: when.instant, up: isSunUp(position.altitude) } };
+}
+
+/**
+ * A photo's date and time of day as they are said beside a sun path (6.27): in the zone the sun is drawn in when it is
+ * known (the photo's own instant when it carries an offset, else its camera's clock, which is then the same), and as
+ * its camera wrote them while no zone is known, or when the instant can't be worked out (`instant` null). One function,
+ * so the "Light reference" line and the date's source always say the same time.
+ */
+export function photoWhen(takenAt: string, offset: string | null, zone: string | null): { date: string; time: string; instant: Date | null } {
+  const written = { date: takenDate(takenAt), time: takenClock(takenAt), instant: null };
+  if (zone === null) return written;
+  let instant: Date | null;
+  if (offset !== null) instant = new Date(`${takenAt}${offset}`);
+  else {
+    const [hour = 0, minute = 0, second = 0] = takenAt.slice(11).split(':').map(Number);
+    const wall = wallInstant(takenDate(takenAt), hour, minute, zone);
+    instant = wall ? new Date(wall.getTime() + second * 1000) : null;
+  }
+  const clock = instant ? zoneClock(instant, zone) : null;
+  if (!instant || !clock) return written;
+  return { date: clock.date, time: `${String(clock.hour).padStart(2, '0')}:${String(clock.minute).padStart(2, '0')}`, instant };
 }
 
 // The edits.
@@ -388,6 +566,17 @@ export function ownDateChanges(records: Records, sunId: string, date: string | n
   if (date === null) return 'own_date' in sun.record.props ? [{ kind: 'update', id: sunId, unset: ['own_date'] }] : [];
   if (!isDayDate(date) || sun.record.props.own_date === date) return [];
   return [{ kind: 'update', id: sunId, set: { own_date: date } }];
+}
+
+/**
+ * "Show the sun at the photo's time" (6.27) turned on or off, one op: `at_photo` is stored only as `true` (off takes it
+ * off the record); nothing when it reads so already.
+ */
+export function atPhotoChanges(records: Records, sunId: string, on: boolean): Change[] {
+  const sun = liveSun(records, sunId);
+  if (!sun) return [];
+  if (on) return sun.record.props.at_photo === true ? [] : [{ kind: 'update', id: sunId, set: { at_photo: true } }];
+  return 'at_photo' in sun.record.props ? [{ kind: 'update', id: sunId, unset: ['at_photo'] }] : [];
 }
 
 /** A sun path's own place as its field shows it: "40.8677, -73.9212", or '' for none. */

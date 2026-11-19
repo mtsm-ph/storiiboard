@@ -9,7 +9,7 @@ import { castMarkFor, markOwnerChanges, movePositionChanges, nextPositionChanges
 import { ceilingHeightChanges, windowHeightsChanges, type WindowHeightsPatch } from '../../../core/model/planHeights';
 import { roomNorthItem, sunTimeChanges } from '../../../core/model/planSun';
 import type { Coordinates } from '../../../core/model/coordinates';
-import { ownDateChanges, ownPlaceChanges } from '../../../core/model/sunSources';
+import { atPhotoChanges, ownDateChanges, ownPlaceChanges } from '../../../core/model/sunSources';
 import { copySetupChanges, deleteRoomChanges, deleteUnusedRoomChanges, replaceRoomChanges, separateCopyChanges, setupOnlyChanges, setRoomChanges } from '../../../core/model/planRooms';
 import {
   assignFrameChanges,
@@ -564,6 +564,8 @@ export const setSunTime = (ids: readonly string[], time: string) => plannedEdit(
 export const setSunOwnPlace = (id: string, place: Coordinates | null) => plannedEdit((r) => ownPlaceChanges(r, id, place));
 /** A sun path's own date (6.5.5), YYYY-MM-DD, or taken off with null: one op group. */
 export const setSunOwnDate = (id: string, date: string | null) => plannedEdit((r) => ownDateChanges(r, id, date));
+/** "Show the sun at the photo's time" (6.27) on a sun path, on or off: one op group. */
+export const setSunAtPhoto = (id: string, on: boolean) => plannedEdit((r) => atPhotoChanges(r, id, on));
 
 // The room's underlays and measures (6.9), each one op group, only into the open project the gesture began in (`madeIn`).
 

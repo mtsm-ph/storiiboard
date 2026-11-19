@@ -16,6 +16,7 @@ use tauri::State;
 
 use crate::backup::{self, Copying, Partial};
 use crate::lock::{self, Holder, Lock, Machine};
+use crate::picture_door;
 
 /// The refusal when a sync replaced or rewrote the file while it was open. src/core/storage/driver.ts has the same
 /// text, so the page can tell this apart from any other failure and reopen the new version.
@@ -304,8 +305,22 @@ impl SbdFile {
         result
     }
 
-    /// The same transaction, with values already bound, as `sbd_tx_raw` sends them with image bytes among them.
+    /// The same transaction, with values already bound, as `sbd_tx_raw` sends them with image bytes among them. A
+    /// stored picture that carries more than its own data and colour profile is refused first (the door, 6.27b).
     pub fn tx_values(&mut self, statements: &[Bound]) -> Result<Vec<usize>, String> {
+        refuse_unclean_pictures(statements)?;
+        self.write_values(statements)
+    }
+
+    /// The same transaction through the import's own door, for Import project data only (`sbd_import_tx_raw`): an
+    /// older build's pictures are named by their SHA-256, so they are written as they came, never changed, once each
+    /// one's bytes are checked against that name (`refuse_misnamed_pictures`).
+    pub fn import_tx_values(&mut self, statements: &[Bound]) -> Result<Vec<usize>, String> {
+        refuse_misnamed_pictures(statements)?;
+        self.write_values(statements)
+    }
+
+    fn write_values(&mut self, statements: &[Bound]) -> Result<Vec<usize>, String> {
         self.check_unchanged()?;
         let result = self.run_tx(statements);
         self.fingerprint = fingerprint(&self.path)?;
@@ -644,6 +659,491 @@ fn is_stamp(stamp: &str) -> bool {
             10 => b == b' ',
             _ => b.is_ascii_digit(),
         })
+}
+
+/// The door's refusal (6.27b), in the same words as the page's `error.pictureNotSaved` (src/core/storage/driver.ts has
+/// them as PICTURE_NOT_CLEAN), so the page says it in the person's language.
+pub const PICTURE_NOT_CLEAN: &str =
+    "The picture couldn’t be saved: it holds more than a picture and its colour profile.";
+
+/// One piece of a statement, as the doors read it.
+#[derive(Debug, PartialEq)]
+enum SqlToken {
+    /// A word or a quoted name, in lower case.
+    Word(String),
+    /// `?` or `?N`.
+    Param(String),
+    Number,
+    Text,
+    Blob(Vec<u8>),
+    Punct(char),
+}
+
+/// A statement read as SQLite lexes it (round 4): `named`, the text with every string literal emptied (names in quotes,
+/// brackets or backticks, and comments, kept: a name there counts); `bare`, with comments and quoted names emptied too,
+/// for what the statement's own code says. None when a string, a quoted name or a comment never closes. driver.ts's
+/// `lexed` reads the same.
+/// A string's whole content that is a pictures table's name, in any case, with or without `main.`.
+fn is_table_name(content: &str) -> bool {
+    let lower = content.to_ascii_lowercase();
+    let name = lower.strip_prefix("main.").unwrap_or(&lower);
+    name == "media_files" || name == "thumbnails"
+}
+
+/// SQLite's own whitespace, ASCII only (space, tab, newline, carriage return, form feed and vertical tab): Rust's
+/// is_whitespace and JavaScript's \s each take other characters too (U+0085, U+FEFF), and differently, so neither is
+/// used, and both readers split a statement exactly alike (round 5).
+fn is_space(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0c' | '\x0b')
+}
+
+/// A statement's words, split at SQLite's whitespace only.
+fn words(sql: &str) -> Vec<String> {
+    sql.split(is_space)
+        .filter(|w| !w.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect()
+}
+
+fn lexed(sql: &str) -> Option<(String, String)> {
+    let chars: Vec<char> = sql.chars().collect();
+    let closing = |from: usize, close: char, doubled: bool| -> Option<usize> {
+        let mut at = from;
+        loop {
+            let end = (at..chars.len()).find(|&i| chars[i] == close)?;
+            if doubled && chars.get(end + 1) == Some(&close) {
+                at = end + 2;
+                continue;
+            }
+            return Some(end);
+        }
+    };
+    let (mut named, mut bare) = (String::new(), String::new());
+    let mut at = 0;
+    while at < chars.len() {
+        let c = chars[at];
+        let next = chars.get(at + 1).copied();
+        if c == '\'' {
+            let end = closing(at + 1, '\'', true)?;
+            // SQLite takes a string where a table's name goes (`nm ::= STRING`): one that is wholly a pictures table's
+            // name names it, as a quoted name does (round 5). A string that only holds the name among other words doesn't.
+            let content: String = chars[at + 1..end]
+                .iter()
+                .collect::<String>()
+                .replace("''", "'");
+            if is_table_name(&content) {
+                named.push('"');
+                named.push_str(&content);
+                named.push('"');
+                bare.push_str(" n ");
+            } else {
+                named.push_str("''");
+                bare.push_str("''");
+            }
+            at = end + 1;
+        } else if c == '"' || c == '`' || c == '[' {
+            let end = closing(at + 1, if c == '[' { ']' } else { c }, c != '[')?;
+            named.extend(&chars[at..=end]);
+            bare.push_str(" n ");
+            at = end + 1;
+        } else if c == '-' && next == Some('-') {
+            let end = (at..chars.len())
+                .find(|&i| chars[i] == '\n')
+                .unwrap_or(chars.len());
+            named.extend(&chars[at..end]);
+            bare.push(' ');
+            at = end;
+        } else if c == '/' && next == Some('*') {
+            let end = (at + 2..chars.len().saturating_sub(1))
+                .find(|&i| chars[i] == '*' && chars[i + 1] == '/')?;
+            named.extend(&chars[at..end + 2]);
+            bare.push(' ');
+            at = end + 2;
+        } else {
+            named.push(c);
+            bare.push(c);
+            at += 1;
+        }
+    }
+    Some((named, bare))
+}
+
+/// Whether a statement names the stored pictures' tables: by name, in any case, quoted or not, anywhere but inside a
+/// string literal. A text that can't be lexed is judged on all of it.
+fn names_pictures(sql: &str) -> bool {
+    let lower = lexed(sql)
+        .map(|(named, _)| named)
+        .unwrap_or_else(|| sql.to_string())
+        .to_ascii_lowercase();
+    lower.contains("media_files") || lower.contains("thumbnails")
+}
+
+/// More than one statement in the text: anything but space after a `;` in its own code (a string's or a comment's
+/// isn't). A text that can't be lexed counts as more.
+fn holds_more(sql: &str) -> bool {
+    let Some((_, bare)) = lexed(sql) else {
+        return true;
+    };
+    bare.split_once(';')
+        .is_some_and(|(_, after)| !after.chars().all(is_space))
+}
+
+/// A statement's pieces, or None for anything the doors don't read (a comment, a named parameter, an operator): words
+/// and quoted names, `?` and `?N`, numbers, 'strings', x'hex' blobs and ( ) , ; - +. The page's test drivers read the
+/// same (src/core/storage/driver.ts, `sqlTokens`), in their own code.
+fn sql_tokens(sql: &str) -> Option<Vec<SqlToken>> {
+    let chars: Vec<char> = sql.chars().collect();
+    let find = |from: usize, c: char| (from..chars.len()).find(|&i| chars[i] == c);
+    let mut tokens = Vec::new();
+    let mut at = 0;
+    while at < chars.len() {
+        let c = chars[at];
+        if is_space(c) {
+            at += 1;
+        } else if (c == 'x' || c == 'X') && chars.get(at + 1) == Some(&'\'') {
+            let close = find(at + 2, '\'')?;
+            let hex: String = chars[at + 2..close].iter().collect();
+            if !hex.len().is_multiple_of(2) || !hex.chars().all(|h| h.is_ascii_hexdigit()) {
+                return None;
+            }
+            let bytes = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+                .collect::<Option<Vec<u8>>>()?;
+            tokens.push(SqlToken::Blob(bytes));
+            at = close + 1;
+        } else if c.is_ascii_alphabetic() || c == '_' {
+            let end = (at..chars.len())
+                .find(|&i| !(chars[i].is_ascii_alphanumeric() || chars[i] == '_'))
+                .unwrap_or(chars.len());
+            let word: String = chars[at..end].iter().collect();
+            tokens.push(SqlToken::Word(word.to_ascii_lowercase()));
+            at = end;
+        } else if c == '"' || c == '`' || c == '[' {
+            let close = find(at + 1, if c == '[' { ']' } else { c })?;
+            let name: String = chars[at + 1..close].iter().collect();
+            tokens.push(SqlToken::Word(name.to_ascii_lowercase()));
+            at = close + 1;
+        } else if c == '\'' {
+            // '' inside a string is one quote.
+            let mut end = at + 1;
+            loop {
+                let close = find(end, '\'')?;
+                if chars.get(close + 1) == Some(&'\'') {
+                    end = close + 2;
+                    continue;
+                }
+                end = close;
+                break;
+            }
+            tokens.push(SqlToken::Text);
+            at = end + 1;
+        } else if c == '?' {
+            let end = (at + 1..chars.len())
+                .find(|&i| !chars[i].is_ascii_digit())
+                .unwrap_or(chars.len());
+            tokens.push(SqlToken::Param(chars[at..end].iter().collect()));
+            at = end;
+        } else if c.is_ascii_digit() {
+            let end = (at..chars.len())
+                .find(|&i| !(chars[i].is_ascii_digit() || chars[i] == '.'))
+                .unwrap_or(chars.len());
+            tokens.push(SqlToken::Number);
+            at = end;
+        } else if "(),;-+".contains(c) {
+            // A comment (-- or /*) isn't read.
+            if c == '-' && chars.get(at + 1) == Some(&'-') {
+                return None;
+            }
+            tokens.push(SqlToken::Punct(c));
+            at += 1;
+        } else {
+            return None;
+        }
+    }
+    Some(tokens)
+}
+
+/// A plain INSERT into a stored pictures' table: the table, the columns named (None when it names none), and each
+/// row's values.
+struct PlainInsert {
+    table: String,
+    columns: Option<Vec<String>>,
+    rows: Vec<Vec<SqlToken>>,
+}
+
+/// The one INSERT shape the doors check (6.27b, round 2): `INSERT [OR IGNORE] INTO media_files|thumbnails [(columns)]
+/// VALUES (…)[, (…)]`, each value a parameter, a number, a string, an x'…' blob or NULL, nothing after but a `;`. None
+/// for anything else (a SELECT, a function, OR REPLACE, an upsert, RETURNING), which the doors refuse, since what it
+/// writes can't be read off the statement. driver.ts's `plainInsert` reads the same.
+fn plain_insert(sql: &str) -> Option<PlainInsert> {
+    let tokens = sql_tokens(sql)?;
+    let mut at = 0;
+    let word =
+        |at: usize, text: &str| matches!(tokens.get(at), Some(SqlToken::Word(w)) if w == text);
+    let punct = |at: usize, c: char| tokens.get(at) == Some(&SqlToken::Punct(c));
+    if !word(at, "insert") {
+        return None;
+    }
+    at += 1;
+    if word(at, "or") {
+        if !word(at + 1, "ignore") {
+            return None;
+        }
+        at += 2;
+    }
+    if !word(at, "into") {
+        return None;
+    }
+    at += 1;
+    let table = match tokens.get(at) {
+        Some(SqlToken::Word(name)) if name == "media_files" || name == "thumbnails" => name.clone(),
+        _ => return None,
+    };
+    at += 1;
+    let mut columns = None;
+    if punct(at, '(') {
+        let mut names = Vec::new();
+        at += 1;
+        loop {
+            let Some(SqlToken::Word(name)) = tokens.get(at) else {
+                return None;
+            };
+            names.push(name.clone());
+            at += 1;
+            if punct(at, ')') {
+                break;
+            }
+            if !punct(at, ',') {
+                return None;
+            }
+            at += 1;
+        }
+        at += 1;
+        columns = Some(names);
+    }
+    if !word(at, "values") {
+        return None;
+    }
+    at += 1;
+    let mut rows = Vec::new();
+    let mut tokens = tokens.into_iter().enumerate().peekable();
+    // From here the values are taken out of the list, one row at a time.
+    while tokens.peek().is_some_and(|(i, _)| *i < at) {
+        tokens.next();
+    }
+    loop {
+        if !matches!(tokens.next(), Some((_, SqlToken::Punct('(')))) {
+            return None;
+        }
+        let mut row = Vec::new();
+        loop {
+            if matches!(tokens.peek(), Some((_, SqlToken::Punct('-' | '+')))) {
+                tokens.next();
+            }
+            let value = tokens.next()?.1;
+            let plain = match &value {
+                SqlToken::Param(_) | SqlToken::Number | SqlToken::Text | SqlToken::Blob(_) => true,
+                SqlToken::Word(w) => w == "null",
+                SqlToken::Punct(_) => false,
+            };
+            if !plain {
+                return None;
+            }
+            row.push(value);
+            match tokens.next() {
+                Some((_, SqlToken::Punct(')'))) => break,
+                Some((_, SqlToken::Punct(','))) => {}
+                _ => return None,
+            }
+        }
+        if columns
+            .as_ref()
+            .is_some_and(|c: &Vec<String>| c.len() != row.len())
+        {
+            return None;
+        }
+        rows.push(row);
+        if matches!(tokens.peek(), Some((_, SqlToken::Punct(',')))) {
+            tokens.next();
+            continue;
+        }
+        break;
+    }
+    if matches!(tokens.peek(), Some((_, SqlToken::Punct(';')))) {
+        tokens.next();
+    }
+    if tokens.next().is_some() {
+        return None;
+    }
+    Some(PlainInsert {
+        table,
+        columns,
+        rows,
+    })
+}
+
+/// DELETE FROM, which writes no picture.
+fn deletes(sql: &str) -> bool {
+    words(sql).starts_with(&["delete".to_string(), "from".to_string()])
+}
+
+/// A table or an index made (a migration: 003 makes both tables), which writes no picture; never one made from a
+/// SELECT or with AS (`CREATE TABLE … AS VALUES …` writes rows too). Ordinary writes only: the import writes rows alone.
+fn makes_schema(sql: &str) -> bool {
+    let lower = sql.to_ascii_lowercase();
+    let words = words(sql);
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    let made = matches!(
+        words.as_slice(),
+        ["create", "table", ..] | ["create", "index", ..] | ["create", "unique", "index", ..]
+    );
+    let fills = lower
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .any(|word| word == "select" || word == "as");
+    made && !fills
+}
+
+/// Which door judges a statement: an ordinary write's (`sbd_tx`, `sbd_tx_raw`) or Import project data's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Door {
+    Ordinary,
+    Import,
+}
+
+/// A door's answer for a statement's text: read on (its values checked next), refused whole, or not about the pictures.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Verdict {
+    Allowed,
+    Refused,
+    NotPictures,
+}
+
+/// What a door says of a statement's text alone (round 4: one list both readers are tested against,
+/// testdata/picture-statements.json; driver.ts's `doorVerdict` gives the same answers).
+fn door_verdict(sql: &str, door: Door) -> Verdict {
+    if !names_pictures(sql) {
+        return Verdict::NotPictures;
+    }
+    // Two statements in one text: the door would read the first alone, so it is refused whole.
+    if holds_more(sql) {
+        return Verdict::Refused;
+    }
+    if deletes(sql) || (door == Door::Ordinary && makes_schema(sql)) {
+        return Verdict::Allowed;
+    }
+    let Some(insert) = plain_insert(sql) else {
+        return Verdict::Refused;
+    };
+    if door == Door::Ordinary || insert.table == "thumbnails" {
+        return Verdict::Allowed;
+    }
+    // Import's media_files row: one placeholder per named column, sha256 and bytes among them, so its name can be checked.
+    let named = insert
+        .columns
+        .as_ref()
+        .is_some_and(|c| c.iter().any(|n| n == "sha256") && c.iter().any(|n| n == "bytes"));
+    let placeholders = match insert.rows.as_slice() {
+        [row] => row
+            .iter()
+            .all(|v| matches!(v, SqlToken::Param(p) if p == "?")),
+        _ => false,
+    };
+    if named && placeholders {
+        Verdict::Allowed
+    } else {
+        Verdict::Refused
+    }
+}
+
+/// The door (6.27b, Kevin Nov 18): a transaction with a statement that writes `media_files` or `thumbnails` (named in
+/// its SQL, in any case) with a blob that is a JPEG or PNG by its first bytes, carrying any block outside the
+/// keep-list (picture_door.rs), is refused whole, before anything is written. Bytes that aren't a picture (a PDF
+/// attachment, an issued call sheet) aren't the door's: they are kept as they are. A statement that names either table
+/// is a DELETE FROM, a table or index made, or the plain INSERT (`plain_insert`), whose parameters and x'…' blobs are
+/// all read; any other (UPDATE, REPLACE, WITH …, INSERT … SELECT) is refused, since what it writes can't be read off it.
+fn refuse_unclean_pictures(statements: &[Bound]) -> Result<(), String> {
+    for (sql, params) in statements {
+        match door_verdict(sql, Door::Ordinary) {
+            Verdict::NotPictures => continue,
+            Verdict::Refused => return Err(PICTURE_NOT_CLEAN.into()),
+            Verdict::Allowed => {}
+        }
+        // A DELETE FROM or a table made: nothing written to check.
+        let Some(insert) = plain_insert(sql) else {
+            continue;
+        };
+        let bound = params.iter().filter_map(|param| match param {
+            Value::Blob(bytes) => Some(bytes.as_slice()),
+            _ => None,
+        });
+        let literals = insert
+            .rows
+            .iter()
+            .flatten()
+            .filter_map(|value| match value {
+                SqlToken::Blob(bytes) => Some(bytes.as_slice()),
+                _ => None,
+            });
+        if bound.chain(literals).any(picture_door::refuses) {
+            return Err(PICTURE_NOT_CLEAN.into());
+        }
+    }
+    Ok(())
+}
+
+/// The import's refusal of a picture whose bytes aren't the ones its name says (6.27b, Kevin Nov 18, late), in the same
+/// words as the page's `error.importPictureMisnamed` (driver.ts has them as IMPORT_PICTURE_MISNAMED).
+pub const IMPORT_PICTURE_MISNAMED: &str =
+    "The project data can’t be imported: a picture in it isn’t the one its name says. Nothing was imported.";
+
+/// A stored file's name: the hex SHA-256 of its bytes, through ring (the copy rustls already builds; Cargo.toml).
+pub(crate) fn sha256_hex(bytes: &[u8]) -> Option<String> {
+    let digest = ring::digest::digest(&ring::digest::SHA256, bytes);
+    Some(digest.as_ref().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// The import's own door (6.27b, Kevin Nov 18, late): Import project data writes pictures as they came, so each row it
+/// puts in `media_files` must be the picture its `sha256` names, or the import is refused whole. Its statements are
+/// `INSERT INTO "media_files" (<columns>) VALUES (?, …)`, one placeholder per column (projectJson.ts); a statement that
+/// writes the table in any other shape is refused, since it can't be checked. A thumbnail's `sha256` names its
+/// picture, not its own bytes, so `thumbnails` rows are named by their picture's row. Any other statement that names
+/// either table is refused too, but DELETE FROM and a thumbnail's plain INSERT (`plain_insert`): UPDATE, REPLACE,
+/// WITH …, INSERT … SELECT.
+fn refuse_misnamed_pictures(statements: &[Bound]) -> Result<(), String> {
+    for (sql, params) in statements {
+        let refused = || IMPORT_PICTURE_MISNAMED.to_string();
+        match door_verdict(sql, Door::Import) {
+            Verdict::NotPictures => continue,
+            Verdict::Refused => return Err(refused()),
+            Verdict::Allowed => {}
+        }
+        // A DELETE FROM, or a thumbnail's row (its sha256 names its picture's row): nothing to check against a name.
+        let Some(insert) = plain_insert(sql) else {
+            continue;
+        };
+        if insert.table == "thumbnails" {
+            continue;
+        }
+        let columns = insert.columns.ok_or_else(refused)?;
+        if params.len() != columns.len() {
+            return Err(refused());
+        }
+        let at = |name: &str| columns.iter().position(|c| c == name);
+        let (Some(sha), Some(bytes)) = (at("sha256"), at("bytes")) else {
+            return Err(refused());
+        };
+        let named = match (&params[sha], &params[bytes]) {
+            (Value::Text(sha), Value::Blob(bytes)) => {
+                sha256_hex(bytes).is_some_and(|hex| hex == *sha)
+            }
+            _ => false,
+        };
+        if !named {
+            return Err(refused());
+        }
+    }
+    Ok(())
 }
 
 fn to_sql(params: &[Json]) -> Result<Vec<Value>, String> {
@@ -1068,6 +1568,22 @@ pub async fn sbd_tx_raw(
     files.with(handle, |file| file.tx_values(&statements))
 }
 
+/// Import project data's rows (src/core/storage/projectJson.ts, 6.27b): the same body as `sbd_tx_raw`, written
+/// without the door, since a project an older build stored holds pictures as that build kept them, and their SHA-256
+/// is their name. The page sends only that import's rows this way (tauriDriver.ts, `imported`); every other write goes
+/// through `sbd_tx` or `sbd_tx_raw` and keeps the door.
+#[tauri::command]
+pub async fn sbd_import_tx_raw(
+    files: State<'_, OpenFiles>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<Vec<usize>, String> {
+    let tauri::ipc::InvokeBody::Raw(body) = request.body() else {
+        return Err("Expected the transaction as raw bytes.".into());
+    };
+    let (handle, statements) = parse_raw_tx(body)?;
+    files.with(handle, |file| file.import_tx_values(&statements))
+}
+
 #[derive(Deserialize)]
 struct RawTx {
     handle: u32,
@@ -1369,6 +1885,314 @@ mod tests {
         let mut short = body.clone();
         short.truncate(body.len() - 10);
         assert!(parse_raw_tx(&short).is_err());
+    }
+
+    /// The door (6.27b): a stored picture with a block outside the keep-list is refused whole, nothing written, in the
+    /// page's words; its clean copy and a PDF go in; an import writes an older build's picture as it came.
+    #[test]
+    fn refuses_an_unclean_stored_picture_whole_and_lets_an_import_write_it_as_it_came() {
+        use crate::picture_door::tests::{fixture, CLEAN, RAW};
+        let dir = temp_dir("door");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        file.tx(&[
+            statement(
+                "CREATE TABLE media_files (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL)",
+                vec![],
+            ),
+            statement(
+                "CREATE TABLE thumbnails (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL)",
+                vec![],
+            ),
+            statement("CREATE TABLE notes (id TEXT PRIMARY KEY)", vec![]),
+        ])
+        .unwrap();
+        let row = |table: &str, sha: &str, bytes: Vec<u8>| -> Bound {
+            (
+                format!("INSERT INTO {table} (sha256, bytes) VALUES (?1, ?2)"),
+                vec![Value::Text(sha.into()), Value::Blob(bytes)],
+            )
+        };
+        let count = |file: &SbdFile, table: &str| {
+            file.query(&format!("SELECT count(*) AS n FROM {table}"), &[])
+                .unwrap()[0]["n"]
+                .clone()
+        };
+        for (done, (raw, clean)) in RAW.iter().zip(CLEAN).enumerate() {
+            // The raw WebKit JPEG as a picture or as a thumbnail, with another edit in the same transaction: refused.
+            for table in ["media_files", "THUMBNAILS"] {
+                let refused = file.tx_values(&[
+                    ("INSERT INTO notes VALUES ('n1')".into(), vec![]),
+                    row(table, raw, fixture(raw)),
+                ]);
+                assert_eq!(refused, Err(PICTURE_NOT_CLEAN.to_string()));
+            }
+            // Nothing landed: only the clean copies written before it.
+            assert_eq!(count(&file, "notes"), Json::from(0));
+            assert_eq!(count(&file, "thumbnails"), Json::from(0));
+            assert_eq!(count(&file, "media_files"), Json::from(done));
+            // Its clean copy goes in.
+            file.tx_values(&[row("media_files", clean, fixture(clean))])
+                .unwrap();
+        }
+        assert_eq!(count(&file, "media_files"), Json::from(2));
+        // Bytes that aren't a picture (a PDF) are kept as they are; a picture in another table isn't the door's.
+        file.tx_values(&[row("media_files", "pdf", b"%PDF-1.7\n".to_vec())])
+            .unwrap();
+        file.tx_values(&[(
+            "INSERT INTO notes VALUES (?1)".into(),
+            vec![Value::Blob(fixture(RAW[0]))],
+        )])
+        .unwrap();
+        // An import writes the raw picture as it came, byte for byte.
+        file.import_tx_values(&[row("thumbnails", "old", fixture(RAW[0]))])
+            .unwrap();
+        assert_eq!(
+            file.read_blob(
+                "SELECT bytes FROM thumbnails WHERE sha256 = ?1",
+                &[Json::from("old")]
+            )
+            .unwrap(),
+            Some(fixture(RAW[0]))
+        );
+        // Into media_files, the import's door checks each picture against its name (Kevin, Nov 18, late): named by
+        // its own SHA-256 it goes in as it came; named by anything else, or in a shape the door can't read, the whole
+        // transaction is refused in the page's words, nothing written.
+        let imported = |sha: &str| -> Bound {
+            (
+                r#"INSERT INTO "media_files" ("sha256", "bytes") VALUES (?, ?)"#.into(),
+                vec![Value::Text(sha.into()), Value::Blob(fixture(RAW[0]))],
+            )
+        };
+        let misnamed = Err(IMPORT_PICTURE_MISNAMED.to_string());
+        assert_eq!(
+            file.import_tx_values(&[
+                ("INSERT INTO notes VALUES ('n2')".into(), vec![]),
+                imported(&"0".repeat(64)),
+            ]),
+            misnamed
+        );
+        assert_eq!(
+            file.import_tx_values(&[row("media_files", "old", fixture(RAW[0]))]),
+            misnamed
+        );
+        assert_eq!(
+            file.import_tx_values(&[(
+                "INSERT INTO media_files SELECT * FROM thumbnails".into(),
+                vec![]
+            )]),
+            misnamed
+        );
+        assert_eq!(count(&file, "notes"), Json::from(1));
+        let name = sha256_hex(&fixture(RAW[0])).unwrap();
+        file.import_tx_values(&[imported(&name)]).unwrap();
+        assert_eq!(count(&file, "media_files"), Json::from(4));
+    }
+
+    /// Round 2's review (6.27b): a statement that names `media_files` or `thumbnails` is a DELETE FROM, a table or an
+    /// index made, or the plain INSERT the doors read; UPDATE, REPLACE, WITH … INSERT and any other shape is refused by
+    /// the ordinary door and by the import's, nothing written. A picture written as an x'…' literal is read too.
+    #[test]
+    fn both_doors_refuse_any_other_statement_shape_that_names_the_pictures_tables() {
+        use crate::picture_door::tests::{fixture, CLEAN, RAW};
+        let dir = temp_dir("shapes");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        file.tx(&[
+            statement(
+                "CREATE TABLE media_files (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL)",
+                vec![],
+            ),
+            statement(
+                "CREATE TABLE thumbnails (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL)",
+                vec![],
+            ),
+            statement(
+                "CREATE UNIQUE INDEX thumbs_by_sha ON thumbnails (sha256)",
+                vec![],
+            ),
+            statement("CREATE TABLE notes (id TEXT PRIMARY KEY)", vec![]),
+        ])
+        .unwrap();
+        let clean = fixture(CLEAN[0]);
+        file.tx_values(&[(
+            "INSERT INTO media_files (sha256, bytes) VALUES (?1, ?2)".into(),
+            vec![Value::Text("a".into()), Value::Blob(clean.clone())],
+        )])
+        .unwrap();
+        let count = |file: &SbdFile, table: &str| {
+            file.query(&format!("SELECT count(*) AS n FROM {table}"), &[])
+                .unwrap()[0]["n"]
+                .clone()
+        };
+        let shapes = [
+            "UPDATE media_files SET bytes = ?1",
+            "update THUMBNAILS set bytes = ?1",
+            "REPLACE INTO media_files (sha256, bytes) VALUES ('b', ?1)",
+            "INSERT OR REPLACE INTO media_files (sha256, bytes) VALUES ('b', ?1)",
+            "WITH p(b) AS (SELECT ?1) INSERT INTO media_files (sha256, bytes) SELECT 'b', b FROM p",
+            "INSERT INTO media_files (sha256, bytes) SELECT 'b', ?1",
+            "INSERT INTO media_files (sha256, bytes) VALUES ('b', ?1) ON CONFLICT DO NOTHING",
+            "INSERT INTO media_files (sha256, bytes) VALUES ('b', CAST(?1 AS BLOB))",
+            "INSERT INTO notes SELECT sha256 FROM media_files",
+            "CREATE TABLE copied AS SELECT * FROM media_files",
+            "CREATE TABLE thumbnails_copy AS VALUES (?1)",
+            "ALTER TABLE media_files ADD COLUMN note TEXT",
+        ];
+        for sql in shapes {
+            let bound = || -> Vec<Bound> {
+                vec![
+                    ("INSERT INTO notes VALUES ('n1')".into(), vec![]),
+                    (sql.into(), vec![Value::Blob(clean.clone())]),
+                ]
+            };
+            assert_eq!(
+                file.tx_values(&bound()),
+                Err(PICTURE_NOT_CLEAN.to_string()),
+                "{sql}"
+            );
+            assert_eq!(
+                file.import_tx_values(&bound()),
+                Err(IMPORT_PICTURE_MISNAMED.to_string()),
+                "{sql}"
+            );
+        }
+        assert_eq!(count(&file, "notes"), Json::from(0));
+        assert_eq!(count(&file, "media_files"), Json::from(1));
+        // A picture as an x'…' literal is read as a parameter is: the raw WebKit JPEG refused, its clean copy in.
+        let literal = |bytes: &[u8]| -> String {
+            let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+            format!("INSERT INTO thumbnails (sha256, bytes) VALUES ('t', x'{hex}');")
+        };
+        assert_eq!(
+            file.tx_values(&[(literal(&fixture(RAW[0])), vec![])]),
+            Err(PICTURE_NOT_CLEAN.to_string())
+        );
+        file.tx_values(&[(literal(&clean), vec![])]).unwrap();
+        // DELETE FROM goes through both doors.
+        file.tx_values(&[("DELETE FROM thumbnails WHERE sha256 = 't'".into(), vec![])])
+            .unwrap();
+        file.import_tx_values(&[("delete from media_files".into(), vec![])])
+            .unwrap();
+        assert_eq!(count(&file, "media_files"), Json::from(0));
+        assert_eq!(count(&file, "thumbnails"), Json::from(0));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Round 4: the one list both readers are tested against (testdata/picture-statements.json; driver.ts's side is
+    /// src/core/storage/pictureStatements.test.ts). Every entry's verdict, for each door.
+    #[test]
+    fn gives_every_listed_statement_its_verdict_for_both_doors() {
+        let path: std::path::PathBuf = [
+            env!("CARGO_MANIFEST_DIR"),
+            "testdata",
+            "picture-statements.json",
+        ]
+        .iter()
+        .collect();
+        let list: Json = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        let entries = list["statements"].as_array().unwrap();
+        assert!(entries.len() > 40);
+        let word = |verdict: Verdict| match verdict {
+            Verdict::Allowed => "allowed",
+            Verdict::Refused => "refused",
+            Verdict::NotPictures => "none",
+        };
+        let mut wrong = Vec::new();
+        for entry in entries {
+            let sql = entry["sql"].as_str().unwrap();
+            for (door, key) in [(Door::Ordinary, "ordinary"), (Door::Import, "import")] {
+                let got = word(door_verdict(sql, door));
+                let want = entry[key].as_str().unwrap();
+                if got != want {
+                    wrong.push(format!("{key}: {sql:?} gave {got}, the list says {want}"));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    }
+
+    /// Round 4: a string holding two statements, a DELETE FROM and an INSERT of the raw WebKit JPEG after it, writes
+    /// nothing to media_files: the door refuses it whole (round 4's list), and rusqlite would too ("Multiple statements
+    /// provided"), as the test below the door shows.
+    #[test]
+    fn a_second_statement_in_one_string_writes_no_picture() {
+        use crate::picture_door::tests::{fixture, RAW};
+        let dir = temp_dir("two_statements");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        file.tx(&[
+            statement(
+                "CREATE TABLE media_files (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL)",
+                vec![],
+            ),
+            statement("CREATE TABLE notes (id TEXT PRIMARY KEY)", vec![]),
+            statement("INSERT INTO notes VALUES ('n1')", vec![]),
+        ])
+        .unwrap();
+        let two = "DELETE FROM notes; INSERT INTO media_files (sha256, bytes) VALUES ('x', ?1)";
+        let result = file.tx_values(&[(two.into(), vec![Value::Blob(fixture(RAW[0]))])]);
+        assert_eq!(result, Err(PICTURE_NOT_CLEAN.to_string()));
+        // Below the door, rusqlite refuses the text too, writing nothing.
+        let below = file.run_tx(&[(two.into(), vec![Value::Blob(fixture(RAW[0]))])]);
+        assert!(
+            below
+                .as_ref()
+                .is_err_and(|e| e.contains("Multiple statements")),
+            "{below:?}"
+        );
+        let count = |table: &str| {
+            file.query(&format!("SELECT count(*) AS n FROM {table}"), &[])
+                .unwrap()[0]["n"]
+                .clone()
+        };
+        assert_eq!(count("media_files"), Json::from(0));
+        // Refused whole: the DELETE didn't land either.
+        assert_eq!(count("notes"), Json::from(1));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Round 5: SQLite takes a string where a table's name goes, so `UPDATE 'media_files' …` writes the real table; the
+    /// door refuses it with the raw WebKit JPEG bound, nothing written.
+    #[test]
+    fn refuses_a_table_named_by_a_string() {
+        use crate::picture_door::tests::{fixture, RAW};
+        let dir = temp_dir("string_name");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        file.tx(&[
+            statement(
+                "CREATE TABLE media_files (sha256 TEXT PRIMARY KEY, bytes BLOB NOT NULL)",
+                vec![],
+            ),
+            statement(
+                "INSERT INTO media_files (sha256, bytes) VALUES ('a', x'00')",
+                vec![],
+            ),
+        ])
+        .unwrap();
+        let raw = || vec![Value::Blob(fixture(RAW[0]))];
+        let sql = "UPDATE 'media_files' SET bytes = ?1";
+        assert_eq!(
+            file.tx_values(&[(sql.into(), raw())]),
+            Err(PICTURE_NOT_CLEAN.to_string())
+        );
+        assert_eq!(
+            file.import_tx_values(&[(sql.into(), raw())]),
+            Err(IMPORT_PICTURE_MISNAMED.to_string())
+        );
+        // SQLite itself takes the string as the table: below the door, the same statement writes it.
+        assert!(file.run_tx(&[(sql.into(), raw())]).is_ok());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The SHA-256 a picture is named by, against the standard's own test vectors.
+    #[test]
+    fn names_pictures_by_their_sha256() {
+        assert_eq!(
+            sha256_hex(b"abc").as_deref(),
+            Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        );
+        assert_eq!(
+            sha256_hex(b"").as_deref(),
+            Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        );
     }
 
     /// B3 (6.14): what a query and a blob read refuse, edge cases included. The test drivers

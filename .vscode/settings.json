@@ -5,12 +5,16 @@
     "**/src-tauri/target/**": true,
     "**/node_modules/**": true,
     "**/dist/**": true,
-    "**/test-results/**": true
+    "**/test-results/**": true,
+    "**/playwright-report/**": true
   },
   "search.exclude": {
     "**/src-tauri/target": true,
     "**/node_modules": true,
     "**/dist": true,
-    "**/test-results": true
-  }
+    "**/test-results": true,
+    "**/playwright-report": true
+  },
+  // This repo has no Python; its language server was VS Code's largest process here (Kevin, Nov 17).
+  "python.languageServer": "None"
 }

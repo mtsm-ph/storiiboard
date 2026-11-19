@@ -137,7 +137,7 @@ and after each edit, never copies a picture.
 | width, height | integer | Pixels, upright |
 | byte_size | integer | Length of `bytes`, so totals don't read the pictures |
 | color_space | text | `display-p3` or `srgb`: the profile embedded in `bytes` |
-| bytes | blob | The stored picture: at most 2560px on the long edge, EXIF orientation applied |
+| bytes | blob | The stored picture: at most 2560px on the long edge, EXIF orientation applied; for pictures stored from 6.27b on, only the picture's own data and its colour profile (below; pictures an older build stored, and those brought in by Import project data, may carry more) |
 
 `thumbnails`: the smaller copies the board draws.
 
@@ -161,6 +161,52 @@ and after each edit, never copies a picture.
   confirm (1.21). A frame or step that then names a deleted picture shows "Picture missing".
 - The original file isn't copied in. The media record keeps its path as a pointer, so a later full-resolution export
   can use it if it's still there.
+
+What a stored picture carries (6.27b, Kevin Nov 18): only what a reader needs to show it, plus its colour profile.
+Every picture the page encodes (what is stored, the picture and its thumbnail, and what leaves in a PDF, a PNG, a plan,
+a swatch strip, a call sheet's map or logo) goes through one encoder, `canvasBlob` (src/core/media/canvas.ts), which
+keeps blocks by this list and drops every other one, so whatever a webview's encoder adds goes too (WebKit writes an
+Exif block with the picture's size and an empty Photoshop/IPTC record into every JPEG). The SHA-256 is taken after it.
+
+- JPEG keeps: SOI; APP0 JFIF; APP2 ICC_PROFILE (all its chunks, in order); APP14 Adobe (it changes how colour
+  decodes); DQT, DHT, DRI, every SOFn, each SOS with its entropy-coded data (restart markers inside it); EOI. Every
+  other marker segment goes (APP1 Exif and XMP, APP13, any other APPn, COM, DAC), as do fill bytes between segments and
+  anything after EOI.
+- PNG keeps: IHDR, PLTE, tRNS, IDAT, IEND, and the colour chunks iCCP, sRGB, cICP, gAMA, cHRM, each copied whole with
+  its CRC as it was. Every other chunk goes (tEXt, zTXt, iTXt, eXIf, tIME, pHYs, an animation's chunks and any unknown
+  one), as does anything after IEND.
+- The list holds for the whole file: between a JPEG's scans too (only its tables, frames, scans, restarts and the
+  kept APPn), and nothing after JPEG EOI or PNG IEND: the clean cuts every byte after the end marker, and the door
+  refuses a picture with any.
+- The colour profile, the one kept block the page doesn't write itself, holds at most 64 KiB (65,536 bytes) as
+  stored, one rule for the page and the door: a JPEG's ICC_PROFILE chunks together (their data after each chunk's
+  14-byte header), a PNG's iCCP chunk data as it sits in the file. A profile is never unpacked to be measured. Above
+  it the clean refuses (the picture couldn't be saved: it holds more than a picture and its colour profile) and the
+  door refuses.
+- Bytes the clean can't read through (not a JPEG or PNG, a block running past the end, no SOS or IDAT) are never
+  stored or exported as they came: nothing is, and the person is told the picture couldn't be saved because it
+  couldn't be read as a picture; a profile over the bound, that it holds more than a picture and its colour profile.
+- The door (src-tauri/src/sbd.rs, its own code with the same list in src-tauri/src/picture_door.rs): a transaction whose
+  statement names `media_files` or `thumbnails` and carries a blob, bound or written as an `x'…'` literal, that is a
+  JPEG (`FF D8 FF`) or a PNG (its 8-byte signature), whatever the row's `mime` says, holding anything outside the list,
+  or whose blocks can't be read through to EOI or IEND, is refused whole, nothing written. The door asks only what the
+  bytes carry, not whether they make a whole picture. Other bytes, a PDF attachment or an issued call sheet, are kept
+  as they are. A statement that names either table must be a `DELETE FROM`, a `CREATE TABLE` or `CREATE [UNIQUE]
+  INDEX` (a migration's, never made from a SELECT or with AS), or the plain INSERT the door reads: `INSERT [OR IGNORE] INTO
+  media_files|thumbnails [(columns)] VALUES (…)[, (…)]`, each value a parameter, a number, a string, an `x'…'` blob or
+  NULL. Any other (UPDATE, REPLACE, INSERT OR REPLACE, WITH …, INSERT … SELECT, an upsert) is refused whole, since
+  what it writes can't be read off it. The end-to-end tests' driver (memoryDriver.ts) refuses the same way.
+- Pictures an older build stored stay as they are, since their SHA-256 is their name: they open as before, and Import
+  project data (JSON) writes them back as they came through its own command, `sbd_import_tx_raw`, which has no
+  keep-list door. Pictures brought in by Import project data are stored as they came (their hash is their name),
+  each checked against its hash (6.27b round 3, Kevin Nov 18): a stored file, picture, PDF attachment or issued call
+  sheet, whose bytes don't match its `sha256` is left out with its thumbnails, never stored under any name, and the
+  rest of the project imports; the records that use it stay as they are and show it missing, as a removed picture or
+  PDF does, and the import says how many were left out of how many, and where they were used. A thumbnail's bytes
+  come in as they are; its `sha256` must name a picture row, which is checked. The import's door in sbd.rs
+  (`sbd_import_tx_raw`) still refuses the whole transaction should a mismatched row ever reach it. The import's door
+  takes only `DELETE FROM` and the plain INSERT (a `media_files` row with one `?` per column); any other statement that
+  names either table refuses the import whole.
 
 `media` record props, for a picture:
 
@@ -306,6 +352,65 @@ role on the project stands for (src/core/model/departmentStatus.ts, ROLE_DEPARTM
 - It's part of the file, so backups and Open version copies carry it.
 - A first opening writes to the file, so a session of only looking can count as a change for the 5-minute backups
   (and a synced folder uploads it). It's bounded: once per frame and department, ever.
+
+## Schema v16: scout photos' props, and build mode's (6.27)
+
+Props only (Kevin Nov 16), ONE schema version for 6.27 (scout photos) and for the 6.6 build-mode milestones that
+follow, with no table change and nothing rewritten (migration 016_scout_photos.ts: no statements). A file from before
+opens with every row as it was; it is backed up first, as for every upgrade. The number is there so an older Storiiboard
+refuses a file that may hold them rather than open it and drop them. No approval or issued call sheet reads any of them.
+
+- A location's photo (a `media` record of kind `image` under its `location`: Location props, 3.3b), each optional,
+  written once, in the same op as the photo's import, from what the photo file's EXIF said. One reader
+  (src/core/model/scoutPhoto.ts, `photoTakenOf`): a value it can't read is the same as none.
+  - `taken_at`: text, `YYYY-MM-DDTHH:mm:ss`, the wall-clock time the photo was taken as its camera wrote it
+    (`DateTimeOriginal`, else `DateTime`), with no zone. Anything else, or a date or time that isn't one, reads as none.
+  - `taken_offset`: text, `+02:00` or `-05:30` (up to 14 hours either way), the camera's offset from UTC at that time,
+    only when the file said (`OffsetTimeOriginal`, or `OffsetTime` beside `DateTime`). Read only beside a `taken_at`.
+  - `gps_latitude`, `gps_longitude`: numbers, degrees (−90 to 90, −180 to 180, WGS 84), where it was taken, every
+    decimal the file gave kept (shown to 5: "40.86771, -73.92123"). Both or neither: one alone, or one out of range,
+    reads as no place. 0, 0 (what a camera with no fix writes) is no place either: it is never written, and reads as
+    none if a file holds it. A `taken_at` before 1970 reads as none too (a clock never set).
+  - The EXIF is read on this computer (in the desktop app by Rust, src-tauri/src/exif.rs, from the bytes being
+    imported: a JPEG's or a TIFF's today; its block is checked before it is parsed; a HEIC answers `heic` and a
+    PNG or WebP `none`, so none of the four props is stored for them for now) and is never sent anywhere, logged
+    or written back to any file. The stored picture (`media_files`,
+    `thumbnails`) is drawn again from the photo's pixels, as every picture is, and cleaned (6.27b, "What a stored
+    picture carries" above), so its bytes carry the picture's own data and its colour profile, nothing else: these
+    four props are all that is kept of the EXIF.
+  - A photo's place and time say where and when a shoot was scouted: History names these fields and never shows the two
+    coordinates (as a location's own), and they count as contact details for what an assistant may read (Phase 7,
+    decision 14).
+  - Exports: the JSON export (Project data and Full archive) is the project itself, lossless by rule, so it DOES carry
+    these four props on the photo's record, as it carries a location's address and coordinates; it is not an export for
+    others. The CSV exports carry none of them. No PDF, PNG, deck or plan shows a location's photo today.
+- `location`: `light_photo_id`, text, the id of the one photo of this location (a `media` record under it) that is its
+  light reference, set by "Use this photo's place and time" on a photo that has a `taken_at` and taken off by Clear, each
+  one op. Choosing another photo replaces it. Read through `lightReferenceOf`: an id that names nothing, another
+  location's photo, a PDF or a link reads as none; a photo in the Trash, or one whose `taken_at` can't be read, is said
+  as such and can't be drawn for. The same action puts the photo's place, where it has one, on the location exactly as
+  pasted coordinates do (Schema v15: `latitude`, `longitude`, `map_moved`, `map_name` as the coordinates' text), in the
+  same op, so one undo takes back both. The op itself looks nothing up and requests nothing; once the location has a
+  place, its map fetches the tiles in view as it does for any pin (Location props, 4.9).
+- `plan_item` of `kind` `sun`: `at_photo`, `true` when the sun path shows the sun at its location's light reference
+  photo's time ("Show the sun at the photo's time"); stored only as `true` (off takes the prop off; anything else reads
+  as off), one op. The reading (sunSources.ts, Schema v15's, what `get_plan` will return) gains one more source of the
+  date and one of the place, each `photo`. Where the setup's frames give a location whose light reference is a live
+  photo with a `taken_at`, and `at_photo` is `true`, the sun is drawn wholly from the photo, with or without a shoot day
+  (it is the person's explicit choice, over the shoot day's date or the sun path's own):
+  - the date and time of day are the photo's, and the reading carries `photoAt`, the sun at the instant it was taken;
+  - the place is the photo's GPS (place source `photo`), else its location's (`location`), never another frame's;
+  - the zone: the location's (typed `time_zone`, else looked up at its place) for the location's place, and for a GPS
+    exactly equal to the location's own pin; for any other GPS, looked up offline at that point, keyed by the photo's id;
+  - the instant is the photo's own when it has a `taken_offset`, said in that zone; else its `taken_at` read as that
+    zone's wall clock. No zone yet: the photo's date is said as its camera wrote it, and nothing is drawn;
+  - while the date is the photo's, the reading names no other days or places of the setup.
+  With `at_photo` off, no light reference, a photo in the Trash, an unreadable time, or neither a GPS nor a place on
+  its location, the reading is exactly Schema v15's.
+
+Added to this version by later 6.6 milestones:
+
+- (none yet)
 
 ## Schema v15: 6.5 canvas polish's props (6.5.5)
 
@@ -979,7 +1084,9 @@ private: shown in the app, never logged. No table change.
 
 3.3b, also no table change:
 - Photos are `media` records (kind `image`, as a frame's pictures) whose parent is the location, ordered by sort key;
-  their bytes are in `media_files` and `thumbnails` as any picture's.
+  their bytes are in `media_files` and `thumbnails` as any picture's. From schema 16 (6.27) a photo may carry when and
+  where it was taken (`taken_at`, `taken_offset`, `gps_latitude`, `gps_longitude`) and the location its light reference
+  (`light_photo_id`): see Schema v16.
 - `custom` on a location: its own fields, an object of name to text, as a shot's `custom`.
 - `location_id` on a shot: where that frame is shot when it isn't its scene's location. Missing means the scene's.
   A location in the Trash reads as none, for the shot as for the scene.
@@ -1768,6 +1875,7 @@ merge a database, so two guards sit around every open project:
 | 13 | 3.18 | Approvals kept through schema 12: sign-offs it left "Changed" re-stamped by their own rule. No table change |
 | 14 | 6.1 | Phase 6's props (bodies and lenses on `gear_item`, a frame's `lens_id`, and the props plans write on `scene`, `plan` and `plan_item`; see Schema v14). No table change, nothing rewritten |
 | 15 | 6.5.5 | 6.5 canvas polish's props (a sun path's `own_latitude`, `own_longitude` and `own_date`; the `settings_preset` record type; see Schema v15). No table change, nothing rewritten |
+| 16 | 6.27 | Scout photos' props, and the 6.6 build-mode milestones' after them (a location's photo's `taken_at`, `taken_offset`, `gps_latitude` and `gps_longitude`; a location's `light_photo_id`; a sun path's `at_photo`; see Schema v16). No table change, nothing rewritten |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
 number.

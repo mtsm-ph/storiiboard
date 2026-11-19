@@ -17,18 +17,26 @@ interface NoticeState {
   seq: number;
   /** About an edit just made ("Deleted SC 03…"): an undo or redo of something takes it away, as it no longer holds. */
   step: boolean;
+  /**
+   * Text the bar's Copy list button puts on the clipboard, so a notice too long to keep in mind can be kept (6.27b
+   * round 4: an import's list of every place a left-out file was used); null for none.
+   */
+  copy: string | null;
 }
 
-export const noticeStore = createStore<NoticeState>()(() => ({ message: null, kind: 'warning', seq: 0, step: false }));
+export const noticeStore = createStore<NoticeState>()(() => ({ message: null, kind: 'warning', seq: 0, step: false, copy: null }));
 
 export function showNotice(error: unknown): void {
   // Errors from below the UI arrive in English; they show in the app's language where a translation has them.
-  noticeStore.setState((s) => ({ message: localizeError(error instanceof Error ? error.message : String(error)), kind: 'warning', seq: s.seq + 1, step: false }));
+  noticeStore.setState((s) => ({ message: localizeError(error instanceof Error ? error.message : String(error)), kind: 'warning', seq: s.seq + 1, step: false, copy: null }));
 }
 
-/** `step`: the notice tells of an edit just made, so an undo or redo takes it away (1.28's low). */
-export function showInfo(message: string, { step = false }: { step?: boolean } = {}): void {
-  noticeStore.setState((s) => ({ message, kind: 'info', seq: s.seq + 1, step }));
+/**
+ * `step`: the notice tells of an edit just made, so an undo or redo takes it away (1.28's low). `copy`: the text the
+ * bar's Copy list button copies.
+ */
+export function showInfo(message: string, { step = false, copy = null }: { step?: boolean; copy?: string | null } = {}): void {
+  noticeStore.setState((s) => ({ message, kind: 'info', seq: s.seq + 1, step, copy }));
 }
 
 /** After an undo or a redo that changed something: a notice about a step no longer describes the project. */
@@ -40,8 +48,8 @@ export function clearNotice(): void {
   noticeStore.setState({ message: null });
 }
 
-export function useNotice(): { message: string | null; kind: NoticeKind; seq: number } {
-  return useStore(noticeStore, useShallow((s) => ({ message: s.message, kind: s.kind, seq: s.seq })));
+export function useNotice(): { message: string | null; kind: NoticeKind; seq: number; copy: string | null } {
+  return useStore(noticeStore, useShallow((s) => ({ message: s.message, kind: s.kind, seq: s.seq, copy: s.copy })));
 }
 
 // The last notice a bar has put on screen. A screen reader reads a live region each time one appears, and the bar

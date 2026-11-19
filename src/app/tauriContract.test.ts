@@ -245,9 +245,13 @@ const WRAPPERS: Record<string, Record<string, string>> = {
 const UNREADABLE: Record<string, Record<string, string>> = {
   'src/core/storage/tauriDriver.ts': {
     sbd_tx_raw: 'a transaction carrying bytes goes as the raw request body (packRawTx), which sbd_tx_raw reads through tauri::ipc::Request',
+    sbd_import_tx_raw: 'Import project data’s rows go as the same raw request body (packRawTx), which sbd_import_tx_raw reads through tauri::ipc::Request (6.27b)',
   },
   'src/core/storage/exportFiles.ts': {
     export_write: 'the export goes as the raw request body (writeBody: a JSON header, then the bytes), read through tauri::ipc::Request',
+  },
+  'src/app/photoExif.ts': {
+    photo_exif: 'a photo’s bytes go as the raw request body (6.27), which photo_exif reads through tauri::ipc::Request',
   },
 };
 
@@ -552,6 +556,7 @@ describe('the contract between the page and Rust (6.14)', () => {
     expect(calls.length).toBeGreaterThan(60);
     expect(commands.get('video::clip_save')?.params.map((p) => p.key)).toEqual(['path', 'handle', 'inFrame', 'outFrame', 'fpsNum', 'fpsDen', 'window', 'lut', 'dest']);
     expect(commands.get('sbd::sbd_tx_raw')?.raw).toBe(true);
+    expect(commands.get('sbd::sbd_import_tx_raw')?.raw).toBe(true);
   });
 
   it('registers a #[tauri::command] function for every name lib.rs hands to generate_handler!', () => {
