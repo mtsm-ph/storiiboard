@@ -73,3 +73,15 @@ branch is off v2; nothing on main changes).
 
 The six SHA-256s; the measured numbers; every changed expectation (old → new, why); the check results with counts;
 anything you were unsure of.
+
+## Round 2 (main session, Nov 19): the review's low findings
+
+- scripts/fixturePhotos.ts: each tag's size in the tag table is its data without padding (desc 139, cprt 87; the
+  next offset still steps to a multiple of 4), as ICC's tag table describes. Rerun the script; all six pictures
+  change bytes. Keep D50 for `wtpt` as it is.
+- e2e/fixtures/images/README.md: "running it again writes the same bytes" says "in the same Chromium version";
+  "no picture here is anyone else's" says the pixels are drawn here, and that adobe-rgb.jpg and p3-red.jpg carry
+  colour profiles (data, not pictures) made by others, as embedded in many files.
+- e2e/deckExport.spec.ts:485: wrap the comment to about 120 columns (comment only).
+- Checks: the script twice (same six SHA-256s; paste them), `npm run lint`, Vitest on scripts/fixturePhotos.test.ts
+  and cleanPicture.test.ts, then the four specs in Chromium alone and `npm run failed-tests`.
