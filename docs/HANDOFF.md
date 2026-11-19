@@ -8,11 +8,11 @@ It replaces nothing in either; it says where the work stands and what comes next
 
 What only Kevin can do or answer, one line each, with what it unblocks. Nothing a session, a review or CI can settle.
 
-- **WebKit planLayers.spec "hides, locks, dims and solos layers…" red in checkpoint/nov19-b** (both tries; green in
-  nov19-a on the same app code). Cause from the Mac trace: the camera row's Solo, the right-most control in a tile
-  just scrolled, sits under WebKit's overlay scrollbar (the tile's `data-scroll-root` takes the click five times;
-  the sixth lands and nothing turns on). Fix proposed: keep the right edge of a scrolling tile free of controls on a
-  Mac. It may change screenshots, so it's his word. Unblocks: the flake's fix, and #203's merge if nov19-c is red too.
+- **WebKit planLayers.spec "hides, locks, dims and solos layers…": a flake** (red on both tries in
+  checkpoint/nov19-b; green in nov19-a and nov19-c on the same app code). Cause from the Mac trace: the camera row's
+  Solo, the right-most control in a tile just scrolled, sits under WebKit's overlay scrollbar (the tile's
+  `data-scroll-root` takes the click five times; the sixth lands and nothing turns on). Fix proposed: keep the right
+  edge of a scrolling tile free of controls on a Mac. It may change screenshots, so it's his word. Unblocks: the fix.
 - **player.spec busy-page flake: the test's count, not the app** (Mac frame reports, nov19-a). WebKit's
   `presentedFrames` doesn't count frames it drops. Proposed: count missed frames from the jump in media time. That
   changes how an existing assertion counts its slack. Unblocks: the fix.
@@ -379,9 +379,11 @@ Lows deferred (noted, not planned yet):
 - **#203 (Advisories, 6.27g):** one review, two rounds, PR checks green. Its first real run found exactly what the
   brief expected: pdfjs ignored (from OSV and npm audit), minimatch dev only, glib Linux only, five unmaintained
   crates. Checkpoint/nov19-b (run 44515010617) was red only on WebKit planLayers.spec (see Only Kevin), in code
-  #203 doesn't touch. Not merged.
-- **kamadak-exif 0.6.2:** branch `deps/kamadak-exif-0.6.2`, brief in docs/briefs. It goes into checkpoint/nov19-c
-  together with #203.
+  #203 doesn't touch.
+- **#204 (kamadak-exif 0.6.2, 6.27h):** stacked on #203, brief in docs/briefs.
+- **Checkpoint/nov19-c (run 44536909144), v2 + #203 + #204:** green in every job, nothing failed or flaky (WebKit
+  607, Chromium 607, smoke 26; planLayers passed). #203 then #204 merged into v2 (4660de8). That was the third and
+  last checkpoint of the night; this docs update waits for Kevin's word or the next checkpoint.
 - **HEIC on Windows:** plan and brief in private/briefs/heic-windows.md, waiting on Kevin.
 - **Next after Kevin:** the stacked screenshot milestones, with "This picture is no longer in the project.". Also
   the small wording points: an unreadable cube's still or clip says "playback copy"; "1 of 1 LUTs was damaged";
