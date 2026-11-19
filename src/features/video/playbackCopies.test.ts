@@ -401,9 +401,9 @@ describe('the queue of playback copies', () => {
     await projectStore.getState().apply([{ kind: 'update', id: 'b', set: { lut: lutId } }], { alsoWrite: lutStatements(lutId, lut, new Date()) });
     makeCopy('b');
     await vi.waitFor(() => {
-      expect(state('b')).toEqual({ kind: 'failed', message: 'This video’s LUT isn’t in the project, so its playback copy can’t be made.' });
+      expect(state('b')).toEqual({ kind: 'failed', message: 'This video’s LUT can’t be read, so its playback copy can’t be made.' });
     });
-    await expect(copyToPlay('b')).rejects.toThrow('This video’s LUT isn’t in the project, so its playback copy can’t be made.');
+    await expect(copyToPlay('b')).rejects.toThrow('This video’s LUT can’t be read, so its playback copy can’t be made.');
     expect(driver.make).not.toHaveBeenCalled();
     expect(driver.find).not.toHaveBeenCalled();
   });

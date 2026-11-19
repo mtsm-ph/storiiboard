@@ -234,7 +234,7 @@ interface PlainInsert {
 }
 
 /**
- * The one INSERT shape the doors check (6.27b, round 2): `INSERT [OR IGNORE] INTO media_files|thumbnails [(columns)]
+ * The one INSERT shape the doors check (6.27b, round 2): `INSERT [OR IGNORE] INTO media_files|thumbnails|luts [(columns)]
  * VALUES (…)[, (…)]`, each value a parameter, a number, a string, an x'…' blob or NULL, nothing after but a `;`. Null
  * for anything else (a SELECT, a function, OR REPLACE, an upsert, RETURNING), which the doors refuse, since what it
  * writes can't be read off the statement. sbd.rs's `plain_insert` reads the same.

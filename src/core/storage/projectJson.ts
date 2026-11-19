@@ -456,6 +456,8 @@ export interface ImportReport {
    * and how many LUTs the JSON held. Set only when one was left out, so a report about pictures alone reads as before.
    */
   lutsLeftOut?: string[];
+  /** How many LUT rows were left out, those with no id among them (lutsLeftOut holds only real ids). */
+  lutsLeftOutCount?: number;
   luts?: number;
 }
 
@@ -484,14 +486,17 @@ async function leaveOutDamagedLuts(data: ProjectJson, report: ImportReport): Pro
     const sha = row[shaAt];
     const cube = row[cubeAt];
     if (typeof sha === 'string' && typeof cube === 'string' && (await sha256Hex(new TextEncoder().encode(cube))) !== sha) {
+      // Named by its id when it has one; a row with none is still left out and counted, but names no video.
       const id = row[idAt];
-      leftOut.push(typeof id === 'string' ? id : '');
+      if (typeof id === 'string') leftOut.push(id);
       continue;
     }
     kept.push(row);
   }
-  if (leftOut.length === 0) return data;
+  const count = luts.rows.length - kept.length;
+  if (count === 0) return data;
   report.lutsLeftOut = leftOut;
+  report.lutsLeftOutCount = count;
   report.luts = luts.rows.length;
   return { ...data, tables: { ...data.tables, luts: { ...luts, rows: kept } } };
 }

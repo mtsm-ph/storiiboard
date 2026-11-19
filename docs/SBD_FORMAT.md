@@ -207,14 +207,16 @@ Exif block with the picture's size and an empty Photoshop/IPTC record into every
   night 4): a `luts` row whose `cube` text doesn't match its `sha256` (SHA-256 of the text's UTF-8 bytes) is left out
   in the same pass, never stored under any name; a video that named it keeps its `lut` id, its Inspector says the LUT
   isn't in the project, it plays ungraded (its playback copy is the one with no LUT, never one made with that LUT; a
-  still or a saved clip from it is refused, as they say which LUT they used), and the import counts it in a sentence of its own ("1 of 3 LUTs was damaged and left out.")
-  with the frames that play that video among the places. A row the import can't read (no hash, a `cube` that isn't
-  text) is left as it is, and the import refuses the file. Every door, the import's and the ordinary one (sbd.rs and
-  the end-to-end tests' driver), refuses a `luts` write whose `cube` doesn't match its `sha256`, whole: a `luts`
-  statement is a `DELETE FROM`, a migration's `CREATE`, or `INSERT [OR IGNORE] INTO luts (columns) VALUES (?, …)` naming
-  `sha256` and `cube`, one `?` per column; any other is refused. Old pictures, an older project's JFIF thumbnail
-  included, come in through the import's door, which checks hashes, not blocks. A thumbnail's bytes
-  come in as they are; its `sha256` must name a picture row, which is checked. The import's door in sbd.rs
+  still or a saved clip from it is refused, as they say which LUT they used), and the import counts it in a sentence
+  of its own ("1 of 3 LUTs was damaged and left out.") with the frames that play that video among the places. A row
+  the import can't read (no hash, a `cube` that isn't text) is left as it is, and the import refuses the file. Every
+  door, the import's and the ordinary one (sbd.rs and the end-to-end tests' driver), refuses a `luts` write whose
+  `cube` doesn't match its `sha256`, whole: a `luts` statement is a `DELETE FROM`, `INSERT [OR IGNORE] INTO luts
+  (columns) VALUES (?, …)` naming `sha256` and `cube` with one `?` per column, or, at the ordinary door only, a
+  migration's `CREATE TABLE` or `CREATE [UNIQUE] INDEX`; the import's door refuses a `CREATE`, and either door any
+  other statement. Old pictures, an older project's JFIF thumbnail included, come in through the import's door, which
+  checks hashes, not blocks. A thumbnail's bytes come in as they are; its `sha256` must name a picture row, which is
+  checked. The import's door in sbd.rs
   (`sbd_import_tx_raw`) still refuses the whole transaction should a mismatched row ever reach it. The import's door
   takes only `DELETE FROM` and the plain INSERT (a `media_files` row with one `?` per column); any other statement that
   names either table refuses the import whole.

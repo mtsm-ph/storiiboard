@@ -291,6 +291,34 @@ describe('Import project data with a damaged LUT (Kevin, Nov 18 night 4)', () =>
     expect(leftOutNote(records, 'p', two)).toContain('2 de 4 LUT estaban dañados y se dejaron fuera.');
   });
 
+  it('names no place for a LUT left out with no id; such a row is still left out and counted (round 3, L1)', async () => {
+    const records: Record<string, SbdRecord> = {};
+    const add = (id: string, type: SbdRecord['type'], parentId: string | null, props: SbdRecord['props']) => {
+      records[id] = { id, type, parentId, sortKey: id, props, trashedAt: null, trashedBy: null, createdAt: at, updatedAt: at };
+    };
+    add('p', 'project', null, {});
+    add('sc3', 'scene', 'p', { number: '3' });
+    add('f3a', 'shot', 'sc3', { number: '3A' });
+    add('m', 'media', 'f3a', picture('a'.repeat(64)));
+    const report = { leftOut: [], pictures: 1, files: 0, lutsLeftOut: [''], luts: 1 };
+    expect(leftOutPlaces(records, 'p', report)).toEqual([]);
+    expect(leftOutNote(records, 'p', report)).toBe('1 of 1 LUTs was damaged and left out.');
+    // A damaged row with no id: left out, counted, and no '' among the ids.
+    const columns = ['id', 'sha256', 'name', 'file_name', 'byte_size', 'created_at', 'updated_at', 'cube'];
+    const json = {
+      format: 'storiiboard-project',
+      format_version: 1,
+      schema_version: 8,
+      app_version: '0.1.0',
+      exported_at: at,
+      tables: { luts: { columns, rows: [[null, '0'.repeat(64), 'Grade', 'Grade.cube', 10, at, at, cube('0 0 0')]] } },
+    } as unknown as ProjectJson;
+    const { data, report: left } = await leaveOutDamagedFiles(json);
+    expect(data.tables.luts?.rows).toEqual([]);
+    expect(left).toEqual({ leftOut: [], pictures: 0, files: 0, lutsLeftOut: [], lutsLeftOutCount: 1, luts: 1 });
+    expect(leftOutNote(records, 'p', left)).toBe('1 of 1 LUTs was damaged and left out.');
+  });
+
   it('leaves a LUT row it can’t read as it is, for the import to refuse, as with pictures', async () => {
     const lut = await prepareLut('Grade.cube', cube('0 0 0'));
     if (!lut.ok) throw new Error('a good cube');

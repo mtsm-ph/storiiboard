@@ -118,7 +118,7 @@ async function withLut(found: Found): Promise<CopySource> {
   // 4). Its copy's key then has no LUT, so a copy made with that LUT is never found or made for it.
   if ((await lutName(file, lutId)) === null) return { videoId, path, lut: null };
   // Stored but its cube can't be read: no copy without the grade it should have.
-  throw new Error(t('error.lutMissing'));
+  throw new Error(t('error.lutUnreadable'));
 }
 
 /** The message of a failure, as Rust (or the stand-in) put it. */

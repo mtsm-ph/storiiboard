@@ -878,16 +878,16 @@ fn sql_tokens(sql: &str) -> Option<Vec<SqlToken>> {
     Some(tokens)
 }
 
-/// A plain INSERT into a stored pictures' table: the table, the columns named (None when it names none), and each
-/// row's values.
+/// A plain INSERT into a door's table (`media_files`, `thumbnails` or `luts`): the table, the columns named (None when
+/// it names none), and each row's values.
 struct PlainInsert {
     table: String,
     columns: Option<Vec<String>>,
     rows: Vec<Vec<SqlToken>>,
 }
 
-/// The one INSERT shape the doors check (6.27b, round 2): `INSERT [OR IGNORE] INTO media_files|thumbnails [(columns)]
-/// VALUES (…)[, (…)]`, each value a parameter, a number, a string, an x'…' blob or NULL, nothing after but a `;`. None
+/// The one INSERT shape the doors check (6.27b, round 2; `luts` from Kevin's Nov 18 night 4): `INSERT [OR IGNORE] INTO
+/// media_files|thumbnails|luts [(columns)] VALUES (…)[, (…)]`, each value a parameter, a number, a string, an x'…' blob or NULL, nothing after but a `;`. None
 /// for anything else (a SELECT, a function, OR REPLACE, an upsert, RETURNING), which the doors refuse, since what it
 /// writes can't be read off the statement. driver.ts's `plainInsert` reads the same.
 fn plain_insert(sql: &str) -> Option<PlainInsert> {

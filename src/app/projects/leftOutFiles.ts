@@ -78,7 +78,9 @@ function lutPlaces(records: Records, projectId: string, report: ImportReport): s
   const live = Object.values(records).filter((record) => record.trashedAt === null);
   const places: string[] = [];
   for (const video of live) {
-    if (video.type !== 'media' || !left.has(videoFields(video.props)?.lutId ?? '')) continue;
+    // Only a real id: a video with no LUT never matches.
+    const lutId = video.type === 'media' ? (videoFields(video.props)?.lutId ?? null) : null;
+    if (lutId === null || !left.has(lutId)) continue;
     const frames = live.filter((shot) => shot.type === 'shot' && readClip(shot.props)?.videoId === video.id);
     const holders = frames.length > 0 ? frames : [video.parentId === null ? undefined : records[video.parentId]];
     for (const holder of holders) places.push(placeOf(records, projectId, holder));
@@ -92,7 +94,7 @@ function lutPlaces(records: Records, projectId: string, report: ImportReport): s
  * MAX_PLACES and a count of the rest.
  */
 export function leftOutNote(records: Records, projectId: string, report: ImportReport, every = false): string {
-  const luts = report.lutsLeftOut?.length ?? 0;
+  const luts = report.lutsLeftOutCount ?? report.lutsLeftOut?.length ?? 0;
   if (report.leftOut.length === 0 && luts === 0) return '';
   const pictures = report.leftOut.filter((file) => file.picture).length;
   const files = report.leftOut.length - pictures;
