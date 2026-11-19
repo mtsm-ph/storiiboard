@@ -1,9 +1,11 @@
-# Phase 7 decisions (asked Nov 15, 2026; waiting for Kevin)
+# Phase 7 decisions (asked Nov 15, 2026; answered by Kevin, Nov 16)
 
 One page. Each decision: the question, what is recommended and why, and how hard it is to change later. The plan is
 in `docs/PLAN.md`, "Phase 7 milestones"; the scope is "AI assistant (MCP)" and "Phase 7 notes" there (Kevin, Nov 9),
 "E · Desktop and web review", CLAUDE.md's MCP rules and the change-file format already in `docs/SBD_FORMAT.md`.
-**Nothing of Phase 7 is built until Kevin answers and has done his by-hand pass on Phases 3 to 6.**
+**Kevin has answered these. His by-hand passes no longer hold any phase (Kevin, Nov 18): he tests the alpha once,
+thoroughly, when it is fully built, from docs/ALPHA_TEST.md. Phase 7 is built in the agreed order, each milestone
+from its brief.**
 
 | # | Question | Recommended | Change later |
 |---|---|---|---|

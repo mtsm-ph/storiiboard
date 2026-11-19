@@ -27,12 +27,12 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 9 · Web companion | Not started |
 | 10 · 3D set and Blender | Not started |
 
-### Phase 7 milestones (plan, Nov 15, 2026; waits for Kevin)
+### Phase 7 milestones (plan, Nov 15, 2026; answered Nov 16)
 
 Plan written Nov 15, 2026, from "AI assistant (MCP)" and "Phase 7 notes" (Kevin, Nov 9) below, "E · Desktop and web
-review", CLAUDE.md's MCP rules and the change-file format in SBD_FORMAT.md. **Nothing is built until Kevin answers
-`docs/PHASE7_DECISIONS.md` (17 questions, each with a recommendation) and has done his by-hand pass on Phases 3 to
-6.** The table below assumes the recommendations; an answer that differs changes it. Built as Phases 4 to 6 were:
+review", CLAUDE.md's MCP rules and the change-file format in SBD_FORMAT.md. Kevin has answered
+`docs/PHASE7_DECISIONS.md`. **By-hand passes no longer hold any phase (Kevin, Nov 18):** he tests the alpha once,
+thoroughly, when it is fully built, from docs/ALPHA_TEST.md, which every milestone adds to. The table below assumes the recommendations; an answer that differs changes it. Built as Phases 4 to 6 were:
 briefs, one builder at a time, one PR per milestone into `v2`, reviewed until nothing high or medium is left.
 
 What exists already (surveyed Nov 15): the change-file format, fully specified (SBD_FORMAT.md, ".sbdchanges");
@@ -1440,7 +1440,8 @@ information three times: moodboard in Milanote, deck in Canva or Keynote, shot l
 
 **Who and how:** built for filmmakers, producers and creators. Kevin uses it first on real jobs (Bey County is the natural
 pilot), then releases it as a free desktop app for Mac and Windows. Projects live on the user's own drive,
-saved automatically, with no account or server. Anyone can run it, fork it and improve it; Patreon funds the work.
+saved automatically, with no account or server. It is free to use, not open source: created by Kevin Matos, all
+rights reserved; terms come with the first release. Patreon funds the work.
 
 ## Where the repo stands (before v2)
 
