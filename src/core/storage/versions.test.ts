@@ -263,7 +263,7 @@ describe('Open version’s file names', () => {
   });
 
   it('keeps a Windows path and its journal within what SQLite opens there', () => {
-    const folderPath = `C:\\Users\\kevma\\Documents\\${'Commercials\\'.repeat(14)}Spring`;
+    const folderPath = `C:\\Users\\robin\\Documents\\${'Commercials\\'.repeat(14)}Spring`;
     const paths = versionCopyPaths(`${folderPath}\\Bey County.sbd`, 'Board sent to client after the second recce', '0a1b2c3d');
     for (const path of longest(paths)) expect(`${path}-journal`.length).toBeLessThanOrEqual(259);
     // Shortened to leave room for a minute's last backup copy beside it, but never dropped.
@@ -287,7 +287,7 @@ describe('Open version’s file names', () => {
   });
 
   it('keeps the copy’s backups’ Windows paths within what SQLite opens there', () => {
-    const folderPath = `C:\\Users\\kevma\\Documents\\${'Shoot\\'.repeat(25)}Spring`;
+    const folderPath = `C:\\Users\\robin\\Documents\\${'Shoot\\'.repeat(25)}Spring`;
     const version = 'Board sent to client after the second recce, with notes';
     for (const attempt of [1, 50]) {
       const copy = versionCopyPaths(`${folderPath}\\Bey County.sbd`, version, '0a1b2c3d').path(attempt);

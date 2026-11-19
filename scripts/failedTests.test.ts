@@ -9,7 +9,7 @@ describe('the failed tests in a run', () => {
       numFailedTests: 1,
       testResults: [
         {
-          name: 'C:\\Users\\kevma\\Documents\\storiiboard\\src\\core\\model\\sceneApprovals.test.ts',
+          name: 'C:\\Users\\robin\\Documents\\storiiboard\\src\\core\\model\\sceneApprovals.test.ts',
           status: 'failed',
           assertionResults: [
             { ancestorTitles: ['a scene’s approvals'], title: 'keeps each sign-off', status: 'passed' },
