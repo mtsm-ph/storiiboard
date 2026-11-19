@@ -364,6 +364,15 @@ Lows deferred (noted, not planned yet):
   player.spec "a page too busy to see every frame…" (the one with a cause hunt to come). #196 merged into v2
   (5e994d0). The HEIC report is sent; its findings are in private/PHASE8_LIST_ADDITIONS.md. Next: rusqlite 0.41.1
   on `deps/rusqlite-0.41.1`, then kamadak-exif 0.6.2, one full checkpoint for both, then the Advisories job.
+- **Paused (Kevin, Nov 19): start nothing until he says resume.** His follow-ups for then:
+  - Order: rusqlite 0.41.1 and kamadak-exif 0.6.2 with one checkpoint; the Advisories job; the photo replacement;
+    the LUT check on import; the player.spec flake; the stacked screenshot milestones; then HEIC on Windows for the
+    alpha (plan in private/PHASE8_LIST_ADDITIONS.md; brief and plan to Kevin before building).
+  - Small fixes: the doors keep JFIF only without a thumbnail (length 16) and Adobe only at its fixed size (14),
+    each once, in Rust, in TypeScript and in the shared tests (LOW; with the next change to those files). "This
+    picture is no longer in the project." (en, es) where a picture's bytes are gone; a screenshot showing it goes
+    the baseline way with the stacked ones. Still listed: a stalled encoder shouldn't tell people to check their
+    drive.
 - **Still waiting on other things:** rooms from scans on Kevin's real files; HEIC dates on the library.
 - **Checkpoint nov17-627 (run 44194206185), three red jobs, reported Nov 18:**
   - Mac WebKit: scoutPhotos.spec "…what is stored has no EXIF" failed on every try. WebKit's JPEG encoder on the
