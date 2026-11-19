@@ -93,3 +93,27 @@ by name, as the brief now asks:
   reaches `readyState` 2 or more) with the LUT gone.
 - Checks as before, plus `npx playwright test e2e/lut.spec.ts e2e/player.spec.ts --project=chromium` alone, then
   `npm run failed-tests`.
+
+## Round 3 (main session, Nov 19): the review's low findings
+
+- L1. src/core/storage/projectJson.ts `leaveOutDamagedLuts` pushes `''` for a row with no string id, and
+  src/app/projects/leftOutFiles.ts `lutPlaces` then matches every holder whose `lutId` is null (`?? ''`). Push only
+  string ids (a row with no id is still left out and still counted), and match only `lutId !== null &&
+  left.has(lutId)`. Test: a records set with one picture frame and a report with `lutsLeftOut: ['']`, `luts: 1`:
+  `leftOutPlaces` names nothing.
+- L2. Words that are now false (en and es, new keys; keep the old key where it is still true):
+  - grabStill.ts, a video whose LUT row is gone: "This video's LUT is no longer in the project, so a graded still
+    can't be made. Choose its LUT again, or set it to None." (es: "El LUT de este vídeo ya no está en el proyecto, así
+    que no se puede hacer un fotograma graduado. Vuelve a elegir su LUT o ponlo en Ninguno."; match the app's
+    Spanish for "None" and "LUT" as it already writes them).
+  - playbackCopies.ts `withLut` and anything else that refuses a stored cube it can't read: "This video's LUT can't
+    be read, so its playback copy can't be made." (es: "No se puede leer el LUT de este vídeo, así que no se puede
+    hacer su copia de reproducción."; match the app's existing Spanish for "playback copy").
+  - Any test asserting the old sentence for these two cases changes with it: list each (file:line, old → new). A
+    test asserting the old sentence for a case where it is still true stays.
+- Nits: docs/SBD_FORMAT.md's luts door sentence says the import's door refuses a migration's CREATE (only the
+  ordinary door takes it), wrapped to about 120 columns; sbd.rs's doc comments on `plain_insert` and `PlainInsert`
+  name `luts`.
+- Checks: `npm run lint`, `npm run test:rust`, Vitest on src/core/storage, src/app/projects, src/features/video,
+  src/core/i18n (from `C:\` upper case), then `npx playwright test e2e/projects.spec.ts e2e/lut.spec.ts
+  --project=chromium` alone and `npm run failed-tests`.
