@@ -23,10 +23,12 @@ export const ASPECT_TOLERANCE = 0.005;
 export const COMPARE_EDGE = 48;
 /**
  * The most the original and the project's thumbnail may differ, as the mean absolute difference of their red, green and blue (0 to
- * 255), once both are drawn at COMPARE_EDGE. Calibrated on the five fixture pictures in e2e/fixtures/images (sRGB, Adobe RGB, Display
- * P3, EXIF-rotated, transparent): each against its own stored copy measured 0 to 1.4; each against every other fixture resampled to
- * its shape, 59 to 149. Two real photographs of one shape (e2e/fixtures/images/photo-a.jpg and photo-b.jpg, e2e/deckExport.spec.ts) are held to under half
- * the threshold against their own copy and over it against each other. 12 sits well between, with room for a photograph's finer detail (resampling and the P3 to sRGB step).
+ * 255), once both are drawn at COMPARE_EDGE. Calibrated on the seven fixture pictures in e2e/fixtures/images (sRGB, Adobe RGB, Display
+ * P3, EXIF-rotated, transparent, and the two photographs scripts/fixturePhotos.ts draws), measured again Nov 19 in Chromium: each
+ * against its own stored copy 0 to 1.7; each against every other fixture resampled to its shape, 54 to 149. The two photographs of
+ * one shape (photo-a.jpg and photo-b.jpg, e2e/deckExport.spec.ts) are held to under half the threshold against their own copy (1.7
+ * and 1.6) and over it against each other (61 both ways). 12 sits well between, with room for a photograph's finer detail
+ * (resampling and the P3 to sRGB step).
  */
 export const MATCH_THRESHOLD = 12;
 
