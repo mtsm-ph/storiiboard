@@ -8,7 +8,21 @@ It replaces nothing in either; it says where the work stands and what comes next
 
 What only Kevin can do or answer, one line each, with what it unblocks. Nothing a session, a review or CI can settle.
 
-- Nothing waiting on Kevin (Nov 18, night 4).
+- **WebKit planLayers.spec "hides, locks, dims and solos layers…" red in checkpoint/nov19-b** (both tries; green in
+  nov19-a on the same app code). Cause from the Mac trace: the camera row's Solo, the right-most control in a tile
+  just scrolled, sits under WebKit's overlay scrollbar (the tile's `data-scroll-root` takes the click five times;
+  the sixth lands and nothing turns on). Fix proposed: keep the right edge of a scrolling tile free of controls on a
+  Mac. It may change screenshots, so it's his word. Unblocks: the flake's fix, and #203's merge if nov19-c is red too.
+- **player.spec busy-page flake: the test's count, not the app** (Mac frame reports, nov19-a). WebKit's
+  `presentedFrames` doesn't count frames it drops. Proposed: count missed frames from the jump in media time. That
+  changes how an existing assertion counts its slack. Unblocks: the fix.
+- **The PDF worker runs with no security policy in the installed app** (#203's report). Tauri adds the CSP header
+  only to `.html` responses. Plan: add it to the app's own `.js`/`.mjs` responses through
+  `on_web_resource_request`, with a Rust test, and the e2e server likewise. It touches the app's CSP. Unblocks: the
+  fix.
+- **HEIC on Windows: plan and three questions** in private/briefs/heic-windows.md: an ICC profile that isn't P3 or
+  sRGB, HDR HEIF, and the CI steps for fixtures and timing. Unblocks: the build.
+- **OSV-Scanner 2.7.1** (two weeks old on Nov 23): approve the bump in both workflows, with its hash.
 
 ## What a cloud session can and can't do
 
@@ -352,6 +366,26 @@ Lows deferred (noted, not planned yet):
 - LUT rows stay in the project once stored, even when no video names one (an undo, a LUT taken off). They're small
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
+
+### Next session: start here (Nov 19, morning: the night run)
+
+- **Merged into v2 (after checkpoint/nov19-a, run 44494150067, green in every job):**
+  - #199: rusqlite 0.41.1.
+  - #200: test photos drawn by script.
+  - #201: LUTs under the hash rule at import, plus the JFIF and Adobe sizes.
+  - #202: player frame reports.
+  - Two machine-only reds were rerun and came back green: the Smoke job stalled 30 min in apt, and #202's PR check
+    stalled in `npm ci`.
+- **#203 (Advisories, 6.27g):** one review, two rounds, PR checks green. Its first real run found exactly what the
+  brief expected: pdfjs ignored (from OSV and npm audit), minimatch dev only, glib Linux only, five unmaintained
+  crates. Checkpoint/nov19-b (run 44515010617) was red only on WebKit planLayers.spec (see Only Kevin), in code
+  #203 doesn't touch. Not merged.
+- **kamadak-exif 0.6.2:** branch `deps/kamadak-exif-0.6.2`, brief in docs/briefs. It goes into checkpoint/nov19-c
+  together with #203.
+- **HEIC on Windows:** plan and brief in private/briefs/heic-windows.md, waiting on Kevin.
+- **Next after Kevin:** the stacked screenshot milestones, with "This picture is no longer in the project.". Also
+  the small wording points: an unreadable cube's still or clip says "playback copy"; "1 of 1 LUTs was damaged";
+  grabStill's new words have no direct test; a stalled encoder's wording.
 
 ### Next session: start here (Nov 18: the nov17-627 checkpoint read; by-hand passes no longer hold any phase)
 
