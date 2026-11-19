@@ -360,8 +360,11 @@ Lows deferred (noted, not planned yet):
   follows his alpha test and its fixes; the 3D set follows the first release. One list, docs/ALPHA_TEST.md, by
   feature in a production's order, added to with every milestone; things only Kevin can judge are marked.
   Reviews, full runs and checkpoints are unchanged; every red or flaky result is reported to him.
-- **Still waiting on other things:** #196 on a green checkpoint; rooms from scans on Kevin's real files; HEIC dates
-  on the library.
+- **Now (Nov 18, late):** checkpoint/627-clean (run 44452187334) green in every job; one flaky test, WebKit
+  player.spec "a page too busy to see every frame…" (the one with a cause hunt to come). #196 merged into v2
+  (5e994d0). The HEIC report is sent; its findings are in private/PHASE8_LIST_ADDITIONS.md. Next: rusqlite 0.41.1
+  on `deps/rusqlite-0.41.1`, then kamadak-exif 0.6.2, one full checkpoint for both, then the Advisories job.
+- **Still waiting on other things:** rooms from scans on Kevin's real files; HEIC dates on the library.
 - **Checkpoint nov17-627 (run 44194206185), three red jobs, reported Nov 18:**
   - Mac WebKit: scoutPhotos.spec "…what is stored has no EXIF" failed on every try. WebKit's JPEG encoder on the
     Mac writes its own blocks: an Exif block holding only the picture's width and height (PixelXDimension 640,
