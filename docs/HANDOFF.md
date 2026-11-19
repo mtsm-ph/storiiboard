@@ -8,21 +8,11 @@ It replaces nothing in either; it says where the work stands and what comes next
 
 What only Kevin can do or answer, one line each, with what it unblocks. Nothing a session, a review or CI can settle.
 
-- **WebKit planLayers.spec "hides, locks, dims and solos layers…": a flake** (red on both tries in
-  checkpoint/nov19-b; green in nov19-a and nov19-c on the same app code). Cause from the Mac trace: the camera row's
-  Solo, the right-most control in a tile just scrolled, sits under WebKit's overlay scrollbar (the tile's
-  `data-scroll-root` takes the click five times; the sixth lands and nothing turns on). Fix proposed: keep the right
-  edge of a scrolling tile free of controls on a Mac. It may change screenshots, so it's his word. Unblocks: the fix.
-- **player.spec busy-page flake: the test's count, not the app** (Mac frame reports, nov19-a). WebKit's
-  `presentedFrames` doesn't count frames it drops. Proposed: count missed frames from the jump in media time. That
-  changes how an existing assertion counts its slack. Unblocks: the fix.
-- **The PDF worker runs with no security policy in the installed app** (#203's report). Tauri adds the CSP header
-  only to `.html` responses. Plan: add it to the app's own `.js`/`.mjs` responses through
-  `on_web_resource_request`, with a Rust test, and the e2e server likewise. It touches the app's CSP. Unblocks: the
-  fix.
-- **HEIC on Windows: plan and three questions** in private/briefs/heic-windows.md: an ICC profile that isn't P3 or
-  sRGB, HDR HEIF, and the CI steps for fixtures and timing. Unblocks: the build.
-- **OSV-Scanner 2.7.1** (two weeks old on Nov 23): approve the bump in both workflows, with its hash.
+- **HEIC on Windows: the step 0 probes' and the timing's numbers** (measure/heic), before the build. Unblocks: the
+  build and its time limit.
+- **An HDR HEIF from Kevin's camera** in private/samples, when he can. Unblocks: HDR HEIF beyond a refusal.
+- **The stacked screenshot milestones' baseline run** (with the planLayers fix and "This picture is no longer in
+  the project."): Kevin compares old and new and says merge.
 
 ## What a cloud session can and can't do
 
@@ -383,7 +373,23 @@ Lows deferred (noted, not planned yet):
 - **#204 (kamadak-exif 0.6.2, 6.27h):** stacked on #203, brief in docs/briefs.
 - **Checkpoint/nov19-c (run 44536909144), v2 + #203 + #204:** green in every job, nothing failed or flaky (WebKit
   607, Chromium 607, smoke 26; planLayers passed). #203 then #204 merged into v2 (4660de8). That was the third and
-  last checkpoint of the night; this docs update waits for Kevin's word or the next checkpoint.
+  last checkpoint of the night.
+- **Kevin's answers (Nov 19, afternoon), the work order:** 1, docs-only PRs merge after the main session's own read,
+  with no checkpoint (#205). 4, the PDF worker's policy: list every worker the app starts and what it needs, then a
+  policy at least as strict as the page's on each (the PDF worker: no network, no eval); a Rust test, the e2e server
+  sends the same header (a PDF import runs under it in WebKit and Chromium), a line in ALPHA_TEST.md; say what each
+  webview did before the fix. 3, player.spec counts missed frames from the jump in media time, same meaning and
+  limit; the kept frame reports of the old flaky runs pass with it, a real overshoot still fails; confirm the app
+  doesn't use `presentedFrames`. 8, one small-fixes PR for the wording ("The LUT was damaged and left out."; a
+  message names a still, a clip or a playback copy; a stalled encoder "stopped responding, try again", no drive;
+  grabStill's words get a test), every changed string in en and es in its description. Then HEIC's step 0 probes and
+  timing on a one-off workflow from branch `measure/heic` (its small pictures committed as fixtures with the script
+  and the sips command), numbers to Kevin before the build; a profile neither P3 nor sRGB is carried (at most 64 KiB,
+  else refused with words); HDR HEIF refused on Windows with a line, and an ALPHA_TEST.md [Kevin] line for one on the
+  Mac. 2, planLayers: fix the app, keep controls clear of a scroll bar wherever it overlays content (decided by
+  whether it overlays, not by the system), in every scrolling tile, with the stacked screenshot milestones, a before
+  and after picture in the PR. 6, OSV-Scanner 2.7.1 on or after Nov 23, its own PR, the hash from the project's
+  checksum file. 7, the Advisories job's four choices stay. Order: 1, 4, 3, 8, HEIC probes, then 2.
 - **HEIC on Windows:** plan and brief in private/briefs/heic-windows.md, waiting on Kevin.
 - **Next after Kevin:** the stacked screenshot milestones, with "This picture is no longer in the project.". Also
   the small wording points: an unreadable cube's still or clip says "playback copy"; "1 of 1 LUTs was damaged";
