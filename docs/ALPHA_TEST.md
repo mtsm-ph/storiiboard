@@ -50,6 +50,7 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
   tile; All, Unread, This scene, Mark all read; quit and reopen, still read; your own steps never count. (3.10)
 - [ ] Export → Project data (JSON) and Full archive, then Import project data… on the Projects screen: everything back,
   PDFs too, the Trash and History in the archive, undo works. (2.9, 3.14)
+- [ ] Import a project made by an older build on the Mac: its pictures open as they were. (6.27b)
 - [ ] [Kevin] The same with your largest board on the Mac and on Windows: how long each takes, and whether the app
   strains. (2.9)
 - [ ] Your workspaces: save one from the Layout menu; rename, duplicate and delete in Manage workspaces…; it is there
@@ -130,6 +131,8 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
 - [ ] [Windows] Add your own iPhone HEIC photos: note what happens (the webview may not decode them; the old notice
   shows). (6.27)
 - [ ] [Kevin] A location photo from an iPhone: its colour matches the Photos app. (3.3b, 6.27)
+- [ ] [Mac] [Windows] Add a scout photo taken with location on, then Export → Project data (JSON): the stored
+  picture and its thumbnail carry no date, time or place, only the picture and its colour profile. (6.27b)
 - [ ] Copy map link and the QR open directions in the app chosen in Settings (Google Maps, Apple Maps, OpenStreetMap);
   [Mac] the copied link pastes. (4.6, DESKTOP_GAPS B2)
 
