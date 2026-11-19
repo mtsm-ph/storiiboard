@@ -62,3 +62,64 @@ jobs:
           name: unit-test-report
           path: test-results/unit.json
           retention-days: 14
+
+  # Red for a known vulnerability or malware in what Storiiboard ships, and only for that (Kevin, Nov 18): an npm
+  # package that isn't dev only, a crate in the Windows or the Mac app's normal tree, and malware anywhere. Dev-only
+  # packages, crates only on Linux or at build time, unmaintained notices and what osv-scanner.toml ignores until its
+  # date are listed in the step summary, never red. scripts/advisories.ts decides; the same job is in checkpoint.yml.
+  advisories:
+    name: Advisories
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # No install scripts: a malicious postinstall mustn't run before this job reports it, and nothing here needs them.
+      - run: npm ci --ignore-scripts
+      # For cargo tree alone: it reads the crates' manifests and builds nothing, so no system library or sidecar.
+      - uses: dtolnay/rust-toolchain@stable
+      # From its GitHub release, never through npx or a package manager, and checked before it runs.
+      - name: Fetch OSV-Scanner v2.7.0 and check it
+        env:
+          OSV_URL: https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_linux_amd64
+          OSV_SHA256: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+        run: |
+          mkdir -p "$RUNNER_TEMP/osv"
+          curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/osv/osv-scanner" "$OSV_URL"
+          echo "$OSV_SHA256  $RUNNER_TEMP/osv/osv-scanner" | sha256sum --check --strict
+          chmod +x "$RUNNER_TEMP/osv/osv-scanner"
+      # An empty config, so OSV-Scanner reports everything and osv-scanner.toml's ignores are applied once, by the
+      # script, the same way for npm audit's findings. Its exit code doesn't decide: 1 only says it found something;
+      # above 1 it failed, and the script must not read what it left.
+      - name: OSV-Scanner on both lock files
+        run: |
+          mkdir -p test-results/advisories
+          : > "$RUNNER_TEMP/osv/no-ignores.toml"
+          status=0
+          "$RUNNER_TEMP/osv/osv-scanner" scan source --config "$RUNNER_TEMP/osv/no-ignores.toml" --format json \
+            --lockfile package-lock.json --lockfile src-tauri/Cargo.lock > test-results/advisories/osv.json || status=$?
+          if [ "$status" -gt 1 ]; then echo "OSV-Scanner failed with exit code $status"; exit 1; fi
+      # Its exit code doesn't decide either; a failed audit writes an error the script refuses.
+      - name: npm audit
+        run: npm audit --json > test-results/advisories/npm-audit.json || true
+      # Normal dependencies only, proc macros left out: build scripts' crates and proc macros run only as the app is
+      # compiled, so neither is in what ships.
+      - name: The app's crates on Windows and on the Mac
+        run: |
+          cargo tree --manifest-path src-tauri/Cargo.toml --locked -e normal,no-proc-macro --target x86_64-pc-windows-msvc > test-results/advisories/tree-windows.txt
+          cargo tree --manifest-path src-tauri/Cargo.toml --locked -e normal,no-proc-macro --target aarch64-apple-darwin > test-results/advisories/tree-mac.txt
+      # One line per finding in the log, every finding in the step summary; exits 1 only when one is red.
+      - name: Classify every finding
+        run: >-
+          node scripts/advisories.ts --osv test-results/advisories/osv.json --npm test-results/advisories/npm-audit.json
+          --tree-windows test-results/advisories/tree-windows.txt --tree-mac test-results/advisories/tree-mac.txt
+      - name: Keep what the job read
+        if: ${{ !cancelled() && hashFiles('test-results/advisories/*') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: advisories-report
+          path: test-results/advisories/
+          retention-days: 14
