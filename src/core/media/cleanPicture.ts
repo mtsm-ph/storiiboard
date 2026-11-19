@@ -86,18 +86,45 @@ const ICC_HEADER = 14;
 /** A start-of-frame marker: C0 to CF but DHT (C4), JPG (C8) and DAC (CC). */
 const isSof = (marker: number) => marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
 
-/** Whether a JPEG marker segment, with its body at `body`, is kept: SOI to EOI, only what a decoder reads, plus the colour. */
-function keepsJpegSegment(bytes: Uint8Array, marker: number, body: number): boolean {
+/**
+ * An APP0 JFIF segment's length with no thumbnail (Kevin, Nov 19): the length field, `JFIF\0`, the version, the units,
+ * the two densities and a 0 × 0 thumbnail. A longer one carries a thumbnail, which is a picture of its own.
+ */
+const JFIF_LENGTH = 16;
+/** An APP14 Adobe segment's one length: the length field, `Adobe`, the version, two flag words and the transform. */
+const ADOBE_LENGTH = 14;
+
+/** The kept APPn blocks seen so far: JFIF and Adobe are kept once each, the first time. */
+interface SeenOnce {
+  jfif: boolean;
+  adobe: boolean;
+}
+
+/**
+ * Whether a JPEG marker segment, with its body at `body` and its length field `length`, is kept: SOI to EOI, only what
+ * a decoder reads, plus the colour.
+ */
+function keepsJpegSegment(bytes: Uint8Array, marker: number, body: number, length: number, seen: SeenOnce): boolean {
   if (marker === 0xdb || marker === 0xc4 || marker === 0xdd || isSof(marker)) return true;
-  // APP0 JFIF (not JFXX), APP2 ICC_PROFILE (every chunk, as they come), APP14 Adobe (it changes how colour decodes).
-  if (marker === 0xe0) return spells(bytes, body, 'JFIF\0');
+  // APP0 JFIF (not JFXX) without a thumbnail, once; APP2 ICC_PROFILE (every chunk, as they come); APP14 Adobe (it
+  // changes how colour decodes) at its fixed size, once.
+  if (marker === 0xe0) {
+    if (seen.jfif || length !== JFIF_LENGTH || !spells(bytes, body, 'JFIF\0')) return false;
+    seen.jfif = true;
+    return true;
+  }
   if (marker === 0xe2) return spells(bytes, body, 'ICC_PROFILE\0');
-  if (marker === 0xee) return spells(bytes, body, 'Adobe');
+  if (marker === 0xee) {
+    if (seen.adobe || length !== ADOBE_LENGTH || !spells(bytes, body, 'Adobe')) return false;
+    seen.adobe = true;
+    return true;
+  }
   return false;
 }
 
 /**
- * A JPEG with only SOI, APP0 JFIF, APP2 ICC_PROFILE, APP14 Adobe, DQT, DHT, DRI, every SOFn, each SOS with its
+ * A JPEG with only SOI, APP0 JFIF (no thumbnail, once), APP2 ICC_PROFILE, APP14 Adobe (its fixed size, once), DQT,
+ * DHT, DRI, every SOFn, each SOS with its
  * entropy-coded data (restart markers inside it) and EOI; anything after EOI goes too. `whole` (the clean's own): null
  * too without a frame and a scan; the door (refusedPicture) asks only what the blocks are.
  */
@@ -114,6 +141,7 @@ function keptJpeg(bytes: Uint8Array, whole: boolean): Uint8Array | CleanRefusal 
   let frames = 0;
   let scans = 0;
   let profile = 0;
+  const seen: SeenOnce = { jfif: false, adobe: false };
   for (;;) {
     if (at >= bytes.length || bytes[at] !== 0xff) return unreadable;
     // Fill bytes before a marker are allowed (B.1.1.2); they aren't kept.
@@ -133,7 +161,7 @@ function keptJpeg(bytes: Uint8Array, whole: boolean): Uint8Array | CleanRefusal 
     if (length < 2) return unreadable;
     const end = markerAt + 2 + length;
     if (end > bytes.length) return unreadable;
-    const kept = marker === 0xda || keepsJpegSegment(bytes, marker, markerAt + 4);
+    const kept = marker === 0xda || keepsJpegSegment(bytes, marker, markerAt + 4, length, seen);
     // The colour profile, the one kept block we don't write: its chunks' data (after the 14-byte header) bounded.
     if (kept && marker === 0xe2) {
       profile += Math.max(0, length - 2 - ICC_HEADER);

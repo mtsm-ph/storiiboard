@@ -441,3 +441,64 @@ test('an import whose stored files are damaged leaves them out, imports the rest
   expect(archive.tables.media_files?.rows).toHaveLength(1);
   expect(archive.tables.thumbnails?.rows).toHaveLength(0);
 });
+
+test('an import whose LUT is damaged leaves it out, says so with its video’s frame, the Inspector says it’s gone, and the clip plays as shot', async ({ page }) => {
+  // Kevin, Nov 18 night 4: a LUT's text is named by its hash, as a picture's bytes are.
+  await newProject(page, 'Bey County');
+  const storyboard = page.getByRole('region', { name: 'Storyboard', exact: true });
+  const inspector = page.getByRole('region', { name: 'Frame inspector', exact: true });
+  const lutList = inspector.getByRole('combobox', { name: 'LUT' });
+  const chosen = () => lutList.evaluate((select: HTMLSelectElement) => select.selectedOptions[0]?.textContent ?? '');
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  await storyboard.getByRole('button', { name: '+ Frame in SC 01' }).click();
+  let chooser = page.waitForEvent('filechooser');
+  await inspector.getByRole('button', { name: 'Link video…' }).click();
+  await (await chooser).setFiles(fileURLToPath(new URL('./fixtures/video/A001_C003_2398.mp4', import.meta.url)));
+  chooser = page.waitForEvent('filechooser');
+  await inspector.getByRole('button', { name: 'Load LUT…' }).click();
+  const invert = 'LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n';
+  await (await chooser).setFiles({ name: 'Invert.cube', mimeType: 'text/plain', buffer: Buffer.from(invert) });
+  await expect.poll(chosen).toBe('Invert');
+
+  // Exported as Project data; the LUT's text changed in the JSON, its name kept.
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export Project…', exact: true }).click();
+  const exporting = page.getByRole('dialog', { name: 'Export' });
+  await exporting.getByRole('radio', { name: 'Project data (JSON)' }).check();
+  const downloaded = page.waitForEvent('download');
+  await exporting.getByRole('button', { name: 'Save…' }).click();
+  type Exported = { tables: Record<string, { columns: string[]; rows: unknown[][] }> };
+  const data = JSON.parse(readFileSync(await (await downloaded).path(), 'utf8')) as Exported;
+  const luts = data.tables.luts;
+  if (!luts) throw new Error('no luts');
+  expect(luts.rows).toHaveLength(1);
+  const cubeAt = luts.columns.indexOf('cube');
+  for (const row of luts.rows) row[cubeAt] = invert.replace('0 0 0\n', '0 0 1\n');
+
+  // Imported from the Projects screen: the rest comes in, and the note counts the LUT and names its video's frame.
+  await sidebar(page).getByRole('button', { name: /^Project:/ }).click();
+  await page.getByRole('button', { name: 'All projects…' }).click();
+  chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import project data…' }).click();
+  page.once('dialog', (prompt) => void prompt.accept('Bey County imported'));
+  await (await chooser).setFiles({ name: 'Bey County project data.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)) });
+  const note = page.getByRole('status').filter({ hasText: 'damaged and left out' });
+  await expect(note).toContainText('1 of 1 LUTs was damaged and left out. They show as missing in: SC 01 · Frame 1A.');
+
+  // The frame's video keeps its LUT's id; its Inspector says the LUT is no longer in the project.
+  await sidebar(page).getByRole('button', { name: /^Storyboard/ }).click();
+  await storyboard.locator('[aria-label="Frames in SC 01"] [data-shot-id]').first().click();
+  await expect.poll(chosen).toBe('LUT not in the project');
+  expect(await lutList.locator('option').allTextContents()).toEqual(['None (as shot)', 'LUT not in the project']);
+
+  // And the clip plays, ungraded (round 2): its copy is the one as shot, made if there's none yet, and its preview loads.
+  const copyLine = inspector.locator('[data-copy-state]');
+  const make = inspector.getByRole('button', { name: 'Make playback copy' });
+  await expect(copyLine.filter({ hasText: 'Playback copy ready.' }).or(make)).toBeVisible({ timeout: 15_000 });
+  if (await make.isVisible()) await make.click();
+  // A pretend copy takes 2.5 s; a loaded runner's timers can run late.
+  await expect(copyLine).toHaveText('Playback copy ready.', { timeout: 15_000 });
+  const clip = inspector.locator('[data-clip-preview] video');
+  await expect(clip).toHaveCount(1);
+  await expect.poll(() => clip.evaluate((video: HTMLVideoElement) => video.readyState), { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+});

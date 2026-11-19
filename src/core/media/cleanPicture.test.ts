@@ -132,6 +132,32 @@ describe('the clean of a JPEG', () => {
     expect(cleanJpeg(adobe)).toEqual(adobe);
   });
 
+  it('keeps JFIF only without a thumbnail and Adobe only at its fixed size, each once; the door refuses the rest (Kevin, Nov 19)', () => {
+    const plain = jpeg();
+    const adobe = segment(0xee, [...ascii('Adobe'), 0, 0x64, 0, 0, 0, 0, 1]);
+    // The fixed sizes, as segment lengths: JFIF 16, Adobe 14.
+    expect((plain[4] ?? 0) * 256 + (plain[5] ?? 0)).toBe(16);
+    expect((adobe[2] ?? 0) * 256 + (adobe[3] ?? 0)).toBe(14);
+    // A 1 × 1 thumbnail: the JFIF block goes, whole, and the rest stays.
+    const thumbnail = segment(0xe0, [...ascii('JFIF'), 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 9, 9, 9]);
+    const withThumbnail = new Uint8Array([0xff, 0xd8, ...thumbnail, ...plain.subarray(2 + 18)]);
+    const noJfif = new Uint8Array([0xff, 0xd8, ...plain.subarray(2 + 18)]);
+    expect(cleanJpeg(withThumbnail)).toEqual(noJfif);
+    expect(refusedPicture(withThumbnail)).toBe(true);
+    expect(refusedPicture(noJfif)).toBe(false);
+    // A second JFIF, a second Adobe, an Adobe of another size: dropped, the first of each kept.
+    const secondJfif = segment(0xe0, [...ascii('JFIF'), 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]);
+    const longAdobe = segment(0xee, [...ascii('Adobe'), 0, 0x64, 0, 0, 0, 0, 1, 7]);
+    const shortAdobe = segment(0xee, [...ascii('Adobe'), 0, 0x64, 0, 0, 0, 0]);
+    for (const extra of [[secondJfif], [adobe, adobe], [longAdobe], [shortAdobe], [longAdobe, adobe]]) {
+      const dirty = jpeg(...extra);
+      const kept = extra.some((s) => s === adobe) ? jpeg(adobe) : plain;
+      expect(cleanJpeg(dirty)).toEqual(kept);
+      expect(refusedPicture(dirty)).toBe(true);
+      expect(refusedPicture(kept)).toBe(false);
+    }
+  });
+
   it('drops anything after EOI and fill bytes between segments', () => {
     const plain = jpeg();
     expect(cleanJpeg(new Uint8Array([...plain, ...ascii('appended')]))).toEqual(plain);

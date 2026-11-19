@@ -168,10 +168,11 @@ a swatch strip, a call sheet's map or logo) goes through one encoder, `canvasBlo
 keeps blocks by this list and drops every other one, so whatever a webview's encoder adds goes too (WebKit writes an
 Exif block with the picture's size and an empty Photoshop/IPTC record into every JPEG). The SHA-256 is taken after it.
 
-- JPEG keeps: SOI; APP0 JFIF; APP2 ICC_PROFILE (all its chunks, in order); APP14 Adobe (it changes how colour
-  decodes); DQT, DHT, DRI, every SOFn, each SOS with its entropy-coded data (restart markers inside it); EOI. Every
-  other marker segment goes (APP1 Exif and XMP, APP13, any other APPn, COM, DAC), as do fill bytes between segments and
-  anything after EOI.
+- JPEG keeps: SOI; APP0 JFIF without a thumbnail (segment length 16), once; APP2 ICC_PROFILE (all its chunks, in
+  order); APP14 Adobe (it changes how colour decodes) at its fixed size (segment length 14), once; DQT, DHT, DRI, every
+  SOFn, each SOS with its entropy-coded data (restart markers inside it); EOI. Every other marker segment goes (APP1
+  Exif and XMP, APP13, any other APPn, COM, DAC; a JFIF of another length, which carries a thumbnail; an Adobe of
+  another length; a second JFIF or Adobe), as do fill bytes between segments and anything after EOI (Kevin, Nov 19).
 - PNG keeps: IHDR, PLTE, tRNS, IDAT, IEND, and the colour chunks iCCP, sRGB, cICP, gAMA, cHRM, each copied whole with
   its CRC as it was. Every other chunk goes (tEXt, zTXt, iTXt, eXIf, tIME, pHYs, an animation's chunks and any unknown
   one), as does anything after IEND.
@@ -202,7 +203,17 @@ Exif block with the picture's size and an empty Photoshop/IPTC record into every
   each checked against its hash (6.27b round 3, Kevin Nov 18): a stored file, picture, PDF attachment or issued call
   sheet, whose bytes don't match its `sha256` is left out with its thumbnails, never stored under any name, and the
   rest of the project imports; the records that use it stay as they are and show it missing, as a removed picture or
-  PDF does, and the import says how many were left out of how many, and where they were used. A thumbnail's bytes
+  PDF does, and the import says how many were left out of how many, and where they were used. LUTs too (Kevin, Nov 18
+  night 4): a `luts` row whose `cube` text doesn't match its `sha256` (SHA-256 of the text's UTF-8 bytes) is left out
+  in the same pass, never stored under any name; a video that named it keeps its `lut` id, its Inspector says the LUT
+  isn't in the project, it plays ungraded (its playback copy is the one with no LUT, never one made with that LUT; a
+  still or a saved clip from it is refused, as they say which LUT they used), and the import counts it in a sentence of its own ("1 of 3 LUTs was damaged and left out.")
+  with the frames that play that video among the places. A row the import can't read (no hash, a `cube` that isn't
+  text) is left as it is, and the import refuses the file. Every door, the import's and the ordinary one (sbd.rs and
+  the end-to-end tests' driver), refuses a `luts` write whose `cube` doesn't match its `sha256`, whole: a `luts`
+  statement is a `DELETE FROM`, a migration's `CREATE`, or `INSERT [OR IGNORE] INTO luts (columns) VALUES (?, …)` naming
+  `sha256` and `cube`, one `?` per column; any other is refused. Old pictures, an older project's JFIF thumbnail
+  included, come in through the import's door, which checks hashes, not blocks. A thumbnail's bytes
   come in as they are; its `sha256` must name a picture row, which is checked. The import's door in sbd.rs
   (`sbd_import_tx_raw`) still refuses the whole transaction should a mismatched row ever reach it. The import's door
   takes only `DELETE FROM` and the plain INSERT (a `media_files` row with one `?` per column); any other statement that
@@ -1062,7 +1073,9 @@ after the video is relinked or its LUT changes.
 | lut_id, lut_name | text or null | The LUT it was graded with, and its name then |
 
 `luts`: LUTs loaded for videos (2.5). Content-addressed like pictures: the same `.cube` loaded twice is stored once,
-and a row is never changed after it's written. A video names its LUT by id, so a LUT change is an op like any other.
+and a row is never changed after it's written; each door refuses a row whose `cube` isn't the text its `sha256` names
+(Import project data leaves such a row out: see "What a stored picture carries"). A video names its LUT by id, so a
+LUT change is an op like any other.
 The row is written in the same transaction as the op that first names it; an undo leaves it stored (rows are small,
 and a redo needs it). Only 3D LUTs are stored (`LUT_3D_SIZE` 2 to 256); the app checks a file before it stores it.
 

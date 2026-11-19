@@ -1,11 +1,12 @@
 import type { Database, SqlJsStatic, SqlJsValue } from 'sql.js';
 import { isBackupName, isMigrationBackupName } from './backups';
-import { blobOf, doorVerdict, refuseBytes, refuseMisnamedPictures, refuseUncleanPictures, type BackupKind, type ProjectFile, type Row, type SqlDriver, type Statement } from './driver';
+import { blobOf, doorVerdict, refuseBytes, refuseMisnamedLuts, refuseMisnamedPictures, refuseUncleanPictures, type BackupKind, type ProjectFile, type Row, type SqlDriver, type Statement } from './driver';
 import { fileName, fileStem } from './paths';
 import { isListedShape, statementShape } from './pictureStatements';
 
 /**
- * Round 4 (Kevin, Nov 18): a statement the page writes that names the stored pictures' tables must be on the one list
+ * Round 4 (Kevin, Nov 18): a statement the page writes that names the stored pictures' tables (or, from Nov 18 night 4,
+ * `luts`) must be on the one list
  * both doors are tested against (src-tauri/testdata/picture-statements.json), by its shape (values as `?`). One that
  * isn't is said as a console error, which fails every end-to-end spec (none is ever filtered), so a new statement
  * can't reach the app without the list, and the doors' tests, knowing it. In a page only: a unit test's own probes of
@@ -16,7 +17,7 @@ function reportUnlisted(statements: readonly Statement[]): void {
   for (const { sql } of statements) {
     if (doorVerdict(sql, 'ordinary') === 'none') continue;
     const shape = statementShape(sql);
-    if (!isListedShape(shape)) console.error(`A statement naming media_files or thumbnails isn’t on src-tauri/testdata/picture-statements.json: ${shape}`);
+    if (!isListedShape(shape)) console.error(`A statement naming media_files, thumbnails or luts isn’t on src-tauri/testdata/picture-statements.json: ${shape}`);
   }
 }
 
@@ -189,6 +190,8 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
         // sbd.rs's doors, before anything is written: Import project data writes its pictures as they came once each is
         // the one its name says, as sbd_import_tx_raw does; every other write refuses an unclean picture.
         reportUnlisted(statements);
+        // A LUT whose text isn't the one its name says, at either door (Kevin, Nov 18 night 4), in a LUT's words.
+        await refuseMisnamedLuts(statements, options?.imported ? 'import' : 'ordinary');
         if (options?.imported) await refuseMisnamedPictures(statements);
         return settle(() => {
           if (!options?.imported) refuseUncleanPictures(statements);

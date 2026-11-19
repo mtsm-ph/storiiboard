@@ -4,6 +4,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
+import { lutStatements, prepareLut } from '../media/lut';
 import { doorVerdict, type DoorVerdict, type SqlValue } from './driver';
 import { createMemoryDriver } from './memoryDriver';
 import { createProject } from './project';
@@ -109,18 +110,42 @@ function scanSource(file: string, text: string, listed: ReadonlySet<string>): { 
   const names: string[] = [];
   for (const literal of literals(file, text)) {
     const sql = SQL_START.test(literal);
-    if (sql && /media_files|thumbnails/i.test(literal)) {
+    // The pictures' tables, and luts (Kevin, Nov 18 night 4).
+    if (sql && /media_files|thumbnails|luts/i.test(literal)) {
       found += 1;
       if (listed.has(literal)) listedHere = true;
       else problems.push(`${file}: not on the list: ${literal}`);
     }
     if (REVIEWED.has(file)) continue;
     if (sql && BUILT_NAME.test(literal)) problems.push(`${file}: a table's name built at run time: ${literal}`);
-    if (/^(main\.)?(media_files|thumbnails)$/i.test(literal)) names.push(literal);
+    if (/^(main\.)?(media_files|thumbnails|luts)$/i.test(literal)) names.push(literal);
   }
   if (!listedHere) for (const name of names) problems.push(`${file}: a table's name alone: ${name}`);
   return { found, problems };
 }
+
+describe('the memory driver’s check at run time, for luts (Kevin, Nov 18 night 4)', () => {
+  it('is quiet for the app’s own LUT row and says a luts statement that isn’t on the list', async () => {
+    const wasm = createRequire(import.meta.url).resolve('sql.js/dist/sql-wasm.wasm');
+    const driver = await createMemoryDriver({ wasm });
+    const project = await createProject('/memory/Quay.sbd', { driver, backups: false });
+    const prepared = await prepareLut('Invert.cube', 'LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n');
+    if (!prepared.ok) throw new Error('a good cube');
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('document', {});
+    try {
+      await project.file.tx(lutStatements('lut-1', prepared.lut, new Date('2026-11-19T12:00:00.000Z')));
+      expect(errors).not.toHaveBeenCalled();
+      await project.file.tx([{ sql: 'DELETE FROM luts WHERE sha256 = ?', params: [prepared.lut.sha256] }]);
+      expect(errors).toHaveBeenCalledTimes(1);
+      expect(String(errors.mock.calls[0]?.[0])).toContain('DELETE FROM luts WHERE sha256 = ?');
+    } finally {
+      vi.unstubAllGlobals();
+      errors.mockRestore();
+      await project.close();
+    }
+  });
+});
 
 describe('the run-time check and an import’s columns (round 5)', () => {
   it('stays quiet for an import whose JSON gives the columns in another order, and still says an unlisted column set', async () => {
@@ -194,6 +219,16 @@ describe('every SQL text in src/ that names the pictures’ tables is on the lis
     ]);
     // The same text in a reviewed file: only what the list itself needs.
     expect(scanSource('core/storage/projectJson.ts', planted, listed).problems).toEqual(['core/storage/projectJson.ts: not on the list: UPDATE media_files SET bytes = ?']);
+  });
+
+  it('holds luts to the list too (Kevin, Nov 18 night 4): its own statements are on it, a planted one isn’t', () => {
+    const listed = APP_TEXTS;
+    for (const sql of ['SELECT sha256, cube FROM luts WHERE id = ?', 'DELETE FROM "luts"']) expect(listed.has(sql)).toBe(true);
+    const planted = ["export const a = 'UPDATE luts SET cube = ?';", "export const b = 'luts';"].join('\n');
+    expect(scanSource('features/planted.ts', planted, listed).problems).toEqual([
+      'features/planted.ts: not on the list: UPDATE luts SET cube = ?',
+      "features/planted.ts: a table's name alone: luts",
+    ]);
   });
 
   it('knows a shape with its values as placeholders, whatever the values', () => {
