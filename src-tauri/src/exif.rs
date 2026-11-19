@@ -1083,6 +1083,31 @@ pub(crate) mod tests {
         assert_eq!(read(&jpeg_with(&round)), NONE);
     }
 
+    /// The library's own fix (0.6.2, GHSA-53gf-vqf6-qvp8: an IFD already parsed isn't visited again) under our walk:
+    /// a chain that comes back to an earlier directory is refused by the walk, and read straight by the library, as
+    /// `parse` would with the walk bypassed, returns, refusing it.
+    #[test]
+    fn a_chain_back_to_an_earlier_directory_is_refused_and_the_library_alone_still_returns() {
+        let one = directory_len(1);
+        let two = directory_len(2);
+        // Three directories: the third chains back to the second; the first also holds the date.
+        let back = raw_block(&[
+            raw_directory(&[date_time(8 + two + 2 * one), FILLER], (8 + two) as u32),
+            raw_directory(&[FILLER], (8 + two + one) as u32),
+            raw_directory(&[FILLER], (8 + two) as u32),
+            WHEN.to_vec(),
+        ]);
+        assert!(!block_is_safe(&back));
+        assert_eq!(read(&jpeg_with(&back)), NONE);
+        assert_eq!(read(&back), NONE);
+        // The library alone, as `parse` calls it: since 0.6.2 it returns, refusing the directory it has seen.
+        assert!(Reader::new().read_raw(back).is_err());
+        // A directory chaining to itself, too.
+        let own = raw_block(&[raw_directory(&[FILLER], 8)]);
+        assert!(!block_is_safe(&own));
+        assert!(Reader::new().read_raw(own).is_err());
+    }
+
     #[test]
     fn more_entries_than_the_cap_are_never_parsed() {
         let with = |entries: usize| {

@@ -45,9 +45,9 @@ tzf-rs = { version = "=2.1.3", default-features = false, features = ["bundled"] 
 font-kit = { version = "=0.14.3", features = ["source-fontconfig-dlopen"] }
 
 # A scout photo's date, time and GPS from its EXIF (6.27, Kevin Nov 16), through src/exif.rs only: read on this
-# computer from the bytes being imported, never sent anywhere and never written back. Pinned exactly at 0.6.1 (BSD
-# 2-Clause): 0.6.2 came out on Nov 5, 2026, inside the two-week rule.
-kamadak-exif = "=0.6.1"
+# computer from the bytes being imported, never sent anywhere and never written back. Pinned exactly at 0.6.2 (BSD
+# 2-Clause), whose notes name a security fix (GHSA-53gf-vqf6-qvp8: an IFD already parsed isn't visited again).
+kamadak-exif = "=0.6.2"
 
 # A stored file's SHA-256, its name in the .sbd (6.27b, Kevin Nov 18): sbd.rs's `sha256_hex` for the doors. This is the
 # ring rustls already builds for the network, named here directly with its default features as rustls builds it, so it
