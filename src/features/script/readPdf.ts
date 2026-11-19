@@ -17,7 +17,11 @@ export async function readPdfText(bytes: ArrayBuffer, name: string): Promise<Pdf
   const task = pdfjs.getDocument({
     data: new Uint8Array(bytes),
     worker: pdfWorker,
-    // Text only: no font files and no forms. (pdf.js 5 never evaluates code from a PDF.)
+    // Text only: no font files and no forms. pdf.js can run a PDF's own scripts, and GHSA-hq66-cqwq-w95j is a flaw
+    // there that needs scripting switched on and no script policy. This reader isn't affected: it reads text only,
+    // builds no annotation layer, loads nothing from pdfjs-dist/web and never turns scripting on, and the app's policy
+    // allows no inline script and no eval. So the Advisories job ignores that advisory until a date
+    // (osv-scanner.toml), and src/app/pdfjsUse.test.ts fails if any of this stops being true.
     disableFontFace: true,
     enableXfa: false,
     useSystemFonts: false,
