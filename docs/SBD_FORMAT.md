@@ -137,7 +137,7 @@ and after each edit, never copies a picture.
 | width, height | integer | Pixels, upright |
 | byte_size | integer | Length of `bytes`, so totals don't read the pictures |
 | color_space | text | `display-p3` or `srgb`: the profile embedded in `bytes` |
-| bytes | blob | The stored picture: at most 2560px on the long edge, EXIF orientation applied |
+| bytes | blob | The stored picture: at most 2560px on the long edge, EXIF orientation applied; for pictures stored from 6.27b on, only the picture's own data and its colour profile (below; pictures an older build stored, and those brought in by Import project data, may carry more) |
 
 `thumbnails`: the smaller copies the board draws.
 
@@ -161,6 +161,52 @@ and after each edit, never copies a picture.
   confirm (1.21). A frame or step that then names a deleted picture shows "Picture missing".
 - The original file isn't copied in. The media record keeps its path as a pointer, so a later full-resolution export
   can use it if it's still there.
+
+What a stored picture carries (6.27b, Kevin Nov 18): only what a reader needs to show it, plus its colour profile.
+Every picture the page encodes (what is stored, the picture and its thumbnail, and what leaves in a PDF, a PNG, a plan,
+a swatch strip, a call sheet's map or logo) goes through one encoder, `canvasBlob` (src/core/media/canvas.ts), which
+keeps blocks by this list and drops every other one, so whatever a webview's encoder adds goes too (WebKit writes an
+Exif block with the picture's size and an empty Photoshop/IPTC record into every JPEG). The SHA-256 is taken after it.
+
+- JPEG keeps: SOI; APP0 JFIF; APP2 ICC_PROFILE (all its chunks, in order); APP14 Adobe (it changes how colour
+  decodes); DQT, DHT, DRI, every SOFn, each SOS with its entropy-coded data (restart markers inside it); EOI. Every
+  other marker segment goes (APP1 Exif and XMP, APP13, any other APPn, COM, DAC), as do fill bytes between segments and
+  anything after EOI.
+- PNG keeps: IHDR, PLTE, tRNS, IDAT, IEND, and the colour chunks iCCP, sRGB, cICP, gAMA, cHRM, each copied whole with
+  its CRC as it was. Every other chunk goes (tEXt, zTXt, iTXt, eXIf, tIME, pHYs, an animation's chunks and any unknown
+  one), as does anything after IEND.
+- The list holds for the whole file: between a JPEG's scans too (only its tables, frames, scans, restarts and the
+  kept APPn), and nothing after JPEG EOI or PNG IEND: the clean cuts every byte after the end marker, and the door
+  refuses a picture with any.
+- The colour profile, the one kept block the page doesn't write itself, holds at most 64 KiB (65,536 bytes) as
+  stored, one rule for the page and the door: a JPEG's ICC_PROFILE chunks together (their data after each chunk's
+  14-byte header), a PNG's iCCP chunk data as it sits in the file. A profile is never unpacked to be measured. Above
+  it the clean refuses (the picture couldn't be saved: it holds more than a picture and its colour profile) and the
+  door refuses.
+- Bytes the clean can't read through (not a JPEG or PNG, a block running past the end, no SOS or IDAT) are never
+  stored or exported as they came: nothing is, and the person is told the picture couldn't be saved because it
+  couldn't be read as a picture; a profile over the bound, that it holds more than a picture and its colour profile.
+- The door (src-tauri/src/sbd.rs, its own code with the same list in src-tauri/src/picture_door.rs): a transaction whose
+  statement names `media_files` or `thumbnails` and carries a blob, bound or written as an `x'…'` literal, that is a
+  JPEG (`FF D8 FF`) or a PNG (its 8-byte signature), whatever the row's `mime` says, holding anything outside the list,
+  or whose blocks can't be read through to EOI or IEND, is refused whole, nothing written. The door asks only what the
+  bytes carry, not whether they make a whole picture. Other bytes, a PDF attachment or an issued call sheet, are kept
+  as they are. A statement that names either table must be a `DELETE FROM`, a `CREATE TABLE` or `CREATE [UNIQUE]
+  INDEX` (a migration's, never made from a SELECT or with AS), or the plain INSERT the door reads: `INSERT [OR IGNORE] INTO
+  media_files|thumbnails [(columns)] VALUES (…)[, (…)]`, each value a parameter, a number, a string, an `x'…'` blob or
+  NULL. Any other (UPDATE, REPLACE, INSERT OR REPLACE, WITH …, INSERT … SELECT, an upsert) is refused whole, since
+  what it writes can't be read off it. The end-to-end tests' driver (memoryDriver.ts) refuses the same way.
+- Pictures an older build stored stay as they are, since their SHA-256 is their name: they open as before, and Import
+  project data (JSON) writes them back as they came through its own command, `sbd_import_tx_raw`, which has no
+  keep-list door. Pictures brought in by Import project data are stored as they came (their hash is their name),
+  each checked against its hash (6.27b round 3, Kevin Nov 18): a stored file, picture, PDF attachment or issued call
+  sheet, whose bytes don't match its `sha256` is left out with its thumbnails, never stored under any name, and the
+  rest of the project imports; the records that use it stay as they are and show it missing, as a removed picture or
+  PDF does, and the import says how many were left out of how many, and where they were used. A thumbnail's bytes
+  come in as they are; its `sha256` must name a picture row, which is checked. The import's door in sbd.rs
+  (`sbd_import_tx_raw`) still refuses the whole transaction should a mismatched row ever reach it. The import's door
+  takes only `DELETE FROM` and the plain INSERT (a `media_files` row with one `?` per column); any other statement that
+  names either table refuses the import whole.
 
 `media` record props, for a picture:
 
@@ -329,8 +375,9 @@ refuses a file that may hold them rather than open it and drop them. No approval
     imported: a JPEG's or a TIFF's today; its block is checked before it is parsed; a HEIC answers `heic` and a
     PNG or WebP `none`, so none of the four props is stored for them for now) and is never sent anywhere, logged
     or written back to any file. The stored picture (`media_files`,
-    `thumbnails`) is drawn again from the photo's pixels, as every picture is, so its bytes carry no EXIF at all: these
-    four props are all that is kept of it.
+    `thumbnails`) is drawn again from the photo's pixels, as every picture is, and cleaned (6.27b, "What a stored
+    picture carries" above), so its bytes carry the picture's own data and its colour profile, nothing else: these
+    four props are all that is kept of the EXIF.
   - A photo's place and time say where and when a shoot was scouted: History names these fields and never shows the two
     coordinates (as a location's own), and they count as contact details for what an assistant may read (Phase 7,
     decision 14).

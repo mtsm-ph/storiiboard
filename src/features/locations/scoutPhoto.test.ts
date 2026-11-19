@@ -182,28 +182,24 @@ describe('"Use this photo’s place and time"', () => {
 });
 
 describe('the status line after "Add photos…" (6.27 round 3)', () => {
-  it('says, per photo, when its date and place were refused or are a HEIC’s, all in one; nothing for the others', async () => {
+  it('says in one sentence how many photos were added and, by reason, how many have no date or place', async () => {
     const { setLocale } = await import('../../core/i18n');
     const { exifReasonOf } = await import('../../core/model/scoutPhoto');
     setLocale('en');
-    // Photos named as the tile names them (round 4): by their number among the location's photos, not in the import.
-    const photo = (id: string) => record(id, 'media', 'loc', { ...image, file: id.repeat(64).slice(0, 64) });
-    const four = project(typed, photo('p1'), photo('p2'), photo('p3'), photo('p4'));
-    expect(importNote(four, 'loc', [{ id: 'p1', reason: 'read' }, { id: 'p2', reason: 'none' }])).toBe('');
-    expect(importNote(four, 'loc', [])).toBe('');
-    expect(importNote(four, 'loc', [{ id: 'p1', reason: 'refused' }])).toBe('Photo 1: its date and place couldn’t be read, so it was added without them.');
-    expect(importNote(four, 'loc', [{ id: 'p1', reason: 'read' }, { id: 'p2', reason: 'heic' }, { id: 'p3', reason: 'none' }, { id: 'p4', reason: 'refused' }])).toBe(
-      'Photo 2: Storiiboard can’t read a HEIC’s date and place yet; a JPEG copy of it works. Photo 4: its date and place couldn’t be read, so it was added without them.',
-    );
-    // A location with 3 photos, 2 imported, the second refused: it is Photo 5 there.
-    const five = project(typed, photo('p1'), photo('p2'), photo('p3'), photo('q1'), photo('q2'));
-    expect(importNote(five, 'loc', [{ id: 'q1', reason: 'read' }, { id: 'q2', reason: 'refused' }])).toBe('Photo 5: its date and place couldn’t be read, so it was added without them.');
-    // A photo that isn't the location's says nothing.
-    expect(importNote(five, 'loc', [{ id: 'gone', reason: 'refused' }])).toBe('');
+    // Every photo's EXIF read, or none imported: nothing to say, as before.
+    expect(importNote(['read', 'read'])).toBe('');
+    expect(importNote([])).toBe('');
+    // Kevin's example (round 4's item 5): 12 added, 2 HEIC, 1 refused.
+    const twelve = [...new Array<'read'>(9).fill('read'), 'heic', 'heic', 'refused'] as const;
+    expect(importNote(twelve)).toBe('12 photos added. 3 have no date or place: 2 are HEIC, 1 couldn’t be read.');
+    // One of each, and one alone: plurals by count; a photo with no EXIF at all "had none".
+    expect(importNote(['read', 'heic', 'none', 'refused'])).toBe('4 photos added. 3 have no date or place: 1 is HEIC, 1 couldn’t be read, 1 had none.');
+    expect(importNote(['refused'])).toBe('1 photo added. 1 has no date or place: 1 couldn’t be read.');
+    expect(importNote(['none', 'none'])).toBe('2 photos added. 2 have no date or place: 2 had none.');
     setLocale('es');
-    expect(importNote(four, 'loc', [{ id: 'p1', reason: 'heic' }, { id: 'p2', reason: 'refused' }])).toBe(
-      'Foto 1: Storiiboard aún no puede leer la fecha y el lugar de un HEIC; una copia en JPEG sí funciona. Foto 2: no se pudieron leer su fecha y su lugar, así que se añadió sin ellos.',
-    );
+    expect(importNote(twelve)).toBe('12 fotos añadidas. 3 no tienen fecha ni lugar: 2 son HEIC, 1 no se pudo leer.');
+    expect(importNote(['heic', 'none'])).toBe('2 fotos añadidas. 2 no tienen fecha ni lugar: 1 es HEIC, 1 no los tenía.');
+    expect(importNote(['refused'])).toBe('1 foto añadida. 1 no tiene fecha ni lugar: 1 no se pudo leer.');
     setLocale('en');
     // The reader's reason: one of the four, anything else none.
     for (const reason of ['read', 'none', 'refused', 'heic'] as const) expect(exifReasonOf({ reason })).toBe(reason);

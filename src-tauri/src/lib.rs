@@ -18,6 +18,7 @@ mod open;
 mod opened;
 mod originals;
 mod os;
+mod picture_door;
 mod pictures;
 mod playback;
 mod region;
@@ -60,6 +61,7 @@ pub(crate) fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> ta
             sbd::sbd_show_backups,
             sbd::sbd_tx,
             sbd::sbd_tx_raw,
+            sbd::sbd_import_tx_raw,
             sbd::sbd_read_blob,
             sbd::sbd_query,
             sbd::sbd_backup,

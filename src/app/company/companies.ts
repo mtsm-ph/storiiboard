@@ -1,5 +1,6 @@
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
+import { blobDataUrl, canvasBlob, PictureNotSavedError } from '../../core/media/canvas';
 import { cleanProfileText, loadSettings, saveSettings } from '../../core/storage/settings';
 import { cleanBrandColors, cleanBrandFonts, COMPANY_FIELDS, LOGO_EDGE, MAX_ALL_LOGOS_CHARS, MAX_COMPANIES, MAX_COMPANY_TEXT, MAX_LOGO_CHARS, type CompanyProfile } from '../../core/model/company';
 
@@ -58,9 +59,11 @@ export function removeCompany(id: string): CompanyProblem | null {
 
 /**
  * A picture made into a profile's logo: fitted inside LOGO_EDGE px, kept as a PNG data URL (transparency kept), made
- * smaller still until it fits MAX_LOGO_CHARS (a photographic logo is heavy as a PNG). `unreadable` when it can't be read.
+ * smaller still until it fits MAX_LOGO_CHARS (a photographic logo is heavy as a PNG). `unreadable` when it can't be read;
+ * `notSaved` when what the webview encoded holds more than the clean keeps, `pictureUnreadable` when the clean couldn't
+ * read it (canvasBlob), so nothing is kept.
  */
-export async function logoFromPicture(bytes: Blob): Promise<{ logo: string } | 'unreadable'> {
+export async function logoFromPicture(bytes: Blob): Promise<{ logo: string } | 'unreadable' | 'notSaved' | 'pictureUnreadable'> {
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(bytes, { imageOrientation: 'from-image' });
@@ -75,7 +78,13 @@ export async function logoFromPicture(bytes: Blob): Promise<{ logo: string } | '
       canvas.width = Math.max(1, Math.round(bitmap.width * scale));
       canvas.height = Math.max(1, Math.round(bitmap.height * scale));
       canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const url = canvas.toDataURL('image/png');
+      // Through the app's one encoder, so the logo carries only its picture and colour (cleanPicture.ts).
+      const blob = await canvasBlob(canvas, 'image/png').catch((error: unknown) =>
+        error instanceof PictureNotSavedError && error.why === 'unreadable' ? ('pictureUnreadable' as const) : ('notSaved' as const),
+      );
+      if (blob === 'notSaved' || blob === 'pictureUnreadable') return blob;
+      if (!blob) return 'unreadable';
+      const url = await blobDataUrl(blob);
       if (url.length <= MAX_LOGO_CHARS) return { logo: url };
       if (edge <= 64) return 'unreadable';
       edge = Math.round(edge * 0.75);

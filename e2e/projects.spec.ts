@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
@@ -299,4 +300,144 @@ test('a company profile saved once is attached to a project, with its logo, upda
   await page.keyboard.press(undo);
   await expect(copy).toHaveCount(0);
   await expect(panel.getByRole('combobox', { name: 'Company', exact: true })).toHaveValue('');
+});
+
+test('an import whose stored files are damaged leaves them out, imports the rest, and says how many and where', async ({ page, context, browserName }) => {
+  // Chromium asks before a page reads the clipboard; WebKit lets a click write to it as Safari does.
+  if (browserName === 'chromium') await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  // 6.27b round 3 (Kevin, Nov 18): a picture on a frame, one on a board and a PDF, each damaged in the exported JSON.
+  await newProject(page, 'Bey County');
+  const storyboard = page.getByRole('region', { name: 'Storyboard', exact: true });
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  await storyboard.getByRole('button', { name: '+ Frame in SC 01' }).click();
+  const frame = storyboard.locator('[aria-label="Frames in SC 01"] [data-shot-id]').first();
+  await frame.click();
+  let chooser = page.waitForEvent('filechooser');
+  await page.getByRole('region', { name: 'Frame inspector', exact: true }).getByRole('button', { name: 'Choose picture…' }).click();
+  await (await chooser).setFiles(fileURLToPath(new URL('./fixtures/images/srgb.jpg', import.meta.url)));
+  await expect(frame.locator('img[data-frame-image]')).toBeVisible();
+
+  // A picture on the Camera board, dropped at its middle.
+  const moodboard = page.getByRole('region', { name: 'Moodboard', exact: true });
+  await sidebar(page).getByRole('button', { name: /^Moodboard/ }).click();
+  const start = moodboard.locator('[data-department-board="camera"]');
+  const canvas = page.getByRole('application', { name: 'Camera board' });
+  await expect(canvas.or(start)).toBeVisible();
+  if (await start.isVisible()) await start.click();
+  await expect(canvas).toBeVisible();
+  const boardData = moodboard.locator('[data-board-data]');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('no board');
+  const picture = [...readFileSync(fileURLToPath(new URL('./fixtures/images/p3-red.jpg', import.meta.url)))];
+  const transfer = await page.evaluateHandle((data) => {
+    const t = new DataTransfer();
+    t.items.add(new File([new Uint8Array(data)], 'p3-red.jpg', { type: 'image/jpeg' }));
+    return t;
+  }, picture);
+  await boardData.dispatchEvent('drop', { dataTransfer: transfer, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 });
+  const kinds = async () => (JSON.parse((await boardData.getAttribute('data-board-data')) ?? '[]') as { kind: string }[]).map((i) => i.kind);
+  await expect.poll(kinds).toEqual(['picture']);
+
+  // Two PDFs on the project: one is damaged, the other comes back.
+  await sidebar(page).getByRole('button', { name: /^Assets/ }).click();
+  const assets = page.getByRole('region', { name: 'Assets', exact: true });
+  chooser = page.waitForEvent('filechooser');
+  await assets.getByRole('button', { name: 'Add PDF…' }).click();
+  await (await chooser).setFiles([
+    { name: 'Notes.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n% notes\n') },
+    { name: 'Recce.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n% recce\n') },
+  ]);
+  await expect(assets).toContainText('2 attachments');
+
+  // Exported as Project data; one byte of each damaged file's bytes changed in the JSON.
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export Project…', exact: true }).click();
+  const exporting = page.getByRole('dialog', { name: 'Export' });
+  await exporting.getByRole('radio', { name: 'Project data (JSON)' }).check();
+  const downloaded = page.waitForEvent('download');
+  await exporting.getByRole('button', { name: 'Save…' }).click();
+  type Exported = { tables: Record<string, { columns: string[]; rows: unknown[][] }> };
+  const data = JSON.parse(readFileSync(await (await downloaded).path(), 'utf8')) as Exported;
+  const files = data.tables.media_files;
+  if (!files) throw new Error('no media_files');
+  const bytesAt = files.columns.indexOf('bytes');
+  const mimeAt = files.columns.indexOf('mime');
+  const damaged: Buffer[] = [];
+  for (const row of files.rows) {
+    const cell = row[bytesAt] as { base64: string };
+    const bytes = Buffer.from(cell.base64, 'base64');
+    if (String(row[mimeAt]).startsWith('image/') || bytes.includes(Buffer.from('notes'))) {
+      bytes[bytes.length - 3] = (bytes[bytes.length - 3] ?? 0) ^ 1;
+      damaged.push(bytes);
+      row[bytesAt] = { base64: bytes.toString('base64') };
+    }
+  }
+  expect(damaged).toHaveLength(3);
+
+  // Imported from the Projects screen: the rest comes in, and the note says how many and where.
+  await sidebar(page).getByRole('button', { name: /^Project:/ }).click();
+  await page.getByRole('button', { name: 'All projects…' }).click();
+  chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import project data…' }).click();
+  page.once('dialog', (prompt) => void prompt.accept('Bey County imported'));
+  await (await chooser).setFiles({ name: 'Bey County project data.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)) });
+  const note = page.getByRole('status').filter({ hasText: 'damaged and left out' });
+  await expect(note).toContainText('2 of 2 pictures were damaged and left out. 1 of 2 files was damaged and left out. They show as missing in: ');
+  for (const place of ['SC 01 · Frame 1A', 'Board · Camera', 'Project']) await expect(note).toContainText(place);
+  // Copy list keeps it (round 4): the whole text, counts and every place, on the clipboard; the notice stays.
+  const copyList = note.getByRole('button', { name: 'Copy list' });
+  await copyList.focus();
+  await page.keyboard.press('Enter');
+  const whole = '2 of 2 pictures were damaged and left out. 1 of 2 files was damaged and left out. They show as missing in: ';
+  const fallback = note.getByRole('textbox', { name: 'The list, to copy by hand' });
+  if (browserName === 'chromium') {
+    await expect(note.getByRole('button', { name: 'List copied' })).toBeVisible();
+    // The clipboard's content, read where the browser lets a test read it.
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied.startsWith(whole)).toBe(true);
+    for (const place of ['SC 01 · Frame 1A', 'Board · Camera', 'Project']) expect(copied).toContain(place);
+  } else {
+    // Elsewhere the copy may or may not be let through: either it says so, or the list shows to copy by hand.
+    await expect(note.getByRole('button', { name: 'List copied' }).or(fallback)).toBeVisible();
+  }
+  // A copy that fails (round 5): the whole list in a read-only field, selected, so it's still reachable.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => Promise.reject(new Error('refused')) } });
+  });
+  await note.getByRole('button', { name: /^(Copy list|List copied|Couldn’t copy the list)$/ }).click();
+  await expect(note.getByRole('button', { name: 'Couldn’t copy the list' })).toBeVisible();
+  await expect(fallback).toBeFocused();
+  await expect(fallback).toHaveJSProperty('readOnly', true);
+  expect((await fallback.inputValue()).startsWith(whole)).toBe(true);
+  for (const place of ['SC 01 · Frame 1A', 'Board · Camera', 'Project']) await expect(fallback).toHaveValue(new RegExp(place));
+
+  // The frame shows its picture missing; the board keeps its picture item; the damaged PDF is missing, the other saves.
+  await sidebar(page).getByRole('button', { name: /^Storyboard/ }).click();
+  await expect(storyboard.locator('[aria-label="Frames in SC 01"] [data-shot-id]').first()).toContainText('Picture missing');
+  await sidebar(page).getByRole('button', { name: /^Moodboard/ }).click();
+  const opened = moodboard.getByRole('region', { name: 'Boards', exact: true }).getByRole('button', { name: /^Camera/ });
+  if (await opened.isVisible()) await opened.click();
+  await expect.poll(kinds).toEqual(['picture']);
+  // The board's picture item shows its picture missing as a gone picture does: the board's data says so per item, by
+  // the condition the canvas draws its words by (round 5).
+  const missing = async () => (JSON.parse((await boardData.getAttribute('data-board-data')) ?? '[]') as { missing?: boolean }[]).map((i) => i.missing === true);
+  await expect.poll(missing).toEqual([true]);
+  await sidebar(page).getByRole('button', { name: /^Assets/ }).click();
+  await assets.getByRole('button', { name: 'Save a copy…, Notes.pdf' }).click();
+  await expect(page.getByText('Notes.pdf isn’t in this project file any more.')).toBeVisible();
+  const saved = page.waitForEvent('download');
+  await assets.getByRole('button', { name: 'Save a copy…, Recce.pdf' }).click();
+  expect((await saved).suggestedFilename()).toBe('Recce.pdf');
+
+  // The damaged bytes are in no table: the imported project's own export holds only the PDF that came back.
+  await page.getByRole('button', { name: 'Project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export Project…', exact: true }).click();
+  await exporting.getByRole('radio', { name: 'Full archive (JSON)' }).check();
+  const again = page.waitForEvent('download');
+  await exporting.getByRole('button', { name: 'Save…' }).click();
+  const text = readFileSync(await (await again).path(), 'utf8');
+  for (const bytes of damaged) expect(text.includes(bytes.toString('base64'))).toBe(false);
+  const archive = JSON.parse(text) as Exported;
+  expect(archive.tables.media_files?.rows).toHaveLength(1);
+  expect(archive.tables.thumbnails?.rows).toHaveLength(0);
 });

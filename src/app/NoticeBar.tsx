@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { t } from '../core/i18n';
 import { useIsTopWindow, useOpenWindowCount } from '../ui/InAppWindow';
 import { clearNotice, markNoticeShown, noticeShownBefore, useNotice } from './notice';
@@ -15,11 +15,11 @@ export function NoticeBar() {
   // In a window: only the top one. Outside: only with no window open.
   if (notice.message === null || (top === null ? windows > 0 : !top)) return null;
   // Keyed by the notice, so each one starts its own bar and decides afresh whether it's been read out.
-  return <Bar key={notice.seq} message={notice.message} kind={notice.kind} seq={notice.seq} />;
+  return <Bar key={notice.seq} message={notice.message} kind={notice.kind} seq={notice.seq} copy={notice.copy} />;
 }
 
 /** One notice on screen. A live region only the first time it's drawn, so moving it between windows says nothing new. */
-function Bar({ message, kind, seq }: { message: string; kind: 'warning' | 'info'; seq: number }) {
+function Bar({ message, kind, seq, copy }: { message: string; kind: 'warning' | 'info'; seq: number; copy: string | null }) {
   // Decided once per bar: later renders keep the same role. Marked in an effect, so a render React throws away
   // (StrictMode's double call) never counts as shown.
   const [repeat] = useState(() => noticeShownBefore(seq));
@@ -34,11 +34,79 @@ function Bar({ message, kind, seq }: { message: string; kind: 'warning' | 'info'
       </button>
     </div>
   ) : (
-    <div data-notice="" role={repeat ? undefined : 'status'} className="mx-gap mt-gap flex shrink-0 items-center gap-3 border border-text px-3 py-1.5">
+    <div data-notice="" role={repeat ? undefined : 'status'} className="mx-gap mt-gap flex shrink-0 flex-wrap items-center gap-3 border border-text px-3 py-1.5">
       <p className="text-[13px]">{message}</p>
-      <button type="button" onClick={clearNotice} className="sb-label ml-auto border border-text px-2 py-1">
+      {copy !== null && <CopyList text={copy} />}
+      <button type="button" onClick={clearNotice} className={`sb-label border border-text px-2 py-1 ${copy === null ? 'ml-auto' : ''}`}>
         {t('appShell.gotIt')}
       </button>
     </div>
+  );
+}
+
+/**
+ * Copy list (6.27b round 4, Kevin Nov 18): the notice's whole text onto the clipboard, every place included, so it can
+ * be kept once the bar goes. The button says how it went, in its own words, and the notice stays; when the copy fails,
+ * the whole text shows in a read-only field, selected (round 5).
+ */
+function CopyList({ text }: { text: string }) {
+  const [state, setState] = useState<'ready' | 'copied' | 'failed'>('ready');
+  // Counts the failed tries, so each one selects the field again.
+  const [failures, setFailures] = useState(0);
+  const field = useRef<HTMLTextAreaElement>(null);
+  // Copying failed: the list in a field of its own, selected, to copy by hand (round 5), so it's never out of reach.
+  useEffect(() => {
+    if (failures === 0) return;
+    field.current?.focus();
+    field.current?.select();
+  }, [failures]);
+  return (
+    <>
+      <CopyButton
+        state={state}
+        text={text}
+        setState={(next) => {
+          setState(next);
+          if (next === 'failed') setFailures((n) => n + 1);
+        }}
+      />
+      {state === 'failed' && (
+        <textarea
+          ref={field}
+          readOnly
+          value={text}
+          aria-label={t('notice.listToCopy')}
+          rows={3}
+          className="order-last basis-full border border-text bg-surface p-1 text-[12px]"
+        />
+      )}
+    </>
+  );
+}
+
+/** The button itself, which says how the copy went. */
+function CopyButton({ state, text, setState }: { state: 'ready' | 'copied' | 'failed'; text: string; setState: (state: 'copied' | 'failed') => void }) {
+  return (
+    <button
+      type="button"
+      className="sb-label ml-auto border border-text px-2 py-1"
+      onClick={() => {
+        const clipboard = (navigator as Partial<Navigator>).clipboard;
+        if (!clipboard) {
+          setState('failed');
+          return;
+        }
+        void clipboard.writeText(text).then(
+          () => {
+            setState('copied');
+          },
+          () => {
+            setState('failed');
+          },
+        );
+      }}
+    >
+      {state === 'copied' ? t('notice.listCopied') : state === 'failed' ? t('notice.listNotCopied') : t('notice.copyList')}
+    </button>
   );
 }

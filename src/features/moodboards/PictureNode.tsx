@@ -17,6 +17,23 @@ export const drawnLevels = createStore<{ levels: Readonly<Record<string, Picture
 
 export const useDrawnLevels = () => useStore(drawnLevels, (s) => s.levels);
 
+/**
+ * The items whose picture is gone from the file (round 5, 6.27b): drawn as an empty box with the words a gone picture
+ * shows, the same condition. The board's data says it per picture item (`missing`), as the canvas is pixels.
+ */
+export const gonePictures = createStore<{ ids: ReadonlySet<string> }>()(() => ({ ids: new Set<string>() }));
+
+export const useGonePictures = () => useStore(gonePictures, (s) => s.ids);
+
+function reportGone(id: string, gone: boolean) {
+  const { ids } = gonePictures.getState();
+  if (ids.has(id) === gone) return;
+  const next = new Set(ids);
+  if (gone) next.add(id);
+  else next.delete(id);
+  gonePictures.setState({ ids: next });
+}
+
 function report(id: string, level: PictureLevel | null) {
   const { levels } = drawnLevels.getState();
   if (level === null ? !(id in levels) : levels[id] === level) return;
@@ -129,6 +146,15 @@ export function PictureNode({
       report(id, null);
     };
   }, [id, level, shown, cutAway]);
+  // Gone: the condition that draws the "deleted for good" words below.
+  const gone = image === null;
+  useEffect(() => {
+    if (cutAway) return;
+    reportGone(id, gone);
+    return () => {
+      reportGone(id, false);
+    };
+  }, [id, gone, cutAway]);
   if (cutAway) return shown && whole ? <KonvaImage image={shown} x={whole.x} y={whole.y} width={whole.width} height={whole.height} opacity={CUT_OPACITY} listening={false} /> : null;
   if (shown && fit.kind === 'cover') {
     const box = cropBox(fit.crop ?? DEFAULT_CROP, shown.naturalWidth / shown.naturalHeight, width / height);

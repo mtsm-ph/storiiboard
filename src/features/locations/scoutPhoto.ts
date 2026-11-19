@@ -1,8 +1,6 @@
 import { projectStore } from '../../app/projectStore';
 import type { Coordinates } from '../../core/model/coordinates';
-import { t } from '../../core/i18n';
-import { locationPhotos } from '../../core/model/location';
-import type { SbdRecord } from '../../core/model/record';
+import { t, tn } from '../../core/i18n';
 import { photoTakenOf, type ExifReason } from '../../core/model/scoutPhoto';
 import type { Change } from '../../core/ops/ops';
 import { clearLightPhotoChanges, photoPlaceTimeChanges } from './locationEdits';
@@ -48,24 +46,26 @@ export async function applyPhotoPlaceTime(photoId: string): Promise<PhotoUsed> {
 }
 
 /**
- * What the status line says after "Add photos…" (6.27 round 3, Kevin Nov 17): a line for each photo whose date and place
- * were left out, named as the tile names it ("Photo 5: …", its number among the location's photos, as in "Photo 5 of
- * Quay": round 4), all in one; '' when none needs one. A photo with no EXIF, or one read, says nothing new; a photo that
- * couldn't be prepared at all (a HEIC this webview can't decode) wasn't imported and has its own notice already. The
- * status line holds one string, so the lines are joined by a space.
+ * What the status line says after "Add photos…" (6.27 round 4's item 5, Kevin): one sentence that counts the photos
+ * added and, of them, those with no date or place by reason: "12 photos added. 3 have no date or place: 2 are HEIC, 1
+ * couldn't be read." A photo with no EXIF at all "had none". '' when every photo's EXIF was read, as before. `reasons`
+ * are the imported photos', one each; a photo that couldn't be prepared at all wasn't imported and has its own notice.
  */
-export function importNote(records: Readonly<Record<string, SbdRecord>>, locationId: string, imported: readonly { id: string; reason: ExifReason }[]): string {
-  const photos = locationPhotos(records, locationId);
-  return imported
-    .flatMap(({ id, reason }) => {
-      const at = photos.findIndex((photo) => photo.id === id);
-      if (at < 0) return [];
-      const n = at + 1;
-      if (reason === 'refused') return [t('location.photoExifRefused', { n })];
-      if (reason === 'heic') return [t('location.photoExifHeic', { n })];
-      return [];
-    })
-    .join(' ');
+export function importNote(reasons: readonly ExifReason[]): string {
+  const count = (reason: ExifReason) => reasons.filter((r) => r === reason).length;
+  const parts = (
+    [
+      ['heic', 'location.photosHeic'],
+      ['refused', 'location.photosUnread'],
+      ['none', 'location.photosHadNone'],
+    ] as const
+  ).flatMap(([reason, key]) => {
+    const n = count(reason);
+    return n > 0 ? [tn(key, n)] : [];
+  });
+  const missing = reasons.length - count('read');
+  if (missing === 0) return '';
+  return `${tn('location.photosAdded', reasons.length)} ${tn('location.photosNoPlace', missing, { reasons: parts.join(t('list.separator')) })}`;
 }
 
 /** The light reference taken off. */

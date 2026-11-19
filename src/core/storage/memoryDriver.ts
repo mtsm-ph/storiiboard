@@ -1,7 +1,24 @@
 import type { Database, SqlJsStatic, SqlJsValue } from 'sql.js';
 import { isBackupName, isMigrationBackupName } from './backups';
-import { blobOf, refuseBytes, type BackupKind, type ProjectFile, type Row, type SqlDriver } from './driver';
+import { blobOf, doorVerdict, refuseBytes, refuseMisnamedPictures, refuseUncleanPictures, type BackupKind, type ProjectFile, type Row, type SqlDriver, type Statement } from './driver';
 import { fileName, fileStem } from './paths';
+import { isListedShape, statementShape } from './pictureStatements';
+
+/**
+ * Round 4 (Kevin, Nov 18): a statement the page writes that names the stored pictures' tables must be on the one list
+ * both doors are tested against (src-tauri/testdata/picture-statements.json), by its shape (values as `?`). One that
+ * isn't is said as a console error, which fails every end-to-end spec (none is ever filtered), so a new statement
+ * can't reach the app without the list, and the doors' tests, knowing it. In a page only: a unit test's own probes of
+ * the door aren't the app's.
+ */
+function reportUnlisted(statements: readonly Statement[]): void {
+  if (typeof document === 'undefined') return;
+  for (const { sql } of statements) {
+    if (doorVerdict(sql, 'ordinary') === 'none') continue;
+    const shape = statementShape(sql);
+    if (!isListedShape(shape)) console.error(`A statement naming media_files or thumbnails isn’t on src-tauri/testdata/picture-statements.json: ${shape}`);
+  }
+}
 
 // A third driver, for the end-to-end tests only (approved Nov 2): SQLite compiled to WebAssembly (sql.js), with each
 // project kept in memory and saved to the page's localStorage after every write, so a test can create, edit,
@@ -168,8 +185,13 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
 
     return {
       path,
-      tx: (statements) =>
-        settle(() => {
+      tx: async (statements, options) => {
+        // sbd.rs's doors, before anything is written: Import project data writes its pictures as they came once each is
+        // the one its name says, as sbd_import_tx_raw does; every other write refuses an unclean picture.
+        reportUnlisted(statements);
+        if (options?.imported) await refuseMisnamedPictures(statements);
+        return settle(() => {
+          if (!options?.imported) refuseUncleanPictures(statements);
           db.exec('BEGIN IMMEDIATE');
           try {
             for (const { sql, params } of statements) db.run(sql, params ?? []);
@@ -184,7 +206,8 @@ export async function createMemoryDriver({ wasm, storage }: MemoryDriverOptions)
             throw error;
           }
           save();
-        }),
+        });
+      },
       query: (sql, params) =>
         settle(() => {
           if (/^\s*SELECT total_changes\(\) AS changes\s*$/i.test(sql)) return [{ changes: earlierChanges + totalChanges() }];

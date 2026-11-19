@@ -14,11 +14,18 @@ import type { ExportScope } from './scope';
 // browser's to check (e2e/export.spec.ts). The stand-in says a frame's picture is missing when its shot is in
 // `lostPictures`, as renderFrame does for a picture the file no longer holds (renderFrame.test.ts).
 const drawn = vi.hoisted(() => ({ shots: [] as string[], lostPictures: new Set<string>() }));
+// What the stand-in canvas encodes: a whole PNG (signature, IHDR, IDAT, IEND), since canvasBlob cleans what it's handed
+// (6.27b) and refuses bytes that aren't a picture it can read through.
+const { TINY_PNG } = vi.hoisted(() => {
+  const chunk = (type: string, body: number[]) => [0, 0, 0, body.length, ...Array.from(type, (c) => c.charCodeAt(0)), ...body, 0, 0, 0, 0];
+  const bytes = [137, 80, 78, 71, 13, 10, 26, 10, ...chunk('IHDR', [0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0]), ...chunk('IDAT', [0]), ...chunk('IEND', [])];
+  return { TINY_PNG: new Uint8Array(bytes) };
+});
 vi.mock('./renderFrame', () => ({
   renderFrame: (_records: unknown, _file: unknown, shot: SbdRecord) => {
     drawn.shots.push(shot.id);
     return Promise.resolve({
-      canvas: { convertToBlob: () => Promise.resolve(new Blob([new Uint8Array([137, 80, 78, 71])])) },
+      canvas: { convertToBlob: () => Promise.resolve(new Blob([TINY_PNG])) },
       pictureMissing: drawn.lostPictures.has(shot.id),
     });
   },

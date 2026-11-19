@@ -85,12 +85,12 @@ export function LocationPhotos({ locationId, name }: { locationId: string; name:
         for (const change of edit.changes) if (change.kind === 'create' && change.record.type === 'media' && change.record.id) made.push(change.record.id);
         return edit;
       });
-      // One status update for the whole import: a line for each photo added without its date and place.
-      const imported = made.flatMap((id, i) => {
+      // One status update for the whole import: the photos added, and those without a date and place, by reason.
+      const imported = made.flatMap((_, i) => {
         const reason = reasons[i];
-        return reason ? [{ id, reason }] : [];
+        return reason ? [reason] : [];
       });
-      const note = importNote(projectStore.getState().records, locationId, imported);
+      const note = importNote(imported);
       if (done && note !== '') setSaid(note);
     } finally {
       adding.current = false;

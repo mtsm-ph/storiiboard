@@ -439,6 +439,79 @@ function fillStatements(data: ProjectJson, schema: Map<string, Column[]>): State
   return statements;
 }
 
+/** A stored file an import left out because its bytes aren't the ones its name says. */
+export interface LeftOutFile {
+  sha256: string;
+  /** A picture (its type is an image), else a file (a PDF attachment, an issued call sheet). */
+  picture: boolean;
+}
+
+/** What an import did with the stored files: those left out, and how many pictures and other files the JSON held. */
+export interface ImportReport {
+  leftOut: LeftOutFile[];
+  pictures: number;
+  files: number;
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>));
+  return [...digest].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * The JSON with every stored file whose bytes don't match its `sha256` left out, with its thumbnails (6.27b round 3,
+ * Kevin Nov 18): bytes that don't match their hash are never stored, under any name, and the rest of the project still
+ * imports. The records that point at a left-out file stay as they are and show it missing, as a removed picture does.
+ * A row this can't read (no hash, bytes that aren't base64) is left as it is, for fillStatements to refuse. The import's
+ * door (driver.ts, sbd.rs) still refuses a mismatched row whole, should one ever get past this.
+ */
+export async function leaveOutDamagedFiles(data: ProjectJson): Promise<{ data: ProjectJson; report: ImportReport }> {
+  const files = data.tables.media_files;
+  const report: ImportReport = { leftOut: [], pictures: 0, files: 0 };
+  if (!files) return { data, report };
+  const shaAt = files.columns.indexOf('sha256');
+  const bytesAt = files.columns.indexOf('bytes');
+  const mimeAt = files.columns.indexOf('mime');
+  const damaged = new Set<string>();
+  const kept: JsonValue[][] = [];
+  for (const row of files.rows) {
+    const sha = row[shaAt];
+    const cell = row[bytesAt];
+    const mime = row[mimeAt];
+    const picture = typeof mime === 'string' && mime.startsWith('image/');
+    if (picture) report.pictures += 1;
+    else report.files += 1;
+    if (typeof sha === 'string' && cell !== null && typeof cell === 'object') {
+      let bytes: Uint8Array | null = null;
+      try {
+        bytes = fromBase64(cell.base64);
+      } catch {
+        // Not base64: fillStatements refuses the import, as it always has.
+      }
+      if (bytes && (await sha256Hex(bytes)) !== sha) {
+        damaged.add(sha);
+        report.leftOut.push({ sha256: sha, picture });
+        continue;
+      }
+    }
+    kept.push(row);
+  }
+  if (damaged.size === 0) return { data, report };
+  const tables: Record<string, JsonTable> = { ...data.tables, media_files: { ...files, rows: kept } };
+  const thumbnails = data.tables.thumbnails;
+  if (thumbnails) {
+    const at = thumbnails.columns.indexOf('sha256');
+    tables.thumbnails = {
+      ...thumbnails,
+      rows: thumbnails.rows.filter((row) => {
+        const sha = row[at];
+        return !(typeof sha === 'string' && damaged.has(sha));
+      }),
+    };
+  }
+  return { data: { ...data, tables }, report };
+}
+
 /** Whether a failed transaction was SQLite refusing the rows themselves, not the disk or the app failing. */
 function refusesData(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
@@ -450,15 +523,19 @@ function refusesData(error: unknown): boolean {
  * any older file is (project.ts). Refuses a path that's taken. The rows go in in one transaction, so none or all of
  * them land. Its tables and columns can only be checked against the schema once the new file has it; a JSON whose
  * don't match (hand-edited, or not one Storiiboard wrote) leaves the new file empty, which opens as an empty project.
+ * A stored file whose bytes don't match its name is left out (leaveOutDamagedFiles); the report says which.
  */
-export async function importProjectJson(driver: SqlDriver, path: string, data: ProjectJson, now = new Date()): Promise<void> {
-  if (data.schema_version > MIGRATIONS.length) throw new NewerProjectError(data.schema_version, MIGRATIONS.length);
+export async function importProjectJson(driver: SqlDriver, path: string, json: ProjectJson, now = new Date()): Promise<ImportReport> {
+  if (json.schema_version > MIGRATIONS.length) throw new NewerProjectError(json.schema_version, MIGRATIONS.length);
+  const { data, report } = await leaveOutDamagedFiles(json);
   const file = await driver.create(path);
   try {
     await migrate(file, { isNew: true, migrations: MIGRATIONS.slice(0, data.schema_version), now: () => now });
     const statements = fillStatements(data, await schemaOf(file));
     try {
-      await file.tx(statements);
+      // Imported: the pictures as the project stored them, an older build's included (their SHA-256 is their name), so
+      // past the door every other write keeps (driver.ts, TxOptions).
+      await file.tx(statements, { imported: true });
     } catch (error) {
       // SQLite's own refusal of the rows (a thumbnail of a picture that isn't there, a value of the wrong kind): the
       // data doesn't fit. Anything else (a full disk, a sync, memory) is said as it is.
@@ -468,4 +545,5 @@ export async function importProjectJson(driver: SqlDriver, path: string, data: P
   } finally {
     await file.close();
   }
+  return report;
 }

@@ -312,9 +312,17 @@ fn parse(bytes: &[u8]) -> PhotoAnswer {
     let Ok(exif) = Reader::new().read_raw(block.into_owned()) else {
         return PhotoAnswer::empty(Reason::Refused);
     };
-    let (taken_at, taken_offset) = taken(&exif);
+    PhotoAnswer {
+        exif: values(&exif),
+        reason: Reason::Read,
+    }
+}
+
+/// The four values a parsed EXIF gives, each only when it reads.
+fn values(exif: &Exif) -> PhotoExif {
+    let (taken_at, taken_offset) = taken(exif);
     let place = coordinate(
-        &exif,
+        exif,
         Tag::GPSLatitude,
         Tag::GPSLatitudeRef,
         b'N',
@@ -322,7 +330,7 @@ fn parse(bytes: &[u8]) -> PhotoAnswer {
         90.0,
     )
     .zip(coordinate(
-        &exif,
+        exif,
         Tag::GPSLongitude,
         Tag::GPSLongitudeRef,
         b'E',
@@ -331,14 +339,11 @@ fn parse(bytes: &[u8]) -> PhotoAnswer {
     ));
     // 0, 0 is what a camera with no fix writes, a point in the Gulf of Guinea: not a place a photo was taken.
     let place = place.filter(|(latitude, longitude)| *latitude != 0.0 || *longitude != 0.0);
-    PhotoAnswer {
-        exif: PhotoExif {
-            taken_at,
-            taken_offset,
-            latitude: place.map(|(latitude, _)| latitude),
-            longitude: place.map(|(_, longitude)| longitude),
-        },
-        reason: Reason::Read,
+    PhotoExif {
+        taken_at,
+        taken_offset,
+        latitude: place.map(|(latitude, _)| latitude),
+        longitude: place.map(|(_, longitude)| longitude),
     }
 }
 
@@ -1282,5 +1287,70 @@ pub(crate) mod tests {
         // PNG and WebP containers likewise: nothing.
         assert_eq!(read(b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR"), NONE);
         assert_eq!(read(b"RIFF\x10\0\0\0WEBPEXIF"), NONE);
+    }
+
+    /// The real-JPEG guard check (6.27b, round 2's reviewer, Kevin Nov 18), run by hand by the main session, never in
+    /// CI: `SB_SAMPLE_JPEGS=<folder> cargo test real_jpegs -- --ignored --nocapture`. For every .jpg and .jpeg in the
+    /// folder, (1) the walk passes its EXIF block, and (2) what the app reads through the walk equals what the crate
+    /// reads from the same block without it. A file with no EXIF block has nothing to refuse and reads as nothing both
+    /// ways. Real photos hold where and when they were taken, so the output and every failure name a file only by its
+    /// number in name order: never its name, its path, a date, a time or a coordinate.
+    #[test]
+    #[ignore = "reads a folder of real photos named by SB_SAMPLE_JPEGS; run by hand"]
+    fn real_jpegs_pass_the_walk_and_read_the_same_without_it() {
+        let Some(folder) = std::env::var_os("SB_SAMPLE_JPEGS") else {
+            panic!("SB_SAMPLE_JPEGS names no folder");
+        };
+        let Ok(entries) = std::fs::read_dir(&folder) else {
+            panic!("the SB_SAMPLE_JPEGS folder couldn't be read");
+        };
+        let mut paths: Vec<std::path::PathBuf> = entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                    e.eq_ignore_ascii_case("jpg") || e.eq_ignore_ascii_case("jpeg")
+                })
+            })
+            .collect();
+        paths.sort();
+        assert!(!paths.is_empty(), "the folder holds no .jpg or .jpeg");
+        // A panic the library raises on a file is caught below, but the default hook would print its message, which
+        // may hold the file's own values: silenced for the loop, the old hook back before the test's own assert.
+        let old_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let mut failed: Vec<usize> = Vec::new();
+        for (index, path) in paths.iter().enumerate() {
+            let n = index + 1;
+            let Ok(bytes) = std::fs::read(path) else {
+                println!("{n}: couldn't be read");
+                failed.push(n);
+                continue;
+            };
+            let (safe, same) = match exif_block(&bytes) {
+                Ok(None) => (true, answer(&bytes).exif == PhotoExif::default()),
+                Err(()) => (false, false),
+                Ok(Some(block)) => {
+                    let safe = block_is_safe(&block);
+                    let unguarded = catch_unwind(AssertUnwindSafe(|| {
+                        Reader::new()
+                            .read_raw(block.to_vec())
+                            .map(|exif| values(&exif))
+                            .unwrap_or_default()
+                    }))
+                    .unwrap_or_default();
+                    (safe, answer(&bytes).exif == unguarded)
+                }
+            };
+            let word = |yes: bool| if yes { "yes" } else { "no" };
+            println!("{n}: safe {}, same {}", word(safe), word(same));
+            if !safe || !same {
+                failed.push(n);
+            }
+        }
+        std::panic::set_hook(old_hook);
+        assert!(
+            failed.is_empty(),
+            "files failing the check, by number: {failed:?}"
+        );
     }
 }

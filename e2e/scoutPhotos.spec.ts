@@ -321,7 +321,7 @@ test('a scout photo’s date, time and place show; its place and time are used i
       const bytes = Buffer.from(cell.base64, 'base64');
       // A JPEG, drawn again by the page.
       expect([bytes[0], bytes[1]]).toEqual([0xff, 0xd8]);
-      for (const [what, trace] of EXIF_TRACES) expect(bytes.includes(trace), `${table}: ${what}`).toBe(false);
+      for (const [what, trace] of EXIF_TRACES) expect.soft(bytes.includes(trace), `${table}: ${what}`).toBe(false);
       pictures += 1;
     }
   }
@@ -487,9 +487,7 @@ test('a photo whose EXIF was refused, and a HEIC, import and say so in one statu
   const photos = photosOf(page);
   // Every photo imports, whatever its EXIF.
   await expect(photos.getByRole('img')).toHaveCount(4);
-  await expect(photos.locator('[data-photo-said]')).toHaveText(
-    'Photo 2: its date and place couldn’t be read, so it was added without them. Photo 4: Storiiboard can’t read a HEIC’s date and place yet; a JPEG copy of it works.',
-  );
+  await expect(photos.locator('[data-photo-said]')).toHaveText('4 photos added. 3 have no date or place: 1 is HEIC, 1 couldn’t be read, 1 had none.');
   await expect(photos.locator('[data-photo-taken]')).toHaveCount(1);
   await axeBothThemes(page, '[data-location-photos]', 'the status line after an import');
 });

@@ -276,6 +276,75 @@ test('draws a picture from the P3 fixture into the PDF in sRGB, not as P3 number
   await expect(page.getByRole('alert').getByText(/1 picture printed from the copy kept in the project, not its original file\./)).toBeVisible();
 });
 
+/** A PNG's chunk types, in order. */
+function pngChunks(bytes: Uint8Array): string[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const types: string[] = [];
+  for (let at = 8; at + 8 <= bytes.length; at += 12 + view.getUint32(at)) types.push(String.fromCharCode(...bytes.subarray(at + 4, at + 8)));
+  return types;
+}
+
+test('a deck’s embedded picture and its pages as PNG carry no Exif, no Photoshop block and no PNG text chunk (6.27b)', async ({ page }) => {
+  await newDeck(page, 'Look', 'Blank');
+  // A photo with an Exif block of its own: the stored copy and everything exported from it are redrawn by the page and
+  // cleaned (cleanPicture.ts), whatever the source or the webview's encoder carries.
+  const source = readFileSync(fixture('srgb.jpg'));
+  const exif = [0xff, 0xe1, 0, 16, ...Buffer.from('Exif\0\0MM\0*\0\0\0\x08', 'latin1')];
+  const data = [...source.subarray(0, 2), ...exif, ...source.subarray(2)];
+  const wrapper = tile(page).locator('[data-board-data]');
+  const box = await wrapper.boundingBox();
+  if (!box) throw new Error('no canvas');
+  const transfer = await page.evaluateHandle((list) => {
+    const t = new DataTransfer();
+    t.items.add(new File([new Uint8Array(list)], 'with-exif.jpg', { type: 'image/jpeg' }));
+    return t;
+  }, data);
+  await wrapper.dispatchEvent('drop', { dataTransfer: transfer, clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 });
+  await expect.poll(async () => (await items(page)).filter((i) => i.kind === 'picture').length).toBe(1);
+  const has = (bytes: Uint8Array, text: string) => Buffer.from(bytes).includes(Buffer.from(text, 'latin1'));
+
+  await openExport(page);
+  const downloaded = page.waitForEvent('download');
+  await dialog(page).getByRole('button', { name: 'Save…' }).click();
+  const pdf = await PDFDocument.load(await bytesOf(await downloaded));
+  const pictures: Uint8Array[] = [];
+  for (const [, object] of pdf.context.enumerateIndirectObjects()) {
+    if (object instanceof PDFRawStream && object.dict.get(PDFName.of('Subtype')) === PDFName.of('Image')) pictures.push(object.contents);
+  }
+  expect(pictures).toHaveLength(1);
+  for (const bytes of pictures) {
+    expect.soft(has(bytes, 'Exif\0\0'), 'the PDF’s picture: an Exif block').toBe(false);
+    expect.soft(has(bytes, 'Photoshop 3.0'), 'the PDF’s picture: a Photoshop block').toBe(false);
+  }
+  // The export's notice (the picture printed from the project's own copy), dismissed so the next one is the one read.
+  await page.getByRole('alert').getByRole('button', { name: 'Dismiss' }).click();
+
+  const files: Uint8Array[] = [];
+  const seen: Promise<void>[] = [];
+  const listener = (download: Download) => {
+    seen.push(
+      (async () => {
+        files.push(await bytesOf(download));
+      })(),
+    );
+  };
+  page.on('download', listener);
+  await openExport(page);
+  await dialog(page).getByRole('radio', { name: 'Pages as PNG' }).click();
+  await dialog(page).getByRole('button', { name: 'Choose folder…' }).click();
+  await expect(page.getByText(/^Exported 1 page to “Look”\./)).toBeVisible();
+  // Waited for through the page, which delivers the download events (as the PNG test above does).
+  for (let tries = 0; tries < 20 && files.length < 1; tries += 1) await page.waitForTimeout(500);
+  await Promise.all(seen);
+  page.off('download', listener);
+  expect(files).toHaveLength(1);
+  for (const bytes of files) {
+    const kept = new Set(['IHDR', 'PLTE', 'tRNS', 'IDAT', 'IEND', 'iCCP', 'sRGB', 'cICP', 'gAMA', 'cHRM']);
+    expect(pngChunks(bytes).filter((type) => !kept.has(type))).toEqual([]);
+    expect.soft(has(bytes, 'Exif\0\0'), 'the PNG: an Exif block').toBe(false);
+  }
+});
+
 test('a deck with no pages has its formats off, with the reason', async ({ page }) => {
   await newDeck(page, 'Social', 'Blank', '9:16 vertical');
   await tile(page).getByRole('complementary', { name: 'Pages' }).locator('[data-page-row]').first().getByRole('button', { name: 'Delete Page 1' }).click();

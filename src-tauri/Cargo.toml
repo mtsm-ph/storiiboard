@@ -49,6 +49,11 @@ font-kit = { version = "=0.14.3", features = ["source-fontconfig-dlopen"] }
 # 2-Clause): 0.6.2 came out on Nov 5, 2026, inside the two-week rule.
 kamadak-exif = "=0.6.1"
 
+# A stored file's SHA-256, its name in the .sbd (6.27b, Kevin Nov 18): sbd.rs's `sha256_hex` for the doors. This is the
+# ring rustls already builds for the network, named here directly with its default features as rustls builds it, so it
+# adds no package; pinned to the version in Cargo.lock, it moves when rustls moves (Apache-2.0 and ISC).
+ring = "=0.17.14"
+
 # Tests only (6.16, Kevin Nov 14): Tauri's own mock runtime (tauri::test), so the command tests (src/command_tests.rs)
 # call each command by name with JSON, through the permissions, as the page does. The same tauri as above with its
 # `test` feature, so no crate is added; release builds never get the feature (dev-dependency features stay out of

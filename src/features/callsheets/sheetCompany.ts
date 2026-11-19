@@ -35,9 +35,11 @@ export function sheetCompany(records: Records, projectId: string): SheetCompany 
 const LOGO_PDF_EDGE = 600;
 
 /**
- * The logo's bytes for the PDF, or null when the file doesn't hold them (the name prints alone). Logos are stored in
+ * The logo's bytes for the PDF, or null when there are none to print (the name prints alone). Logos are stored in
  * Display P3, which pdf-lib would embed as plain RGB and print shifted, so the picture is decoded and redrawn on an
- * sRGB canvas, small, as PNG (which keeps a transparent ground). Where that can't be done, the stored bytes go as they are.
+ * sRGB canvas, small, as PNG (which keeps a transparent ground), through canvasBlob's clean. Where that can't be done
+ * for any reason, the name prints alone: the stored bytes never go out as they are (6.27b), since a logo an older build
+ * stored may carry blocks the clean would drop.
  */
 export async function companyLogoBytes(file: ProjectFile | null, company: SheetCompany | null): Promise<Uint8Array | null> {
   if (!file || !company?.logoSha256) return null;
@@ -49,15 +51,16 @@ export async function companyLogoBytes(file: ProjectFile | null, company: SheetC
       const size = fitWithin(bitmap.width, bitmap.height, LOGO_PDF_EDGE);
       const { canvas, ctx } = makeCanvas(size.width, size.height, { colorSpace: 'srgb' });
       // Asked for outright: a Mac's webview would otherwise draw in P3, the very thing being undone.
-      if (!ctx) return read.bytes;
+      if (!ctx) return null;
       ctx.drawImage(bitmap, 0, 0, size.width, size.height);
       const blob = await canvasBlob(canvas, 'image/png');
-      return blob ? new Uint8Array(await blob.arrayBuffer()) : read.bytes;
+      return blob ? new Uint8Array(await blob.arrayBuffer()) : null;
     } finally {
       bitmap.close();
     }
   } catch {
-    return read.bytes;
+    // Not decoded, not redrawn or not cleanable (canvasBlob's PictureNotSavedError): nothing goes out.
+    return null;
   }
 }
 

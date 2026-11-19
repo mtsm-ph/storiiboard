@@ -46,8 +46,10 @@
 - CI (Kevin, Nov 4): every PR runs quick checks on Linux (lint, types, unit tests, Rust tests); a newer push cancels
   the outdated run. A checkpoint run (.github/workflows/checkpoint.yml) adds the end-to-end smoke set
   (e2e/smoke.spec.ts) on Linux, the whole end-to-end suite in WebKit on a Mac (Kevin, Nov 14) and in Chromium on
-  Linux at 8 workers (Kevin, Nov 17), and the Mac and
-  Windows installers, each listing what its bundle carries.
+  Linux at one worker per core (`--workers=100%`, Kevin, Nov 18: 4 cores while the repo is public, 2 once private;
+  if timeouts still show, the default, never a longer timeout), and the Mac and Windows installers, each listing what
+  its bundle carries. A job red only because of GitHub's machine is rerun, never waved through, and the report says
+  so; red twice for the same cause goes to Kevin.
 - The end-to-end tests run under the installed app's content security policy (6.13): a violation fails the test.
   src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
   commands are tested in Rust through tauri's `test` feature (6.16). No HTML5 drag and drop anywhere in the app
@@ -228,7 +230,11 @@
     never printed, never stored.
     Scout photos (6.27, Kevin Nov 16 and 17): a location's photo keeps its EXIF date, time and GPS (read in Rust,
     src-tauri/src/exif.rs, which checks every block itself before the library reads it; a refused or HEIC photo
-    still imports and the status line says so); one photo can be the location's light reference. With a setup's
+    still imports and the status line says so); one photo can be the location's light reference. Every picture the
+    page encodes is cleaned in `canvasBlob` (6.27b, src/core/media/cleanPicture.ts): kept by a list, never removed by
+    one, the colour profile at most 64 KiB as stored; Rust's door (picture_door.rs, sbd.rs) and the in-page build
+    refuse anything else, both readers tested against one shared list of statements; an import leaves out a stored
+    file whose bytes don't match its hash and says where. With a setup's
     "light reference" switch on (`at_photo`), the sun is drawn wholly from the photo, with or without a shoot
     day: its date and time, its own GPS or else its location's place, and the zone of the place used (the
     location's at its own pin); the mark and the Selection tile say which place.

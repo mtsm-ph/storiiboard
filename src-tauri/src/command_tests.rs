@@ -347,6 +347,73 @@ mod project_file {
         );
     }
 
+    /// The door (6.27b): sbd_tx_raw refuses a stored picture that carries a block outside the keep-list, in the words
+    /// the page shows; sbd_import_tx_raw, Import project data's command, writes it as it came once its bytes are the
+    /// ones its name says, and refuses it whole, in words, when they aren't; a clean copy goes in.
+    #[test]
+    fn refuses_an_unclean_picture_raw_and_imports_one_as_it_came() {
+        use crate::picture_door::tests::{fixture, CLEAN, RAW};
+        let h = Harness::new("door");
+        let handle = h.project(
+            "Bey County.sbd",
+            "CREATE TABLE media_files (sha256 TEXT PRIMARY KEY, bytes BLOB)",
+        );
+        // As Import project data writes a row (projectJson.ts): every column named, one placeholder each.
+        let insert = |sha: &str, bytes: &[u8]| {
+            raw_body(
+                &json!({ "handle": handle, "statements": [
+                    { "sql": "INSERT INTO \"media_files\" (\"sha256\", \"bytes\") VALUES (?, ?)", "params": [sha, { "$blob": [0, bytes.len()] }] },
+                ] }),
+                bytes,
+            )
+        };
+        let read = |sha: &str| {
+            h.call_bytes(
+                "sbd_read_blob",
+                json!({ "handle": handle, "sql": "SELECT bytes FROM media_files WHERE sha256 = ?", "params": [sha] }),
+            )
+        };
+        for (raw, clean) in RAW.iter().zip(CLEAN) {
+            let (raw, clean) = (fixture(raw), fixture(clean));
+            let name = crate::sbd::sha256_hex(&raw).unwrap();
+            assert_eq!(
+                refused(h.call_raw("sbd_tx_raw", insert(&name, &raw))),
+                crate::sbd::PICTURE_NOT_CLEAN
+            );
+            assert_eq!(read(&name), Ok(Vec::new()));
+            assert_eq!(
+                h.call_raw("sbd_tx_raw", insert("clean", &clean)),
+                Ok(json!([1]))
+            );
+            assert_eq!(read("clean"), Ok(clean.clone()));
+            // Named by another picture's hash: the import is refused, and nothing lands.
+            let other = crate::sbd::sha256_hex(&clean).unwrap();
+            assert_eq!(
+                refused(h.call_raw("sbd_import_tx_raw", insert(&other, &raw))),
+                crate::sbd::IMPORT_PICTURE_MISNAMED
+            );
+            assert_eq!(read(&other), Ok(Vec::new()));
+            assert_eq!(
+                h.call_raw("sbd_import_tx_raw", insert(&name, &raw)),
+                Ok(json!([1]))
+            );
+            assert_eq!(read(&name), Ok(raw));
+            h.call(
+                "sbd_tx",
+                json!({ "handle": handle, "statements": [{ "sql": "DELETE FROM media_files", "params": [] }] }),
+            )
+            .unwrap();
+        }
+        // The import's command takes only the raw body, as sbd_tx_raw does.
+        assert_eq!(
+            refused(h.call(
+                "sbd_import_tx_raw",
+                json!({ "handle": handle, "statements": [] })
+            )),
+            "Expected the transaction as raw bytes."
+        );
+    }
+
     /// B3 (6.14): Rust refuses a query that returns bytes and a blob read of anything else, and the page sees the
     /// same words the test drivers (memoryDriver.ts, nodeDriver.ts) give.
     #[test]

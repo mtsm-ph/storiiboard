@@ -30,6 +30,10 @@ function makeCanvas(width: number, height: number): { canvas: AnyCanvas; ctx: Ca
   return prepared(makeAnyCanvas(width, height, { colorSpace: 'display-p3', alpha: true }));
 }
 
+/**
+ * The canvas's bytes as stored: cleaned by canvasBlob (cleanPicture.ts), so the hash taken of them is of what the file
+ * keeps, and isTaggedP3 reads the colour profile the clean kept.
+ */
 async function encode(canvas: AnyCanvas, type: string, quality: number): Promise<Uint8Array<ArrayBuffer>> {
   const blob = await canvasBlob(canvas, type, quality);
   if (!blob) throw new ImageError('The image couldn’t be saved.');
