@@ -496,7 +496,7 @@ two past the out point…", not diagnosed; Rust Mac 313, Windows 303; both insta
   one-line comment, no more detail than a published advisory, the repo being public). The pin to 0.6.2 is its own
   small PR **on or after Nov 19** (cargo test and the refused-photo fixtures, each refused, the app still up); its
   request states the release notes and advisories (memory: dependency-request-advisories). Kevin named
-  GHSA-53gf-vqf6-qvp8; it was not found in GitHub's advisory API or RustSec (asked where he saw it, unanswered).
+  GHSA-53gf-vqf6-qvp8; kamadak-exif 0.6.2's own release notes name it, so it's confirmed and cited with them (#204).
 - B. HEIC waits for a library release (private/PHASE8_LIST_ADDITIONS.md has the entry). No reader of our own.
 - C. Scouting before a schedule: built in round 3 (the photo's date, time and place; the mark and panel say which
   place). **Still to write: the new reading rule next to the old one in CLAUDE.md** (main session, at commit).
