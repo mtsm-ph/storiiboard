@@ -7,13 +7,12 @@ its milestone in parentheses. Items the docs record as already checked and close
 
 Marks: **[Kevin]** is a judgement only you can make (feel, look, print, colour). **[Mac]** and **[Windows]** need that
 system's installed app; an item with neither works on either, and is worth doing on both where it says so.
+**[Other PC]** needs a computer that isn't one of Kevin's two (Windows 10, a PC without WebView2, an N edition, a
+mid Windows laptop, a managed PC): those are set apart at the end, so the main pass doesn't wait on them.
 
 ## Install and first open
 
-- [ ] [Windows] Install on Windows 11 and on a Windows 10 22H2 PC that already has WebView2: the app opens and its
-  window, title bar and scaling look right. (Phase 8, Windows 10)
-- [ ] [Windows] Install on a Windows 10 PC without WebView2, online: the installer fetches it and the app opens. Once
-  offline too: expected to fail today (an offline installer is a Phase 8 question). (Windows 10)
+- [ ] [Windows] Install on Windows 11: the app opens and its window, title bar and scaling look right. (Phase 8)
 - [ ] [Mac] Install on macOS 13 or later on Apple silicon: the app opens. (Phase 8)
 - [ ] [Mac] [Windows] Double-click a .sbd with the app closed, then with it running: the project opens; on Windows a
   second launch hands its file to the window already open. (0.6)
@@ -86,7 +85,6 @@ system's installed app; an item with neither works on either, and is worth doing
 - [ ] The Inspector's Shoot day row: a frame in a day shows "Day 2 · date" and opens Shoot days on it; a frame in none
   reads "Not scheduled". (5.11)
 - [ ] [Mac] Shift+F10 on a frame opens its menu. [Windows] The Menu key on a frame shows only the app's menu. (6.19)
-- [ ] [Windows] [Kevin] A 300-frame board on a Windows 10 PC with an older GPU: scrolling feels smooth. (Q2, Windows 10)
 
 ## Video and the Player
 
@@ -116,8 +114,6 @@ system's installed app; an item with neither works on either, and is worth doing
   original too. (2.7)
 - [ ] Save clip as file… with in, out and framing set: in Resolve or Premiere the MP4's first and last frames are the
   in and out, framed, graded, sound in sync; from an external drive and from a 6K or 8K original too. (2.8b)
-- [ ] [Windows] On a Windows 10 PC, a playback copy and a grabbed still; on an N edition, only after the Media Feature
-  Pack (without it the app says "That video couldn't be made into a playback copy"). (Windows 10)
 
 ## Locations
 
@@ -185,7 +181,6 @@ system's installed app; an item with neither works on either, and is worth doing
 - [ ] Attach a company with a logo in Settings to a project: its name and logo head the sheet. (4.12, 5.12)
 - [ ] [Kevin] The logo's colours on the printed sheet match the logo file. (4.12)
 - [ ] [Mac] The call sheet tile and its PDF; a half-typed time in a time field keeps its value. (Phase 4)
-- [ ] [Windows] On Windows 10: the forecast and the map tiles load, Export PDF opens. (Windows 10)
 
 ## Moodboards and decks
 
@@ -219,10 +214,9 @@ system's installed app; an item with neither works on either, and is worth doing
 - [ ] Crop a picture with Ctrl (⌘) + a handle; a single selected picture shows 8 handles and a plain drag of a middle
   one keeps proportions; Reset crop; a border on and off; the PDF holds only the kept part. (6.5.7b)
 - [ ] [Kevin] A new board's first view is centred on its origin, not fitted: say if it should change. (6.5.2)
-- [ ] [Kevin] The 500-item board on your Mac and a mid Windows laptop: pan, zoom and drag feel smooth. (5.7)
+- [ ] [Mac] [Kevin] The 500-item board on your Mac: pan, zoom and drag feel smooth. (5.7)
 - [ ] [Kevin] The Dark view on a board and a deck: readable, chosen colours and pictures unchanged; the PDF stays on
   paper. (6.5.1)
-- [ ] [Windows] A board open on a Windows 10 PC. (Windows 10)
 
 ## Bird's-eye plans
 
@@ -268,8 +262,7 @@ system's installed app; an item with neither works on either, and is worth doing
 - [ ] [Windows] [Kevin] The touchpad: with trackpad mode off (the default) a two-finger scroll zooms; turn it on, and
   two fingers pan and a pinch zooms. (6.5.3)
 - [ ] [Mac] [Kevin] Trackpad mode is on by default: two fingers pan, a pinch zooms, on plans and boards. (6.5.3)
-- [ ] [Kevin] A big plan on your Mac and a mid Windows laptop: pan, zoom, drag and a held turn key feel smooth. (6.11,
-  6.26)
+- [ ] [Mac] [Kevin] A big plan on your Mac: pan, zoom, drag and a held turn key feel smooth. (6.11, 6.26)
 
 ## Settings, presets, themes, Dark view and accessibility
 
@@ -293,7 +286,25 @@ system's installed app; an item with neither works on either, and is worth doing
   nothing. (4.9)
 - [ ] With the network off: everything but lookups works; the forecast, map tiles and searches say there's no
   connection. (4.4, 4.9)
-- [ ] [Windows] On a managed PC with root certificate updates turned off: the forecast and the map tiles still load.
-  (Windows 10)
 - [ ] [Mac] [Windows] The installed app's real content security policy header against tauri.conf.json's (Tauri may
   add to it). (6.13)
+
+## On other computers
+
+These need a computer that isn't one of Kevin's two. The main pass doesn't wait on them.
+
+- [ ] [Other PC] Install on a Windows 10 22H2 PC that already has WebView2: the app opens and its window, title bar
+  and scaling look right. (Phase 8, Windows 10)
+- [ ] [Other PC] Install on a Windows 10 PC without WebView2, online: the installer fetches it and the app opens.
+  Once offline too: expected to fail today (an offline installer is a Phase 8 question). (Windows 10)
+- [ ] [Other PC] [Kevin] A 300-frame board on a Windows 10 PC with an older GPU: scrolling feels smooth. (Q2,
+  Windows 10)
+- [ ] [Other PC] On a Windows 10 PC, a playback copy and a grabbed still; on an N edition, only after the Media
+  Feature Pack (without it the app says "That video couldn't be made into a playback copy"). (Windows 10)
+- [ ] [Other PC] On Windows 10: the forecast and the map tiles load, Export PDF opens. (Windows 10)
+- [ ] [Other PC] [Kevin] The 500-item board on a mid Windows laptop: pan, zoom and drag feel smooth. (5.7)
+- [ ] [Other PC] A board open on a Windows 10 PC. (Windows 10)
+- [ ] [Other PC] [Kevin] A big plan on a mid Windows laptop: pan, zoom, drag and a held turn key feel smooth. (6.11,
+  6.26)
+- [ ] [Other PC] On a managed PC with root certificate updates turned off: the forecast and the map tiles still
+  load. (Windows 10)
