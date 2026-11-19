@@ -90,7 +90,7 @@ function personal(): void {
     projectSelves: { [project.projectId]: 'person-7f3a9c' },
     projectRoles: { [project.projectId]: 'director-dp' },
     companies: [{ id: 'co-1', name: 'Bey County Pictures', address: '12 Main St', phone: '555-0100', email: 'kevin@example.com', website: '', logo: null, brandColors: [], brandFonts: [] }],
-    syncNoted: ['C:/Users/kevma/Dropbox/Bey County.sbd'],
+    syncNoted: ['C:/Users/robin/Dropbox/Bey County.sbd'],
     language: 'en',
     weekStart: 'monday',
     weatherUnits: 'us',

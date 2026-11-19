@@ -3,7 +3,7 @@
 A reviewer's map of `src/ui/canvas` and its moodboard host, written so Phase 6's briefs can point at it. Check a
 name against the code before relying on it: later milestones change the core.
 
-Everything below is read from the code. Paths are relative to c:\Users\kevma\Documents\storiiboard.
+Everything below is read from the code. Paths are relative to the repo folder.
 
 ### 1. Layers: generic core and moodboard host
 

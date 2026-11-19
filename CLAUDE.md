@@ -534,6 +534,8 @@
     when its feature is built. Documents already public stay where they are; history is never rewritten.
   - Never a LICENSE file from an open-source template. Never a description, topics, a website link, GitHub Pages or
     releases on this repo, and nothing that links to it from outside.
+  - Never commit a user name or a path with one (Kevin, Nov 18): briefs say "the repo folder", tests use made-up
+    paths (`C:/Users/robin/…`).
   - Never commit Kevin's email address, a password, a key or a real person's contact details. Fixtures use made-up
     people.
   - A checkpoint runs only when Kevin asks for one by name.
