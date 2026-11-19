@@ -364,7 +364,15 @@ Lows deferred (noted, not planned yet):
   player.spec "a page too busy to see every frame…" (the one with a cause hunt to come). #196 merged into v2
   (5e994d0). The HEIC report is sent; its findings are in private/PHASE8_LIST_ADDITIONS.md. Next: rusqlite 0.41.1
   on `deps/rusqlite-0.41.1`, then kamadak-exif 0.6.2, one full checkpoint for both, then the Advisories job.
-- **Paused (Kevin, Nov 19): start nothing until he says resume.** His follow-ups for then:
+- **Night run (Kevin, Nov 19, before bed; resumed):** order: the rusqlite PR, the photo replacement, the LUT check on
+  import, the player.spec flake, kamadak-exif 0.6.2 (allowed from 13:41 UTC Nov 19), the Advisories job after
+  rusqlite merges, then the HEIC brief (plan only). Checkpoints on my own when a PR or stack is ready, named
+  checkpoint/nov19-a, -b, -c (three at most); a PR merges only after a checkpoint including it is green in every job
+  (a machine-only red is rerun). To Only Kevin, then on to the next independent thing: anything changing a
+  screenshot, the file format or a schema; a dependency he hasn't approved; anything on main or that deletes; a red
+  or flaky job not explained by the machine. Only touched specs on the PC. One report in the morning: merged, open,
+  waiting on him.
+- **Paused earlier (Kevin, Nov 19), his follow-ups:**
   - Order: rusqlite 0.41.1 and kamadak-exif 0.6.2 with one checkpoint; the Advisories job; the photo replacement;
     the LUT check on import; the player.spec flake; the stacked screenshot milestones; then HEIC on Windows for the
     alpha (plan in private/PHASE8_LIST_ADDITIONS.md; brief and plan to Kevin before building).
