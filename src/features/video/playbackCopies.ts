@@ -5,7 +5,7 @@ import { createStore } from 'zustand/vanilla';
 import { playbackDriver, type CopySource } from '../../app/playback';
 import { projectStore } from '../../app/projectStore';
 import { t } from '../../core/i18n';
-import { lutForCopy, type CubeForCopy } from '../../core/media/lut';
+import { lutForCopy, lutName, type CubeForCopy } from '../../core/media/lut';
 import { resolveSourcePath, videoFields } from '../../core/media/video';
 import type { ProjectFile } from '../../core/storage/driver';
 
@@ -113,9 +113,12 @@ async function withLut(found: Found): Promise<CopySource> {
     reading.catch(() => luts.delete(lutId));
   }
   const lut = await reading;
-  // Named but not stored (a file edited by hand): no copy without the grade it should have.
-  if (!lut) throw new Error(t('error.lutMissing'));
-  return { videoId, path, lut };
+  if (lut) return { videoId, path, lut };
+  // Named but no longer stored (left out by an import, a file edited by hand): it plays ungraded (Kevin, Nov 18 night
+  // 4). Its copy's key then has no LUT, so a copy made with that LUT is never found or made for it.
+  if ((await lutName(file, lutId)) === null) return { videoId, path, lut: null };
+  // Stored but its cube can't be read: no copy without the grade it should have.
+  throw new Error(t('error.lutUnreadable'));
 }
 
 /** The message of a failure, as Rust (or the stand-in) put it. */

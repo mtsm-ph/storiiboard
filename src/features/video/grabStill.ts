@@ -99,9 +99,10 @@ export async function grabStill(shotId: string, frame: number): Promise<boolean>
   const { video } = live;
   try {
     const lut = video.lutId ? await lutForCopy(project.file, video.lutId) : null;
-    // Named but not stored: no still without the grade it should have.
-    if (video.lutId && !lut) throw new Error(t('error.lutMissing'));
     const name = video.lutId ? await lutName(project.file, video.lutId) : null;
+    // No still without the grade it should have, since a still says which LUT it used (round 3): the LUT no longer
+    // stored, or stored but unreadable, each in its own words.
+    if (video.lutId && !lut) throw new Error(t(name === null ? 'error.lutGone' : 'error.lutUnreadable'));
     const png = await videoDriver.still(originalOf(videoId, video, project.file.path), frame, video.fps, project.file.nativeHandle, lut);
     const timecode = frameTimecode(frame, video.fps, video.startTimecode).replaceAll(':', '-');
     const image = await prepareImage(new File([png], `${video.sourceName} ${timecode}.png`, { type: 'image/png' }));

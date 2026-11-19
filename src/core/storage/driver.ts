@@ -61,8 +61,11 @@ export const PICTURE_NOT_CLEAN = 'The picture couldn’t be saved: it holds more
  * for what the statement's own code says. Null when a string, a quoted name or a comment never closes. sbd.rs's
  * `lexed` reads the same.
  */
-/** A string's whole content that is a pictures table's name, in any case, with or without `main.`. */
-const TABLE_NAME = /^(main\.)?(media_files|thumbnails)$/i;
+/**
+ * A string's whole content that is a door's table's name, in any case, with or without `main.`: the stored pictures'
+ * two, and `luts` (Kevin, Nov 18 night 4: a LUT's text is named by its hash too).
+ */
+const TABLE_NAME = /^(main\.)?(media_files|thumbnails|luts)$/i;
 
 /**
  * SQLite's own whitespace, ASCII only (space, tab, newline, carriage return, form feed and, as sbd.rs counts it, vertical
@@ -126,7 +129,12 @@ function lexed(sql: string): { named: string; bare: string } | null {
  * not, anywhere but inside a string literal. A text that can't be lexed is judged on all of it.
  */
 function namesPictures(sql: string): boolean {
-  return /media_files|thumbnails/i.test(lexed(sql)?.named ?? sql);
+  return /media_files|thumbnails|luts/i.test(lexed(sql)?.named ?? sql);
+}
+
+/** Whether a statement names `luts`, read as namesPictures reads the pictures' tables. */
+function namesLuts(sql: string): boolean {
+  return /luts/i.test(lexed(sql)?.named ?? sql);
 }
 
 /** More than one statement in the text: anything but space after a `;` in its own code (a string's or a comment's isn't). */
@@ -216,9 +224,9 @@ function sqlTokens(sql: string): SqlToken[] | null {
   return tokens;
 }
 
-/** A plain INSERT into a stored pictures' table, as the doors read it. */
+/** A plain INSERT into a door's table, as the doors read it. */
 interface PlainInsert {
-  table: 'media_files' | 'thumbnails';
+  table: 'media_files' | 'thumbnails' | 'luts';
   /** The columns named, or null when the statement names none. */
   columns: string[] | null;
   /** Each row's values: a parameter, a number, a string, a blob or NULL. */
@@ -226,7 +234,7 @@ interface PlainInsert {
 }
 
 /**
- * The one INSERT shape the doors check (6.27b, round 2): `INSERT [OR IGNORE] INTO media_files|thumbnails [(columns)]
+ * The one INSERT shape the doors check (6.27b, round 2): `INSERT [OR IGNORE] INTO media_files|thumbnails|luts [(columns)]
  * VALUES (…)[, (…)]`, each value a parameter, a number, a string, an x'…' blob or NULL, nothing after but a `;`. Null
  * for anything else (a SELECT, a function, OR REPLACE, an upsert, RETURNING), which the doors refuse, since what it
  * writes can't be read off the statement. sbd.rs's `plain_insert` reads the same.
@@ -254,7 +262,7 @@ function plainInsert(sql: string): PlainInsert | null {
   if (!isWord('into')) return null;
   at += 1;
   const named = peek();
-  if (named?.kind !== 'word' || (named.text !== 'media_files' && named.text !== 'thumbnails')) return null;
+  if (named?.kind !== 'word' || (named.text !== 'media_files' && named.text !== 'thumbnails' && named.text !== 'luts')) return null;
   const table = named.text;
   at += 1;
   let columns: string[] | null = null;
@@ -328,12 +336,16 @@ export function doorVerdict(sql: string, door: Door): DoorVerdict {
   if (door === 'ordinary' && makesSchema(sql)) return 'allowed';
   const insert = plainInsert(sql);
   if (!insert) return 'refused';
-  if (door === 'ordinary' || insert.table === 'thumbnails') return 'allowed';
-  // Import's media_files row: one placeholder per named column, sha256 and bytes among them, so its name can be checked.
   const [row, ...more] = insert.rows;
   const columns = insert.columns;
+  const placeholders = row !== undefined && more.length === 0 && row.every((v) => v.kind === 'param' && v.text === '?');
+  // A LUT's row, at either door (Kevin, Nov 18 night 4): one placeholder per named column, sha256 and cube among them,
+  // so its text can be checked against its name (refuseMisnamedLuts).
+  if (insert.table === 'luts') return columns !== null && columns.includes('sha256') && columns.includes('cube') && placeholders ? 'allowed' : 'refused';
+  if (door === 'ordinary' || insert.table === 'thumbnails') return 'allowed';
+  // Import's media_files row: one placeholder per named column, sha256 and bytes among them, so its name can be checked.
   const named = columns !== null && columns.includes('sha256') && columns.includes('bytes');
-  return named && row && more.length === 0 && row.every((v) => v.kind === 'param' && v.text === '?') ? 'allowed' : 'refused';
+  return named && placeholders ? 'allowed' : 'refused';
 }
 
 /**
@@ -381,13 +393,43 @@ export async function refuseMisnamedPictures(statements: readonly Statement[]): 
     if (verdict === 'none') continue;
     if (verdict === 'refused') throw new Error(IMPORT_PICTURE_MISNAMED);
     const insert = plainInsert(sql);
-    // A DELETE FROM, or a thumbnail's row (its sha256 names its picture's row): nothing to check against a name.
-    if (!insert || insert.table === 'thumbnails') continue;
+    // A DELETE FROM, or a thumbnail's row (its sha256 names its picture's row): nothing to check against a name. A LUT's
+    // row is refuseMisnamedLuts's.
+    if (!insert || insert.table === 'thumbnails' || insert.table === 'luts') continue;
     const columns = insert.columns ?? [];
     if (params.length !== columns.length) throw new Error(IMPORT_PICTURE_MISNAMED);
     const sha = params[columns.indexOf('sha256')];
     const bytes = params[columns.indexOf('bytes')];
     if (typeof sha !== 'string' || !(bytes instanceof Uint8Array) || (await sha256Hex(bytes)) !== sha) throw new Error(IMPORT_PICTURE_MISNAMED);
+  }
+}
+
+/** sbd.rs's import refusal of a LUT whose text isn't the one its name says, in `error.importLutMisnamed`'s words. */
+export const IMPORT_LUT_MISNAMED = 'The project data can’t be imported: a LUT in it isn’t the one its name says. Nothing was imported.';
+/** sbd.rs's refusal of an ordinary write of such a LUT, in `error.lutNotSaved`'s words. */
+export const LUT_NOT_SAVED = 'The LUT couldn’t be saved: its text isn’t the one its name says.';
+
+/**
+ * The doors' check of a LUT (Kevin, Nov 18 night 4; sbd.rs's `refuse_misnamed_luts`, in its own code): a `luts` row is
+ * named by the SHA-256 of its `cube` text's UTF-8 bytes (lut.ts), so a row written whose text isn't the one its name
+ * says is refused whole, at the import's door and at the ordinary one (a LUT is at most 16 MB of text, hashed once).
+ * Its INSERT names its columns, sha256 and cube among them, with one `?` each (doorVerdict); any other statement that
+ * names `luts`, but DELETE FROM and a migration's CREATE, is refused. Runs before the pictures' doors, so a LUT is
+ * refused in a LUT's words.
+ */
+export async function refuseMisnamedLuts(statements: readonly Statement[], door: Door): Promise<void> {
+  const refused = door === 'import' ? IMPORT_LUT_MISNAMED : LUT_NOT_SAVED;
+  for (const { sql, params = [] } of statements) {
+    if (!namesLuts(sql)) continue;
+    const verdict = doorVerdict(sql, door);
+    if (verdict === 'refused') throw new Error(refused);
+    const insert = plainInsert(sql);
+    if (verdict !== 'allowed' || !insert || insert.table !== 'luts') continue;
+    const columns = insert.columns ?? [];
+    if (params.length !== columns.length) throw new Error(refused);
+    const sha = params[columns.indexOf('sha256')];
+    const cube = params[columns.indexOf('cube')];
+    if (typeof sha !== 'string' || typeof cube !== 'string' || (await sha256Hex(new TextEncoder().encode(cube))) !== sha) throw new Error(refused);
   }
 }
 

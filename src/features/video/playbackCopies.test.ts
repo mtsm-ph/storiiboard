@@ -19,7 +19,7 @@ const driver = vi.hoisted(() => ({
 vi.mock('../../app/playback', () => ({ playbackDriver: driver }));
 
 const { projectStore } = await import('../../app/projectStore');
-const { copiesChanged, copiesStore, cancelCopy, copyMayBeGone, makeCopy, remakeCopy, showCopy } = await import('./playbackCopies');
+const { copiesChanged, copiesStore, cancelCopy, copyMayBeGone, copyToPlay, makeCopy, remakeCopy, showCopy } = await import('./playbackCopies');
 
 const probe: VideoProbe = {
   codec: 'h264',
@@ -353,16 +353,26 @@ describe('the queue of playback copies', () => {
     });
   });
 
-  it('cancels a graded copy by its LUT, and refuses to make one whose LUT isn’t stored', async () => {
+  it('cancels a graded copy by its LUT, and plays one whose LUT isn’t stored as shot, never graded', async () => {
     const copy = pending();
-    driver.make.mockImplementationOnce(copy.impl);
-    // Named but not stored (a file edited by hand): no copy without the grade it should have.
+    const asShot = pending();
+    driver.make.mockImplementationOnce(asShot.impl).mockImplementationOnce(copy.impl);
+    // Named but no longer stored (left out by an import, a file edited by hand; Kevin, Nov 18 night 4): its copy is the
+    // one as shot, found and made with no LUT, so a copy graded with that LUT is never reused.
     await projectStore.getState().apply([{ kind: 'update', id: 'b', set: { lut: 'b1d3c0de-0000-4000-8000-00000000dead' } }]);
+    const plainB = { videoId: 'b', path: folder.path('Footage/C0043.MP4'), lut: null };
+    expect(await copyToPlay('b')).toBeNull();
+    expect(driver.find).toHaveBeenCalledWith(plainB, 7);
     makeCopy('b');
     await vi.waitFor(() => {
-      expect(state('b')).toEqual({ kind: 'failed', message: 'This video’s LUT isn’t in the project, so its playback copy can’t be made.' });
+      expect(driver.make).toHaveBeenCalledTimes(1);
     });
-    expect(driver.make).not.toHaveBeenCalled();
+    expect(driver.make.mock.calls[0]?.[0]).toEqual(plainB);
+    asShot.resolve();
+    await vi.waitFor(() => {
+      expect(state('b')).toEqual({ kind: 'made', silent: false });
+    });
+    driver.make.mockClear();
     // A graded copy being made is stopped by its LUT.
     const prepared = await prepareLut('Invert.cube', 'LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n');
     if (!prepared.ok) throw new Error('a good cube');
@@ -381,6 +391,21 @@ describe('the queue of playback copies', () => {
       expect(copiesStore.getState().making).toBeNull();
     });
     expect(state('c')).toEqual({ kind: 'none' });
+  });
+
+  it('still refuses a copy whose LUT is stored but whose cube can’t be read: no copy without the grade it names', async () => {
+    // Stored under its own name (the doors check that), but not a 3D LUT ffmpeg can read.
+    const text = 'LUT_1D_SIZE 2\n0 0 0\n1 1 1\n';
+    const lut = { sha256: createHash('sha256').update(text).digest('hex'), name: 'Shaper', fileName: 'Shaper.cube', cube: text };
+    const lutId = 'b1d3c0de-0000-4000-8000-000000000003';
+    await projectStore.getState().apply([{ kind: 'update', id: 'b', set: { lut: lutId } }], { alsoWrite: lutStatements(lutId, lut, new Date()) });
+    makeCopy('b');
+    await vi.waitFor(() => {
+      expect(state('b')).toEqual({ kind: 'failed', message: 'This video’s LUT can’t be read, so its playback copy can’t be made.' });
+    });
+    await expect(copyToPlay('b')).rejects.toThrow('This video’s LUT can’t be read, so its playback copy can’t be made.');
+    expect(driver.make).not.toHaveBeenCalled();
+    expect(driver.find).not.toHaveBeenCalled();
   });
 
   it('lets a copy carry on while its video is in the Trash, and looks for it again once it is back', async () => {
