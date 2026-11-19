@@ -1,0 +1,11 @@
+# What the Advisories job (scripts/advisories.ts, in ci.yml and checkpoint.yml) lets through, and until when. One
+# file for both sources: OSV-Scanner's findings and npm audit's. Every ignore needs Kevin's word, its reason and a
+# date; past its date it no longer applies and the job goes red again. The script reads only [[IgnoredVulns]] tables
+# with id, ignoreUntil and reason, one value per line, and refuses anything else, so nothing here is silently skipped.
+
+# Kevin, Nov 18: until 2027-02-01, or until Phase 8 decides the Mac's oldest system, whichever comes first
+# (pdfjs-dist 5.7.284 is the last release built for Safari 16.4, macOS 13's webview).
+[[IgnoredVulns]]
+id = "GHSA-hq66-cqwq-w95j"
+ignoreUntil = 2027-02-01
+reason = "The flaw needs PDF scripting switched on and no script policy. readPdf.ts only reads text, builds no annotation layer and loads nothing from pdfjs-dist/web, and the app's policy allows no inline script and no eval."
