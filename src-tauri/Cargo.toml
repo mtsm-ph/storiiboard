@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Free pre-production for filmmakers"
 authors = ["Kevin Matos"]
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.89"
 
 [lib]
 # The _lib suffix avoids a Windows name clash between the lib and the bin.
@@ -19,7 +19,7 @@ tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # bundled compiles SQLite in, so every install has the same version whatever the OS ships.
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite = { version = "0.41.1", features = ["bundled"] }
 # Native Save and Open dialogs for New project, Open and Open backup (0.7, approved Nov 2).
 tauri-plugin-dialog = "2.8.3"
 # The one HTTP client for every network need (3.4, approved Nov 9: the address search now; weather, map tiles,
