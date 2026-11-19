@@ -131,6 +131,24 @@ describe('a frame’s clip saved as a file (2.8b)', () => {
     expect(notices.said.at(-1)).toContain('LUT');
   });
 
+  it('says which: a LUT no longer stored, or one stored whose cube can’t be read (round 3)', async () => {
+    await projectStore.getState().apply([{ kind: 'update', id: 'v1', set: { lut: 'lut-gone' } }]);
+    tauri.invoke.mockResolvedValueOnce('/Exports/SC004_4A.mp4');
+    expect(await saveClip('s1')).toBe(false);
+    expect(notices.said.at(-1)).toBe('This video’s LUT isn’t in the project, so its clip can’t be graded. Choose its LUT again.');
+    // Stored under its own name, but a 1D LUT ffmpeg can't read.
+    const text = 'LUT_1D_SIZE 2\n0 0 0\n1 1 1\n';
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+    const sha256 = [...digest].map((b) => b.toString(16).padStart(2, '0')).join('');
+    await projectStore.getState().apply([{ kind: 'update', id: 'v1', set: { lut: 'lut-1d' } }], {
+      alsoWrite: lutStatements('lut-1d', { sha256, name: 'Shaper', fileName: 'Shaper.cube', cube: text }, new Date()),
+    });
+    tauri.invoke.mockResolvedValueOnce('/Exports/SC004_4A.mp4');
+    expect(await saveClip('s1')).toBe(false);
+    expect(notices.said.at(-1)).toBe('This video’s LUT can’t be read, so its playback copy can’t be made.');
+    expect(tauri.invoke).toHaveBeenCalledTimes(2);
+  });
+
   it('one clip at a time: a second is refused before its Save dialog, and Cancel stops the first and says so', async () => {
     let finish: (value: unknown) => void = () => undefined;
     tauri.invoke.mockImplementation((name: string) => {

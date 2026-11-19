@@ -6,7 +6,7 @@ import { showInfo, showNotice } from '../../app/notice';
 import { projectStore } from '../../app/projectStore';
 import { t } from '../../core/i18n';
 import { cropWindow } from '../../core/media/crop';
-import { lutForCopy } from '../../core/media/lut';
+import { lutForCopy, lutName } from '../../core/media/lut';
 import { displayAspect, readClip, resolveSourcePath, videoFields } from '../../core/media/video';
 import { aspectRatioValue, projectStoryboard, sceneFields, shotFields } from '../../core/model/storyboard';
 import { frameFileName } from '../export/names';
@@ -96,7 +96,8 @@ export async function saveClip(shotId: string): Promise<boolean> {
     const dest = await invoke<string | null>('export_choose_file', { name });
     if (dest === null || cancelled()) return false;
     const lut = video.lutId ? await lutForCopy(project.file, video.lutId) : null;
-    if (video.lutId && !lut) throw new Error(t('saveClip.lutMissing'));
+    // Gone from the project, or stored but unreadable (round 3), each in its own words.
+    if (video.lutId && !lut) throw new Error(t((await lutName(project.file, video.lutId)) === null ? 'saveClip.lutMissing' : 'error.lutUnreadable'));
     if (cancelled()) throw new Error(t('error.clipCancelled'));
     const frameAspect = aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio);
     const box = cropWindow(clip.crop, displayAspect(video), frameAspect);

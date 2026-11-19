@@ -308,6 +308,8 @@ impl SbdFile {
     /// The same transaction, with values already bound, as `sbd_tx_raw` sends them with image bytes among them. A
     /// stored picture that carries more than its own data and colour profile is refused first (the door, 6.27b).
     pub fn tx_values(&mut self, statements: &[Bound]) -> Result<Vec<usize>, String> {
+        // A LUT whose text isn't the one its name says, in a LUT's words (Kevin, Nov 18 night 4).
+        refuse_misnamed_luts(statements, Door::Ordinary)?;
         refuse_unclean_pictures(statements)?;
         self.write_values(statements)
     }
@@ -316,6 +318,7 @@ impl SbdFile {
     /// older build's pictures are named by their SHA-256, so they are written as they came, never changed, once each
     /// one's bytes are checked against that name (`refuse_misnamed_pictures`).
     pub fn import_tx_values(&mut self, statements: &[Bound]) -> Result<Vec<usize>, String> {
+        refuse_misnamed_luts(statements, Door::Import)?;
         refuse_misnamed_pictures(statements)?;
         self.write_values(statements)
     }
@@ -682,11 +685,12 @@ enum SqlToken {
 /// brackets or backticks, and comments, kept: a name there counts); `bare`, with comments and quoted names emptied too,
 /// for what the statement's own code says. None when a string, a quoted name or a comment never closes. driver.ts's
 /// `lexed` reads the same.
-/// A string's whole content that is a pictures table's name, in any case, with or without `main.`.
+/// A string's whole content that is a door's table's name, in any case, with or without `main.`: the stored pictures'
+/// two, and `luts` (Kevin, Nov 18 night 4: a LUT's text is named by its hash too).
 fn is_table_name(content: &str) -> bool {
     let lower = content.to_ascii_lowercase();
     let name = lower.strip_prefix("main.").unwrap_or(&lower);
-    name == "media_files" || name == "thumbnails"
+    name == "media_files" || name == "thumbnails" || name == "luts"
 }
 
 /// SQLite's own whitespace, ASCII only (space, tab, newline, carriage return, form feed and vertical tab): Rust's
@@ -770,11 +774,21 @@ fn lexed(sql: &str) -> Option<(String, String)> {
 /// Whether a statement names the stored pictures' tables: by name, in any case, quoted or not, anywhere but inside a
 /// string literal. A text that can't be lexed is judged on all of it.
 fn names_pictures(sql: &str) -> bool {
-    let lower = lexed(sql)
+    let lower = named_text(sql);
+    lower.contains("media_files") || lower.contains("thumbnails") || lower.contains("luts")
+}
+
+/// Whether a statement names `luts`, read as `names_pictures` reads the pictures' tables.
+fn names_luts(sql: &str) -> bool {
+    named_text(sql).contains("luts")
+}
+
+/// The text the doors look for a table's name in: `lexed`'s `named`, or all of it when it can't be lexed; lower case.
+fn named_text(sql: &str) -> String {
+    lexed(sql)
         .map(|(named, _)| named)
         .unwrap_or_else(|| sql.to_string())
-        .to_ascii_lowercase();
-    lower.contains("media_files") || lower.contains("thumbnails")
+        .to_ascii_lowercase()
 }
 
 /// More than one statement in the text: anything but space after a `;` in its own code (a string's or a comment's
@@ -863,16 +877,16 @@ fn sql_tokens(sql: &str) -> Option<Vec<SqlToken>> {
     Some(tokens)
 }
 
-/// A plain INSERT into a stored pictures' table: the table, the columns named (None when it names none), and each
-/// row's values.
+/// A plain INSERT into a door's table (`media_files`, `thumbnails` or `luts`): the table, the columns named (None when
+/// it names none), and each row's values.
 struct PlainInsert {
     table: String,
     columns: Option<Vec<String>>,
     rows: Vec<Vec<SqlToken>>,
 }
 
-/// The one INSERT shape the doors check (6.27b, round 2): `INSERT [OR IGNORE] INTO media_files|thumbnails [(columns)]
-/// VALUES (…)[, (…)]`, each value a parameter, a number, a string, an x'…' blob or NULL, nothing after but a `;`. None
+/// The one INSERT shape the doors check (6.27b, round 2; `luts` from Kevin's Nov 18 night 4): `INSERT [OR IGNORE] INTO
+/// media_files|thumbnails|luts [(columns)] VALUES (…)[, (…)]`, each value a parameter, a number, a string, an x'…' blob or NULL, nothing after but a `;`. None
 /// for anything else (a SELECT, a function, OR REPLACE, an upsert, RETURNING), which the doors refuse, since what it
 /// writes can't be read off the statement. driver.ts's `plainInsert` reads the same.
 fn plain_insert(sql: &str) -> Option<PlainInsert> {
@@ -896,7 +910,11 @@ fn plain_insert(sql: &str) -> Option<PlainInsert> {
     }
     at += 1;
     let table = match tokens.get(at) {
-        Some(SqlToken::Word(name)) if name == "media_files" || name == "thumbnails" => name.clone(),
+        Some(SqlToken::Word(name))
+            if name == "media_files" || name == "thumbnails" || name == "luts" =>
+        {
+            name.clone()
+        }
         _ => return None,
     };
     at += 1;
@@ -1034,20 +1052,32 @@ fn door_verdict(sql: &str, door: Door) -> Verdict {
     let Some(insert) = plain_insert(sql) else {
         return Verdict::Refused;
     };
-    if door == Door::Ordinary || insert.table == "thumbnails" {
-        return Verdict::Allowed;
-    }
-    // Import's media_files row: one placeholder per named column, sha256 and bytes among them, so its name can be checked.
-    let named = insert
-        .columns
-        .as_ref()
-        .is_some_and(|c| c.iter().any(|n| n == "sha256") && c.iter().any(|n| n == "bytes"));
     let placeholders = match insert.rows.as_slice() {
         [row] => row
             .iter()
             .all(|v| matches!(v, SqlToken::Param(p) if p == "?")),
         _ => false,
     };
+    let names = |column: &str| {
+        insert
+            .columns
+            .as_ref()
+            .is_some_and(|c| c.iter().any(|n| n == column))
+    };
+    // A LUT's row, at either door (Kevin, Nov 18 night 4): one placeholder per named column, sha256 and cube among
+    // them, so its text can be checked against its name (`refuse_misnamed_luts`).
+    if insert.table == "luts" {
+        return if names("sha256") && names("cube") && placeholders {
+            Verdict::Allowed
+        } else {
+            Verdict::Refused
+        };
+    }
+    if door == Door::Ordinary || insert.table == "thumbnails" {
+        return Verdict::Allowed;
+    }
+    // Import's media_files row: one placeholder per named column, sha256 and bytes among them, so its name can be checked.
+    let named = names("sha256") && names("bytes");
     if named && placeholders {
         Verdict::Allowed
     } else {
@@ -1121,7 +1151,8 @@ fn refuse_misnamed_pictures(statements: &[Bound]) -> Result<(), String> {
         let Some(insert) = plain_insert(sql) else {
             continue;
         };
-        if insert.table == "thumbnails" {
+        // A LUT's row is `refuse_misnamed_luts`'s.
+        if insert.table == "thumbnails" || insert.table == "luts" {
             continue;
         }
         let columns = insert.columns.ok_or_else(refused)?;
@@ -1135,6 +1166,63 @@ fn refuse_misnamed_pictures(statements: &[Bound]) -> Result<(), String> {
         let named = match (&params[sha], &params[bytes]) {
             (Value::Text(sha), Value::Blob(bytes)) => {
                 sha256_hex(bytes).is_some_and(|hex| hex == *sha)
+            }
+            _ => false,
+        };
+        if !named {
+            return Err(refused());
+        }
+    }
+    Ok(())
+}
+
+/// The import's refusal of a LUT whose text isn't the one its name says (Kevin, Nov 18 night 4), in the same words as
+/// the page's `error.importLutMisnamed` (driver.ts has them as IMPORT_LUT_MISNAMED).
+pub const IMPORT_LUT_MISNAMED: &str =
+    "The project data can’t be imported: a LUT in it isn’t the one its name says. Nothing was imported.";
+/// The ordinary door's refusal of such a LUT, in the words of the page's `error.lutNotSaved` (driver.ts's LUT_NOT_SAVED).
+pub const LUT_NOT_SAVED: &str = "The LUT couldn’t be saved: its text isn’t the one its name says.";
+
+/// The doors' check of a LUT (Kevin, Nov 18 night 4; driver.ts's `refuseMisnamedLuts`, in its own code): a `luts` row
+/// is named by the SHA-256 of its `cube` text's UTF-8 bytes (src/core/media/lut.ts), so a row written whose text isn't
+/// the one its name says is refused whole, at the import's door and at the ordinary one (a LUT is at most 16 MB of
+/// text, hashed once). Its INSERT names its columns, sha256 and cube among them, with one `?` each (`door_verdict`);
+/// any other statement that names `luts`, but DELETE FROM and a migration's CREATE, is refused. Runs before the
+/// pictures' doors, so a LUT is refused in a LUT's words.
+fn refuse_misnamed_luts(statements: &[Bound], door: Door) -> Result<(), String> {
+    let refused = || {
+        match door {
+            Door::Import => IMPORT_LUT_MISNAMED,
+            Door::Ordinary => LUT_NOT_SAVED,
+        }
+        .to_string()
+    };
+    for (sql, params) in statements {
+        if !names_luts(sql) {
+            continue;
+        }
+        match door_verdict(sql, door) {
+            Verdict::Refused => return Err(refused()),
+            Verdict::NotPictures => continue,
+            Verdict::Allowed => {}
+        }
+        let Some(insert) = plain_insert(sql) else {
+            continue;
+        };
+        if insert.table != "luts" {
+            continue;
+        }
+        let columns = insert.columns.ok_or_else(refused)?;
+        if params.len() != columns.len() {
+            return Err(refused());
+        }
+        let at = |name: &str| columns.iter().position(|c| c == name);
+        let (Some(sha), Some(cube)) = (at("sha256"), at("cube")) else {
+            return Err(refused());
+        };
+        let named = match (&params[sha], &params[cube]) {
+            (Value::Text(sha), Value::Text(cube)) => {
+                sha256_hex(cube.as_bytes()).is_some_and(|hex| hex == *sha)
             }
             _ => false,
         };
@@ -1995,6 +2083,90 @@ mod tests {
         let name = sha256_hex(&fixture(RAW[0])).unwrap();
         file.import_tx_values(&[imported(&name)]).unwrap();
         assert_eq!(count(&file, "media_files"), Json::from(4));
+    }
+
+    /// Kevin, Nov 18 night 4: a LUT is named by the SHA-256 of its `cube` text, so both doors refuse a `luts` row whose
+    /// text isn't the one its name says, whole and in a LUT's words, and take one that is (the app's own INSERT).
+    #[test]
+    fn both_doors_refuse_a_lut_whose_text_isnt_the_one_its_name_says() {
+        let dir = temp_dir("luts");
+        let mut file = new_file(&dir, "Bey County.sbd");
+        file.tx(&[
+            statement(
+                "CREATE TABLE luts ( id TEXT PRIMARY KEY, sha256 TEXT NOT NULL UNIQUE, name TEXT NOT NULL, \
+                 file_name TEXT NOT NULL, byte_size INTEGER NOT NULL, created_at TEXT NOT NULL, \
+                 updated_at TEXT NOT NULL, cube TEXT NOT NULL ) STRICT",
+                vec![],
+            ),
+            statement("CREATE TABLE notes (id TEXT PRIMARY KEY)", vec![]),
+        ])
+        .unwrap();
+        let cube = "LUT_3D_SIZE 2\n1 1 1\n0 1 1\n1 0 1\n0 0 1\n1 1 0\n0 1 0\n1 0 0\n0 0 0\n";
+        let good = sha256_hex(cube.as_bytes()).unwrap();
+        // As src/core/media/lut.ts writes one, its values bound.
+        let lut = |id: &str, sha: &str, text: &str| -> Bound {
+            (
+                "INSERT OR IGNORE INTO luts (id, sha256, name, file_name, byte_size, created_at, \
+                 updated_at, cube) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                    .into(),
+                vec![
+                    Value::Text(id.into()),
+                    Value::Text(sha.into()),
+                    Value::Text("Invert".into()),
+                    Value::Text("Invert.cube".into()),
+                    Value::Integer(i64::try_from(text.len()).unwrap()),
+                    Value::Text("t".into()),
+                    Value::Text("t".into()),
+                    Value::Text(text.into()),
+                ],
+            )
+        };
+        let note: Bound = ("INSERT INTO notes VALUES ('n1')".into(), vec![]);
+        let count = |file: &SbdFile, table: &str| {
+            file.query(&format!("SELECT count(*) AS n FROM {table}"), &[])
+                .unwrap()[0]["n"]
+                .clone()
+        };
+        let damaged = cube.replace("0 0 0\n", "0 0 1\n");
+        for (door, words) in [(false, LUT_NOT_SAVED), (true, IMPORT_LUT_MISNAMED)] {
+            let write = |file: &mut SbdFile, statements: &[Bound]| {
+                if door {
+                    file.import_tx_values(statements)
+                } else {
+                    file.tx_values(statements)
+                }
+            };
+            for bad in [
+                lut("l1", &good, &damaged),
+                lut("l1", "not a hash", cube),
+                lut("l1", &good.to_uppercase(), cube),
+                (
+                    "INSERT INTO luts (sha256, cube) VALUES (?, ?)".into(),
+                    vec![
+                        Value::Text(good.clone()),
+                        Value::Blob(cube.as_bytes().to_vec()),
+                    ],
+                ),
+                (
+                    "UPDATE luts SET cube = ?".into(),
+                    vec![Value::Text(cube.into())],
+                ),
+            ] {
+                assert_eq!(
+                    write(&mut file, &[note.clone(), bad]),
+                    Err(words.to_string())
+                );
+            }
+            assert_eq!(count(&file, "notes"), Json::from(0));
+            assert_eq!(count(&file, "luts"), Json::from(0));
+        }
+        // Its own text under its own name goes in, at either door; DELETE FROM is let through.
+        file.tx_values(&[lut("l1", &good, cube)]).unwrap();
+        file.import_tx_values(&[("DELETE FROM luts".into(), vec![])])
+            .unwrap();
+        file.import_tx_values(&[lut("l2", &good, cube)]).unwrap();
+        assert_eq!(count(&file, "luts"), Json::from(1));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// Round 2's review (6.27b): a statement that names `media_files` or `thumbnails` is a DELETE FROM, a table or an

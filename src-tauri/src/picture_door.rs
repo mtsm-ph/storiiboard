@@ -4,7 +4,8 @@
 //! picture that would carry anything else (an Exif block, XMP, IPTC, a comment, a text chunk, whatever a later webview
 //! adds) is refused before it reaches the file (sbd.rs, `refuse_unclean_pictures`).
 //!
-//! Kept, JPEG: SOI; APP0 JFIF; APP2 ICC_PROFILE; APP14 Adobe; DQT, DHT, DRI, every SOFn, each SOS and its entropy-coded
+//! Kept, JPEG: SOI; APP0 JFIF without a thumbnail (segment length 16), once; APP2 ICC_PROFILE; APP14 Adobe at its fixed
+//! size (segment length 14), once; DQT, DHT, DRI, every SOFn, each SOS and its entropy-coded
 //! data (restart markers inside it); EOI, and nothing after it. Kept, PNG: IHDR, PLTE, tRNS, IDAT, IEND (last, nothing
 //! after it), and the colour chunks iCCP, sRGB, cICP, gAMA, cHRM. Anything else, fill bytes between JPEG segments
 //! included (the page's clean drops them), and blocks that can't be read through to EOI or IEND, is refused. The door
@@ -52,9 +53,17 @@ fn is_sof(marker: u8) -> bool {
     (0xc0..=0xcf).contains(&marker) && marker != 0xc4 && marker != 0xc8 && marker != 0xcc
 }
 
+/// An APP0 JFIF segment's length with no thumbnail (Kevin, Nov 19): the length field, `JFIF\0`, the version, the
+/// units, the two densities and a 0 × 0 thumbnail. A longer one carries a thumbnail, a picture of its own.
+const JFIF_LENGTH: usize = 16;
+/// An APP14 Adobe segment's one length: the length field, `Adobe`, the version, two flag words and the transform.
+const ADOBE_LENGTH: usize = 14;
+
 fn jpeg_is_clean(bytes: &[u8]) -> bool {
     let mut at = 2;
     let mut profile = 0;
+    // JFIF and Adobe are kept once each: a second one is refused.
+    let (mut jfif, mut adobe) = (false, false);
     loop {
         if bytes.get(at) != Some(&0xff) {
             return false;
@@ -83,9 +92,17 @@ fn jpeg_is_clean(bytes: &[u8]) -> bool {
         };
         let kept = match marker {
             0xda | 0xdb | 0xc4 | 0xdd => true,
-            0xe0 => body.starts_with(b"JFIF\0"),
+            0xe0 => {
+                !std::mem::replace(&mut jfif, true)
+                    && length == JFIF_LENGTH
+                    && body.starts_with(b"JFIF\0")
+            }
             0xe2 => body.starts_with(b"ICC_PROFILE\0"),
-            0xee => body.starts_with(b"Adobe"),
+            0xee => {
+                !std::mem::replace(&mut adobe, true)
+                    && length == ADOBE_LENGTH
+                    && body.starts_with(b"Adobe")
+            }
             marker => is_sof(marker),
         };
         if !kept {
@@ -279,6 +296,34 @@ pub(crate) mod tests {
         ]
         .concat();
         assert!(refuses(&exif_no_scan));
+    }
+
+    /// Kevin, Nov 19: JFIF only without a thumbnail (segment length 16), Adobe only at its fixed size (14), once each.
+    /// The same cases as the page's clean test (cleanPicture.test.ts, "keeps JFIF only without a thumbnail…").
+    #[test]
+    fn keeps_jfif_and_adobe_only_at_their_fixed_sizes_once_each() {
+        let adobe = segment(0xee, b"Adobe\0\x64\0\0\0\0\x01");
+        assert_eq!(adobe[2..4], [0, 14]);
+        assert_eq!(jpeg(&[])[4..6], [0, 16]);
+        assert!(!refuses(&jpeg(std::slice::from_ref(&adobe))));
+        // A JFIF with a 1 × 1 thumbnail in place of the plain one: refused; with no JFIF at all, let through.
+        let plain = jpeg(&[]);
+        let thumbnail = segment(0xe0, b"JFIF\0\x01\x01\0\0\x01\0\x01\x01\x01\x09\x09\x09");
+        let with_thumbnail = [vec![0xff, 0xd8], thumbnail, plain[20..].to_vec()].concat();
+        assert!(refuses(&with_thumbnail));
+        assert!(!refuses(&[vec![0xff, 0xd8], plain[20..].to_vec()].concat()));
+        let second_jfif = segment(0xe0, b"JFIF\0\x01\x01\0\0\x01\0\x01\0\0");
+        let long_adobe = segment(0xee, b"Adobe\0\x64\0\0\0\0\x01\x07");
+        let short_adobe = segment(0xee, b"Adobe\0\x64\0\0\0\0");
+        for extra in [
+            vec![second_jfif],
+            vec![adobe.clone(), adobe.clone()],
+            vec![long_adobe.clone()],
+            vec![short_adobe],
+            vec![long_adobe, adobe],
+        ] {
+            assert!(refuses(&jpeg(&extra)));
+        }
     }
 
     #[test]

@@ -451,6 +451,14 @@ export interface ImportReport {
   leftOut: LeftOutFile[];
   pictures: number;
   files: number;
+  /**
+   * The ids of the `luts` rows left out because their text isn't the one their `sha256` names (Kevin, Nov 18 night 4),
+   * and how many LUTs the JSON held. Set only when one was left out, so a report about pictures alone reads as before.
+   */
+  lutsLeftOut?: string[];
+  /** How many LUT rows were left out, those with no id among them (lutsLeftOut holds only real ids). */
+  lutsLeftOutCount?: number;
+  luts?: number;
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -459,15 +467,53 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 }
 
 /**
+ * The JSON with every `luts` row whose `cube` doesn't match its `sha256` left out (Kevin, Nov 18 night 4): the hash
+ * lut.ts stores, SHA-256 of the text's UTF-8 bytes. Text that doesn't match its hash is never stored, under any name,
+ * and the rest of the project still imports; a video that names a left-out LUT keeps its `lut` id, which reads as a
+ * LUT no longer in the project.
+ * A row this can't read (no hash, a `cube` that isn't text) is left as it is, for the import's door and SQLite to refuse,
+ * as with pictures. Sets the report's LUT fields when one is left out.
+ */
+async function leaveOutDamagedLuts(data: ProjectJson, report: ImportReport): Promise<ProjectJson> {
+  const luts = data.tables.luts;
+  if (!luts) return data;
+  const idAt = luts.columns.indexOf('id');
+  const shaAt = luts.columns.indexOf('sha256');
+  const cubeAt = luts.columns.indexOf('cube');
+  const leftOut: string[] = [];
+  const kept: JsonValue[][] = [];
+  for (const row of luts.rows) {
+    const sha = row[shaAt];
+    const cube = row[cubeAt];
+    if (typeof sha === 'string' && typeof cube === 'string' && (await sha256Hex(new TextEncoder().encode(cube))) !== sha) {
+      // Named by its id when it has one; a row with none is still left out and counted, but names no video.
+      const id = row[idAt];
+      if (typeof id === 'string') leftOut.push(id);
+      continue;
+    }
+    kept.push(row);
+  }
+  const count = luts.rows.length - kept.length;
+  if (count === 0) return data;
+  report.lutsLeftOut = leftOut;
+  report.lutsLeftOutCount = count;
+  report.luts = luts.rows.length;
+  return { ...data, tables: { ...data.tables, luts: { ...luts, rows: kept } } };
+}
+
+/**
  * The JSON with every stored file whose bytes don't match its `sha256` left out, with its thumbnails (6.27b round 3,
  * Kevin Nov 18): bytes that don't match their hash are never stored, under any name, and the rest of the project still
  * imports. The records that point at a left-out file stay as they are and show it missing, as a removed picture does.
  * A row this can't read (no hash, bytes that aren't base64) is left as it is, for fillStatements to refuse. The import's
- * door (driver.ts, sbd.rs) still refuses a mismatched row whole, should one ever get past this.
+ * door (driver.ts, sbd.rs) still refuses a mismatched row whole, should one ever get past this. LUTs go through the same
+ * pass first (leaveOutDamagedLuts).
  */
-export async function leaveOutDamagedFiles(data: ProjectJson): Promise<{ data: ProjectJson; report: ImportReport }> {
-  const files = data.tables.media_files;
+export async function leaveOutDamagedFiles(json: ProjectJson): Promise<{ data: ProjectJson; report: ImportReport }> {
   const report: ImportReport = { leftOut: [], pictures: 0, files: 0 };
+  // LUTs in the same pass (Kevin, Nov 18 night 4): a `cube` whose text isn't the one its sha256 names is left out too.
+  const data = await leaveOutDamagedLuts(json, report);
+  const files = data.tables.media_files;
   if (!files) return { data, report };
   const shaAt = files.columns.indexOf('sha256');
   const bytesAt = files.columns.indexOf('bytes');
