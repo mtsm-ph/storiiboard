@@ -254,8 +254,8 @@ function curveTag(points: number): Buffer {
 export function srgbProfile(points: number): Buffer {
   const curve = padded(curveTag(points));
   const data: [string, Buffer][] = [
-    ['desc', padded(descTag(`sRGB, ${String(points)}-point curve (Storiiboard test photos)`))],
-    ['cprt', padded(textTag('Made by scripts/fixturePhotos.ts in the Storiiboard repo, for its test photos.'))],
+    ['desc', descTag(`sRGB, ${String(points)}-point curve (Storiiboard test photos)`)],
+    ['cprt', textTag('Made by scripts/fixturePhotos.ts in the Storiiboard repo, for its test photos.')],
     ['wtpt', xyzTag(SRGB_D50.white)],
     ['rXYZ', xyzTag(SRGB_D50.red)],
     ['gXYZ', xyzTag(SRGB_D50.green)],
@@ -275,10 +275,13 @@ export function srgbProfile(points: number): Buffer {
     table.writeUInt32BE(size, 4 + row * 12 + 8);
     row += 1;
   };
+  // A tag's size in the table is its data alone, as ICC's tag table describes; the padding after it only brings the
+  // next tag's offset to a multiple of 4.
   for (const [signature, body] of data) {
     entry(signature, offset, body.length);
-    bodies.push(body);
-    offset += body.length;
+    const stored = padded(body);
+    bodies.push(stored);
+    offset += stored.length;
   }
   // The three channels share one curve: one copy of its data, three entries pointing at it (as ICC allows).
   for (const signature of trcs) entry(signature, offset, 12 + points * 2);
