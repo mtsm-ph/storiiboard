@@ -482,7 +482,8 @@ test('prints an original only when it is the picture the deck shows: same shape,
 });
 
 test('tells a real photograph from another of the same shape, and from its own stored copy', async ({ page }) => {
-  // Two real photographs (967 by 523 and 967 by 521: the same shape to within the tolerance), the first one imported.
+  // Two photographs scripts/fixturePhotos.ts draws (967 by 523 and 967 by 521: the same shape to within the
+  // tolerance), the first one imported.
   await newDeck(page, 'Photos', 'Blank');
   const data = [...readFileSync(fixture('photo-a.jpg'))];
   const wrapper = tile(page).locator('[data-board-data]');
