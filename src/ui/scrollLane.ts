@@ -150,11 +150,25 @@ function contentBoxes(element: Element, boxes: Element[], lists: Element[], dept
   }
 }
 
-function watchLane(element: HTMLElement): () => void {
+/**
+ * Watches one scroller and keeps its `data-scroll-lane` up to date; returns the stop. Exported for its test.
+ *
+ * Nothing is read from the page until the next frame, the first watch included (it reads the children's computed
+ * style): never inside the effects that mount the scroller. WebKit, made to work out the style of a modal dialog's
+ * content there, then drops the focus() a window gives its first field when the dialog is closed and shown again in
+ * the same task, as React's Strict Mode does with every effect (#222: the Save preset window's Name field was left
+ * unfocused on the Mac, and in Playwright's WebKit on Windows; deferring this one read alone brought the focus back).
+ */
+export function watchLane(element: HTMLElement): () => void {
   let state = NO_LANE;
   let frame = 0;
+  let watching = false;
   const measure = () => {
     frame = 0;
+    if (!watching) {
+      watching = true;
+      watch();
+    }
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     state = nextLane(state, {
@@ -188,7 +202,6 @@ function watchLane(element: HTMLElement): () => void {
     for (const box of boxes) resize.observe(box);
     for (const list of lists) children.observe(list, { childList: true });
   };
-  watch();
   schedule();
   return () => {
     cancelAnimationFrame(frame);

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { barsOverlay, laneAttribute, nextLane, NO_LANE, SCROLLBARS_ATTRIBUTE, writeReading, type LaneMeasure, type LaneState } from './scrollLane';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { barsOverlay, laneAttribute, nextLane, NO_LANE, SCROLLBARS_ATTRIBUTE, watchLane, writeReading, type LaneMeasure, type LaneState } from './scrollLane';
 
 const measure = (over: Partial<LaneMeasure> = {}): LaneMeasure => ({ overlay: true, overflowX: false, overflowY: false, box: '300x400', ...over });
 
@@ -129,5 +129,75 @@ describe('nextLane', () => {
     const state = run(measure({ overflowX: true }), measure(), measure({ overflowX: true }), measure({ overflowY: true }));
     expect(laneAttribute(state)).toBe('both');
     expect(laneAttribute(nextLane(state, measure()))).toBe('x');
+  });
+});
+
+describe('watchLane', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A scroller with one child, in a page whose frames, observers and computed style the test drives. */
+  function page() {
+    const frames: FrameRequestCallback[] = [];
+    const observed: unknown[] = [];
+    const styleReads: unknown[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe(target: unknown) {
+          observed.push(target);
+        }
+        disconnect() {
+          observed.length = 0;
+        }
+      },
+    );
+    vi.stubGlobal(
+      'MutationObserver',
+      class {
+        observe() {
+          return undefined;
+        }
+        disconnect() {
+          return undefined;
+        }
+      },
+    );
+    vi.stubGlobal('getComputedStyle', (target: unknown) => {
+      styleReads.push(target);
+      return { display: 'block', overflowX: 'hidden', overflowY: 'auto' };
+    });
+    const attributes = new Map<string, string>();
+    const child = { tag: 'child' };
+    const scroller = {
+      children: [child],
+      scrollWidth: 300,
+      clientWidth: 300,
+      scrollHeight: 600,
+      clientHeight: 400,
+      getBoundingClientRect: () => ({ width: 300, height: 400 }),
+      getAttribute: (name: string) => attributes.get(name) ?? null,
+      setAttribute: (name: string, value: string) => attributes.set(name, value),
+      removeAttribute: (name: string) => attributes.delete(name),
+    };
+    return { frames, observed, styleReads, child, scroller, attributes };
+  }
+
+  it('reads nothing from the page while it starts, only in the next frame (WebKit then drops a dialog field’s focus)', () => {
+    const p = page();
+    const stop = watchLane(p.scroller as unknown as HTMLElement);
+    // Started inside a component's effects: no computed style read there, none of the children's either.
+    expect(p.styleReads).toEqual([]);
+    expect(p.frames).toHaveLength(1);
+    p.frames[0]?.(0);
+    // In the frame: the child is watched, and the lane is taken, since the content overflows up and down.
+    expect(p.styleReads).toContain(p.child);
+    expect(p.observed).toEqual([p.scroller, p.child]);
+    expect(p.attributes.get('data-scroll-lane')).toBe('y');
+    stop();
+    expect(p.attributes.has('data-scroll-lane')).toBe(false);
   });
 });
