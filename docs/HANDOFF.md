@@ -8,21 +8,14 @@ It replaces nothing in either; it says where the work stands and what comes next
 
 What only Kevin can do or answer, one line each, with what it unblocks. Nothing a session, a review or CI can settle.
 
-- **A checkpoint for #206, #207 and #208** (each PR's checks green; WebKit on the Mac and Windows only run in a
-  checkpoint). Unblocks: their merges.
-- **The stalled encoder's words (item 8, fix 3):** the app can't tell a read stall from an encoder stall today
-  (`video::starts` reads only the file's start; a share hung partway still answers it). Proposed: after a stall, the
-  app reads the file itself past where ffmpeg stopped, with a time limit; it hangs → the drive's words stay, it reads →
-  "The video encoder stopped responding. Try again." It changes two existing tests' expected words and gives the
-  read-stall test a seam. Unblocks: the fix.
-- **HEIC on Windows: the step 0 and timing numbers** (private/briefs/heic-windows.md, "results"): yes to both probes,
-  the limit 10 s by the plan's rule, and a new tag rule (an ICC profile first, then nclx, else sRGB). Unblocks: the
-  build.
+- **A decoded copy of one of Kevin's HEICs** (and two error logs, one with its file name) is still in the Nov 19
+  session's scratch folder. Kevin said to delete it (Nov 20); the delete was refused again before any prompt reached
+  him. Kevin deletes the folder by hand, or allows the delete. Unblocks: closing the Nov 19 slip; no work waits.
+- **The launch check: what it can and can't prove,** once its brief is written. Kevin reads it; the build goes on
+  unless he says stop.
+- **The stalled encoder's fallback:** the plan, if the app doesn't try the next encoder by itself today. Unblocks:
+  that small fix.
 - **An HDR HEIF from Kevin's camera** in private/samples, when he can. Unblocks: HDR HEIF beyond a refusal.
-- **The stacked screenshot milestones' baseline run** (with the planLayers fix and "This picture is no longer in
-  the project."): Kevin compares old and new and says merge.
-- **A decoded copy of one of Kevin's HEICs** (and two error logs with its file name) is in the session's scratch
-  folder, from the first probe A run; the delete was denied with the second. Kevin deletes it, or says to.
 
 ## What a cloud session can and can't do
 
@@ -367,7 +360,31 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 19, evening: Kevin's answers worked through)
+### Next session: start here (Nov 20: Kevin's answers to the evening report; nothing of them started)
+
+The whole list, Kevin's words and what each item needs are in `private/NOV20_START.md` on Kevin's PC (git-ignored).
+Read it after this file. In short:
+
+- **Checkpoints Kevin named, and only these:** `checkpoint/nov20-a`, `checkpoint/nov20-b`,
+  `checkpoint/baselines-nov20`.
+- **1.** #207 and #208 together on `checkpoint/nov20-a`; every job green: merge both.
+- **2.** #206 doesn't merge yet: it changes how the main window is made and nothing automated starts the built app.
+  A launch check is stacked on it (the brief first, and Kevin is told what the check can and can't prove), then
+  `checkpoint/nov20-b` on the stack and both merge together. ALPHA_TEST.md's debug-build line for the workers'
+  policy then loses its [Kevin] mark.
+- **3.** The stalled encoder: yes to the proposal and its two changed expectations. First tell Kevin what the app
+  does today when the file reads fine and the encoder stalled; it should try the next encoder by itself.
+- **4.** HEIC on Windows: the numbers, the tag rule and the 10 s limit are approved; build it (plan and results in
+  private/briefs/heic-windows.md). At most two photos decode at a time, and the status line counts them.
+- **5.** The scratch copy of Kevin's photo: see Only Kevin.
+- **6.** The two ready screenshot changes (controls clear of an overlay scroll bar; "This picture is no longer in
+  the project.") don't wait for the bigger ones: `checkpoint/baselines-nov20`, every changed picture listed in the
+  PR with a before and after of each kind, merged when only those two changes explain the pictures.
+- **Kevin's photos (Nov 20):** anything a probe writes from them stays inside private/samples, and no file name of
+  his is printed, in a log or in chat.
+- **Still listed:** OSV-Scanner 2.7.1 on or after Nov 23, its own PR; the bigger screenshot milestones.
+
+### Earlier: start here (Nov 19, evening: Kevin's answers worked through)
 
 - **Merged:** #205 (docs, after a read; Kevin, Nov 19: docs-only PRs need no checkpoint).
 - **Open, each with one review and PR checks green, waiting for a checkpoint Kevin names:**
