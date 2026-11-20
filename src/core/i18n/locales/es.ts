@@ -1593,6 +1593,13 @@ export const es: Messages = {
   'error.notAVideo': 'Ese archivo no se puede leer como video.',
   'error.videoToolMissing': 'El lector de video de Storiiboard no pudo iniciarse. Reinstalar Storiiboard lo restablece.',
   'error.videoTooSlow': 'Ese video tardó demasiado en leerse. Si está en una unidad de red, cópialo primero a esta computadora.',
+  // src-tauri/src/heic.rs
+  'error.heicTooBig': 'Esta foto HEIC es demasiado grande para leerla (más de 64 MB). Conviértela primero a JPEG.',
+  'error.heicNotHeic': 'Ese archivo no es una foto HEIC.',
+  'error.heicHdr': 'Esta es una foto HDR, que Storiiboard todavía no puede leer en esta computadora. Expórtala primero como JPEG.',
+  'error.heicTooSlow': 'Esta foto HEIC tardó demasiado en leerse. Intenta otra vez, o conviértela primero a JPEG.',
+  'error.heicUnread': 'No se pudo leer esta foto HEIC. Conviértela primero a JPEG.',
+  'error.heicProfileTooBig': 'El perfil de color de esta foto es demasiado grande para guardarlo, así que sus colores no se pueden mostrar tal como son. Conviértela primero a JPEG.',
   // src-tauri/src/playback.rs
   'error.clipNotSaved': 'No se pudo guardar el clip ahí.',
   'error.clipCancelled': 'Se canceló el guardado del clip.',
