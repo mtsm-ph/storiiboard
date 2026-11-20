@@ -182,3 +182,48 @@ Where these differ from what is written above, these are the newer ones.
    test, add it.
 9. **Spanish, `error.heicTooSlow`:** "Esta foto HEIC tardó demasiado en leerse. Vuelve a intentarlo, o conviértela
    primero a JPEG.", the file's own phrase for "Try again".
+
+## After the second look (Nov 20): four more changes
+
+Where these differ from what is written above, these are the newer ones.
+
+1. **A colour the grid alone describes is found in the file's own bytes.** This ffprobe has no side-data section
+   for a stream group or its components, so the guard in point 4 above can never see a profile that belongs to the
+   grid item and not to its tiles: the photo would be tagged from its first tile (sRGB if that says nothing) and
+   shown in the wrong colour with no notice, and an HDR tag on the grid alone would not be refused. So Rust reads the
+   HEIF's own boxes, from the bytes it already holds, for this one question:
+   - Read `meta` (a full box) and in it: `pitm` (the primary item; versions 0 and 1), `iref` (versions 0 and 1; the
+     primary item's `dimg` references are its tiles, the first one its first tile), and `iprp` with `ipco` (the
+     properties, counted from 1) and `ipma` (which item has which; versions 0 and 1, and the flag that makes an
+     index two bytes).
+   - A `colr` property is an ICC profile (`prof` or `rICC`) or the four numbers (`nclx`: primaries, transfer, matrix
+     as 16-bit numbers, then the range bit).
+   - **The rules, applied only when the primary item has tiles:**
+     - the primary item has an `nclx` whose transfer is 16 (PQ) or 18 (HLG): the HDR refusal, whatever the tiles say;
+     - the primary item has an ICC `colr` and its first tile has none: refused as unreadable;
+     - the primary item has an `nclx` and its first tile has no `colr` at all: refused as unreadable.
+     Never guessed, never shown in another colour. Everything else goes on exactly as today.
+   - **A file whose boxes can't be followed adds no refusal:** ffmpeg stays the judge of whether it decodes. The
+     reader never panics and never reads past the bytes it was given: every length is checked before a slice, a box
+     size of 0 means to the end and a size of 1 means a 64-bit size follows, sizes smaller than a header are an end,
+     and no list is followed past 4,096 entries.
+   - It is its own small part of heic.rs (or a module beside it), with no new crate.
+2. **A profile on another tile is looked up where it is proven to be printed.** The guard reads each group stream's
+   `side_data_list` inside the group; nobody has checked that this ffprobe prints it there. Look each group stream's
+   `index` up in the top-level `streams` instead, whose side data the tests already read back from real files.
+3. **The sweep takes only names it could have written:** exactly `heic-`, 32 lowercase hex characters (what
+   `lock::random_id` gives), `.heic`.
+4. **Names and proofs:** the test whose name still says "else the first" is renamed for the rule it now tests (its
+   assertions stay as they are); and the gate's test proves the wait if it can be done without sleeping on luck (the
+   waiting call seen at the gate before the check), else leave it and say so.
+
+### Tests to add for these
+
+- The box reader, on box trees the tests build byte by byte: a grid with an ICC `colr` its first tile lacks is
+  refused; both carrying one is fine; an `nclx` of transfer 16 and of 18 on the grid is the HDR refusal; an `nclx` on
+  the grid with nothing on the tile is refused; a single picture with no tiles adds nothing; `pitm`, `iref` and
+  `ipma` in both versions, and `ipma` with two-byte indexes; a tree cut at every length, sizes of 0 and 1, a size
+  smaller than its header, a list longer than the limit: never a panic, never a refusal.
+- The real fixture still decodes exactly as before (its profile sits on its tiles).
+- A profile on another tile, found through the top-level streams.
+- The sweep leaves `heic-.heic`, `heic-abc.heic` and a name with upper-case hex alone, old as they may be.
