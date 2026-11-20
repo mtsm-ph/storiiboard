@@ -325,7 +325,8 @@ fn grid_colours(bytes: &[u8]) -> Option<(ItemColour, ItemColour)> {
 /// What a grid's own boxes call for (Kevin, Nov 20: never shown in the wrong colour): refused for an HDR transfer on
 /// the grid, whatever its tiles say, and for a profile on the grid its first tile lacks (no PNG of the tile can carry
 /// it); else the grid's own primaries and transfer when it has an `nclx`, the picture's own description, which the tag
-/// takes over the stream's. Nothing for a single picture or a file whose boxes can't be followed.
+/// takes over the stream's (except a 0 or 2, which states nothing: `tag_for`). Nothing for a single picture or a file
+/// whose boxes can't be followed.
 fn grid_check(bytes: &[u8]) -> Result<Option<(u16, u16)>, &'static str> {
     let Some((grid, tile)) = grid_colours(bytes) else {
         return Ok(None);
@@ -609,36 +610,35 @@ enum Tag {
     Cicp([u8; 4]),
 }
 
-/// A profile carried wins; else the grid's own four numbers (`grid`, H.273 numbers from its `nclx`); else the stream's
-/// four-number tag; else sRGB. A name that is missing, "unknown", "unspecified" or not in the tables, or a number they
-/// don't hold, reads as sRGB, for either number.
+/// H.273's "reserved" (0) and "unspecified" (2): the grid states nothing there.
+const UNSTATED: [u16; 2] = [0, 2];
+
+/// A profile carried wins. Else each of the two numbers is taken on its own: the grid's own (`grid`, H.273 numbers
+/// from its `nclx`, the picture's own description) when it states one, else the stream's name. A grid's 0 or 2 says
+/// nothing (writers put 2 when they don't know), so the file's other word, its stream's, stands for that number. A
+/// stated number the tables don't hold, or a name that is missing, "unknown", "unspecified" or not in them, gives
+/// none for its place; either place none makes the whole tag sRGB.
 fn tag_for(picture: &Picture, grid: Option<(u16, u16)>) -> Tag {
     if picture.profile {
         return Tag::Profile;
     }
-    if let Some((primaries, transfer)) = grid {
-        // Through the same tables as the names: only a number they hold is written.
-        let held = |table: &[(&str, u8)], number: u16| {
+    // One place: the grid's stated number through the table, else the stream's name through it.
+    let place = |table: &[(&str, u8)], stated: Option<u16>, name: &Option<String>| match stated {
+        Some(number) if !UNSTATED.contains(&number) => table
+            .iter()
+            .find(|&&(_, code)| u16::from(code) == number)
+            .map(|&(_, code)| code),
+        _ => {
+            let name = name.as_deref()?;
             table
                 .iter()
-                .find(|&&(_, code)| u16::from(code) == number)
+                .find(|(known, _)| *known == name)
                 .map(|&(_, code)| code)
-        };
-        return match (held(&PRIMARIES, primaries), held(&TRANSFERS, transfer)) {
-            (Some(primaries), Some(transfer)) => Tag::Cicp([primaries, transfer, 0, 1]),
-            _ => Tag::Cicp(SRGB),
-        };
-    }
-    let code = |table: &[(&str, u8)], name: &Option<String>| {
-        let name = name.as_deref()?;
-        table
-            .iter()
-            .find(|(known, _)| *known == name)
-            .map(|&(_, code)| code)
+        }
     };
     match (
-        code(&PRIMARIES, &picture.primaries),
-        code(&TRANSFERS, &picture.transfer),
+        place(&PRIMARIES, grid.map(|g| g.0), &picture.primaries),
+        place(&TRANSFERS, grid.map(|g| g.1), &picture.transfer),
     ) {
         (Some(primaries), Some(transfer)) => Tag::Cicp([primaries, transfer, 0, 1]),
         _ => Tag::Cicp(SRGB),
@@ -1434,6 +1434,10 @@ mod tests {
                 Err(HDR)
             );
             assert_eq!(check(&Tree::grid(&[nclx(9, transfer)], &[])), Err(HDR));
+            assert_eq!(
+                check(&Tree::grid(&[nclx(9, transfer)], &[nclx(9, transfer)])),
+                Err(HDR)
+            );
         }
         // Four numbers on the grid: used, whatever the tile has (some phones say it only inside the video stream).
         assert_eq!(check(&Tree::grid(&[nclx(12, 13)], &[])), Ok(Some((12, 13))));
@@ -1444,6 +1448,15 @@ mod tests {
         assert_eq!(
             check(&Tree::grid(&[nclx(12, 13)], &[prof()])),
             Ok(Some((12, 13)))
+        );
+        assert_eq!(
+            check(&Tree::grid(&[nclx(12, 13)], &[nclx(12, 13)])),
+            Ok(Some((12, 13)))
+        );
+        // The raw numbers are handed on, 2 included: `tag_for` alone decides what an unspecified one means.
+        assert_eq!(
+            check(&Tree::grid(&[nclx(2, 2)], &[nclx(12, 13)])),
+            Ok(Some((2, 2)))
         );
         // A profile and four numbers on the grid, over a tile with only one of them, each way.
         assert_eq!(
@@ -1478,9 +1491,12 @@ mod tests {
         assert_eq!(refuse(&lacking), Ok(()));
         let hdr = Tree::grid(&[nclx(9, 16)], &[]).bytes();
         assert_eq!(refuse(&hdr), Ok(()));
+        let hlg = Tree::grid(&[nclx(9, 18)], &[]).bytes();
+        assert_eq!(refuse(&hlg), Ok(()));
         // In the blocking part, before the photo is written anywhere.
         assert_eq!(picture(&lacking, &folder), Err(UNREAD));
         assert_eq!(picture(&hdr, &folder), Err(HDR));
+        assert_eq!(picture(&hlg, &folder), Err(HDR));
         assert!(!folder.exists(), "nothing written");
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1764,17 +1780,44 @@ mod tests {
             tag_for(&picture_with(None, None, false), Some((1, 1))),
             Tag::Cicp([1, 1, 0, 1])
         );
-        // A number the table doesn't hold, either one: sRGB, never the stream's instead.
-        for (primaries, transfer) in [(2, 13), (12, 2), (0, 0), (22, 13), (12, 17), (12, 16)] {
+        // A stated number the table doesn't hold, either one: sRGB, never the stream's instead, also when the other
+        // place falls to the stream.
+        for (primaries, transfer) in [(22, 13), (12, 17), (12, 16), (22, 2), (2, 17)] {
             assert_eq!(
                 tag_for(&stream_says, Some((primaries, transfer))),
                 Tag::Cicp(SRGB),
                 "{primaries}/{transfer}"
             );
         }
+        // The grid's 0 (reserved) or 2 (unspecified) states nothing: the stream's word stands for that place.
+        let p3 = picture_with(Some("smpte432"), Some("iec61966-2-1"), false);
+        assert_eq!(tag_for(&p3, Some((2, 2))), Tag::Cicp([12, 13, 0, 1]));
+        assert_eq!(tag_for(&p3, Some((0, 0))), Tag::Cicp([12, 13, 0, 1]));
+        assert_eq!(tag_for(&p3, Some((2, 1))), Tag::Cicp([12, 1, 0, 1]));
+        assert_eq!(tag_for(&p3, Some((9, 2))), Tag::Cicp([9, 13, 0, 1]));
+        assert_eq!(
+            tag_for(&stream_says, Some((12, 2))),
+            Tag::Cicp([12, 1, 0, 1])
+        );
+        // Nobody states it: the whole tag is sRGB, as with names.
+        assert_eq!(
+            tag_for(&picture_with(None, None, false), Some((12, 2))),
+            Tag::Cicp(SRGB)
+        );
+        assert_eq!(
+            tag_for(
+                &picture_with(Some("unknown"), Some("unspecified"), false),
+                Some((2, 2))
+            ),
+            Tag::Cicp(SRGB)
+        );
         // A profile carried wins over the grid's numbers.
         assert_eq!(
             tag_for(&picture_with(None, None, true), Some((12, 13))),
+            Tag::Profile
+        );
+        assert_eq!(
+            tag_for(&picture_with(None, None, true), Some((2, 2))),
             Tag::Profile
         );
         // No grid numbers: the stream's, as before.
