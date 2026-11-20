@@ -148,6 +148,41 @@ test('reads a screenplay PDF by its layout: headings, scene numbers in the margi
   await expect(scenesTile(page).getByText('INT. DINER — NIGHT')).toBeVisible();
 });
 
+test('reads a PDF where a ReadableStream can’t be iterated with for await, as in Safari’s engine (6.27p)', async ({ page }) => {
+  // macOS's webview has no async iteration of a ReadableStream; Chromium and Playwright's WebKit do. Taken away on the
+  // page (not in the worker, which never needed it) before the app loads, then the project made above is reopened.
+  await page.addInitScript(() => {
+    for (const key of [Symbol.asyncIterator, 'values']) Reflect.deleteProperty(ReadableStream.prototype, key);
+  });
+  await page.reload();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County/ }).click();
+  expect(await page.evaluate(() => Symbol.asyncIterator in ReadableStream.prototype || 'values' in ReadableStream.prototype)).toBe(false);
+  const pdf = screenplayPdf([
+    [
+      { row: 2, x: 72, text: '4' },
+      { row: 2, x: 108, text: 'INT. DINER - NIGHT' },
+      { row: 2, x: 540, text: '4' },
+      { row: 6, x: 252, text: 'MARY' },
+      { row: 7, x: 180, text: "We're closed." },
+      { row: 12, x: 72, text: '5' },
+      { row: 12, x: 108, text: 'EXT. COUNTY ROAD - DAY' },
+      { row: 12, x: 540, text: '5' },
+    ],
+  ]);
+  const chooser = page.waitForEvent('filechooser');
+  await scenesTile(page).getByRole('button', { name: 'Import script…' }).click();
+  await (await chooser).setFiles({ name: 'Bey County.pdf', mimeType: 'application/pdf', buffer: pdf });
+  await expect(preview(page)).toBeVisible();
+  const rows = preview(page).getByRole('table', { name: 'Scenes in the script' }).locator('tbody tr');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0).getByRole('cell').first()).toHaveText('4');
+  await expect(rows.nth(0)).toContainText('INT. DINER — NIGHT');
+  await expect(rows.nth(0)).toContainText('MARY');
+  await expect(rows.nth(1)).toContainText('EXT. COUNTY ROAD — DAY');
+  await preview(page).getByRole('button', { name: 'Import 2 scenes' }).click();
+  await expect(scenesTile(page).getByText('EXT. COUNTY ROAD — DAY')).toBeVisible();
+});
+
 test('a PDF that can’t be read says so, naming the file', async ({ page }) => {
   const chooser = page.waitForEvent('filechooser');
   await scenesTile(page).getByRole('button', { name: 'Import script…' }).click();
