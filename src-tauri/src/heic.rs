@@ -11,7 +11,11 @@
 //!
 //! The bytes are untrusted. They are refused before any decode over 64 MiB or when they aren't a HEIF (exif.rs's
 //! `is_heif`, which keeps AVIF out). The HEIF reader has to seek, so they go to a file of our own in the app's cache
-//! folder, under a random name, made new, and gone after every outcome. At most two photos decode at a time (a 48 MP
+//! folder, under a random name, made new, and gone after every outcome. ffprobe's answer is read for the pixels before
+//! ffmpeg is asked anything else: over 120 MP, or a grid's tiles or canvas far more than the picture, is refused (Kevin,
+//! Nov 20: a few kilobytes can describe gigabytes once decoded), a grid's placed tiles must all declare one size, and
+//! no decoder may make a frame larger than that size with its width rounded up to 64 (`max_pixels`, as ffmpeg checks
+//! it), nor is a stream coded larger than its declared size allows. At most two photos decode at a time (a 48 MP
 //! one peaks at about 300 MB), each given 10 s from its turn. No file name, path or ffmpeg output goes into a message.
 //!
 //! The same box reader finds a HEIC's EXIF item for exif.rs (`exif_item`), on every system: no decode, no sidecar.
@@ -42,6 +46,9 @@ const TOO_SLOW: &str =
     "This HEIC photo took too long to read. Try again, or convert it to JPEG first.";
 const UNREAD: &str = "This HEIC photo couldn't be read. Convert it to JPEG first.";
 const PROFILE_TOO_BIG: &str = "This photo's colour profile is too large to keep, so its colours can't be shown as they are. Convert it to JPEG first.";
+/// Kevin, Nov 20: a few kilobytes of HEIC can describe gigabytes of pixels, so the size is read before any decode.
+const TOO_MANY_PIXELS: &str =
+    "This HEIC photo is too large to read (over 120 megapixels). Convert it to JPEG first.";
 /// A bug in the page, never something a person did (the same words as exif.rs's).
 const NOT_RAW: &str = "Expected the picture as raw bytes.";
 
@@ -61,6 +68,13 @@ const LONG_EDGE: u32 = 2560;
 const LIMIT: Duration = Duration::from_secs(10);
 /// Photos decoded at once (Kevin, Nov 20).
 const AT_ONCE: usize = 2;
+/// The most pixels a picture may have to be decoded (Kevin, Nov 20): a 102 MP camera frame passes.
+const MAX_PIXELS: u64 = 120_000_000;
+/// What a grid's tiles may add up to beyond twice the picture's own pixels. Tiles overhang the picture by less than one
+/// tile per row and per column, so real files sit between 1.0 and about 1.5 times (a 102 MP 11648 × 8736 frame in
+/// 4096 px tiles: 1.48); twice leaves room for a layout nobody has shown us, and this keeps a tiny picture in one
+/// 512 px tile from being refused.
+const TILE_ALLOWANCE: u64 = 1_000_000;
 
 /// What a system answers instead of decoding: the Mac its HEIC line, every other system nothing (it decodes). A
 /// function of the system's name, so a test reads both answers on any system.
@@ -853,6 +867,149 @@ fn read_picture(json: &Value) -> Result<Picture, &'static str> {
     })
 }
 
+/// A JSON object's width × height: None when either is missing, zero, negative or not a number, or the product
+/// overflows.
+fn pixels_of(value: &Value) -> Option<u64> {
+    let (width, height) = sides_of(value)?;
+    width.checked_mul(height)
+}
+
+/// A JSON object's width and height: None when either is missing, zero, negative or not a number.
+fn sides_of(value: &Value) -> Option<(u64, u64)> {
+    let side = |key: &str| value[key].as_u64().filter(|&n| n > 0);
+    Some((side("width")?, side("height")?))
+}
+
+/// The alignment ffmpeg's `max_pixels` check counts a frame's width at: it checks the width rounded up to the build's
+/// stride alignment, times the height as it is (with the bundled 8.1.3 on x86, a 1000 × 750 PNG is refused under
+/// 1024 × 750 pixels; aarch64 builds align to 16). 64 is the largest alignment any ffmpeg build uses. It is also the
+/// largest coding block an HEVC encoder pads a picture to, so it bounds a stream's coded size (`coded_within`).
+const DECODER_ALIGN: u64 = 64;
+
+/// The decode's cap for a frame declared `width` × `height`: the width rounded up to `DECODER_ALIGN`, times the height,
+/// as ffmpeg checks it, so an ordinary photo whose width isn't a multiple of 64 still decodes on every build. The
+/// height is never rounded: ffmpeg doesn't, and rounding it would let a thin frame (120,000,000 × 1) lift the cap
+/// 64-fold. A crafted frame gains at most 63 columns.
+fn decoder_cap(width: u64, height: u64) -> Option<u64> {
+    width
+        .checked_next_multiple_of(DECODER_ALIGN)?
+        .checked_mul(height)
+}
+
+/// A stream's coded size against its declared `width` × `height`: an HEVC stream's conformance window crops the coded
+/// picture to the declared size, and ffmpeg's `max_pixels` checks only the cropped one, while the frame is allocated at
+/// the coded size. An honest encoder pads to its coding block, at most 64, so a coded side past its declared side
+/// rounded up to `DECODER_ALIGN` is unreadable. ffprobe's `coded_width` and `coded_height` missing or 0 is "not
+/// known", never a refusal on its own (the decoder's cap still holds the cropped size); present and not a number, or
+/// negative, is unreadable.
+fn coded_within(stream: &Value, width: u64, height: u64) -> bool {
+    let within = |key: &str, declared: u64| match &stream[key] {
+        Value::Null => true,
+        value => value.as_u64().is_some_and(|coded| {
+            coded == 0
+                || declared
+                    .checked_next_multiple_of(DECODER_ALIGN)
+                    .is_some_and(|most| coded <= most)
+        }),
+    };
+    within("coded_width", width) && within("coded_height", height)
+}
+
+/// The pixels ffmpeg would be asked to decode, from ffprobe's answer, before it is asked anything else (Kevin, Nov 20):
+/// the picture's own (the chosen grid's size, or its one stream's) over `MAX_PIXELS` is refused, and so are a grid's
+/// canvas (its `coded_width` × `coded_height`, which ffmpeg stacks the tiles on before it crops to the picture) and its
+/// tiles added up, each over twice the picture's own plus `TILE_ALLOWANCE`, a tile counted once for each place the
+/// grid puts it. A place's `stream_index` is a position in the grid's own stream list (FFmpeg's
+/// `AVStreamGroupTileGrid.offsets[i].idx`), never a file stream index: the list's entry there names the file stream
+/// whose size it is. Only the grid `read_picture` chose is counted: no other grid (a gain map's) is decoded. A size the
+/// rule needs that can't be read is unreadable, never passed on to the decode.
+///
+/// Passed, it gives the decode's cap (`max_pixels`), `decoder_cap` of the frame the file declares for what will be
+/// decoded (the chosen grid's tile, or the one stream): every size here is what the container says, so a cropped
+/// picture larger than its box is refused by the decoder itself, and a coded size past the declared one (the stream's
+/// `coded_width` and `coded_height`, which the cap doesn't see) is refused here first (`coded_within`). The one cap is given to every tile's decoder, so every placed
+/// tile of the grid must declare the same width and height, as HEIF requires of a grid's input images (ISO/IEC
+/// 23008-12, image grid): a grid whose tiles differ is unreadable, and the cap is then each tile's own.
+fn pixels_within_limit(json: &Value, picture: &Picture) -> Result<u64, &'static str> {
+    let streams = json["streams"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let refuse_over = |own: u64| {
+        if own > MAX_PIXELS {
+            Err(TOO_MANY_PIXELS)
+        } else {
+            Ok(own)
+        }
+    };
+    match picture.source {
+        Source::Stream(m) => {
+            let stream = streams
+                .iter()
+                .filter(|stream| stream["codec_type"] == "video")
+                .nth(m)
+                .ok_or(UNREAD)?;
+            refuse_over(pixels_of(stream).ok_or(UNREAD)?)?;
+            let (width, height) = sides_of(stream).ok_or(UNREAD)?;
+            if !coded_within(stream, width, height) {
+                return Err(UNREAD);
+            }
+            decoder_cap(width, height).ok_or(UNREAD)
+        }
+        Source::Grid(n) => {
+            let group = &json["stream_groups"][n];
+            let component = &group["components"][0];
+            let own = refuse_over(pixels_of(component).ok_or(UNREAD)?)?;
+            // `own` is at most 120 MP here, so this can't overflow.
+            let allowance = own * 2 + TILE_ALLOWANCE;
+            let side = |key: &str| component[key].as_u64().filter(|&n| n > 0);
+            let canvas = side("coded_width")
+                .zip(side("coded_height"))
+                .and_then(|(width, height)| width.checked_mul(height))
+                .ok_or(UNREAD)?;
+            if canvas > allowance {
+                return Err(TOO_MANY_PIXELS);
+            }
+            // Each stream's index once, so a grid of many tiles costs one pass, not one per tile.
+            let by_index: std::collections::HashMap<u64, &Value> = streams
+                .iter()
+                .filter_map(|stream| Some((stream["index"].as_u64()?, stream)))
+                .collect();
+            let listed = group["streams"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            let tiles = component["subcomponents"]
+                .as_array()
+                .filter(|tiles| !tiles.is_empty())
+                .ok_or(UNREAD)?;
+            let mut sum = 0u64;
+            let mut size: Option<(u64, u64)> = None;
+            for tile in tiles {
+                let stream = tile["stream_index"]
+                    .as_u64()
+                    .and_then(|place| listed.get(usize::try_from(place).ok()?))
+                    .and_then(|entry| entry["index"].as_u64())
+                    .and_then(|index| by_index.get(&index))
+                    .ok_or(UNREAD)?;
+                let sides = sides_of(stream).ok_or(UNREAD)?;
+                // Every placed tile the first one's size, so the one cap is each tile's own.
+                if *size.get_or_insert(sides) != sides || !coded_within(stream, sides.0, sides.1) {
+                    return Err(UNREAD);
+                }
+                let pixels = sides.0.checked_mul(sides.1).ok_or(UNREAD)?;
+                sum = sum.checked_add(pixels).ok_or(UNREAD)?;
+            }
+            if sum > allowance {
+                return Err(TOO_MANY_PIXELS);
+            }
+            // `tiles` isn't empty, so `size` is set.
+            let (width, height) = size.ok_or(UNREAD)?;
+            decoder_cap(width, height).ok_or(UNREAD)
+        }
+    }
+}
+
 /// ffmpeg's names for colour primaries, as H.273 numbers them.
 const PRIMARIES: [(&str, u8); 10] = [
     ("bt709", 1),
@@ -1046,12 +1203,16 @@ fn profile_chunk(png: &[u8]) -> Result<Vec<u8>, &'static str> {
 /// What ffprobe is asked for: exactly the fields `read_picture` reads, by the section names this ffprobe lists
 /// (`ffprobe -sections`), and no tags, so a crafted name or comment can't make the answer large before the cap is
 /// looked at. Its streams' side data is named the same way inside a group's streams. This ffprobe has no side data
-/// section on a group or a component, so a profile there can't be listed by it; the reader still looks there.
+/// section on a group or a component, so a profile there can't be listed by it; the reader still looks there. The
+/// streams' size and coded size, a grid's canvas (`coded_width`, `coded_height`) and its `subcomponent` entries (one per
+/// place a tile goes, its position in the grid's own stream list) are what `pixels_within_limit` counts: one short line
+/// per tile, as the streams already print.
 const PROBE_ENTRIES: &str =
-    "stream=index,codec_type,pix_fmt,bits_per_raw_sample,color_primaries,color_transfer\
+    "stream=index,codec_type,width,height,coded_width,coded_height,pix_fmt,bits_per_raw_sample\
+    ,color_primaries,color_transfer\
     :stream_disposition=default,dependent:stream_side_data=side_data_type\
     :stream_group=index,type:stream_group_disposition=default:stream_group_stream=index\
-    :stream_group_component=width,height";
+    :stream_group_component=width,height,coded_width,coded_height:subcomponent=stream_index";
 
 /// ffprobe's answer about the file, as compact JSON. The path is one argument of the list, and only local files may
 /// be opened.
@@ -1073,7 +1234,8 @@ fn probe_command(file: &Path) -> Command {
 /// The picture through `scale`, fitted inside 2560 × 2560, its shape kept, never up, as one PNG on stdout. The size is
 /// never worked out here: ffmpeg applies a recorded turn itself, and the PNG's IHDR says what came out. No colour
 /// conversion. The filter is one argument, never through a shell, so its quotes reach ffmpeg's own parser as they are.
-fn decode_command(file: &Path, picture: &Picture) -> Command {
+/// `max_pixels` caps every frame the input's decoders make (`input_options`).
+fn decode_command(file: &Path, picture: &Picture, max_pixels: u64) -> Command {
     let input = match picture.source {
         Source::Grid(n) => format!("[0:g:{n}]"),
         Source::Stream(m) => format!("[0:v:{m}]"),
@@ -1084,32 +1246,37 @@ fn decode_command(file: &Path, picture: &Picture) -> Command {
     let pixels = if picture.deep { "rgb48be" } else { "rgb24" };
     let mut command = video::command("ffmpeg");
     command
-        .args([
-            "-hide_banner",
-            "-v",
-            "error",
-            "-protocol_whitelist",
-            "file",
-            "-i",
-        ])
+        .args(["-hide_banner", "-v", "error"])
+        .args(input_options(max_pixels))
+        .arg("-i")
         .arg(file)
         .args(["-filter_complex", &filter, "-map", "[o]", "-frames:v", "1"])
         .args(["-c:v", "png", "-pix_fmt", pixels, "-f", "image2pipe", "-"]);
     command
 }
 
-/// A 16 × 16 PNG of the picture's first stream alone, which carries the file's ICC profile as its iCCP chunk.
-fn profile_command(file: &Path, picture: &Picture) -> Command {
+/// The options before `-i`, for the photo's input: local files only, and every frame its decoders make at most
+/// `max_pixels` (ffmpeg's codec option, given before `-i` so it is set for that input's decoders, each tile's
+/// included). ffmpeg's own default is the largest `int`; what `pixels_within_limit` passes is a declared frame's width
+/// rounded up to 64 times its height (`decoder_cap`), which only a frame of an extreme shape (a column of 120 MP, each
+/// row padded to 64 as ffmpeg would allocate it) takes past it.
+fn input_options(max_pixels: u64) -> [String; 4] {
+    [
+        "-protocol_whitelist".into(),
+        "file".into(),
+        "-max_pixels".into(),
+        max_pixels.min(i32::MAX as u64).to_string(),
+    ]
+}
+
+/// A 16 × 16 PNG of the picture's first stream alone, which carries the file's ICC profile as its iCCP chunk. Its
+/// decode is capped as the picture's is: the first stream is one of the frames `max_pixels` was taken from.
+fn profile_command(file: &Path, picture: &Picture, max_pixels: u64) -> Command {
     let mut command = video::command("ffmpeg");
     command
-        .args([
-            "-hide_banner",
-            "-v",
-            "error",
-            "-protocol_whitelist",
-            "file",
-            "-i",
-        ])
+        .args(["-hide_banner", "-v", "error"])
+        .args(input_options(max_pixels))
+        .arg("-i")
         .arg(file)
         .args(["-map", &format!("0:v:{}", picture.first), "-frames:v", "1"])
         .args([
@@ -1190,12 +1357,13 @@ fn sweep(folder: &Path) {
 }
 
 /// The PNG for a HEIC already checked by `refuse`, within `limit` from now: the file written, probed, its profile
-/// fetched when it has one, decoded and rewritten. `decode` makes the decode's command (a test stands in for it).
+/// fetched when it has one, decoded and rewritten. `decode` makes the decode's command from the file, the picture and
+/// the largest frame declared (a test stands in for it).
 fn decode_within(
     bytes: &[u8],
     folder: &Path,
     limit: Duration,
-    decode: &dyn Fn(&Path, &Picture) -> Command,
+    decode: &dyn Fn(&Path, &Picture, u64) -> Command,
 ) -> Result<Vec<u8>, &'static str> {
     let deadline = Instant::now() + limit;
     // The grid's own boxes, once, here off the command's thread; refused before the photo is written anywhere.
@@ -1205,10 +1373,13 @@ fn decode_within(
     let said = run(probe_command(&temp.path), deadline, &temp.path, MAX_PROBE)?;
     let json: Value = serde_json::from_slice(&said).map_err(|_| UNREAD)?;
     let picture = read_picture(&json)?;
+    // Its pixels, before ffmpeg is asked anything else: a small file can describe gigabytes of them. What passes is the
+    // largest frame declared, and no decoder may make a bigger one.
+    let max_pixels = pixels_within_limit(&json, &picture)?;
     // The profile first: a photo refused for it never waits for its decode.
     let tag = match tag_for(&picture, grid) {
         Tag::Profile => profile_chunk(&run(
-            profile_command(&temp.path, &picture),
+            profile_command(&temp.path, &picture, max_pixels),
             deadline,
             &temp.path,
             MAX_OUTPUT,
@@ -1216,7 +1387,7 @@ fn decode_within(
         Tag::Cicp(numbers) => chunk(b"cICP", &numbers),
     };
     let png = run(
-        decode(&temp.path, &picture),
+        decode(&temp.path, &picture, max_pixels),
         deadline,
         &temp.path,
         MAX_OUTPUT,
@@ -1512,7 +1683,7 @@ mod tests {
         assert!(one(json!({ "bits_per_raw_sample": "10" })).deep);
         let file = Path::new("photo.heic");
         let args = |picture: &Picture| -> Vec<String> {
-            decode_command(file, picture)
+            decode_command(file, picture, 512 * 512)
                 .get_args()
                 .map(|a| a.to_string_lossy().into_owned())
                 .collect()
@@ -3116,7 +3287,7 @@ mod tests {
     fn gives_up_at_the_limit_with_its_words_and_leaves_no_file() {
         let dir = temp_dir("slow");
         // A decode that would run for a minute, with the photo open as one of its inputs.
-        let stand_in = |file: &Path, _: &Picture| {
+        let stand_in = |file: &Path, _: &Picture, _: u64| {
             let mut command = video::command("ffmpeg");
             command
                 .args(["-hide_banner", "-v", "error", "-re", "-f", "lavfi"])
@@ -3379,5 +3550,754 @@ mod tests {
         );
         assert!(!String::from_utf8_lossy(&said.stdout).contains("tags"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ---- The pixels, before any decode -----------------------------------------------------------------------------
+
+    /// The limit's answer for ffprobe's JSON, as `decode_within` asks it: after the picture is chosen. Passed or not,
+    /// without the largest frame it gives (`largest` reads that).
+    fn limit(json: &Value) -> Result<(), &'static str> {
+        largest(json).map(|_| ())
+    }
+
+    /// The largest frame the limit passes on to the decode's cap.
+    fn largest(json: &Value) -> Result<u64, &'static str> {
+        let picture = read_picture(json)?;
+        pixels_within_limit(json, &picture)
+    }
+
+    /// ffprobe's answer for a default grid of `width` × `height` whose places are filled in turn by these tiles, each
+    /// its own stream, the grid's list naming every one, and its canvas the picture's own size.
+    fn tiled(width: Value, height: Value, tiles: &[(u64, u64)]) -> Value {
+        tiled_after(&[], width, height, tiles)
+    }
+
+    /// `tiled` with the streams of `before` (not the grid's: a thumbnail, another grid's tiles) first in the file, so
+    /// the grid's tiles' file stream indexes start after them while their places still count from 0 in the grid's
+    /// own list.
+    fn tiled_after(
+        before: &[(u64, u64)],
+        width: Value,
+        height: Value,
+        tiles: &[(u64, u64)],
+    ) -> Value {
+        let streams: Vec<Value> = before
+            .iter()
+            .chain(tiles)
+            .enumerate()
+            .map(|(n, &(w, h))| stream(n as u64, 1, json!({ "width": w, "height": h })))
+            .collect();
+        let first = before.len();
+        let places: Vec<Value> = (0..tiles.len())
+            .map(|n| json!({ "stream_index": n }))
+            .collect();
+        // At least one entry, so a grid of no tiles still has the first stream `read_picture` reads.
+        let listed: Vec<Value> = (0..tiles.len().max(1))
+            .map(|n| json!({ "index": first + n }))
+            .collect();
+        json!({
+            "streams": streams,
+            "stream_groups": [{
+                "type": "Tile Grid",
+                "disposition": { "default": 1 },
+                "components": [{
+                    "width": width.clone(),
+                    "height": height.clone(),
+                    "coded_width": width,
+                    "coded_height": height,
+                    "subcomponents": places,
+                }],
+                "streams": listed,
+            }],
+        })
+    }
+
+    /// `count` tiles of `side` × `side`.
+    fn square_tiles(count: usize, side: u64) -> Vec<(u64, u64)> {
+        vec![(side, side); count]
+    }
+
+    fn one_stream(width: Value, height: Value) -> Value {
+        json!({ "streams": [stream(0, 0, json!({ "width": width, "height": height }))] })
+    }
+
+    #[test]
+    fn a_picture_of_exactly_120_megapixels_passes_and_one_pixel_more_is_refused() {
+        assert_eq!(limit(&one_stream(json!(12000), json!(10000))), Ok(()));
+        // 3047 × 39383 = 120,000,001.
+        assert_eq!(
+            limit(&one_stream(json!(3047), json!(39383))),
+            Err(TOO_MANY_PIXELS)
+        );
+        assert_eq!(
+            limit(&one_stream(json!(120_000_001), json!(1))),
+            Err(TOO_MANY_PIXELS)
+        );
+        // A grid of exactly 120 MP, its tiles adding up to the same, passes too.
+        assert_eq!(
+            limit(&tiled(json!(12000), json!(10000), &square_tiles(120, 1000))),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_grid_over_the_limit_is_refused_whatever_its_tiles_are() {
+        for tiles in [
+            square_tiles(1, 512),
+            square_tiles(121, 1000),
+            vec![(0, 0)],
+            Vec::new(),
+        ] {
+            let mut json = tiled(json!(12000), json!(10001), &tiles);
+            if tiles.is_empty() {
+                json["streams"] = json!([stream(0, 1, json!({}))]);
+            }
+            assert_eq!(limit(&json), Err(TOO_MANY_PIXELS), "{tiles:?}");
+        }
+        assert_eq!(
+            limit(&tiled(json!(65535), json!(65535), &square_tiles(4, 512))),
+            Err(TOO_MANY_PIXELS)
+        );
+    }
+
+    #[test]
+    fn tiles_up_to_twice_the_picture_plus_a_megapixel_pass_and_one_pixel_more_is_refused() {
+        // A 100 MP picture: tiles of 1.03, 1.48 and exactly 2 times plus 1,000,000.
+        for count in [103, 148, 201] {
+            assert_eq!(
+                limit(&tiled(
+                    json!(10000),
+                    json!(10000),
+                    &square_tiles(count, 1000)
+                )),
+                Ok(()),
+                "{count}"
+            );
+        }
+        // One pixel more, in tiles that all declare one size (a grid's must): one tile of 201,000,001 × 1.
+        let over = [(201_000_001, 1)];
+        assert_eq!(
+            limit(&tiled(json!(10000), json!(10000), &over)),
+            Err(TOO_MANY_PIXELS)
+        );
+        // An iPhone's 48 MP photo in 512 px tiles (16 × 12): 1.03.
+        assert_eq!(
+            limit(&tiled(
+                json!(8064),
+                json!(6048),
+                &square_tiles(16 * 12, 512)
+            )),
+            Ok(())
+        );
+        // A tiny picture in one 512 px tile is what the extra megapixel is for.
+        assert_eq!(
+            limit(&tiled(json!(16), json!(16), &square_tiles(1, 512))),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_102_megapixel_frame_passes_in_4096_and_in_512_px_tiles() {
+        // 11648 × 8736 in 4096 px tiles, 3 × 3: 1.48 times.
+        assert_eq!(
+            limit(&tiled(json!(11648), json!(8736), &square_tiles(9, 4096))),
+            Ok(())
+        );
+        // In 512 px tiles, 23 × 18: 1.07 times.
+        assert_eq!(
+            limit(&tiled(
+                json!(11648),
+                json!(8736),
+                &square_tiles(23 * 18, 512)
+            )),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn a_tiny_picture_over_huge_tiles_is_refused() {
+        assert_eq!(
+            limit(&tiled(json!(16), json!(16), &square_tiles(1, 16384))),
+            Err(TOO_MANY_PIXELS)
+        );
+        assert_eq!(
+            limit(&tiled(json!(16), json!(16), &square_tiles(256, 8192))),
+            Err(TOO_MANY_PIXELS)
+        );
+    }
+
+    #[test]
+    fn a_tile_the_grid_uses_twice_counts_twice() {
+        // A 1 MP picture may have 3 MP of tiles: one of 1.6 MP fits once, not twice.
+        let mut json = tiled(json!(1000), json!(1000), &[(1600, 1000)]);
+        assert_eq!(limit(&json), Ok(()));
+        json["stream_groups"][0]["components"][0]["subcomponents"] =
+            json!([{ "stream_index": 0 }, { "stream_index": 0 }]);
+        assert_eq!(limit(&json), Err(TOO_MANY_PIXELS));
+    }
+
+    #[test]
+    fn a_size_that_cant_be_read_is_unreadable_and_never_panics() {
+        let bad = [
+            Value::Null,
+            json!(0),
+            json!(-512),
+            json!("abc"),
+            json!("512"),
+            json!(512.5),
+        ];
+        for value in &bad {
+            // The one stream's width or height.
+            assert_eq!(
+                limit(&one_stream(value.clone(), json!(512))),
+                Err(UNREAD),
+                "{value}"
+            );
+            assert_eq!(
+                limit(&one_stream(json!(512), value.clone())),
+                Err(UNREAD),
+                "{value}"
+            );
+            // The grid's.
+            assert_eq!(
+                limit(&tiled(value.clone(), json!(768), &square_tiles(4, 512))),
+                Err(UNREAD),
+                "{value}"
+            );
+            assert_eq!(
+                limit(&tiled(json!(1024), value.clone(), &square_tiles(4, 512))),
+                Err(UNREAD),
+                "{value}"
+            );
+            // A tile's.
+            let mut json = tiled(json!(1024), json!(768), &square_tiles(4, 512));
+            json["streams"][2]["width"] = value.clone();
+            assert_eq!(limit(&json), Err(UNREAD), "{value}");
+            // A place's stream index (0 is a real one: the first tile's).
+            if *value == json!(0) {
+                continue;
+            }
+            let mut json = tiled(json!(1024), json!(768), &square_tiles(4, 512));
+            json["stream_groups"][0]["components"][0]["subcomponents"][1]["stream_index"] =
+                value.clone();
+            assert_eq!(limit(&json), Err(UNREAD), "{value}");
+        }
+        // A missing size key altogether (the stream helper has 512 × 512 unless told otherwise).
+        let mut json = tiled(json!(1024), json!(768), &square_tiles(4, 512));
+        json["streams"][1].as_object_mut().unwrap().remove("height");
+        assert_eq!(limit(&json), Err(UNREAD));
+        // No places listed, none at all, a place whose stream isn't there.
+        let mut json = tiled(json!(1024), json!(768), &square_tiles(4, 512));
+        json["stream_groups"][0]["components"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("subcomponents");
+        assert_eq!(limit(&json), Err(UNREAD));
+        json["stream_groups"][0]["components"][0]["subcomponents"] = json!([]);
+        assert_eq!(limit(&json), Err(UNREAD));
+        json["stream_groups"][0]["components"][0]["subcomponents"] =
+            json!([{ "stream_index": 0 }, { "stream_index": 99 }]);
+        assert_eq!(limit(&json), Err(UNREAD));
+        // Products past 64 bits: the one stream's, the grid's, a tile's; and tiles whose sum is.
+        let huge = json!(1u64 << 32);
+        assert_eq!(limit(&one_stream(huge.clone(), huge.clone())), Err(UNREAD));
+        assert_eq!(limit(&one_stream(json!(u64::MAX), json!(2))), Err(UNREAD));
+        assert_eq!(
+            limit(&tiled(huge.clone(), huge.clone(), &square_tiles(4, 512))),
+            Err(UNREAD)
+        );
+        assert_eq!(
+            limit(&tiled(json!(16), json!(16), &[(1 << 32, 1 << 32)])),
+            Err(UNREAD)
+        );
+        let near = (1u64 << 32, (1u64 << 32) - 1);
+        assert_eq!(
+            limit(&tiled(json!(16), json!(16), &[near, near])),
+            Err(UNREAD)
+        );
+    }
+
+    /// The proof with its grid's own size (the `grid` item's output width and height, 16 bits each, in `idat`) set to
+    /// `width` × `height`: a real file ffprobe reads, its four 512 px tiles as they are.
+    fn proof_sized(width: u16, height: u16) -> Vec<u8> {
+        let mut bytes = proof();
+        // Version 0, flags 0, rows and columns less one (1, 1), then 1024 and 768.
+        let payload = [0, 0, 1, 1, 0x04, 0x00, 0x03, 0x00];
+        let found: Vec<usize> = bytes
+            .windows(payload.len())
+            .enumerate()
+            .filter(|(_, w)| *w == payload)
+            .map(|(at, _)| at)
+            .collect();
+        assert_eq!(found.len(), 1, "the grid's payload, once");
+        let at = found[0] + 4;
+        bytes[at..at + 2].copy_from_slice(&width.to_be_bytes());
+        bytes[at + 2..at + 4].copy_from_slice(&height.to_be_bytes());
+        bytes
+    }
+
+    #[test]
+    fn a_photo_refused_for_its_pixels_starts_no_decode_and_leaves_no_file() {
+        let dir = temp_dir("pixels");
+        // 65535 × 65535 over four 512 px tiles: the picture itself. 16 × 16 over them is refused by the canvas check,
+        // before the tile sum (the proof's canvas, 1024 × 1024, equals its tile sum); the tile sum stays covered by the
+        // JSON-built tests above.
+        for bytes in [proof_sized(65535, 65535), proof_sized(16, 16)] {
+            let folder = dir.join("cache");
+            let decoded = AtomicBool::new(false);
+            let decode = |file: &Path, picture: &Picture, cap: u64| {
+                decoded.store(true, Ordering::SeqCst);
+                decode_command(file, picture, cap)
+            };
+            assert_eq!(
+                decode_within(&bytes, &folder, LIMIT, &decode),
+                Err(TOO_MANY_PIXELS)
+            );
+            assert!(!decoded.load(Ordering::SeqCst), "no decode was started");
+            assert!(left_after_waiting(&folder).is_empty(), "no file left");
+            // The whole command's path says the same.
+            assert_eq!(picture(&bytes, &folder), Err(TOO_MANY_PIXELS));
+            assert!(left_after_waiting(&folder).is_empty(), "no file left");
+        }
+        // The proof as it is passes the same check and reaches its decode.
+        let folder = dir.join("cache");
+        let decoded = AtomicBool::new(false);
+        let decode = |file: &Path, picture: &Picture, cap: u64| {
+            decoded.store(true, Ordering::SeqCst);
+            decode_command(file, picture, cap)
+        };
+        assert!(decode_within(&proof(), &folder, LIMIT, &decode).is_ok());
+        assert!(decoded.load(Ordering::SeqCst));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ffprobe_gives_the_sizes_the_limit_reads() {
+        let dir = temp_dir("sizes");
+        let heic = dir.join("proof.heic");
+        fs::write(&heic, proof()).unwrap();
+        let said = probe_command(&heic).output().unwrap();
+        assert!(said.status.success());
+        let json: Value = serde_json::from_slice(&said.stdout).unwrap();
+        let component = &json["stream_groups"][0]["components"][0];
+        assert_eq!(pixels_of(component), Some(1024 * 768));
+        let places = component["subcomponents"].as_array().unwrap();
+        let indexes: Vec<_> = places.iter().map(|p| p["stream_index"].clone()).collect();
+        assert_eq!(indexes, [json!(0), json!(1), json!(2), json!(3)]);
+        for stream in json["streams"].as_array().unwrap() {
+            assert_eq!(pixels_of(stream), Some(512 * 512));
+        }
+        assert_eq!(limit(&json), Ok(()));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ---- Round 2: the grid's own list, the canvas, the decoder's cap ------------------------------------------------
+
+    #[test]
+    fn a_grids_places_are_read_through_its_own_stream_list_not_the_files() {
+        // Four small streams first (a thumbnail, another grid's tiles), then the grid's: its places 0 to n−1 are
+        // positions in its own list, whose entries are file streams 4 and on.
+        let small = square_tiles(4, 16);
+        let huge = tiled_after(&small, json!(16), json!(16), &square_tiles(4, 16384));
+        assert_eq!(huge["stream_groups"][0]["streams"][0]["index"], 4);
+        assert_eq!(
+            huge["stream_groups"][0]["components"][0]["subcomponents"][0]["stream_index"],
+            0
+        );
+        // Read as file indexes, places 0 to 3 would be the four small streams, and pass.
+        assert_eq!(limit(&huge), Err(TOO_MANY_PIXELS));
+        // Ordinary tiles after the same small streams pass, and the largest is a tile's own size.
+        let ordinary = tiled_after(&small, json!(1024), json!(768), &square_tiles(4, 512));
+        assert_eq!(largest(&ordinary), Ok(512 * 512));
+        // The list's order is the grid's, whatever the file's: places follow it.
+        let mut shuffled = tiled_after(
+            &small,
+            json!(1024),
+            json!(768),
+            &[(512, 512), (16384, 16384)],
+        );
+        shuffled["stream_groups"][0]["streams"] = json!([{ "index": 5 }, { "index": 4 }]);
+        shuffled["stream_groups"][0]["components"][0]["subcomponents"] =
+            json!([{ "stream_index": 1 }, { "stream_index": 1 }]);
+        assert_eq!(
+            largest(&shuffled),
+            Ok(512 * 512),
+            "place 1 is file stream 4"
+        );
+    }
+
+    #[test]
+    fn a_place_past_the_grids_own_list_is_unreadable() {
+        // One small stream first, so file stream 4 is there (the grid's fourth tile) while the grid lists four
+        // entries, positions 0 to 3: place 4 is past it.
+        let mut json = tiled_after(&[(16, 16)], json!(1024), json!(768), &square_tiles(4, 512));
+        assert_eq!(limit(&json), Ok(()));
+        json["stream_groups"][0]["components"][0]["subcomponents"][3]["stream_index"] = json!(4);
+        assert_eq!(limit(&json), Err(UNREAD));
+        // A place far past it, and past what a position can be.
+        json["stream_groups"][0]["components"][0]["subcomponents"][3]["stream_index"] =
+            json!(u64::MAX);
+        assert_eq!(limit(&json), Err(UNREAD));
+        // An entry of the list with no file index, or one naming a stream the file doesn't have.
+        let mut json = tiled_after(&[(16, 16)], json!(1024), json!(768), &square_tiles(4, 512));
+        json["stream_groups"][0]["streams"][2] = json!({});
+        assert_eq!(limit(&json), Err(UNREAD));
+        json["stream_groups"][0]["streams"][2] = json!({ "index": 99 });
+        assert_eq!(limit(&json), Err(UNREAD));
+        // A list present but shorter than the places: the last place is past it.
+        let mut json = tiled_after(&[(16, 16)], json!(1024), json!(768), &square_tiles(4, 512));
+        json["stream_groups"][0]["streams"] =
+            json!([{ "index": 1 }, { "index": 2 }, { "index": 3 }]);
+        assert_eq!(read_picture(&json).map(|_| ()), Ok(()));
+        assert_eq!(limit(&json), Err(UNREAD));
+        // No list at all: `read_picture` refuses it first (it reads the grid's first stream from the list), so this
+        // never reaches the places.
+        let mut json = tiled_after(&[(16, 16)], json!(1024), json!(768), &square_tiles(4, 512));
+        json["stream_groups"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("streams");
+        assert_eq!(limit(&json), Err(UNREAD));
+    }
+
+    #[test]
+    fn a_canvas_past_the_allowance_is_refused_though_its_tiles_pass() {
+        let with_canvas = |width: Value, height: Value| {
+            // A 1 MP picture over two tiles of 1 MP each: 2 MP of tiles, within the 3 MP allowed. (Equal tiles: a grid's
+            // placed tiles must all declare one size, so the canvas is what is checked here.)
+            let mut json = tiled(json!(1000), json!(1000), &[(1000, 1000), (1000, 1000)]);
+            json["stream_groups"][0]["components"][0]["coded_width"] = width;
+            json["stream_groups"][0]["components"][0]["coded_height"] = height;
+            json
+        };
+        // A canvas of 2000 × 2000: 4 MP, past twice the picture plus a megapixel.
+        assert_eq!(
+            limit(&with_canvas(json!(2000), json!(2000))),
+            Err(TOO_MANY_PIXELS)
+        );
+        // Exactly the allowance passes; one pixel more is refused (3,000,001 is 1 × 3,000,001).
+        assert_eq!(limit(&with_canvas(json!(3000), json!(1000))), Ok(()));
+        assert_eq!(
+            limit(&with_canvas(json!(1), json!(3_000_001))),
+            Err(TOO_MANY_PIXELS)
+        );
+        // An ordinary grid: an iPhone's 48 MP photo on its 16 × 12 tiles' canvas, 8192 × 6144.
+        let mut iphone = tiled(json!(8064), json!(6048), &square_tiles(16 * 12, 512));
+        iphone["stream_groups"][0]["components"][0]["coded_width"] = json!(8192);
+        iphone["stream_groups"][0]["components"][0]["coded_height"] = json!(6144);
+        assert_eq!(largest(&iphone), Ok(512 * 512));
+        // The 102 MP frame on its 3 × 3 canvas of 4096 px tiles, 12288 × 12288.
+        let mut big = tiled(json!(11648), json!(8736), &square_tiles(9, 4096));
+        big["stream_groups"][0]["components"][0]["coded_width"] = json!(12288);
+        big["stream_groups"][0]["components"][0]["coded_height"] = json!(12288);
+        assert_eq!(limit(&big), Ok(()));
+        // Missing, zero, negative, not a number, or a product past 64 bits: unreadable, no panic.
+        for (width, height) in [
+            (Value::Null, json!(1000)),
+            (json!(1000), Value::Null),
+            (json!(0), json!(1000)),
+            (json!(-1000), json!(1000)),
+            (json!("1000"), json!(1000)),
+            (json!(1000.5), json!(1000)),
+            (json!(u64::MAX), json!(2)),
+        ] {
+            assert_eq!(
+                limit(&with_canvas(width.clone(), height.clone())),
+                Err(UNREAD),
+                "{width} × {height}"
+            );
+        }
+    }
+
+    #[test]
+    fn ffprobe_gives_the_canvas_the_limit_reads() {
+        let dir = temp_dir("canvas");
+        let heic = dir.join("proof.heic");
+        fs::write(&heic, proof()).unwrap();
+        let said = probe_command(&heic).output().unwrap();
+        assert!(said.status.success());
+        let json: Value = serde_json::from_slice(&said.stdout).unwrap();
+        let component = &json["stream_groups"][0]["components"][0];
+        // Two rows and two columns of 512 px tiles, cropped to 1024 × 768.
+        assert_eq!(component["coded_width"], 1024);
+        assert_eq!(component["coded_height"], 1024);
+        assert_eq!(largest(&json), Ok(512 * 512));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_cap_goes_before_the_input_for_both_decodes() {
+        let file = Path::new("photo.heic");
+        let picture = Picture {
+            source: Source::Grid(0),
+            first: 0,
+            deep: false,
+            profile: true,
+            primaries: None,
+            transfer: None,
+        };
+        for command in [
+            decode_command(file, &picture, 262_144),
+            profile_command(file, &picture, 262_144),
+        ] {
+            let args: Vec<String> = command
+                .get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+            let cap = args.windows(2).position(|w| w == ["-max_pixels", "262144"]);
+            let input = args.iter().position(|a| a == "-i");
+            assert!(cap.is_some() && input.is_some() && cap < input, "{args:?}");
+            assert!(args
+                .windows(2)
+                .any(|w| w == ["-protocol_whitelist", "file"]));
+        }
+        // Never past ffmpeg's own most, an `int`.
+        let args: Vec<String> = decode_command(file, &picture, u64::MAX)
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert!(args.windows(2).any(|w| w == ["-max_pixels", "2147483647"]));
+    }
+
+    #[test]
+    fn the_decoder_refuses_a_frame_one_pixel_over_its_cap_and_decodes_as_before_at_it() {
+        let dir = temp_dir("cap");
+        let folder = dir.join("cache");
+        // The cap the limit gives for the proof: one 512 × 512 tile.
+        let given = AtomicUsize::new(0);
+        let at = |offset: i64| {
+            let given = &given;
+            move |file: &Path, picture: &Picture, cap: u64| {
+                given.store(cap as usize, Ordering::SeqCst);
+                decode_command(file, picture, cap.saturating_add_signed(offset))
+            }
+        };
+        // One pixel below a tile's area: the decoder refuses the tile, the photo is unreadable, and no file is left.
+        let below = at(-1);
+        assert_eq!(decode_within(&proof(), &folder, LIMIT, &below), Err(UNREAD));
+        assert_eq!(given.load(Ordering::SeqCst), 512 * 512);
+        assert!(left_after_waiting(&folder).is_empty(), "no file left");
+        // At the tile's area: what the decode gives with ffmpeg's own default cap, byte for byte.
+        let exact = decode_within(&proof(), &folder, LIMIT, &at(0)).unwrap();
+        let default =
+            |file: &Path, picture: &Picture, _: u64| decode_command(file, picture, i32::MAX as u64);
+        let before = decode_within(&proof(), &folder, LIMIT, &default).unwrap();
+        assert_eq!(exact, before);
+        assert_eq!(size(&exact), (1024, 768));
+        // And the command's own path decodes it as ever.
+        assert_eq!(picture(&proof(), &folder).unwrap(), exact);
+        assert!(left_after_waiting(&folder).is_empty(), "no file left");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ---- Round 3: the cap as ffmpeg counts it, one size for every tile ---------------------------------------------
+
+    // ---- Round 4: the width alone rounded, the coded size ----------------------------------------------------------
+
+    #[test]
+    fn the_decoders_cap_rounds_the_width_only_up_to_64() {
+        // As ffmpeg checks it: the width aligned, the height as it is.
+        assert_eq!(decoder_cap(1000, 750), Some(1024 * 750));
+        assert_eq!(decoder_cap(512, 512), Some(262_144));
+        assert_eq!(decoder_cap(1, 1), Some(64));
+        assert_eq!(decoder_cap(4000, 3000), Some(4032 * 3000));
+        // A thin frame gets no 64-fold lift: 120,000,000 is already a multiple of 64, and one row stays one row.
+        assert_eq!(decoder_cap(120_000_000, 1), Some(120_000_000));
+        assert_eq!(decoder_cap(120_000_001, 1), Some(120_000_064));
+        assert_eq!(
+            largest(&one_stream(json!(120_000_000), json!(1))),
+            Ok(120_000_000)
+        );
+        // Past 64 bits: none, never a panic.
+        assert_eq!(decoder_cap(u64::MAX, 1), None);
+        assert_eq!(decoder_cap(1 << 32, 1 << 32), None);
+        // What the limit gives the decode: a single stream's, and a grid's of 500 px tiles.
+        assert_eq!(
+            largest(&one_stream(json!(1000), json!(750))),
+            Ok(1024 * 750)
+        );
+        assert_eq!(
+            largest(&tiled(json!(1000), json!(1000), &square_tiles(4, 500))),
+            Ok(512 * 500)
+        );
+    }
+
+    /// `json`'s stream `n` given a coded size.
+    fn coded(mut json: Value, n: usize, width: Value, height: Value) -> Value {
+        json["streams"][n]["coded_width"] = width;
+        json["streams"][n]["coded_height"] = height;
+        json
+    }
+
+    #[test]
+    fn a_stream_coded_larger_than_it_declares_is_unreadable() {
+        let single = || one_stream(json!(1000), json!(750));
+        // Equal, or within the rounding (an encoder pads to its coding block): passes, the cap as declared.
+        for (width, height) in [(1000, 750), (1008, 752), (1024, 768)] {
+            assert_eq!(
+                largest(&coded(single(), 0, json!(width), json!(height))),
+                Ok(1024 * 750),
+                "{width} × {height}"
+            );
+        }
+        // One column or one row past the rounding: unreadable.
+        for (width, height) in [(1025, 750), (1000, 769), (8192, 8192)] {
+            assert_eq!(
+                limit(&coded(single(), 0, json!(width), json!(height))),
+                Err(UNREAD),
+                "{width} × {height}"
+            );
+        }
+        // 0 is "not known" (ffprobe's answer before a decode), never a refusal on its own; so is no coded size.
+        assert_eq!(limit(&coded(single(), 0, json!(0), json!(0))), Ok(()));
+        assert_eq!(limit(&coded(single(), 0, json!(0), json!(750))), Ok(()));
+        assert_eq!(limit(&single()), Ok(()));
+        // 0 on one side doesn't excuse the other.
+        assert_eq!(
+            limit(&coded(single(), 0, json!(0), json!(769))),
+            Err(UNREAD)
+        );
+        // Not a number, or negative: unreadable, no panic.
+        for value in [json!("1000"), json!(-1), json!(1000.5)] {
+            assert_eq!(
+                limit(&coded(single(), 0, value.clone(), json!(750))),
+                Err(UNREAD),
+                "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tile_coded_larger_than_it_declares_is_unreadable() {
+        // 500 px tiles: an encoder may code them at up to 512 (500 rounded up to 64), never more.
+        let grid = || tiled(json!(1000), json!(1000), &square_tiles(4, 500));
+        // A tile declared 64 × 64 coded at 8192 × 8192 would pass a cap of 4096 and allocate 64 M pixels.
+        let small = || tiled(json!(128), json!(128), &square_tiles(4, 64));
+        assert_eq!(largest(&small()), Ok(64 * 64));
+        assert_eq!(
+            limit(&coded(small(), 2, json!(8192), json!(8192))),
+            Err(UNREAD)
+        );
+        // Any placed tile, the first or the last.
+        for n in [0, 3] {
+            assert_eq!(
+                limit(&coded(grid(), n, json!(513), json!(500))),
+                Err(UNREAD),
+                "tile {n}"
+            );
+            assert_eq!(
+                limit(&coded(grid(), n, json!(500), json!(513))),
+                Err(UNREAD),
+                "tile {n}"
+            );
+            // Equal or within the rounding: passes.
+            for side in [500, 512] {
+                assert_eq!(
+                    largest(&coded(grid(), n, json!(side), json!(side))),
+                    Ok(512 * 500),
+                    "tile {n} coded at {side}"
+                );
+            }
+            // 0: not known, passes.
+            assert_eq!(
+                largest(&coded(grid(), n, json!(0), json!(0))),
+                Ok(512 * 500)
+            );
+        }
+        // Behind another stream, through the grid's own list: file stream 2 is the grid's second tile.
+        let after = tiled_after(&[(16, 16)], json!(1024), json!(768), &square_tiles(4, 512));
+        assert_eq!(
+            limit(&coded(after, 2, json!(8192), json!(8192))),
+            Err(UNREAD)
+        );
+    }
+
+    #[test]
+    fn ffprobe_gives_each_tiles_coded_size() {
+        let dir = temp_dir("coded");
+        let heic = dir.join("proof.heic");
+        fs::write(&heic, proof()).unwrap();
+        let said = probe_command(&heic).output().unwrap();
+        assert!(said.status.success());
+        let json: Value = serde_json::from_slice(&said.stdout).unwrap();
+        // The bundled ffprobe reads each tile's coded size from its parameter sets without a decode: the proof's four
+        // 512 px tiles are coded at exactly their size, and the grid's canvas is two rows and columns of them.
+        let streams = json["streams"].as_array().unwrap();
+        assert_eq!(streams.len(), 4);
+        for stream in streams {
+            assert_eq!(stream["coded_width"], 512);
+            assert_eq!(stream["coded_height"], 512);
+        }
+        let component = &json["stream_groups"][0]["components"][0];
+        assert_eq!(component["coded_width"], 1024);
+        assert_eq!(component["coded_height"], 1024);
+        assert_eq!(largest(&json), Ok(512 * 512));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ffmpeg_decodes_a_1000_by_750_picture_at_its_cap_and_refuses_it_under_1000_by_750() {
+        // A width that isn't a multiple of 64: ffmpeg checks the width rounded up to its build's alignment (64 with
+        // AVX-512, 32 with AVX2, 16 on aarch64), times the height, so the cap decodes on every build and one pixel
+        // under the picture's own area is refused on every build.
+        let dir = temp_dir("aligned");
+        let still = dir.join("still.png");
+        let made = video::command("ffmpeg")
+            .args(["-hide_banner", "-v", "error", "-y", "-f", "lavfi"])
+            .args(["-i", "color=c=red:size=1000x750:duration=0.1"])
+            .args(["-frames:v", "1"])
+            .arg(&still)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let decodes = |cap: u64| {
+            video::command("ffmpeg")
+                .args(["-hide_banner", "-v", "error"])
+                .args(input_options(cap))
+                .arg("-i")
+                .arg(&still)
+                .args(["-f", "null", "-"])
+                .output()
+                .unwrap()
+                .status
+                .success()
+        };
+        let cap = decoder_cap(1000, 750).unwrap();
+        assert!(decodes(cap), "decodes at {cap}");
+        assert!(
+            !decodes(1000 * 750 - 1),
+            "refused one pixel under 1000 × 750"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_grid_whose_tiles_differ_in_size_is_unreadable() {
+        // One 1000 × 1000 tile and 1,999 of 1 × 1: the one cap would let every tiny tile decode at the big one's size.
+        let mut tiles = vec![(1000, 1000)];
+        tiles.extend(square_tiles(1999, 1));
+        assert_eq!(limit(&tiled(json!(1000), json!(1000), &tiles)), Err(UNREAD));
+        // The big one last: the same.
+        tiles.rotate_left(1);
+        assert_eq!(limit(&tiled(json!(1000), json!(1000), &tiles)), Err(UNREAD));
+        // Same area, other shape: differs too.
+        assert_eq!(
+            limit(&tiled(
+                json!(1000),
+                json!(1000),
+                &[(1000, 500), (500, 1000)]
+            )),
+            Err(UNREAD)
+        );
+        // Equal tiles pass as before.
+        assert_eq!(
+            limit(&tiled(json!(1000), json!(1000), &square_tiles(4, 500))),
+            Ok(())
+        );
+        // Only placed tiles count: a listed stream no place uses may differ.
+        let mut json = tiled(json!(1024), json!(768), &[(512, 512), (16, 16)]);
+        json["stream_groups"][0]["components"][0]["subcomponents"] =
+            json!([{ "stream_index": 0 }, { "stream_index": 0 }]);
+        assert_eq!(largest(&json), Ok(512 * 512));
     }
 }
