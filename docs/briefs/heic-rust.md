@@ -251,3 +251,21 @@ Where these differ from what is written above, these are the newer ones.
    past its parent; an `nclx` of exactly 10 and exactly 11 bytes; a grid with both a profile and an `nclx` over a
    tile with only one of them (each way); stray bytes after `mdat` (the check still works); and the new tag order:
    the grid's numbers win over the stream's, and a number the table doesn't hold is sRGB.
+
+## After the review of those (Nov 20): an "unspecified" number on the grid
+
+Point 1 above was too wide in one place: "a number the table doesn't hold gives sRGB" also caught H.273's 2
+("unspecified": what a writer puts when it doesn't know) and 0 (reserved). A grid saying 2/2 over tiles whose stream
+says smpte432 / iec61966-2-1 was tagged sRGB, so a P3 photo showed desaturated, with no message. The plan's rule is
+"read what the file says and mark that", and unspecified says nothing.
+
+- Each of the two numbers is now chosen on its own, in `tag_for` only: the grid's when it states one (neither 0 nor
+  2), else the stream's name. Both found is the tag; either missing is sRGB, as before.
+- A stated number the table doesn't hold (22, say, or transfer 17) still makes the whole tag sRGB, never the
+  stream's instead: the file said something, and it is not something the page can be told.
+- `grid_check` still hands the raw numbers on; the HDR refusals still go by the raw transfer.
+- Chosen, and Kevin can overrule: one number from the grid and the other from the stream can make a pair that
+  neither stated (grid 9/2 over a P3 stream gives 9/13). No file like it has been seen.
+- Tests: the pairs holding 0 or 2 left the sRGB list (the one changed expectation); each case above; and three the
+  earlier rounds had and the last one dropped (HDR on both the grid and its tile, the grid and tile agreeing, HLG
+  through the whole command).
