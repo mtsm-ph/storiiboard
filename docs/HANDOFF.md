@@ -376,7 +376,42 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20, late afternoon; written at 15:55 EST)
+### Next session: start here (Nov 20, evening; written at 16:45 EST)
+
+Kevin's afternoon note is in `private/NOV20_AFTERNOON.md` with the session's status under it.
+
+**Running: `checkpoint/nov20-f`** (run 44821926923, pushed 16:37 EST), the last full checkpoint Kevin allowed that
+day. It is `v2` at 56f2076 plus:
+
+| PR | What |
+|---|---|
+| #222 | the scroll lane, the keys line, 40 baselines |
+| #233 | a HEIC's pixel limit: four rounds, the last after a review found an Apple-silicon test failure, a thin frame and a coded size larger than declared |
+| #234 | "Vuelve a intentarlo" |
+| #236 | a HEIC photo's date and place: two rounds; Kevin's two iPhone HEICs read yes and yes |
+| #238 | a HEIC as a key image or logo |
+
+Its merged tree passed types, lint, 3634 unit tests and 413 Rust tests on Kevin's PC. What it proves merges, by
+Kevin's rules.
+
+**Not in it:** #235 (the encoder's leftovers). Its review showed the round-2 fix for the clip's `+faststart` rewrite
+can't work: ffmpeg prints no progress between the last frame and the end. Round 3, a signal from ffmpeg's own
+stderr, was being built at 16:45; it waits for the next checkpoint.
+
+**Stopped for Kevin:** the launch check stack, #206 ← #213 ← #219 ← #223 ← #229 (Only Kevin).
+
+**GitHub, Nov 20 from 20:50Z:** pushes to PR branches started no Actions run, though other apps' checks did. Pushes
+to `checkpoint/` branches did start runs. The session started each PR's checks by hand (`gh workflow run ci.yml
+--ref <branch>`).
+
+**Follow-ups noted, not built:**
+
+- #238: a HEIC key image on the Mac now gets one extra trial decode before the readers (latency, not a fault).
+- #235: a dead destination says "took too long to read", which speaks of reading, not saving (wording for Kevin).
+
+**Item 8** (the stacked screenshot milestones) is not started. The tile accent waits for Kevin's choice.
+
+### Earlier: start here (Nov 20, late afternoon; written at 15:55 EST)
 
 Kevin's afternoon note (Nov 20) is word for word in `private/NOV20_AFTERNOON.md`, with the session's status under
 it. The main session runs on Opus 5.5 since 13:52 at Kevin's word.
