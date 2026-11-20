@@ -1466,6 +1466,8 @@ export const en = {
   // src/features/storyboard/addPictures.ts
   'pictures.targetGone': 'The frame or scene those pictures were for isn’t on the board any more.',
   'pictures.someNotAdded': '{failed} of {total} files weren’t added. {name}: {reason}',
+  // src/features/storyboard/picturesBusy.ts
+  'pictures.reading': 'Reading {done} of {total}…',
   // src/features/storyboard/board.ts
   'board.relettered': '{from} is now {to}',
   'board.lockNotice': 'Locked {scene}. To keep slate numbers unique, {list}.',
@@ -1597,6 +1599,7 @@ export const en = {
   'error.videoTooSlow': 'That video took too long to read. If it\'s on a network drive, copy it to this computer first.',
   // src-tauri/src/heic.rs (6.27n): a HEIC turned into a PNG on Windows; the Mac answers error.heic
   'error.heicTooBig': 'This HEIC photo is too large to read (over 64 MB). Convert it to JPEG first.',
+  'error.heicTooManyPixels': 'This HEIC photo is too large to read (over 120 megapixels). Convert it to JPEG first.',
   'error.heicNotHeic': 'That file isn\'t an HEIC photo.',
   'error.heicHdr': 'This is an HDR photo, which Storiiboard can\'t read on this computer yet. Export it as a JPEG first.',
   'error.heicTooSlow': 'This HEIC photo took too long to read. Try again, or convert it to JPEG first.',
@@ -3613,6 +3616,8 @@ export const en = {
   'layers.lockOf': 'Lock the {layer} layer',
   'layers.solo': 'Solo',
   'layers.soloOf': 'Solo the {layer} layer: it shown, the others dimmed and locked',
+  'layers.soloTitle': 'Solo the {layer} layer: it shown, the others dimmed and locked. On the plan, press {key}.',
+  'layers.showAllTitle': 'Show every layer, none locked. On the plan, press {key}.',
   'layers.lockedBySolo': 'Locked while {layer} is solo',
   'layers.items.one': '{count} item',
   'layers.items.other': '{count} items',

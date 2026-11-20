@@ -8,6 +8,17 @@ It replaces nothing in either; it says where the work stands and what comes next
 
 What only Kevin can do or answer, one line each, with what it unblocks. Nothing a session, a review or CI can settle.
 
+- **The Mac's accent reader: run nov20-e's Mac build on your own Mac** (no build tools; `gh` signed in):
+  `gh run download 44802015054 -R mtsm-ph/storiiboard -n storiiboard-macOS -D ~/Downloads/sb-launch`, then
+  `xattr -cr ~/Downloads/sb-launch && hdiutil attach ~/Downloads/sb-launch/Storiiboard_0.1.0_aarch64.dmg -nobrowse -mountpoint /Volumes/SBLaunch`,
+  then `STORIIBOARD_LAUNCH_CHECK=1 /Volumes/SBLaunch/Storiiboard.app/Contents/MacOS/storiiboard`. `accents ok` then
+  `passed`: GitHub's virtual GPU. `accents ok (by the page…)`: the worker fails on a real Mac but the page reads.
+  The FAILED line: choosing a key image's colours is broken in the Mac app. Unblocks: #206, #213, #219, #223, #229.
+- **The tile accent: option 1 (by kind) or option 2 (by section)**, in `private/pictures/TILE_ACCENT_OPTIONS.md`
+  with the pictures. Unblocks: the tile accent, in item 8.
+- **The Layers tile in Spanish at its default size** (`private/pictures/LAYERS_TILE_NOTE.md`): leave it scrolling,
+  give Layers about 60 px more in Setup's default layout, or shorter Spanish words. Unblocks: nothing; #222 merges
+  either way.
 - **"Color" everywhere: the plan, before anything changes.** Kevin's typed line above his Nov 20 afternoon note:
   "should be Color everywhere plan before executing". Read as: the English people see spells it "Color", never
   "Colour" (`en.ts` has both today), and a change that wide is planned and approved first. The inventory and the plan
@@ -365,7 +376,42 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20, afternoon; written at 14:05 EST)
+### Next session: start here (Nov 20, late afternoon; written at 15:55 EST)
+
+Kevin's afternoon note (Nov 20) is word for word in `private/NOV20_AFTERNOON.md`, with the session's status under
+it. The main session runs on Opus 5.5 since 13:52 at Kevin's word.
+
+**Merged on `checkpoint/nov20-e`** (run 44802015054): #207, #228, #230, #231 and #218, by Kevin's second rule.
+
+- The one red job was Installer (macOS): the launch check failed at `accents`, the worker and the page both
+  ("The object is in an invalid state."). That step exists only in the launch check's stack.
+- The one flaky test on the Mac, planExport.spec "prints a real underlay dimmed from its picture…", failed in
+  set-up: the browser closed, as on nov20-b. Nothing in the checkpoint touched it.
+- Linux ran 641 tests, none flaky; Windows' launch check passed.
+- Earlier: #208, #214, #215, #221 and the docs.
+
+**Stopped for Kevin (his rule: "The page fails too: stop this stack and tell me"):** #206 ← #213 ← #219 ← #223 ←
+#229.
+
+- `checkpoint/launch-1` had passed by the worker itself; nov20-e failed on the worker and the page.
+- Kevin has the three Terminal lines to run nov20-e's Mac build on his own Mac (Only Kevin).
+- The session's guess, untried: the page's fallback draws on an OffscreenCanvas too; a page `<canvas>` element might
+  read back where an OffscreenCanvas on a virtual GPU doesn't.
+
+**Open, for the next checkpoint (`nov20-f`), each built and reviewed:**
+
+| PR | What | State |
+|---|---|---|
+| #222 | the scroll lane; the keys line only where it fits; 40 baselines | out of draft. The baselines all come from the lane (listed on the PR). Spanish still scrolls at the default size: Kevin's choice |
+| #233 | a HEIC's pixels limited before any decode | round 2 done (the grid's own tiles, the canvas, `max_pixels`); its review is owed |
+| #234 | "Vuelve a intentarlo" | done |
+| #235 | the encoder's leftovers | round 2 being built: the clip's `+faststart` rewrite isn't a stall; the destination is checked |
+| #236 | a HEIC photo's date and place | round 2 to build: duplicate ids, inner cuts, overflow tests |
+
+Still to build, in Kevin's order: a HEIC as a key image or logo (needs #218: merged); then item 8, the stacked
+screenshot milestones. The tile accent's two options are with Kevin (`private/pictures/TILE_ACCENT_OPTIONS.md`).
+
+### Earlier: start here (Nov 20, afternoon; written at 14:05 EST)
 
 Kevin's afternoon note (Nov 20) is word for word in `private/NOV20_AFTERNOON.md` on his PC, with the session's
 status under it: read it first. From 13:52 EST the main session runs on Opus 5.5 at Kevin's word ("Continue with

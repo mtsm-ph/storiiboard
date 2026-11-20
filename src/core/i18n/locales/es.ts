@@ -1468,6 +1468,8 @@ export const es: Messages = {
   // src/features/storyboard/addPictures.ts
   'pictures.targetGone': 'El cuadro o la escena para los que eran esas imágenes ya no está en el storyboard.',
   'pictures.someNotAdded': 'Archivos no agregados: {failed} de {total}. {name}: {reason}',
+  // src/features/storyboard/picturesBusy.ts
+  'pictures.reading': 'Leyendo {done} de {total}…',
   // src/features/storyboard/board.ts
   'board.relettered': '{from} ahora es {to}',
   'board.lockNotice': 'Se bloqueó {scene}. Para que los números de claqueta no se repitan, {list}.',
@@ -1520,7 +1522,7 @@ export const es: Messages = {
   // Errors raised below the UI, word for word (src-tauri, src/core/storage, src/core/ops, src/core/media)
   'error.notSbd': 'Un archivo de proyecto de Storiiboard termina en .sbd.',
   'error.backupRunning': 'Ya se está haciendo un respaldo de este proyecto.',
-  'error.backupBusy': 'Se está haciendo un respaldo de este proyecto. Intenta otra vez cuando termine.',
+  'error.backupBusy': 'Se está haciendo un respaldo de este proyecto. Vuelve a intentarlo cuando termine.',
   'error.backupExists': 'Ya existe un respaldo con ese nombre.',
   'error.backupWriting': 'Todavía se está escribiendo un respaldo con ese nombre.',
   'error.fileExists': 'Ya existe un archivo en esa ruta.',
@@ -1556,7 +1558,7 @@ export const es: Messages = {
   'error.backupCopyFailed': 'Falló la copia de respaldo: {reason}.',
   'error.notBackupName': '"{name}" no es un nombre de respaldo de este proyecto.',
   'error.notMigrationBackupName': '"{name}" no es un nombre de respaldo de migración de este proyecto.',
-  'error.tooManyBackups': 'Este proyecto ya tiene {count} respaldos de este minuto. Intenta otra vez en un minuto.',
+  'error.tooManyBackups': 'Este proyecto ya tiene {count} respaldos de este minuto. Vuelve a intentarlo en un minuto.',
   'error.changedOnDisk': 'El archivo del proyecto cambió en el disco desde la última vez que Storiiboard lo guardó.',
   'error.queryReturnedBytes': 'Una consulta no puede devolver bytes; léelos con readBlob.',
   'error.notBytes': 'Esa columna no contiene bytes.',
@@ -1599,6 +1601,7 @@ export const es: Messages = {
   'error.videoTooSlow': 'Ese video tardó demasiado en leerse. Si está en una unidad de red, cópialo primero a esta computadora.',
   // src-tauri/src/heic.rs
   'error.heicTooBig': 'Esta foto HEIC es demasiado grande para leerla (más de 64 MB). Conviértela primero a JPEG.',
+  'error.heicTooManyPixels': 'Esta foto HEIC es demasiado grande para leerla (más de 120 megapíxeles). Conviértela primero a JPEG.',
   'error.heicNotHeic': 'Ese archivo no es una foto HEIC.',
   'error.heicHdr': 'Esta es una foto HDR, que Storiiboard todavía no puede leer en esta computadora. Expórtala primero como JPEG.',
   'error.heicTooSlow': 'Esta foto HEIC tardó demasiado en leerse. Vuelve a intentarlo, o conviértela primero a JPEG.',
@@ -2044,7 +2047,7 @@ export const es: Messages = {
   'inspector.copyQuiet': 'Copia de reproducción lista, sin sonido: todas las pistas de sonido del video están en silencio.',
   'inspector.copySilent': 'Copia de reproducción lista, sin sonido: no se pudo leer el sonido del video.',
   'inspector.makeCopy': 'Hacer copia de reproducción',
-  'inspector.copyTryAgain': 'Intentar de nuevo',
+  'inspector.copyTryAgain': 'Vuelve a intentarlo',
   'inspector.cancelCopy': 'Cancelar copia',
   // src/features/callsheets (4.1: la hoja de llamado)
   'callSheet.noProject': 'Abre un proyecto para ver sus hojas de llamado.',
@@ -2178,7 +2181,7 @@ export const es: Messages = {
   'callSheet.paper': 'Papel',
   'callSheet.paper.letter': 'Carta',
   'callSheet.paper.region': 'Por región ({paper})',
-  'callSheet.pdf.zonePending': 'Aún se está buscando la zona horaria de esta locación. Inténtalo de nuevo en un momento.',
+  'callSheet.pdf.zonePending': 'Aún se está buscando la zona horaria de esta locación. Vuelve a intentarlo en un momento.',
   'callSheet.paper.a4': 'A4',
   'callSheet.copyMapLinkFor': 'Copiar enlace del mapa, {location}',
   'callSheet.pdf.what': 'la hoja de llamado',
@@ -3611,6 +3614,8 @@ export const es: Messages = {
   'layers.lockOf': 'Bloquear la capa {layer}',
   'layers.solo': 'Solo',
   'layers.soloOf': 'Solo la capa {layer}: visible, las demás atenuadas y bloqueadas',
+  'layers.soloTitle': 'Solo la capa {layer}: visible, las demás atenuadas y bloqueadas. En el plano, pulsa {key}.',
+  'layers.showAllTitle': 'Mostrar todas las capas, ninguna bloqueada. En el plano, pulsa {key}.',
   'layers.lockedBySolo': 'Bloqueada mientras {layer} está en solo',
   'layers.items.one': '{count} elemento',
   'layers.items.other': '{count} elementos',
