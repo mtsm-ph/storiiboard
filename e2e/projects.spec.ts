@@ -483,7 +483,7 @@ test('an import whose LUT is damaged leaves it out, says so with its video’s f
   page.once('dialog', (prompt) => void prompt.accept('Bey County imported'));
   await (await chooser).setFiles({ name: 'Bey County project data.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)) });
   const note = page.getByRole('status').filter({ hasText: 'damaged and left out' });
-  await expect(note).toContainText('1 of 1 LUTs was damaged and left out. They show as missing in: SC 01 · Frame 1A.');
+  await expect(note).toContainText('The LUT was damaged and left out. It shows as missing in: SC 01 · Frame 1A.');
 
   // The frame's video keeps its LUT's id; its Inspector says the LUT is no longer in the project.
   await sidebar(page).getByRole('button', { name: /^Storyboard/ }).click();

@@ -105,6 +105,9 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
   Encode" graph rises while it is made. (2.3a)
 - [ ] [Mac] A long take on an external drive; unplug the drive halfway through its copy: the Inspector says it failed,
   with Try again, and the copies' folder holds nothing of it. (2.3a)
+- [ ] [Mac] [Windows] A clip on a network share; cut the network halfway through its copy: after about a minute and a
+  half the Inspector says the video stopped being read partway, with the drive's advice, and never that the encoder
+  stopped responding (those words are for an encoder that hangs while the file still reads). (6.27m)
 - [ ] A Sony FX6/FX9 or Canon MXF with separate mono tracks: both channels in the copy, the empty inputs left out, never
   clipped; a clip with every input empty says it has no sound. (2.3b, 2.3c)
 - [ ] [Mac] [Windows] The Player with real footage: plays, scrubs and steps without stalling; comma and period land on
