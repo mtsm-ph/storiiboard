@@ -150,3 +150,35 @@ colour, so Windows can store from a HEIC what the Mac stores. Plus the committed
 The files changed, the tests added, each check with its counts, every new string in English and Spanish as a table,
 the sizes and times you saw on the fixtures, and anything uncertain: above all anything about a turned photo, a
 photo with no grid, or a 10-bit one, since no fixture here has those.
+
+## After the review (Nov 20): changes to the above
+
+Where these differ from what is written above, these are the newer ones.
+
+1. **ffprobe is asked only for what is read.** `-show_entries` with exactly the fields the reader uses (the streams'
+   index, type, pixel format, bits, primaries, transfer, the `default` and `dependent` dispositions and the types of
+   their side data; the groups' index, type, `default` disposition, their streams' indexes, their components' width
+   and height, and the types of their side data). No tags: a crafted name could otherwise make the answer hundreds
+   of MB, and it is read whole before the 1 MiB cap is looked at. Try it on both fixtures and say in the report what
+   the answer's size became.
+2. **The committed answer is compared within 1 level, not exactly.** ffmpeg's colour conversion uses fast code chosen
+   by processor (Intel, Apple silicon), and those may differ by a level. The tag chunk is still compared exactly.
+3. **Which picture, when nothing is marked default:** among several Tile Grid groups, the largest (the first among
+   equals), not simply the first: a phone's gain map is a grid too. With no grid, a video stream marked default and
+   not `dependent` comes before the first one not `dependent`: a thumbnail may come first. Checked Nov 20 on two real
+   iPhone photos, in place, yes or no only: the main picture's grid is marked default, is first and is the largest,
+   and the profile sits on its tiles.
+4. **A profile nobody carried is never ignored.** If the chosen group, or its components, lists an "ICC Profile" and
+   the picture's first stream doesn't, the photo is refused as unreadable: never guessed, never shown in another
+   colour.
+5. **Photos left by a crash are swept.** Before writing its temp file, each call removes `heic-*.heic` files in the
+   cache folder older than 10 minutes (a decode lasts seconds), errors ignored. They are a person's photos, with
+   their EXIF.
+6. **No run is started with no time left:** the too-slow words at once.
+7. **A sidecar that can't be started keeps the runner's own words** (they say to reinstall), where that can be told
+   apart without changing what `video.rs` does. Otherwise leave it and say so.
+8. **The gate's test:** never more than two at once is asserted as "at most two", and that two did get in at once is
+   asserted separately, so a slow runner can't fail it. If `picture` itself going through the gate can be shown by a
+   test, add it.
+9. **Spanish, `error.heicTooSlow`:** "Esta foto HEIC tardó demasiado en leerse. Vuelve a intentarlo, o conviértela
+   primero a JPEG.", the file's own phrase for "Try again".

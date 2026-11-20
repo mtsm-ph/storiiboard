@@ -1599,7 +1599,7 @@ export const es: Messages = {
   'error.heicTooBig': 'Esta foto HEIC es demasiado grande para leerla (más de 64 MB). Conviértela primero a JPEG.',
   'error.heicNotHeic': 'Ese archivo no es una foto HEIC.',
   'error.heicHdr': 'Esta es una foto HDR, que Storiiboard todavía no puede leer en esta computadora. Expórtala primero como JPEG.',
-  'error.heicTooSlow': 'Esta foto HEIC tardó demasiado en leerse. Intenta otra vez, o conviértela primero a JPEG.',
+  'error.heicTooSlow': 'Esta foto HEIC tardó demasiado en leerse. Vuelve a intentarlo, o conviértela primero a JPEG.',
   'error.heicUnread': 'No se pudo leer esta foto HEIC. Conviértela primero a JPEG.',
   'error.heicProfileTooBig': 'El perfil de color de esta foto es demasiado grande para guardarlo, así que sus colores no se pueden mostrar tal como son. Conviértela primero a JPEG.',
   // src-tauri/src/playback.rs
