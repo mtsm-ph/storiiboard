@@ -502,3 +502,48 @@ test('an import whose LUT is damaged leaves it out, says so with its video’s f
   await expect(clip).toHaveCount(1);
   await expect.poll(() => clip.evaluate((video: HTMLVideoElement) => video.readyState), { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
 });
+
+test('no section can be chosen while a project opens, by click or key, and every one can once it is open', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  await sidebar(page).getByRole('button', { name: '+ Add Scene' }).click();
+  await expect(scenes(page)).toHaveText([/SC 01/]);
+
+  // The open after a reload waits for sql.js's wasm: held here, the project stays opening until the test lets it go.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let asked!: () => void;
+  const requested = new Promise<void>((resolve) => (asked = resolve));
+  await page.route(/sql-wasm.*\.wasm/, async (route) => {
+    asked();
+    await gate;
+    await route.continue();
+  });
+  await page.reload();
+  await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County/ }).click();
+  await requested;
+
+  // Opening: every section is disabled, so assistive technology says so too, and its key does nothing.
+  const section = (name: string) => sidebar(page).locator('[id^="section-"]').filter({ hasText: new RegExp(`^${name}`) });
+  for (const name of ['Storyboard', 'Assets', 'Team', 'Setup', 'Production', 'Moodboard']) await expect(section(name)).toBeDisabled();
+  await page.keyboard.press('Alt+4');
+  // A press on Setup now, released once the project is open: the list grows under Storyboard as the project arrives,
+  // so the release lands on another section (planLayers on WebKit, Nov 20). Neither is chosen.
+  const box = await section('Setup').boundingBox();
+  if (!box) throw new Error('Setup has no box');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  release();
+  await expect(scenes(page)).toHaveText([/SC 01/]);
+  await page.mouse.up();
+
+  // Open: the project's workspace, as after any open, with its section the current one and no other.
+  await expect(page.getByRole('region', { name: 'Storyboard workspace' })).toBeVisible();
+  await expect(section('Storyboard')).toHaveAttribute('aria-current', 'page');
+  await expect(sidebar(page).locator('[aria-current="page"]')).toHaveCount(1);
+  for (const name of ['Storyboard', 'Assets', 'Team', 'Setup', 'Production', 'Moodboard']) await expect(section(name)).toBeEnabled();
+  await section('Setup').click();
+  await expect(page.getByRole('region', { name: 'Setup workspace' })).toBeVisible();
+  await expect(section('Setup')).toHaveAttribute('aria-current', 'page');
+  await page.keyboard.press('Alt+5');
+  await expect(page.getByRole('region', { name: 'Production workspace' })).toBeVisible();
+});

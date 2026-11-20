@@ -4,6 +4,7 @@ import { ComingItem, Menu, menuItemClass } from '../../../ui/Menu';
 import { canOpenFiles } from '../../fileAccess';
 import { newProject, openRecent, recentStore } from '../../projects/actions';
 import { useRecent } from '../../projects/recentStore';
+import { useOpeningProject } from '../../openingProject';
 import { useProject } from '../../projectStore';
 import { isUnsaved, layoutsOf, useLayouts } from '../docking/layoutStore';
 import { departmentWorkspaceId, sectionId, workspaceById, type Workspace, type WorkspaceId } from '../workspaces';
@@ -66,6 +67,8 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
   const departmentsHeading = useId();
   const customs = useWorkspaceState((s) => s.customs);
   const customsHeading = useId();
+  // While a project opens, no workspace can be chosen (src/app/openingProject.ts): the list is about to move.
+  const opening = useOpeningProject();
 
   // Re-read Recent whenever the open project changes, however it was opened.
   useEffect(() => {
@@ -178,6 +181,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                 aria-current={active ? 'page' : undefined}
                 aria-keyshortcuts={`Alt+${String(i + 1)}`}
                 tabIndex={active ? 0 : -1}
+                disabled={opening}
                 onClick={() => {
                   onSelect(workspace.id);
                 }}
@@ -262,6 +266,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                       aria-keyshortcuts="Delete Backspace"
                       aria-describedby={`${departmentsHeading}-close`}
                       tabIndex={active ? 0 : -1}
+                      disabled={opening}
                       onKeyDown={(event) => {
                         if (event.key === 'Delete' || event.key === 'Backspace') {
                           event.preventDefault();
@@ -311,6 +316,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                       data-custom-workspace={custom.id}
                       aria-current={active ? 'page' : undefined}
                       tabIndex={active ? 0 : -1}
+                      disabled={opening}
                       onKeyDown={onNavKeyDown}
                       onClick={() => {
                         onSelect(custom.id);
