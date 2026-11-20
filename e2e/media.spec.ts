@@ -291,6 +291,61 @@ test.describe('a HEIC turned into a PNG by Rust, in WebView2’s engine', () => 
   });
 });
 
+// The fallback itself, in a real engine: Chromium can't decode the HEIC, so the page reads its brand and asks the
+// decoder the desktop app hands over. Here the decoder stands in for Rust with the PNG Rust gave for this very file.
+test.describe('a HEIC Chromium can’t decode, through the desktop app’s decoder', () => {
+  test.skip(({ browserName }) => browserName !== 'chromium', 'The Windows path: Chromium, WebView2’s engine');
+
+  test('is asked for once per file, and its PNG is stored with the drawing’s colours', async ({ page }) => {
+    const regions = proofRegions();
+    const heic = [...heicFixture('heic-proof.heic')];
+    const png = [...heicFixture('heic-proof.from-rust.png')];
+    const result = await page.evaluate(
+      async ({ heic, png, regions }) => {
+        const heicUrl = '/src/core/media/heic.ts';
+        const imageUrl = '/src/core/media/image.ts';
+        const { setHeicDecoder } = (await import(/* @vite-ignore */ heicUrl)) as typeof import('../src/core/media/heic');
+        const { prepareImage } = (await import(/* @vite-ignore */ imageUrl)) as typeof import('../src/core/media/image');
+        const asked: number[] = [];
+        setHeicDecoder((photo) => {
+          asked.push(photo.size);
+          return Promise.resolve(new Uint8Array(png));
+        });
+        // Chromium's own decode of the HEIC fails for real: what the fallback starts from.
+        const own = await createImageBitmap(new Blob([new Uint8Array(heic)])).then(
+          () => 'decoded',
+          () => 'refused',
+        );
+        const read = async (name: string) => {
+          const before = asked.length;
+          const { original } = await prepareImage(new File([new Uint8Array(heic)], name, { type: '' }));
+          const bitmap = await createImageBitmap(new Blob([original.bytes as Uint8Array<ArrayBuffer>], { type: original.mime }));
+          const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+          const ctx = canvas.getContext('2d', { colorSpace: 'display-p3' });
+          if (!ctx) throw new Error('no 2d context');
+          ctx.drawImage(bitmap, 0, 0);
+          const means = regions.map(({ x, y, w, h }) => {
+            const { data: pixels } = ctx.getImageData(x, y, w, h, { colorSpace: 'display-p3' });
+            const sum = [0, 0, 0];
+            for (let i = 0; i < pixels.length; i += 4) for (let c = 0; c < 3; c += 1) sum[c] = (sum[c] ?? 0) + (pixels[i + c] ?? 0);
+            return sum.map((s) => s / (w * h));
+          });
+          return { asked: asked.slice(before), colorSpace: original.colorSpace, width: original.width, height: original.height, means };
+        };
+        // By its name, then by its brand alone (no type, no extension).
+        return { own, byName: await read('IMG_0005.HEIC'), byBrand: await read('IMG_0005') };
+      },
+      { heic, png, regions },
+    );
+    expect(result.own).toBe('refused');
+    for (const stored of [result.byName, result.byBrand]) {
+      expect(stored.asked, 'the decoder is asked once, with the whole file').toEqual([heic.length]);
+      expect([stored.colorSpace, stored.width, stored.height]).toEqual(['display-p3', 1024, 768]);
+      expectDrawn(stored.means, regions);
+    }
+  });
+});
+
 // The Mac reads the HEIC itself (WebKit), and must store what it always has: run on GitHub's Mac at a checkpoint.
 test.describe('a HEIC read by WebKit on a Mac', () => {
   test.skip(({ browserName }) => browserName !== 'webkit' || process.platform !== 'darwin', 'WebKit on a Mac only: it reads HEIC itself');

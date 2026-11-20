@@ -7,7 +7,6 @@ import type { SbdRecord } from '../../core/model/record';
 import { aspectRatioValue, projectStoryboard, specLine } from '../../core/model/storyboard';
 import { sceneApprovalSummary } from '../../core/model/sceneApprovals';
 import { addPictures, usePicturesBusy } from './addPictures';
-import { usePicturesReading } from './picturesBusy';
 import { readClip } from '../../core/media/video';
 import { useMissingVideos } from '../video/videoStatus';
 import {
@@ -118,7 +117,6 @@ export function StoryboardTile() {
   // The context menu on a frame or a scene's heading: Add to board… (5.4).
   const [boardMenu, setBoardMenu] = useState<BoardMenuAsk | null>(null);
   const busy = usePicturesBusy();
-  const reading = usePicturesReading();
   useBoardDrops(project !== null, setDropHover);
 
   // A scene picked in the sidebar or the Scenes tile comes into view, unless the pick came from a frame in it.
@@ -360,7 +358,6 @@ export function StoryboardTile() {
             return id;
           }}
           busy={busy}
-          reading={reading}
           dropHover={dropHover}
           onAddPictures={() => {
             // Into the selected scene, after the selected frame when there is one; else the last scene.

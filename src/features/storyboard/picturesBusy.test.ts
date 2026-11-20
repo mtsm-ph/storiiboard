@@ -47,6 +47,18 @@ describe('the files being read', () => {
     expect(seen()).toEqual({ count: 0, done: 0 });
   });
 
+  it('takes its totals back off when the failed callback itself throws', async () => {
+    const run = prepareEach(
+      [1, 2, 3],
+      () => Promise.reject(new Error('unreadable')),
+      () => {
+        throw new Error('the notice broke');
+      },
+    );
+    await expect(run).rejects.toThrow('the notice broke');
+    expect(seen()).toEqual({ count: 0, done: 0 });
+  });
+
   it('adds two adds at once, totals and finished counts both', async () => {
     const first = [gate(), gate(), gate()];
     const second = [gate(), gate()];

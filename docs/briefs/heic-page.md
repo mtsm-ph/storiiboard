@@ -92,3 +92,18 @@ several files are being added, the status line counts them: "Reading 3 of 30…"
 
 The files changed, the tests added, each check with its counts, the new strings in English and Spanish, the test you
 could not run here, and anything uncertain.
+
+## After the review (Nov 20): changes to the above
+
+1. **An end-to-end test of the fallback itself, in Chromium:** the tests above hand `prepareImage` the PNG, which
+   Chromium decodes on its first try, so the new branch never runs in a real engine. Add one beside them: in the
+   page, hand `src/core/media/heic.ts` a decoder that answers with `heic-proof.from-rust.png`'s bytes, then put
+   `heic-proof.heic` itself through `prepareImage` as `IMG_0005.HEIC`. Chromium's own decode fails for real, the
+   brand is read, the decoder is asked once, and the stored picture's regions read within 3 levels.
+2. **The footer's line subscribes by itself.** Today the count is read in `StoryboardTile` and handed down, so the
+   whole board draws again as each file finishes. Make the footer's line a small component of its own that reads
+   the count, so a 30-file add redraws only that line. `StoryboardTile` and `StoryboardView` take no new prop.
+3. **Vitest:** the second `createImageBitmap` (Rust's PNG) is given the same options as the first; the totals come
+   back off when the `failed` callback itself throws.
+4. **Checks:** add `e2e/boardMedia.spec.ts` to the Chromium specs (it adds pictures to a moodboard through the same
+   loop).

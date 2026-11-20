@@ -118,6 +118,9 @@ describe('a picture the webview can’t decode', () => {
       expect(decode).toHaveBeenCalledTimes(2);
       const given = decode.mock.calls[1]?.[0];
       expect(given?.type).toBe('image/png');
+      // Rust's PNG is decoded with the same options as the webview's own try.
+      expect(decode.mock.calls[1]?.[1]).toEqual(decode.mock.calls[0]?.[1]);
+      expect(decode.mock.calls[1]?.[1]).toEqual({ imageOrientation: 'from-image' });
       expect([...new Uint8Array(await (given as Blob).arrayBuffer())]).toEqual([...png]);
     }
   });

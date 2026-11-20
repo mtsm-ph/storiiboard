@@ -16,6 +16,7 @@ import { StatusGlyph } from '../../ui/tags';
 import { FrameImage, type FramePictureView } from './FrameImage';
 import { verticalNeighbour } from './gridKeys';
 import { NoteCard } from './NoteCard';
+import { usePicturesReading } from './picturesBusy';
 import { SketchSvg } from './sketch/SketchSvg';
 import type { Stroke } from './sketch/strokes';
 import { SlashMenu, type SlashChoice } from './SlashMenu';
@@ -138,8 +139,6 @@ export interface StoryboardViewProps {
   onAddPictures?: () => void;
   /** Pictures being prepared now. */
   busy?: number;
-  /** "Reading 3 of 30…" while two or more are in hand (6.27n); null says the count alone. */
-  reading?: string | null;
   dropHover?: DropHover;
   /** A scene's name or a frame's title, edited in place with the pencil (Nov 5); empty for none. */
   onRenameScene?: (sceneId: string, name: string) => void;
@@ -331,6 +330,19 @@ function SceneTitleRow({
   );
 }
 
+/**
+ * The footer's count: frames, or the files being added. "Reading 3 of 30…" while two or more are in hand (6.27n), read
+ * here from the store, so a long add redraws only this line as each file finishes, never the board.
+ */
+function FooterCount({ busy, frameCount }: { busy: number; frameCount: number }) {
+  const reading = usePicturesReading();
+  return (
+    <span role="status" className="sb-label ml-auto font-mono">
+      {busy > 0 ? (reading ?? tn('board.addingPictures', busy)) : tn('count.frames', frameCount)}
+    </span>
+  );
+}
+
 export function StoryboardView({
   scenes,
   customNames = [],
@@ -347,7 +359,6 @@ export function StoryboardView({
   onOpen,
   onAddPictures,
   busy = 0,
-  reading = null,
   dropHover = null,
   onMoveTo,
   onSelectScene,
@@ -808,9 +819,7 @@ export function StoryboardView({
             {t('storyboardView.pictures')}
           </button>
         )}
-        <span role="status" className="sb-label ml-auto font-mono">
-          {busy > 0 ? (reading ?? tn('board.addingPictures', busy)) : tn('count.frames', frameCount)}
-        </span>
+        <FooterCount busy={busy} frameCount={frameCount} />
       </div>
       {scenes.length === 0 && <p className="p-3 text-[13px] text-text-muted">{t('storyboardView.noScenesYetAddA')}</p>}
       {body}
