@@ -146,7 +146,7 @@ export function PictureNode({
       report(id, null);
     };
   }, [id, level, shown, cutAway]);
-  // Gone: the condition that draws the "deleted for good" words below.
+  // Gone: the condition that draws the "no longer in the project" words below.
   const gone = image === null;
   useEffect(() => {
     if (cutAway) return;
