@@ -151,7 +151,7 @@ describe('copying pictures and video cards', () => {
     await Promise.all([emptied, pasted]);
     expect(await readOriginal(project.file, image(3).original.sha256)).toBeNull();
     expect(items()).toEqual([]);
-    expect(noticeStore.getState().message).toContain('deleted for good');
+    expect(noticeStore.getState().message).toContain('no longer in the project');
   });
 
   it('keeps a video card’s path as stored when it is pasted within its project', async () => {
