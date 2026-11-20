@@ -422,6 +422,9 @@ describe('the launch check’s page steps (6.27l)', () => {
     const invalid = 'The object is in an invalid state.';
     const unread = 'That image’s colours can’t be read.';
     const atStage = (message: string, stage: string): Error => Object.assign(new Error(message), { stage });
+    /** Another of the three stages the page may stand in for: canvas → draw → read → canvas. */
+    const nextStage: Record<string, string> = { canvas: 'draw', draw: 'read', read: 'canvas' };
+    const otherStage = (stage: string): string => nextStage[stage] ?? stage;
 
     /** The worker's second answers, each with the words the note gives it. */
     const again = (stage: string): [string, () => Promise<string[] | null>, string][] => [
@@ -434,6 +437,13 @@ describe('the launch check’s page steps (6.27l)', () => {
         `${unread} (worker: ${stage})`,
       ],
       ['an error with no stage', () => Promise.reject(new Error(unread)), `${unread} (worker: no stage)`],
+      // The same words alone aren't `the same`: the stage is half of it, so these two are written out in full.
+      [
+        `the same words at ${otherStage(stage)}`,
+        () => Promise.reject(atStage(invalid, otherStage(stage))),
+        `${invalid} (worker: ${otherStage(stage)})`,
+      ],
+      ['the same words with no stage', () => Promise.reject(new Error(invalid)), `${invalid} (worker: no stage)`],
       ['null', () => Promise.resolve(null), 'no answer (null)'],
       ['an empty list', () => Promise.resolve([]), 'no accent found'],
       ['no answer in 10 s', () => never<string[] | null>(), 'no answer in 10 s'],
