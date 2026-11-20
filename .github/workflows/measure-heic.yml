@@ -1,0 +1,111 @@
+name: Measure HEIC
+
+# A one-off (Kevin, Nov 19): the HEIC test pictures and the timing that sets heic_picture's time limit
+# (private/briefs/heic-windows.md, steps 0 and 3). Started by pushing the branch measure/heic, as a checkpoint is by a
+# checkpoint/<name> branch, since a workflow_dispatch run needs the file on the default branch.
+# The Mac draws scripts/heicFixtures.ts's three P3 pictures and makes a HEIC of each with sips; Windows reads them with
+# the very ffmpeg and ffprobe the app ships (built by ./.github/actions/ffmpeg, as checkpoint.yml's installers are), tries
+# scaling inside the tile grid's filter graph, and times both sidecar runs at 12 and 48 MP (scripts/measureHeic.ps1).
+on:
+  push:
+    branches: [measure/heic]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pictures:
+    name: HEIC pictures (macOS)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      # No install scripts: the drawing needs no browser, only the repo's own TypeScript run by Node.
+      - run: npm ci --ignore-scripts
+      # The ffmpeg sources for the Windows build, fetched here when the cache has none: a cache saved on another branch
+      # isn't seen on this one, and a download site can stop answering one runner's network for an hour (ffmpeg.org did,
+      # from Windows runners, Nov 6). Kept in a cache any runner can read, by the pins' own hash, as checkpoint.yml does.
+      - name: Restore the ffmpeg sources
+        id: sources
+        uses: actions/cache/restore@v4
+        with:
+          path: ffmpeg-sources
+          key: ffmpeg-sources-${{ hashFiles('scripts/ffmpeg/sources.sh') }}
+          enableCrossOsArchive: true
+      - name: Fetch and check the ffmpeg sources
+        if: steps.sources.outputs.cache-hit != 'true'
+        run: scripts/ffmpeg/sources.sh ffmpeg-sources
+      - name: Save the ffmpeg sources
+        if: steps.sources.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ffmpeg-sources
+          key: ffmpeg-sources-${{ hashFiles('scripts/ffmpeg/sources.sh') }}
+          enableCrossOsArchive: true
+      - name: Draw the pictures
+        run: node scripts/heicFixtures.ts --out pictures
+      - name: Make a HEIC of each with sips
+        run: |
+          echo "sips --version: $(sips --version)"
+          sw_vers
+          for name in heic-proof heic-12mp heic-48mp; do
+            echo "sips -s format heic -s formatOptions 80 pictures/$name.png --out pictures/$name.heic"
+            sips -s format heic -s formatOptions 80 "pictures/$name.png" --out "pictures/$name.heic"
+          done
+          for f in pictures/*; do
+            echo "$(shasum -a 256 "$f" | cut -d' ' -f1)  $(stat -f %z "$f") bytes  $f"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: heic-pictures
+          path: pictures/
+          if-no-files-found: error
+          retention-days: 7
+
+  measure:
+    name: HEIC measurements (Windows)
+    needs: pictures
+    # The image checkpoint.yml's Windows installer runs on (windows-latest is windows-2025), named so it can't move.
+    runs-on: windows-2025
+    # A cold ffmpeg build under MSYS2 takes a good part of an hour.
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v7
+      # The sources the job above fetched or found; the build still checks each against its checksum, and downloads any
+      # that isn't there.
+      - uses: actions/cache/restore@v4
+        with:
+          path: ffmpeg-sources
+          key: ffmpeg-sources-${{ hashFiles('scripts/ffmpeg/sources.sh') }}
+          enableCrossOsArchive: true
+      # The LGPL ffmpeg and ffprobe sidecars, built from the pinned release as the installers' are, so the binaries
+      # measured are the ones the app ships.
+      - uses: ./.github/actions/ffmpeg
+        env:
+          SBD_FFMPEG_SOURCES: ffmpeg-sources
+        with:
+          triple: x86_64-pc-windows-msvc
+      - uses: actions/download-artifact@v8
+        with:
+          name: heic-pictures
+          path: pictures
+      - name: What the files say, probe A and the timing
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path heic-measure | Out-Null
+          ./scripts/measureHeic.ps1 -Pictures pictures -Out heic-measure -Bin src-tauri/binaries *>&1 | Tee-Object -FilePath heic-measure/measure.log
+      - name: Keep the log and the outputs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: heic-measure
+          path: heic-measure/
+          retention-days: 7
