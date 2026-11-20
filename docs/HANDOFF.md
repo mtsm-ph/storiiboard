@@ -8,11 +8,21 @@ It replaces nothing in either; it says where the work stands and what comes next
 
 What only Kevin can do or answer, one line each, with what it unblocks. Nothing a session, a review or CI can settle.
 
-- **HEIC on Windows: the step 0 probes' and the timing's numbers** (measure/heic), before the build. Unblocks: the
-  build and its time limit.
+- **A checkpoint for #206, #207 and #208** (each PR's checks green; WebKit on the Mac and Windows only run in a
+  checkpoint). Unblocks: their merges.
+- **The stalled encoder's words (item 8, fix 3):** the app can't tell a read stall from an encoder stall today
+  (`video::starts` reads only the file's start; a share hung partway still answers it). Proposed: after a stall, the
+  app reads the file itself past where ffmpeg stopped, with a time limit; it hangs → the drive's words stay, it reads →
+  "The video encoder stopped responding. Try again." It changes two existing tests' expected words and gives the
+  read-stall test a seam. Unblocks: the fix.
+- **HEIC on Windows: the step 0 and timing numbers** (private/briefs/heic-windows.md, "results"): yes to both probes,
+  the limit 10 s by the plan's rule, and a new tag rule (an ICC profile first, then nclx, else sRGB). Unblocks: the
+  build.
 - **An HDR HEIF from Kevin's camera** in private/samples, when he can. Unblocks: HDR HEIF beyond a refusal.
 - **The stacked screenshot milestones' baseline run** (with the planLayers fix and "This picture is no longer in
   the project."): Kevin compares old and new and says merge.
+- **A decoded copy of one of Kevin's HEICs** (and two error logs with its file name) is in the session's scratch
+  folder, from the first probe A run; the delete was denied with the second. Kevin deletes it, or says to.
 
 ## What a cloud session can and can't do
 
@@ -356,6 +366,20 @@ Lows deferred (noted, not planned yet):
 - LUT rows stay in the project once stored, even when no video names one (an undo, a LUT taken off). They're small
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
+
+### Next session: start here (Nov 19, evening: Kevin's answers worked through)
+
+- **Merged:** #205 (docs, after a read; Kevin, Nov 19: docs-only PRs need no checkpoint).
+- **Open, each with one review and PR checks green, waiting for a checkpoint Kevin names:**
+  - #206 (6.27i): a policy on every worker (src-tauri/worker-csp.txt). Before the fix, Chromium's and WebKit's workers
+    ran with no policy at all (a probe: eval, Function and fetch all allowed).
+  - #207 (6.27j): player.spec counts missed frames from the jump in media time, capped by the time the picture took.
+  - #208 (6.27k): the wording fixes, every string in en and es in its description. The stalled encoder waits
+    (Only Kevin).
+- **measure/heic:** run 44666161464 green; its numbers are in private/briefs/heic-windows.md. The branch stays for
+  the build, which commits the small pictures as fixtures with the script and the sips command.
+- **Next:** the HEIC build once Kevin approves the numbers; then 2 (planLayers: controls clear of an overlay scroll
+  bar) with the stacked screenshot milestones; OSV-Scanner 2.7.1 on or after Nov 23, its own PR.
 
 ### Next session: start here (Nov 19, morning: the night run)
 
