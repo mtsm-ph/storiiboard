@@ -6,10 +6,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const tauri = vi.hoisted(() => ({ invoke: vi.fn(), isTauri: () => true }));
 vi.mock('@tauri-apps/api/core', () => tauri);
 
-const { heicPicture } = await import('./heicPicture');
+const { heicPicture, installHeicDecoder } = await import('./heicPicture');
+const { heicDecoder, setHeicDecoder } = await import('../core/media/heic');
 
 beforeEach(() => {
   tauri.invoke.mockReset();
+  setHeicDecoder(null);
+});
+
+describe('handing the decoder to the picture import', () => {
+  it('sets it only in the desktop app', () => {
+    installHeicDecoder(false);
+    expect(heicDecoder()).toBeNull();
+    installHeicDecoder(true);
+    expect(heicDecoder()).toBe(heicPicture);
+    setHeicDecoder(null);
+    // By default, as the page runs: this test's page is the desktop app's (isTauri is true).
+    installHeicDecoder();
+    expect(heicDecoder()).toBe(heicPicture);
+  });
 });
 
 describe('turning a HEIC into a PNG in the desktop app', () => {

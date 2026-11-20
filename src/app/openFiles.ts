@@ -5,6 +5,7 @@ import type { LockHolder, SqlDriver } from '../core/storage/driver';
 import { copyBeside } from '../core/storage/openBackup';
 import { fileName } from '../core/storage/paths';
 import { createProject, openProject, type Project } from '../core/storage/project';
+import { whileOpeningProject } from './openingProject';
 import type { ProjectState } from './projectStore';
 import { localizeError, t } from '../core/i18n';
 
@@ -58,8 +59,15 @@ export async function reopenProjectFile(path: string, options: OpenFileOptions):
   return openChecked(path, options);
 }
 
-/** Whether it opened: Cancel at the "open on another computer" question opens nothing. */
-async function openChecked(path: string, options: OpenFileOptions): Promise<boolean> {
+/**
+ * Whether it opened: Cancel at the "open on another computer" question opens nothing. Shown as opening from the
+ * first step (the lock is read through the driver too), so the sidebar's sections wait for the whole of it.
+ */
+function openChecked(path: string, options: OpenFileOptions): Promise<boolean> {
+  return whileOpeningProject(() => openUnlocked(path, options));
+}
+
+async function openUnlocked(path: string, options: OpenFileOptions): Promise<boolean> {
   const holder = options.askWhenLocked ? await options.driver.lockHolder(path) : null;
   const choice = holder && options.askWhenLocked ? await options.askWhenLocked(holder, path) : 'anyway';
   if (choice === 'cancel') return false;
@@ -77,7 +85,7 @@ async function openChecked(path: string, options: OpenFileOptions): Promise<bool
 
 /** Makes a new project at `path` and opens it in place of the open one. It never overwrites an existing file. */
 export async function createProjectFile(path: string, options: OpenFileOptions): Promise<void> {
-  await replaceWith(path, options, createProject);
+  await whileOpeningProject(() => replaceWith(path, options, createProject));
 }
 
 async function replaceWith(
