@@ -265,11 +265,11 @@ describe('Import project data with a damaged LUT (Kevin, Nov 18 night 4)', () =>
     const places = [`${scene} · Frame 1D`, `${scene} · Frame 1A`, `${scene} · Frame 1B`];
     expect(leftOutPlaces(records, imported.projectId, report)).toEqual(places);
     expect(leftOutNote(records, imported.projectId, report)).toBe(
-      `1 of 1 pictures was damaged and left out. 1 of 3 LUTs was damaged and left out. They show as missing in: ${places.join(', ')}.`,
+      `The picture was damaged and left out. 1 of 3 LUTs was damaged and left out. They show as missing in: ${places.join(', ')}.`,
     );
     expect(leftOutNote(records, imported.projectId, report, true)).toBe(leftOutNote(records, imported.projectId, report));
     setLocale('es');
-    expect(leftOutNote(records, imported.projectId, report)).toContain('1 de 1 imágenes estaba dañada y se dejó fuera. 1 de 3 LUT estaba dañado y se dejó fuera.');
+    expect(leftOutNote(records, imported.projectId, report)).toContain('La imagen estaba dañada y se dejó fuera. 1 de 3 LUT estaba dañado y se dejó fuera.');
     await imported.close();
   });
 
@@ -284,11 +284,81 @@ describe('Import project data with a damaged LUT (Kevin, Nov 18 night 4)', () =>
     add('v', 'media', 'f2a', video('lut-a'));
     add('w', 'media', 'f2a', video('lut-b'));
     const one = { leftOut: [], pictures: 0, files: 0, lutsLeftOut: ['lut-a'], luts: 1 };
-    expect(leftOutNote(records, 'p', one)).toBe(`1 of 1 LUTs was damaged and left out. They show as missing in: ${sceneLabel('2')} · Frame 2A.`);
+    expect(leftOutNote(records, 'p', one)).toBe(`The LUT was damaged and left out. It shows as missing in: ${sceneLabel('2')} · Frame 2A.`);
     const two = { ...one, lutsLeftOut: ['lut-a', 'lut-b'], luts: 4 };
     expect(leftOutNote(records, 'p', two)).toBe(`2 of 4 LUTs were damaged and left out. They show as missing in: ${sceneLabel('2')} · Frame 2A.`);
     setLocale('es');
     expect(leftOutNote(records, 'p', two)).toContain('2 de 4 LUT estaban dañados y se dejaron fuera.');
+  });
+
+  it('says the project’s one LUT left out as a sentence; one of several keeps its count (Kevin, Nov 19)', () => {
+    const records: Record<string, SbdRecord> = {};
+    const add = (id: string, type: SbdRecord['type'], parentId: string | null, props: SbdRecord['props']) => {
+      records[id] = { id, type, parentId, sortKey: id, props, trashedAt: null, trashedBy: null, createdAt: at, updatedAt: at };
+    };
+    add('p', 'project', null, {});
+    const only = { leftOut: [], pictures: 0, files: 0, lutsLeftOut: ['lut-a'], luts: 1 };
+    expect(leftOutNote(records, 'p', only)).toBe('The LUT was damaged and left out.');
+    const ofThree = { ...only, luts: 3 };
+    expect(leftOutNote(records, 'p', ofThree)).toBe('1 of 3 LUTs was damaged and left out.');
+    // A report with no total: one left out of an unknown total keeps the counted form.
+    expect(leftOutNote(records, 'p', { leftOut: [], pictures: 0, files: 0, lutsLeftOut: ['lut-a'] })).toBe('1 of 1 LUTs was damaged and left out.');
+    setLocale('es');
+    expect(leftOutNote(records, 'p', only)).toBe('El LUT estaba dañado y se dejó fuera.');
+    expect(leftOutNote(records, 'p', ofThree)).toBe('1 de 3 LUT estaba dañado y se dejó fuera.');
+  });
+
+  it('says where in the singular when one thing was left out in all, in the plural for several (Kevin, Nov 19)', () => {
+    const records: Record<string, SbdRecord> = {};
+    const add = (id: string, type: SbdRecord['type'], parentId: string | null, props: SbdRecord['props']) => {
+      records[id] = { id, type, parentId, sortKey: id, props, trashedAt: null, trashedBy: null, createdAt: at, updatedAt: at };
+    };
+    add('p', 'project', null, {});
+    add('sc5', 'scene', 'p', { number: '5' });
+    add('f5a', 'shot', 'sc5', { number: '5A' });
+    add('m', 'media', 'f5a', picture('a'.repeat(64)));
+    add('v', 'media', 'f5a', video('lut-a'));
+    const place = `${sceneLabel('5')} · Frame 5A`;
+    // One picture, nothing else.
+    const onePicture = { leftOut: [{ sha256: 'a'.repeat(64), picture: true }], pictures: 4, files: 0 };
+    expect(leftOutNote(records, 'p', onePicture)).toBe(`1 of 4 pictures was damaged and left out. It shows as missing in: ${place}.`);
+    // One picture and one LUT: two in all, so the plural.
+    const pictureAndLut = { ...onePicture, lutsLeftOut: ['lut-a'], luts: 1 };
+    expect(leftOutNote(records, 'p', pictureAndLut)).toBe(
+      `1 of 4 pictures was damaged and left out. The LUT was damaged and left out. They show as missing in: ${place}.`,
+    );
+    // One picture and a LUT left out with no id: the LUT shows nowhere, so one thing shows, in the singular.
+    const pictureAndNoIdLut = { ...onePicture, lutsLeftOut: [], lutsLeftOutCount: 1, luts: 2 };
+    expect(leftOutNote(records, 'p', pictureAndNoIdLut)).toBe(
+      `1 of 4 pictures was damaged and left out. 1 of 2 LUTs was damaged and left out. It shows as missing in: ${place}.`,
+    );
+    // One picture used in two frames: one thing, in two places.
+    add('f5b', 'shot', 'sc5', { number: '5B' });
+    add('m2', 'media', 'f5b', picture('a'.repeat(64)));
+    expect(leftOutNote(records, 'p', onePicture)).toBe(
+      `1 of 4 pictures was damaged and left out. It shows as missing in: ${place}, ${sceneLabel('5')} · Frame 5B.`,
+    );
+    setLocale('es');
+    expect(leftOutNote(records, 'p', onePicture)).toContain('Aparece como faltante en: ');
+    expect(leftOutNote(records, 'p', pictureAndLut)).toContain('Aparecen como faltantes en: ');
+  });
+
+  it('says the project’s one picture or one file left out as a sentence; one of several keeps its count (Kevin, Nov 19)', () => {
+    const records: Record<string, SbdRecord> = {};
+    records.p = { id: 'p', type: 'project', parentId: null, sortKey: 'p', props: {}, trashedAt: null, trashedBy: null, createdAt: at, updatedAt: at };
+    const picture1 = { sha256: 'a'.repeat(64), picture: true };
+    const file1 = { sha256: 'b'.repeat(64), picture: false };
+    expect(leftOutNote(records, 'p', { leftOut: [picture1], pictures: 1, files: 0 })).toBe('The picture was damaged and left out.');
+    expect(leftOutNote(records, 'p', { leftOut: [file1], pictures: 0, files: 1 })).toBe('The file was damaged and left out.');
+    expect(leftOutNote(records, 'p', { leftOut: [picture1, file1], pictures: 3, files: 2 })).toBe(
+      '1 of 3 pictures was damaged and left out. 1 of 2 files was damaged and left out.',
+    );
+    setLocale('es');
+    expect(leftOutNote(records, 'p', { leftOut: [picture1], pictures: 1, files: 0 })).toBe('La imagen estaba dañada y se dejó fuera.');
+    expect(leftOutNote(records, 'p', { leftOut: [file1], pictures: 0, files: 1 })).toBe('El archivo estaba dañado y se dejó fuera.');
+    expect(leftOutNote(records, 'p', { leftOut: [picture1, file1], pictures: 3, files: 2 })).toBe(
+      '1 de 3 imágenes estaba dañada y se dejó fuera. 1 de 2 archivos estaba dañado y se dejó fuera.',
+    );
   });
 
   it('names no place for a LUT left out with no id; such a row is still left out and counted (round 3, L1)', async () => {
@@ -302,7 +372,7 @@ describe('Import project data with a damaged LUT (Kevin, Nov 18 night 4)', () =>
     add('m', 'media', 'f3a', picture('a'.repeat(64)));
     const report = { leftOut: [], pictures: 1, files: 0, lutsLeftOut: [''], luts: 1 };
     expect(leftOutPlaces(records, 'p', report)).toEqual([]);
-    expect(leftOutNote(records, 'p', report)).toBe('1 of 1 LUTs was damaged and left out.');
+    expect(leftOutNote(records, 'p', report)).toBe('The LUT was damaged and left out.');
     // A damaged row with no id: left out, counted, and no '' among the ids.
     const columns = ['id', 'sha256', 'name', 'file_name', 'byte_size', 'created_at', 'updated_at', 'cube'];
     const json = {
@@ -316,7 +386,7 @@ describe('Import project data with a damaged LUT (Kevin, Nov 18 night 4)', () =>
     const { data, report: left } = await leaveOutDamagedFiles(json);
     expect(data.tables.luts?.rows).toEqual([]);
     expect(left).toEqual({ leftOut: [], pictures: 0, files: 0, lutsLeftOut: [], lutsLeftOutCount: 1, luts: 1 });
-    expect(leftOutNote(records, 'p', left)).toBe('1 of 1 LUTs was damaged and left out.');
+    expect(leftOutNote(records, 'p', left)).toBe('The LUT was damaged and left out.');
   });
 
   it('leaves a LUT row it can’t read as it is, for the import to refuse, as with pictures', async () => {
