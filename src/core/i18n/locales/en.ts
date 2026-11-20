@@ -2474,7 +2474,7 @@ export const en = {
   'history.aLinkCard': 'a link card',
   'moodboard.picture': 'Picture',
   'moodboard.chooseVideo': 'Choose video',
-  'moodboard.pictureGone': 'This picture was deleted for good.',
+  'moodboard.pictureGone': 'This picture is no longer in the project.',
   'moodboard.boardGone': 'That board is in the Trash, so the files weren’t added.',
   'moodboard.original': 'Original',
   'moodboard.pastedPicture': 'Pasted, no original file',
@@ -2511,7 +2511,7 @@ export const en = {
   'moodboard.announce.link': 'Link: {name}',
   'player.cardGone': 'This video card is no longer on its board, or its video is gone.',
   'moodboard.pasteElsewhere': 'Pictures and video cards paste within their own project; drop the file again here.',
-  'moodboard.pasteGone': 'A picture or video card wasn’t pasted: its picture has been deleted for good.',
+  'moodboard.pasteGone': 'A picture or video card wasn’t pasted: its picture is no longer in the project.',
   'moodboard.pasteNothing': 'Only pictures, video files and web addresses paste onto a board.',
   // 5.2: connectors (src/features/moodboards, src/ui/canvas)
   'canvas.tool.connector': 'Connector',
@@ -3668,7 +3668,7 @@ export const en = {
   'selection.underlayNote': 'X and Y are its middle. Its width and depth follow each other, so the picture keeps its shape.',
   // 6.9 review: pastes, files that aren't pictures, several pictures, the lock said, and Set scale's clicks
   'plan.pasteElsewhere': 'Copy it again: what was copied on a plan pastes only into the project as it was open then.',
-  'plan.underlay.pasteGone': 'An underlay wasn’t pasted: its picture has been deleted for good.',
+  'plan.underlay.pasteGone': 'An underlay wasn’t pasted: its picture is no longer in the project.',
   'plan.underlay.notPicture': 'Only a picture can be an underlay.',
   'plan.underlay.oneAtATime.one': '1 of {count} added: an underlay is one picture at a time.',
   'plan.underlay.oneAtATime.other': '1 of {count} added: an underlay is one picture at a time.',
