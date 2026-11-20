@@ -61,7 +61,11 @@
   reads their policy, then quits with 0. A step that fails is named on stdout and by the exit code (10 + n; 30 + n
   when the 90 s limit ends; 3 for a quit before the end). The mode does nothing else: none of the app's own start-up
   work, no project, no request (net.rs refuses every one). Both installer jobs run it on the app just built
-  (scripts/launchCheck.sh). What it can and can't prove is in docs/briefs/launch-check.md.
+  (scripts/launchCheck.sh). What it can and can't prove is in docs/briefs/launch-check.md. It is the one test that
+  runs in the real webviews: Playwright's WebKit is newer than any Safari, so an end-to-end test can pass where the
+  Mac app fails. Its first run on a Mac found one (6.27p): pdf.js's `getTextContent` reads a stream with `for await`,
+  which Safari's engine lacks, so the Mac app could not read a PDF; src/features/script/readPdf.ts reads through
+  `streamTextContent` and a reader instead, and src/app/pdfjsUse.test.ts keeps it so.
   src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
   commands are tested in Rust through tauri's `test` feature (6.16). No HTML5 drag and drop anywhere in the app
   (lint and src/app/noHtmlDrag.test.ts, 6.15).
