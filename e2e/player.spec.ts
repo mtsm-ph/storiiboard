@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { answerAsk } from './ask';
+import { countMissed, expectInside as inside, lateness, type Presented, type RawReport } from './frameCount';
 import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings } from './settings';
 
@@ -31,83 +32,45 @@ const timecode = (page: Page) => player(page).locator('[data-player-timecode]');
 const range = (page: Page) => inspector(page).locator('[data-video-details]');
 const command = async (page: Page) => ((await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control');
 
-interface Presented {
-  frame: number;
-  /** Frames the page was not told of since the report before: 0 when it saw every one. */
-  missed: number;
-}
-
-/**
- * What the webview handed one frame callback, as it gave it: kept so a run records how its engine reports frames (the
- * busy-page test attaches them, pass or fail). Times in ms rounded to 0.1, media times in seconds to 6 places.
- */
-interface RawReport {
-  now: number;
-  mediaTime: number;
-  presentedFrames: number | null;
-  expectedDisplayTime: number | null;
-  presentationTime: number | null;
-  currentTime: number;
-  paused: boolean;
-}
-
 /**
  * The frames the preview presents over two seconds of play, as the webview reports them, and how many frames each report
- * came late by: the webview's own count of frames presented where it gives one, else the time since the last report. The
- * first report has nothing before it and counts as on time. With each, what the webview reported.
+ * came late by: the frames the media time skipped on a step forward, as far as the time between the pictures allows, and
+ * none at the turn (countMissed in e2e/frameCount.ts, which says why). With each, what the webview reported,
+ * `presentedFrames` included.
  */
 const presentedReports = (clip: Locator) =>
-  clip.evaluate(
-    (video: HTMLVideoElement) =>
-      new Promise<{ seen: Presented[]; raw: RawReport[] }>((resolve) => {
-        const frameMs = 1001000 / 24000;
-        const seen: Presented[] = [];
-        const raw: RawReport[] = [];
-        const ms = (value: number | undefined) => (typeof value === 'number' ? Math.round(value * 10) / 10 : null);
-        const until = performance.now() + 2000;
-        let before: { now: number; presented: number | null } | null = null;
-        const next: VideoFrameRequestCallback = (now, metadata) => {
-          const presented = typeof metadata.presentedFrames === 'number' ? metadata.presentedFrames : null;
-          const missed =
-            before === null ? 0 : presented !== null && before.presented !== null ? presented - before.presented - 1 : Math.round((now - before.now) / frameMs) - 1;
-          seen.push({ frame: Math.round((metadata.mediaTime * 24000) / 1001), missed: Math.max(0, missed) });
-          raw.push({
-            now: ms(now) ?? 0,
-            mediaTime: Math.round(metadata.mediaTime * 1e6) / 1e6,
-            presentedFrames: presented,
-            expectedDisplayTime: ms(metadata.expectedDisplayTime),
-            presentationTime: ms(metadata.presentationTime),
-            currentTime: Math.round(video.currentTime * 1e6) / 1e6,
-            paused: video.paused,
-          });
-          before = { now, presented };
-          if (performance.now() < until) video.requestVideoFrameCallback(next);
-          else resolve({ seen, raw });
-        };
-        video.requestVideoFrameCallback(next);
-      }),
-  );
-
-const presentedFrames = (clip: Locator) => presentedReports(clip).then((reports) => reports.seen);
+  clip
+    .evaluate(
+      (video: HTMLVideoElement) =>
+        new Promise<RawReport[]>((resolve) => {
+          const raw: RawReport[] = [];
+          const ms = (value: number | undefined) => (typeof value === 'number' ? Math.round(value * 10) / 10 : null);
+          const until = performance.now() + 2000;
+          const next: VideoFrameRequestCallback = (now, metadata) => {
+            raw.push({
+              now: ms(now) ?? 0,
+              mediaTime: Math.round(metadata.mediaTime * 1e6) / 1e6,
+              presentedFrames: typeof metadata.presentedFrames === 'number' ? metadata.presentedFrames : null,
+              expectedDisplayTime: ms(metadata.expectedDisplayTime),
+              presentationTime: ms(metadata.presentationTime),
+              currentTime: Math.round(video.currentTime * 1e6) / 1e6,
+              paused: video.paused,
+            });
+            if (performance.now() < until) video.requestVideoFrameCallback(next);
+            else resolve(raw);
+          };
+          video.requestVideoFrameCallback(next);
+        }),
+    )
+    .then((raw) => ({ seen: countMissed(raw), raw }));
 
 /**
- * Every frame shown is inside the clip, from `from` to `to`. The clip turns on the callback that reports its out frame, so
- * a frame past it can only have been shown while the page was too busy to be told: the frames past the out point, one run of
- * them up to the turn, are allowed as many as the page missed in that run. A page under load, as a suite running in parallel
- * is, does this; a count with no slack failed on it (21 where 20).
+ * Every frame shown is inside the clip, from `from` to `to` (the rule is in e2e/frameCount.ts, beside the count). With the
+ * raw reports at hand, the report that turned the clip lends how late it ran.
  */
-function expectInside(seen: Presented[], from: number, to: number) {
-  expect(Math.min(...seen.map((s) => s.frame))).toBeGreaterThanOrEqual(from);
-  let allowed = 0;
-  for (const { frame, missed } of seen) {
-    if (frame <= to) {
-      allowed = 0;
-      continue;
-    }
-    allowed += missed;
-    expect(frame - to, `frame ${String(frame)} reported after ${String(missed)} missed (${String(allowed)} allowed in this run)`).toBeLessThanOrEqual(allowed);
-  }
-}
+const expectInside = (seen: Presented[], from: number, to: number, raw?: RawReport[]) => {
+  inside(seen, from, to, expect, raw && lateness(raw));
+};
 
 async function linkAndOpen(page: Page) {
   const chooser = page.waitForEvent('filechooser');
@@ -394,12 +357,12 @@ test('the frame’s clip plays in the inspector, in to out, round and round, onl
   await expect.poll(() => clip.evaluate((video: HTMLVideoElement) => Math.floor((video.currentTime * 24000) / 1001))).toBe(10);
   expect(await new AxeBuilder({ page }).include('[data-inspector]').analyze().then((r) => r.violations)).toEqual([]);
 
-  const presented = () => presentedFrames(clip);
+  const presented = () => presentedReports(clip);
   await preview.getByRole('button', { name: 'Play clip' }).click();
   await expect(preview.getByRole('button', { name: 'Pause clip' })).toBeVisible();
   // Four times round an 11-frame clip: never a frame outside it, and back at its start more than once.
-  const seen = await presented();
-  expectInside(seen, 10, 20);
+  const { seen, raw } = await presented();
+  expectInside(seen, 10, 20, raw);
   const frames = seen.map((s) => s.frame);
   expect(frames.filter((frame, i) => i > 0 && frame < (frames[i - 1] ?? 0)).length).toBeGreaterThanOrEqual(2);
   await preview.getByRole('button', { name: 'Pause clip' }).click();
@@ -413,7 +376,8 @@ test('the frame’s clip plays in the inspector, in to out, round and round, onl
   await page.keyboard.press('i');
   await expect(player(page)).toContainText('In 00:00:01:13 · Out 00:00:01:23 · 11 frames');
   await preview.getByRole('button', { name: 'Play clip' }).click();
-  expectInside(await presented(), 37, 47);
+  const atEnd = await presented();
+  expectInside(atEnd.seen, 37, 47, atEnd.raw);
   // Still playing (or turning at the in point), not stopped at the take's end.
   await expect(preview.getByRole('button', { name: 'Pause clip' })).toBeVisible();
   await preview.getByRole('button', { name: 'Pause clip' }).click();
@@ -452,7 +416,7 @@ test('a page too busy to see every frame shows a frame or two past the out point
     contentType: 'application/json',
   });
   expect(seen.some((s) => s.missed >= 1)).toBe(true);
-  expectInside(seen, 10, 20);
+  expectInside(seen, 10, 20, raw);
   // And it still goes round: back at its start more than once.
   const frames = seen.map((s) => s.frame);
   expect(frames.filter((frame, i) => i > 0 && frame < (frames[i - 1] ?? 0)).length).toBeGreaterThanOrEqual(2);
