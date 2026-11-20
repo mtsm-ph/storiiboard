@@ -32,7 +32,7 @@ export function startLaunchCheck(root: HTMLElement, watch: LaunchCheckWatch): vo
     readPdfText,
     accentsFromWorker: askWorkerAlone,
     // The page's own files only: the worker scripts the app's own code just started.
-    getFile: window.fetch.bind(window),
+    getFile: (url) => fetch(url),
     document,
     window: page,
     baseUrl: window.location.href,

@@ -36,7 +36,13 @@ export async function builtInPdf(): Promise<Uint8Array> {
   const page = doc.addPage([400, 100]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   page.node.setFontDictionary(PDFName.of('F1'), font.ref);
-  page.pushOperators(beginText(), setFontAndSize('F1', 14), moveText(20, 45), showText(font.encodeText(LAUNCH_CHECK_LINE)), endText());
+  page.pushOperators(
+    beginText(),
+    setFontAndSize('F1', 14),
+    moveText(20, 45),
+    showText(font.encodeText(LAUNCH_CHECK_LINE)),
+    endText(),
+  );
   return doc.save({ useObjectStreams: false, addDefaultPage: false });
 }
 
@@ -68,19 +74,26 @@ export function builtInPng(): Uint8Array {
   ]);
 }
 
-const base64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
+/** Bytes as base64, in lines of at most 100 characters, joined: so the written file keeps to its width. */
+const base64Lines = (bytes: Uint8Array): string[] =>
+  (Buffer.from(bytes).toString('base64').match(/.{1,100}/g) ?? []).map((line) => `  '${line}',`);
 
 /** builtIn.ts as the script writes it. */
 export async function builtInSource(): Promise<string> {
   return [
-    '// Written by scripts/launchCheckBuiltIn.ts (node scripts/launchCheckBuiltIn.ts): never by hand. The launch check’s own',
-    '// PDF and picture (6.27l), as base64; src/app/launchCheck/builtIn.test.ts checks they are what the script makes.',
+    '// Written by scripts/launchCheckBuiltIn.ts (node scripts/launchCheckBuiltIn.ts): never by hand. The launch',
+    '// check’s own PDF and picture (6.27l), as base64; src/app/launchCheck/builtIn.test.ts checks they are what the',
+    '// script makes.',
     '',
     `export const LAUNCH_CHECK_LINE = '${LAUNCH_CHECK_LINE}';`,
     '',
-    `export const LAUNCH_CHECK_PDF = '${base64(await builtInPdf())}';`,
+    'export const LAUNCH_CHECK_PDF = [',
+    ...base64Lines(await builtInPdf()),
+    "].join('');",
     '',
-    `export const LAUNCH_CHECK_PNG = '${base64(builtInPng())}';`,
+    'export const LAUNCH_CHECK_PNG = [',
+    ...base64Lines(builtInPng()),
+    "].join('');",
     '',
   ].join('\n');
 }

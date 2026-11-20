@@ -5,9 +5,9 @@
 #
 #   bash scripts/launchCheck.sh <path to the app's executable>
 #
-# Bash, LF line endings: Git Bash on the Windows runner, and the Mac's own bash, which is 3.2, so nothing newer here. It passes only when the app's exit code is 0
-# and its output holds the line "launch check: passed". Without the variable the app would open this computer's real
-# projects, so the app is never started here without it.
+# Bash, LF line endings: Git Bash on the Windows runner, and the Mac's own bash, which is 3.2, so nothing newer here.
+# It passes only when the app's exit code is 0 and its output holds the line "launch check: passed". Without the
+# variable the app would open this computer's real projects, so the app is never started here without it.
 
 set -u
 
@@ -50,15 +50,19 @@ meaning() {
     printf 'every step passed but the app had not quit when the time limit ended'
   elif [ "$code" -eq 101 ]; then
     printf 'the app panicked'
+  elif [ "$code" -ge 129 ] && [ "$code" -le 159 ]; then
+    printf 'the app was ended by signal %s' "$((code - 128))"
   else
     printf 'not a code the launch check gives'
   fi
 }
 
-# Anything of the app's still running, for a failure's log.
+# Anything of the app's still running, for a failure's log. This script's own line is left out: on the Mac its command
+# line holds the app's path, so it would always be listed.
 still_running() {
   echo 'Processes whose name holds storiiboard:'
-  { ps -A -o pid,stat,etime,command 2>/dev/null || tasklist 2>/dev/null; } | grep -i storiiboard | grep -v grep || echo '(none)'
+  { ps -A -o pid,stat,etime,command 2>/dev/null || tasklist 2>/dev/null; } |
+    grep -i storiiboard | grep -v grep | grep -v launchCheck.sh || echo '(none)'
 }
 
 if [ -z "$app" ] || [ ! -f "$app" ]; then
@@ -86,14 +90,16 @@ if [ "$windows" = true ]; then
       break
     fi
   done
+  # None found is a warning, not a failure: the app's own result is the better evidence.
   if [ -z "$runtime" ]; then
-    say "FAILED: no WebView2 runtime is installed (neither registry key has a version)"
-    exit 1
+    say "warning: no WebView2 runtime found in the registry (neither key has a version); starting the app anyway"
+  else
+    say "WebView2 runtime $runtime"
   fi
-  say "WebView2 runtime $runtime"
 fi
 
-# The runner's temp folder in CI; on a developer's computer the repo's own test-results, never the system's temp folder.
+# The runner's temp folder in CI; on a developer's computer the repo's own test-results, never the system's temp
+# folder.
 log_dir="${RUNNER_TEMP:-test-results/launch-check}"
 mkdir -p "$log_dir"
 log="$log_dir/storiiboard-launch-check.log"

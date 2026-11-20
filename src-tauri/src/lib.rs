@@ -223,7 +223,8 @@ fn launch_check_setup(app: &tauri::App) {
 }
 
 /// Step 2, `loaded`: the main window's page finished loading, the app's own show() worked and the window is visible.
-fn launch_check_loaded(webview: &tauri::Webview, shown: tauri::Result<()>) {
+/// `shown_before`: it was visible already, the 3-second net having got there first; still ok, and the line says so.
+fn launch_check_loaded(webview: &tauri::Webview, shown: tauri::Result<()>, shown_before: bool) {
     let Some(check) = webview.try_state::<LaunchCheck<tauri::Wry>>() else {
         return;
     };
@@ -236,7 +237,15 @@ fn launch_check_loaded(webview: &tauri::Webview, shown: tauri::Result<()>) {
         ),
         Ok(()) => (true, String::new()),
     };
-    if let Err(error) = check.report(webview.app_handle(), Reporter::Rust, "loaded", ok, &detail) {
+    let note = shown_before.then_some(launch_check::SHOWN_BY_NET);
+    if let Err(error) = check.report_noted(
+        webview.app_handle(),
+        Reporter::Rust,
+        "loaded",
+        ok,
+        &detail,
+        note,
+    ) {
         eprintln!("launch check: {error}");
     }
 }
@@ -341,12 +350,15 @@ pub fn run() {
         // set the theme. Shown any earlier, a Mac in dark mode flashes the paper window background at launch.
         .on_page_load(move |webview, payload| {
             if payload.event() == PageLoadEvent::Finished {
+                // In the launch check only: whether the 3-second net showed the window before this did.
+                let checked = launch && webview.label() == "main";
+                let shown_before = checked && webview.window().is_visible().unwrap_or(false);
                 let shown = webview.window().show();
                 if let Err(error) = &shown {
                     eprintln!("could not show the main window: {error}");
                 }
-                if launch && webview.label() == "main" {
-                    launch_check_loaded(webview, shown);
+                if checked {
+                    launch_check_loaded(webview, shown, shown_before);
                 }
             }
         })

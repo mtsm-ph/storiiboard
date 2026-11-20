@@ -342,6 +342,7 @@ jobs:
       # With no tag or release given, tauri-action only builds. The Mac app gets an ad-hoc signature
       # (bundle.macOS.signingIdentity "-"), so Apple Silicon opens it with right-click, Open.
       - uses: tauri-apps/tauri-action@v1
+        id: build
       # Double-clicking a .sbd opens Storiiboard (0.6). The association lives in what the bundler writes, so check
       # it there rather than trust the config.
       - name: Check the .sbd file association (macOS)
@@ -400,8 +401,10 @@ jobs:
       # The launch check (6.27l, docs/briefs/launch-check.md): starts the executable the installers carry in its
       # self-check mode, which makes the main window, loads the page under the installed policy, checks the policy is
       # enforced, starts both workers and reads each one's policy, then quits with 0. Last, after the upload and the
-      # listing, so a fault in the check never costs the installers.
+      # listing, so a fault in the check never costs the installers. It runs whenever the build succeeded, whatever the
+      # steps between did.
       - name: Launch check
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: bash
         timeout-minutes: 5
         run: bash scripts/launchCheck.sh "${{ matrix.app }}"

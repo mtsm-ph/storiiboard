@@ -47,11 +47,13 @@ describe('the launch check’s built-in PDF and picture', () => {
   it('are what the script makes, byte for byte, and the file is what it writes', async () => {
     expect(Buffer.from(fromBase64(LAUNCH_CHECK_PDF))).toEqual(Buffer.from(await builtInPdf()));
     expect(Buffer.from(fromBase64(LAUNCH_CHECK_PNG))).toEqual(Buffer.from(builtInPng()));
-    expect(readFileSync(join(root, 'src/app/launchCheck/builtIn.ts'), 'utf8').replace(/\r\n/g, '\n')).toBe(await builtInSource());
+    const written = readFileSync(join(root, 'src/app/launchCheck/builtIn.ts'), 'utf8').replace(/\r\n/g, '\n');
+    expect(written).toBe(await builtInSource());
   });
 
   it('the PDF is one page whose text is the line', async () => {
-    const pdf = await getDocument({ data: fromBase64(LAUNCH_CHECK_PDF), disableFontFace: true, useSystemFonts: false }).promise;
+    const data = fromBase64(LAUNCH_CHECK_PDF);
+    const pdf = await getDocument({ data, disableFontFace: true, useSystemFonts: false }).promise;
     expect(pdf.numPages).toBe(1);
     const content = await (await pdf.getPage(1)).getTextContent();
     const text = content.items.map((item) => ('str' in item ? item.str : '')).join('');

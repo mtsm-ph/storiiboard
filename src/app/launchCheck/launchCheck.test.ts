@@ -9,6 +9,7 @@ import {
   fileName,
   isJavaScript,
   runLaunchCheck,
+  type CheckDocument,
   type CheckWindow,
   type LaunchCheckDeps,
   type ScriptAnswer,
@@ -23,14 +24,16 @@ import {
 const root = join(import.meta.dirname, '../../..');
 const BASE = 'http://tauri.localhost/';
 const PDF_WORKER = '/assets/pdf.worker.min-Dr1KORA9.mjs';
+const PDF_NAME = 'pdf.worker.min-Dr1KORA9.mjs';
 const ACCENT_WORKER = 'http://tauri.localhost/assets/worker-pwfgZlae.js';
 const LINE = 'INT. LAUNCH CHECK - DAY';
 const CANARY_VIOLATION: Violation = { directive: 'script-src-elem', blocked: 'inline', disposition: 'enforce' };
 
 const text = (value: string): PdfText => ({ page: 1, x: 20, y: 45, width: 100, text: value });
 
-const scriptAnswer = (headers: Record<string, string>, status = 200): ScriptAnswer => ({
+const scriptAnswer = (headers: Record<string, string>, status = 200, type = 'basic'): ScriptAnswer => ({
   status,
+  type,
   headers: { get: (name) => headers[name.toLowerCase()] ?? null },
 });
 const goodScript = () => scriptAnswer({ 'content-type': 'text/javascript', 'content-security-policy': WORKER_POLICY });
@@ -95,6 +98,9 @@ function fakes(change: (f: Fakes) => Partial<LaunchCheckDeps> = () => ({})): Fak
             return undefined;
           },
         },
+        // theme-boot.js set the theme, and the app's stylesheet loaded.
+        documentElement: { hasAttribute: (name) => name === 'data-theme' },
+        styleSheets: { length: 1 },
       },
       window: page,
       baseUrl: BASE,
@@ -111,6 +117,21 @@ function fakes(change: (f: Fakes) => Partial<LaunchCheckDeps> = () => ({})): Fak
   return f;
 }
 
+/** The fake document with the canary's append doing `appended` instead of the default report. */
+function appending(g: Fakes, appended: () => void): { document: CheckDocument } {
+  return {
+    document: {
+      ...g.deps.document,
+      body: {
+        appendChild: () => {
+          appended();
+          return undefined;
+        },
+      },
+    },
+  };
+}
+
 /** Runs the check on the fake clock until nothing is left to wait for. */
 async function run(f: Fakes): Promise<void> {
   const done = runLaunchCheck(f.deps);
@@ -120,6 +141,8 @@ async function run(f: Fakes): Promise<void> {
 
 /** A promise that never settles: a worker that never answers. */
 const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
+
+const allOk = () => PAGE_STEPS.map((step) => [step, true, '']);
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -145,109 +168,112 @@ describe('the launch check’s page steps (6.27l)', () => {
   it('reports the six steps in order, each once, and puts window.Worker back', async () => {
     const f = fakes();
     await run(f);
-    expect(f.reports).toEqual(PAGE_STEPS.map((step) => [step, true, '']));
+    expect(f.reports).toEqual(allOk());
     expect(f.window.Worker).toBe(f.originalWorker);
     // The two scripts the app's own code started, by their full address, each asked for once.
-    expect(f.fetched).toEqual(['http://tauri.localhost/assets/pdf.worker.min-Dr1KORA9.mjs', ACCENT_WORKER]);
+    expect(f.fetched).toEqual([`http://tauri.localhost${PDF_WORKER}`, ACCENT_WORKER]);
     expect(f.removed()).toBe(1);
   });
 
-  it('fails page when the screen never draws', async () => {
-    const f = fakes(() => ({ drawScreen: () => Promise.reject(new Error('React could not draw')) }));
-    await run(f);
-    failedAt('page', 'React could not draw')(f.reports);
+  describe('page', () => {
+    it('fails when the screen never draws', async () => {
+      const f = fakes(() => ({ drawScreen: () => Promise.reject(new Error('React could not draw')) }));
+      await run(f);
+      failedAt('page', 'React could not draw')(f.reports);
+    });
+
+    it('fails when theme-boot.js set no theme', async () => {
+      const f = fakes((g) => ({ document: { ...g.deps.document, documentElement: { hasAttribute: () => false } } }));
+      await run(f);
+      failedAt('page', 'theme-boot.js did not run')(f.reports);
+    });
+
+    it('fails when no stylesheet is loaded', async () => {
+      const f = fakes((g) => ({ document: { ...g.deps.document, styleSheets: { length: 0 } } }));
+      await run(f);
+      failedAt('page', 'no stylesheet is loaded')(f.reports);
+    });
   });
 
   describe('policy-watch', () => {
     it('fails when the inline script ran', async () => {
-      const f = fakes((g) => ({
-        document: {
-          ...g.deps.document,
-          body: {
-            appendChild: () => {
-              g.window[CANARY] = true;
-              return undefined;
-            },
-          },
-        },
-      }));
+      const f = fakes((g) =>
+        appending(g, () => {
+          g.window[CANARY] = true;
+        }),
+      );
       await run(f);
       failedAt('policy-watch', "an inline script ran: the page's policy is not enforced")(f.reports);
       expect(f.removed()).toBe(1);
     });
 
     it('fails when the refused script was not reported in 2 s', async () => {
-      const f = fakes((g) => ({ document: { ...g.deps.document, body: { appendChild: () => undefined } } }));
+      const f = fakes((g) => appending(g, () => undefined));
       await run(f);
       failedAt('policy-watch', 'a refused inline script was not reported: seen nothing was reported')(f.reports);
       expect(f.removed()).toBe(1);
     });
 
     it('takes a report that comes a moment later, and WebKit’s script-src', async () => {
-      const f = fakes((g) => ({
-        document: {
-          ...g.deps.document,
-          body: {
-            appendChild: () => {
-              setTimeout(() => g.violations.push({ directive: 'script-src', blocked: 'inline', disposition: 'enforce' }), 500);
-              return undefined;
-            },
-          },
-        },
-      }));
+      const f = fakes((g) =>
+        appending(g, () => {
+          setTimeout(() => {
+            g.violations.push({ directive: 'script-src', blocked: 'inline', disposition: 'enforce' });
+          }, 500);
+        }),
+      );
       await run(f);
-      expect(f.reports).toEqual(PAGE_STEPS.map((step) => [step, true, '']));
+      expect(f.reports).toEqual(allOk());
     });
 
     it('takes an empty blocked address, as WKWebView may give it', async () => {
-      const f = fakes((g) => ({
-        document: {
-          ...g.deps.document,
-          body: {
-            appendChild: () => {
-              g.violations.push({ directive: 'script-src', blocked: '', disposition: 'enforce' });
-              return undefined;
-            },
-          },
-        },
-      }));
+      const f = fakes((g) =>
+        appending(g, () => {
+          g.violations.push({ directive: 'script-src', blocked: '', disposition: 'enforce' });
+        }),
+      );
       await run(f);
-      expect(f.reports).toEqual(PAGE_STEPS.map((step) => [step, true, '']));
+      expect(f.reports).toEqual(allOk());
+    });
+
+    it('takes a refusal reported twice as the deliberate one', async () => {
+      const f = fakes((g) =>
+        appending(g, () => {
+          g.violations.push(CANARY_VIOLATION);
+          setTimeout(() => {
+            g.violations.push({ directive: 'script-src', blocked: '', disposition: 'enforce' });
+          }, 50);
+        }),
+      );
+      await run(f);
+      expect(f.violations).toHaveLength(2);
+      expect(f.reports).toEqual(allOk());
     });
 
     it('doesn’t count a report-only entry, and says what it saw', async () => {
-      const f = fakes((g) => ({
-        document: {
-          ...g.deps.document,
-          body: {
-            appendChild: () => {
-              g.violations.push({ directive: 'script-src-elem', blocked: 'inline', disposition: 'report' });
-              return undefined;
-            },
-          },
-        },
-      }));
+      const f = fakes((g) =>
+        appending(g, () => {
+          g.violations.push({ directive: 'script-src-elem', blocked: 'inline', disposition: 'report' });
+        }),
+      );
       await run(f);
-      failedAt('policy-watch', 'a refused inline script was not reported: seen script-src-elem inline report')(f.reports);
+      const why = 'a refused inline script was not reported: seen script-src-elem inline report';
+      failedAt('policy-watch', why)(f.reports);
     });
 
     it('doesn’t count a refused inline style or a refused script file as the canary', async () => {
-      const f = fakes((g) => ({
-        document: {
-          ...g.deps.document,
-          body: {
-            appendChild: () => {
-              g.violations.push({ directive: 'style-src-elem', blocked: 'inline', disposition: 'enforce' });
-              g.violations.push({ directive: 'script-src-elem', blocked: 'https://example.org/x.js', disposition: 'enforce' });
-              return undefined;
-            },
-          },
-        },
-      }));
+      const f = fakes((g) =>
+        appending(g, () => {
+          g.violations.push({ directive: 'style-src-elem', blocked: 'inline', disposition: 'enforce' });
+          const file = 'https://example.org/x.js';
+          g.violations.push({ directive: 'script-src-elem', blocked: file, disposition: 'enforce' });
+        }),
+      );
       await run(f);
       failedAt(
         'policy-watch',
-        'a refused inline script was not reported: seen style-src-elem inline enforce; script-src-elem https://example.org/x.js enforce',
+        'a refused inline script was not reported: seen style-src-elem inline enforce; ' +
+          'script-src-elem https://example.org/x.js enforce',
       )(f.reports);
     });
   });
@@ -281,7 +307,7 @@ describe('the launch check’s page steps (6.27l)', () => {
         },
       }));
       await run(f);
-      expect(f.reports).toEqual(PAGE_STEPS.map((step) => [step, true, '']));
+      expect(f.reports).toEqual(allOk());
     });
 
     it('fails when the text lacks the line', async () => {
@@ -293,11 +319,12 @@ describe('the launch check’s page steps (6.27l)', () => {
   });
 
   describe('accents', () => {
+    const unread = 'That image’s colours can’t be read.';
     for (const [what, answer, why] of [
       ['no answer (null)', () => Promise.resolve(null), 'the accent worker failed or took over 15 s'],
       ['nothing in 20 s', () => never<string[] | null>(), 'no answer from the accent worker in 20 s'],
       ['an empty list', () => Promise.resolve([]), 'the accent worker found no accent in the built-in picture'],
-      ['an error', () => Promise.reject(new Error('That image’s colours can’t be read.')), 'That image’s colours can’t be read.'],
+      ['an error', () => Promise.reject(new Error(unread)), unread],
     ] as const) {
       it(`fails when the worker gives ${what}, and puts window.Worker back`, async () => {
         const f = fakes(() => ({ accentsFromWorker: answer }));
@@ -324,27 +351,45 @@ describe('the launch check’s page steps (6.27l)', () => {
         },
       }));
       await run(f);
-      failedAt('worker-policy', '3 worker scripts were started, not 2: pdf.worker.min-Dr1KORA9.mjs, extra-1234.js, worker-pwfgZlae.js')(
+      failedAt('worker-policy', `3 worker scripts were started, not 2: ${PDF_NAME}, extra-1234.js, worker-pwfgZlae.js`)(
         f.reports,
       );
     });
 
+    const js = 'text/javascript';
     for (const [what, answer, why] of [
-      ['no policy', scriptAnswer({ 'content-type': 'text/javascript' }), 'pdf.worker.min-Dr1KORA9.mjs: no content-security-policy'],
+      [
+        'no policy',
+        scriptAnswer({ 'content-type': js }),
+        `${PDF_NAME}: no content-security-policy (answer type basic)`,
+      ],
       [
         'another policy',
-        scriptAnswer({ 'content-type': 'text/javascript', 'content-security-policy': "default-src 'self'" }),
-        'pdf.worker.min-Dr1KORA9.mjs: content-security-policy "default-src \'self\'", not the workers\' policy',
+        scriptAnswer({ 'content-type': js, 'content-security-policy': "default-src 'self'" }),
+        `${PDF_NAME}: content-security-policy "default-src 'self'", not the workers' policy (answer type basic)`,
       ],
       [
         'a type that isn’t JavaScript',
         scriptAnswer({ 'content-type': 'text/html', 'content-security-policy': WORKER_POLICY }),
-        'pdf.worker.min-Dr1KORA9.mjs: content-type text/html, not JavaScript',
+        `${PDF_NAME}: content-type text/html, not JavaScript (answer type basic)`,
       ],
-      ['no type', scriptAnswer({ 'content-security-policy': WORKER_POLICY }), 'pdf.worker.min-Dr1KORA9.mjs: content-type none, not JavaScript'],
-      ['a 404', scriptAnswer({ 'content-type': 'text/javascript', 'content-security-policy': WORKER_POLICY }, 404), 'pdf.worker.min-Dr1KORA9.mjs: status 404'],
+      [
+        'no type',
+        scriptAnswer({ 'content-security-policy': WORKER_POLICY }),
+        `${PDF_NAME}: content-type none, not JavaScript (answer type basic)`,
+      ],
+      [
+        'a 404',
+        scriptAnswer({ 'content-type': js, 'content-security-policy': WORKER_POLICY }, 404),
+        `${PDF_NAME}: status 404 (answer type basic)`,
+      ],
+      [
+        'a header hidden from the page (a cors answer)',
+        scriptAnswer({ 'content-type': js }, 200, 'cors'),
+        `${PDF_NAME}: no content-security-policy (answer type cors)`,
+      ],
     ] as const) {
-      it(`fails on a script with ${what}, naming the file`, async () => {
+      it(`fails on a script with ${what}, naming the file and the answer's type`, async () => {
         const f = fakes(() => ({ getFile: () => Promise.resolve(answer) }));
         await run(f);
         failedAt('worker-policy', why)(f.reports);
@@ -353,10 +398,10 @@ describe('the launch check’s page steps (6.27l)', () => {
 
     it('names the second script when only it is wrong', async () => {
       const f = fakes(() => ({
-        getFile: (url) => Promise.resolve(url === ACCENT_WORKER ? scriptAnswer({ 'content-type': 'text/javascript' }) : goodScript()),
+        getFile: (url) => Promise.resolve(url === ACCENT_WORKER ? scriptAnswer({ 'content-type': js }) : goodScript()),
       }));
       await run(f);
-      failedAt('worker-policy', 'worker-pwfgZlae.js: no content-security-policy')(f.reports);
+      failedAt('worker-policy', 'worker-pwfgZlae.js: no content-security-policy (answer type basic)')(f.reports);
     });
 
     it('fails when a script can’t be fetched at all', async () => {
@@ -379,12 +424,27 @@ describe('the launch check’s page steps (6.27l)', () => {
       failedAt('no-violation', 'another violation: connect-src refused https://example.org (enforce)')(f.reports);
     });
 
+    it('fails on another shape that came beside the deliberate refusal', async () => {
+      const f = fakes((g) =>
+        appending(g, () => {
+          g.violations.push(CANARY_VIOLATION);
+          setTimeout(() => {
+            g.violations.push({ directive: 'style-src-elem', blocked: 'inline', disposition: 'enforce' });
+          }, 50);
+        }),
+      );
+      await run(f);
+      failedAt('no-violation', 'another violation: style-src-elem refused inline (enforce)')(f.reports);
+    });
+
     it('fails on a violation that comes late, within its 300 ms', async () => {
       const f = fakes((g) => ({
         accentsFromWorker: () => {
           new g.window.Worker(new URL(ACCENT_WORKER));
           // After the last worker step, while no-violation waits.
-          setTimeout(() => g.violations.push({ directive: 'img-src', blocked: 'data', disposition: 'report' }), 100);
+          setTimeout(() => {
+            g.violations.push({ directive: 'img-src', blocked: 'data', disposition: 'report' });
+          }, 100);
           return Promise.resolve(['#d02020']);
         },
       }));
@@ -396,7 +456,7 @@ describe('the launch check’s page steps (6.27l)', () => {
       const f = fakes();
       f.violations.push({ directive: 'script-src-elem', blocked: 'inline', disposition: 'enforce' });
       await run(f);
-      // The one already there is never taken for the deliberate one: the canary's own report is.
+      // The one already there is never taken for the deliberate one: only entries after the canary's append are.
       failedAt('no-violation', 'another violation: script-src-elem refused inline (enforce)')(f.reports);
     });
   });
@@ -408,7 +468,10 @@ describe('the launch check’s page steps (6.27l)', () => {
         return step === 'pdf-text' ? Promise.reject(new Error('refused')) : Promise.resolve();
       },
     }));
-    await expect(runLaunchCheck(f.deps)).rejects.toThrow('refused');
+    const done = runLaunchCheck(f.deps);
+    const settled = expect(done).rejects.toThrow('refused');
+    await vi.runAllTimersAsync();
+    await settled;
     expect(f.reports.map(([step]) => step)).toEqual(['page', 'policy-watch', 'pdf-text']);
     expect(f.window.Worker).toBe(f.originalWorker);
   });
@@ -425,17 +488,29 @@ describe('what the check reads', () => {
     expect(WORKER_POLICY).toBe(policy);
   });
 
+  it('the page’s six steps are Rust’s list after window and loaded (src-tauri/src/launch_check.rs)', () => {
+    const rust = readFileSync(join(root, 'src-tauri/src/launch_check.rs'), 'utf8');
+    const list = /pub\(crate\) const STEPS: \[&str; \d+\] = \[([^\]]*)\]/.exec(rust)?.[1];
+    expect(list, 'STEPS in launch_check.rs').toBeDefined();
+    const names = [...(list ?? '').matchAll(/"([^"]*)"/g)].map((m) => m[1]);
+    expect(names).toEqual(['window', 'loaded', ...PAGE_STEPS]);
+  });
+
   it('knows JavaScript by the same types as worker_csp.rs', () => {
-    for (const type of ['text/javascript', 'application/javascript; charset=utf-8', ' TEXT/JavaScript ', 'application/x-ecmascript']) {
-      expect(isJavaScript(type), type).toBe(true);
-    }
-    for (const type of ['text/html', 'application/json', 'text/javascriptx', 'text/plain; x=text/javascript', '', null]) {
-      expect(isJavaScript(type), String(type)).toBe(false);
-    }
+    const yes = [
+      'text/javascript',
+      'application/javascript; charset=utf-8',
+      ' TEXT/JavaScript ',
+      'application/x-ecmascript',
+    ];
+    for (const type of yes) expect(isJavaScript(type), type).toBe(true);
+    const no = ['text/html', 'application/json', 'text/javascriptx', 'text/plain; x=text/javascript', '', null];
+    for (const type of no) expect(isJavaScript(type), String(type)).toBe(false);
   });
 
   it('names a file by its name alone', () => {
-    expect(fileName('http://tauri.localhost/assets/worker-pwfgZlae.js?worker_file&type=module')).toBe('worker-pwfgZlae.js');
+    const accent = 'http://tauri.localhost/assets/worker-pwfgZlae.js?worker_file&type=module';
+    expect(fileName(accent)).toBe('worker-pwfgZlae.js');
     expect(fileName('tauri://localhost/assets/pdf.worker.min-Dr1KORA9.mjs#x')).toBe('pdf.worker.min-Dr1KORA9.mjs');
   });
 });

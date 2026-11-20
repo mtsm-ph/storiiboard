@@ -22,7 +22,12 @@ export const CANARY = '__storiiboardLaunchCheckCanary';
 const CANARY_WAIT_MS = 2000;
 const LATE_WAIT_MS = 300;
 const POLL_MS = 25;
-/** The page's own limits: readPdfText waits 60 s by itself, longer than the whole check may take (90 s, in Rust). */
+/** After the first report of the deliberate refusal, how long more of the same shape are taken as its own. */
+const SAME_REFUSAL_MS = 100;
+/**
+ * The page's own limits for its two worker steps: readPdfText waits up to 60 s by itself, longer than the check can
+ * give this one step within its 90 s (kept in Rust).
+ */
 const PDF_LIMIT_MS = 25_000;
 const ACCENTS_LIMIT_MS = 20_000;
 
@@ -41,6 +46,8 @@ export interface LaunchCheckWatch {
 /** The answer to a request for a worker's script: what the check reads of a Response. */
 export interface ScriptAnswer {
   status: number;
+  /** `basic` for the page's own origin, `cors` otherwise: a header hidden from the page reads as one never sent. */
+  type: string;
   headers: { get(name: string): string | null };
 }
 
@@ -53,10 +60,13 @@ export interface CheckWindow {
   [CANARY]?: unknown;
 }
 
-/** The document, as the check uses it: only to add and remove the deliberate inline script. */
+/** The document, as the check uses it: what loaded with the page, and the deliberate inline script. */
 export interface CheckDocument {
   createElement(tag: 'script'): { textContent: string | null; remove(): void };
   body: { appendChild(node: unknown): unknown } | null;
+  /** `<html>`, where public/theme-boot.js sets data-theme: in the mode nothing else does. */
+  documentElement: { hasAttribute(name: string): boolean };
+  styleSheets: { length: number };
 }
 
 export interface LaunchCheckDeps {
@@ -136,9 +146,9 @@ export async function runLaunchCheck(deps: LaunchCheckDeps): Promise<void> {
     return failure === null;
   };
 
-  if (!(await step('page', () => deps.drawScreen()))) return;
+  if (!(await step('page', () => page(deps)))) return;
 
-  let deliberate: Violation | undefined;
+  let deliberate: readonly Violation[] = [];
   const watched = await step('policy-watch', async () => {
     deliberate = await policyWatch(deps);
   });
@@ -164,8 +174,19 @@ export async function runLaunchCheck(deps: LaunchCheckDeps): Promise<void> {
   await step('no-violation', () => noViolation(deps, deliberate));
 }
 
-/** Breaks the page's policy once on purpose: an inline script, which must not run and must be reported. */
-async function policyWatch(deps: LaunchCheckDeps): Promise<Violation> {
+/** The check's screen committed, after index.html's theme-boot.js and the app's stylesheet loaded and ran. */
+async function page(deps: LaunchCheckDeps): Promise<void> {
+  await deps.drawScreen();
+  if (!deps.document.documentElement.hasAttribute('data-theme')) fail('theme-boot.js did not run');
+  if (deps.document.styleSheets.length === 0) fail('no stylesheet is loaded');
+}
+
+/**
+ * Breaks the page's policy once on purpose: an inline script, which must not run and must be reported. Its entries:
+ * every one of the refusal's shape that came since the script was added, up to a moment after the first (an engine
+ * may report one refusal twice).
+ */
+async function policyWatch(deps: LaunchCheckDeps): Promise<Violation[]> {
   const before = deps.violations.length;
   const script = deps.document.createElement('script');
   script.textContent = `window.${CANARY} = true;`;
@@ -180,7 +201,10 @@ async function policyWatch(deps: LaunchCheckDeps): Promise<Violation> {
       await deps.sleep(POLL_MS);
     }
     if (deps.window[CANARY] === true) fail("an inline script ran: the page's policy is not enforced");
-    return found ?? fail(`a refused inline script was not reported: seen ${seen(deps.violations)}`);
+    if (!found) fail(`a refused inline script was not reported: seen ${seen(deps.violations)}`);
+    await deps.sleep(SAME_REFUSAL_MS);
+    if (deps.window[CANARY] === true) fail("an inline script ran: the page's policy is not enforced");
+    return deps.violations.slice(before).filter(isCanaryViolation);
   } finally {
     script.remove();
   }
@@ -188,14 +212,16 @@ async function policyWatch(deps: LaunchCheckDeps): Promise<Violation> {
 
 /** The built-in PDF's text, read through the PDF worker (readPdf.ts gives pdf.js a worker of its own making). */
 async function pdfText(deps: LaunchCheckDeps): Promise<void> {
-  const items = await within(deps, PDF_LIMIT_MS, deps.readPdfText(deps.pdf.slice(0), 'launch-check.pdf'), 'no answer from the PDF worker in 25 s');
+  const reading = deps.readPdfText(deps.pdf.slice(0), 'launch-check.pdf');
+  const items = await within(deps, PDF_LIMIT_MS, reading, 'no answer from the PDF worker in 25 s');
   const text = items.map((item) => item.text).join('');
   if (!text.includes(deps.pdfLine)) fail(`the PDF's text lacks its line: read "${text.slice(0, 80)}"`);
 }
 
 /** The built-in picture's accents, from the accent reader's worker alone. */
 async function accents(deps: LaunchCheckDeps): Promise<void> {
-  const found = await within(deps, ACCENTS_LIMIT_MS, deps.accentsFromWorker(deps.picture), 'no answer from the accent worker in 20 s');
+  const asking = deps.accentsFromWorker(deps.picture);
+  const found = await within(deps, ACCENTS_LIMIT_MS, asking, 'no answer from the accent worker in 20 s');
   // One null for no worker, a worker error and its own 15 s limit alike (extractAccents falls back on all three).
   if (found === null) fail('the accent worker failed or took over 15 s');
   else if (found.length === 0) fail('the accent worker found no accent in the built-in picture');
@@ -211,24 +237,33 @@ async function workerPolicy(deps: LaunchCheckDeps, started: readonly string[]): 
   for (const address of addresses) {
     const name = fileName(address);
     const answer = await deps.getFile(address);
-    if (answer.status !== 200) fail(`${name}: status ${String(answer.status)}`);
+    // Each failure names the answer's type too, so a header hidden from the page tells from one never sent.
+    const wrong = (what: string): never => fail(`${name}: ${what} (answer type ${answer.type})`);
+    if (answer.status !== 200) wrong(`status ${String(answer.status)}`);
     const type = answer.headers.get('content-type');
-    if (!isJavaScript(type)) fail(`${name}: content-type ${type ?? 'none'}, not JavaScript`);
+    if (!isJavaScript(type)) wrong(`content-type ${type ?? 'none'}, not JavaScript`);
     const policy = answer.headers.get('content-security-policy');
-    if (policy === null) fail(`${name}: no content-security-policy`);
-    else if (policy !== WORKER_POLICY) fail(`${name}: content-security-policy "${policy}", not the workers' policy`);
+    if (policy === null) wrong('no content-security-policy');
+    else if (policy !== WORKER_POLICY) wrong(`content-security-policy "${policy}", not the workers' policy`);
   }
 }
 
-/** After a moment for late events, nothing but the deliberate violation was reported from the document's start. */
-async function noViolation(deps: LaunchCheckDeps, deliberate: Violation | undefined): Promise<void> {
+/** After a moment for late events, nothing but the deliberate refusal's entries came from the document's start. */
+async function noViolation(deps: LaunchCheckDeps, deliberate: readonly Violation[]): Promise<void> {
   await deps.sleep(LATE_WAIT_MS);
-  if (deliberate === undefined || !deps.violations.includes(deliberate)) fail('the deliberate violation is missing');
-  const other = deps.violations.find((violation) => violation !== deliberate);
-  if (other) fail(`another violation: ${other.directive} refused ${other.blocked || 'something'} (${other.disposition})`);
+  if (deliberate.length === 0 || !deliberate.every((entry) => deps.violations.includes(entry))) {
+    fail('the deliberate violation is missing');
+  }
+  const other = deps.violations.find((violation) => !deliberate.includes(violation));
+  if (other) {
+    fail(`another violation: ${other.directive} refused ${other.blocked || 'something'} (${other.disposition})`);
+  }
 }
 
-/** Bytes from base64, decoded here: a data: URL's fetch is refused by the policy's connect-src, and the page has no Buffer. */
+/**
+ * Bytes from base64, decoded here: a data: URL's fetch is refused by the policy's connect-src, and the page has no
+ * Buffer.
+ */
 export function fromBase64(text: string): Uint8Array<ArrayBuffer> {
   const binary = atob(text);
   const bytes = new Uint8Array(binary.length);

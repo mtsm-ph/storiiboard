@@ -268,13 +268,26 @@ impl<R: Runtime> LaunchCheck<R> {
         ok: bool,
         detail: &str,
     ) -> Result<(), String> {
+        self.report_noted(app, from, step, ok, detail, None)
+    }
+
+    /// As `report`, with a note on the step's ok line (`loaded` shown first by the 3-second net).
+    pub(crate) fn report_noted(
+        &self,
+        app: &AppHandle<R>,
+        from: Reporter,
+        step: &str,
+        ok: bool,
+        detail: &str,
+        note: Option<&str>,
+    ) -> Result<(), String> {
         let outcome = self.shared.record().report(from, step, ok, detail)?;
         match outcome {
             Outcome::Ignored => {}
-            Outcome::StepOk => (self.shared.say)(&format!("launch check: {step} ok")),
+            Outcome::StepOk => (self.shared.say)(&ok_line(step, note)),
             Outcome::Decided(verdict) => {
                 if verdict == Verdict::Passed {
-                    (self.shared.say)(&format!("launch check: {step} ok"));
+                    (self.shared.say)(&ok_line(step, note));
                 }
                 (self.shared.say)(&verdict.line());
                 (self.finish)(app, &verdict);
@@ -305,6 +318,17 @@ impl<R: Runtime> LaunchCheck<R> {
         });
     }
 }
+
+/// A step's ok line, with its note in brackets when it has one.
+pub(crate) fn ok_line(step: &str, note: Option<&str>) -> String {
+    match note {
+        Some(note) => format!("launch check: {step} ok ({note})"),
+        None => format!("launch check: {step} ok"),
+    }
+}
+
+/// The note on `loaded` when the window was visible before the app's own show(): the 3-second net got there first.
+pub(crate) const SHOWN_BY_NET: &str = "already shown by the 3-second net";
 
 /// A line on stdout, flushed; a write that fails is ignored, never a panic.
 pub(crate) fn say_on_stdout(line: &str) {
@@ -464,6 +488,15 @@ mod tests {
         assert_eq!(record.verdict(), Some(&Verdict::Passed));
         assert_eq!(Verdict::Passed.code(), 0);
         assert_eq!(Verdict::Passed.line(), "launch check: passed");
+    }
+
+    #[test]
+    fn the_ok_line_says_when_the_net_showed_the_window_first() {
+        assert_eq!(ok_line("loaded", None), "launch check: loaded ok");
+        assert_eq!(
+            ok_line("loaded", Some(SHOWN_BY_NET)),
+            "launch check: loaded ok (already shown by the 3-second net)"
+        );
     }
 
     #[test]

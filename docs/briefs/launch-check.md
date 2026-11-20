@@ -78,7 +78,7 @@ end-to-end-only ones, which skip that job):
   |---|---|---|---|
   | 1 | `window` | Rust | `main_window(...)?.build()` returned the window |
   | 2 | `loaded` | Rust | the webview's page-load-finished event came for the main window, the app's own `show()` worked and the window is visible |
-  | 3 | `page` | the page | the app's bundle ran and React drew the check's screen into `#root` |
+  | 3 | `page` | the page | the app's bundle ran, theme-boot.js had set the theme, a stylesheet is loaded and React drew the check's screen into `#root` |
   | 4 | `policy-watch` | the page | an inline script added on purpose did not run and was reported as a violation |
   | 5 | `pdf-text` | the page | `readPdfText` returned the built-in PDF's line |
   | 6 | `accents` | the page | the accent reader's worker, asked alone, returned at least one accent for the built-in picture |
@@ -137,7 +137,9 @@ New file `src-tauri/src/launch_check.rs`; changes in `src-tauri/src/lib.rs` and 
     No `manage_at_start`, no clean-up thread, no `open::tidy_at_start`, no `opened::queue`.
   - If making the window fails: `launch check: FAILED at window: <error>` and exit 11, not the `expect` panic.
   - `on_page_load`, on `Finished`: the existing `show()` first, unchanged; then report `loaded` (ok only if `show()`
-    worked and `is_visible()` is true). Once.
+    worked and `is_visible()` is true). Once. In the mode, whether the window was visible already is read before the
+    `show()`: if the 3-second net got there first, the line says so (`loaded ok (already shown by the 3-second net)`)
+    and the step is still ok.
   - `RunEvent::Exit`: the three clean-ups are skipped. The playback cache was never made in the mode, and
     `app.state` panics on state that isn't there. On a Mac, `RunEvent::Opened` is ignored in the mode. (The copy
     scheme's handler would panic the same way on its own thread, but nothing asks for a copy in the mode.)
@@ -165,7 +167,9 @@ New folder `src/app/launchCheck/`; small changes in `src/main.tsx` and `src/ui/t
   object literal, as `src/app/tauriContract.test.ts` asks. The first failure is reported and the runner stops. A
   thrown error is that step's failure, its message the detail.
 - **`page`:** the screen (`LaunchCheckScreen.tsx`, an empty surface in the app's background, no words) is drawn with
-  `createRoot`; the step is reported from an effect, so a commit really happened.
+  `createRoot`; the step is reported from an effect, so a commit really happened. It also needs `data-theme` on
+  `<html>` (only public/theme-boot.js sets it in the mode) and at least one loaded stylesheet, each failing with its
+  own words, so "index.html, theme-boot.js, the stylesheet" above is checked, not assumed.
 - **`policy-watch`:** append a `<script>` element whose text sets a flag on `window`. Wait up to 2 s for a new entry
   in the list whose directive starts with `script-src`, whose disposition is `enforce`, and whose blocked address is
   `inline` or empty (WKWebView's shape for this has never been seen here, so the match doesn't hang on that one
@@ -173,7 +177,9 @@ New folder `src/app/launchCheck/`; small changes in `src/main.tsx` and `src/ui/t
   - The flag was set: failed, "an inline script ran: the page's policy is not enforced".
   - No such entry in 2 s: failed, "a refused inline script was not reported", followed by every entry that was seen
     (directive, blocked address, disposition) or "nothing was reported", so one run on the Mac tells which it was.
-  - Otherwise ok, and that one entry is the deliberate one.
+  - Otherwise ok. After the first such entry the check waits 100 ms more: every entry of that shape that came since
+    the script was added is the deliberate one's (an engine may report one refusal twice), and `no-violation` leaves
+    exactly those out. An entry of any other shape in that time still fails `no-violation`.
 - **`pdf-text`:** `readPdfText(bytes, 'launch-check.pdf')` from `src/features/script/readPdf.ts`, as it is. Ok when
   the text items, joined, contain the built-in line. That reader gives pdf.js a worker of its own making, so there is
   no path back to the page: an answer can only have come from the worker.
@@ -188,7 +194,12 @@ New folder `src/app/launchCheck/`; small changes in `src/main.tsx` and `src/ui/t
   worker is started from, then put back. No list of worker files is kept anywhere, so the check learns the addresses
   from what the app's own code starts. After step 6: exactly two different addresses, else failed. For each:
   `fetch` it, expect status 200, a JavaScript `content-type`, and a `content-security-policy` header equal to the
-  policy. On failure the detail names the file (its name only) and what was found.
+  policy. On failure the detail names the file (its name only), what was found, and the answer's `type` (`basic` or
+  `cors`: a header hidden from the page reads the same as one never sent).
+  - The fetch is written plainly, `fetch(url)`, so `src/app/cspFetch.test.ts` sees it, and that test's `ALLOWED`
+    list gets one entry for `src/app/launchCheck/start.tsx` (count 1; the reason: the worker scripts the app itself
+    just started, same-origin, read for their policy header by the launch check). That entry is the one change to an
+    existing test in this brief.
   - The policy is a constant in the runner. A Vitest test reads `src-tauri/worker-csp.txt` the way `worker_csp.rs`
     does and fails when the two differ.
 - **`no-violation`:** wait 300 ms for late events, then the list must hold the deliberate entry and nothing else. On
@@ -212,8 +223,9 @@ New folder `src/app/launchCheck/`; small changes in `src/main.tsx` and `src/ui/t
   - fails with words if the path is not a file, and lists the folder;
   - on Windows, prints the WebView2 runtime's version from the registry
     (`HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}`, value `pv`,
-    then `HKCU\Software\Microsoft\EdgeUpdate\Clients\{…}`, with no WOW6432Node), and fails with words if there is
-    none. `reg query … /v pv` needs `MSYS_NO_PATHCONV=1`, or Git Bash turns `/v` into a path;
+    then `HKCU\Software\Microsoft\EdgeUpdate\Clients\{…}`, with no WOW6432Node). With none found it says so and
+    starts the app anyway: the app's own result is the better evidence. `reg query … /v pv` needs
+    `MSYS_NO_PATHCONV=1`, or Git Bash turns `/v` into a path;
   - starts the app with `STORIIBOARD_LAUNCH_CHECK=1`, its output and errors to a file under
     `${RUNNER_TEMP:-test-results/launch-check}` (never the system's temp folder on a developer's computer);
   - waits by polling (`kill -0`, every half second) for at most 150 s, then kills it; no background watcher is left
@@ -221,9 +233,11 @@ New folder `src/app/launchCheck/`; small changes in `src/main.tsx` and `src/ui/t
   - prints the app's lines, then `launch check: exit code N: <meaning>` from the same table as Rust. The script
     holds the step names in one line, `steps="window loaded page policy-watch pdf-text accents worker-policy
     no-violation"`, and works the codes out from the position; a Rust test fails when that line and Rust's list
-    differ. It names 101 (the app panicked) and a kill by the script too;
+    differ. It names 101 (the app panicked), a code from 129 to 159 (the app was ended by signal N) and a kill by
+    the script too;
   - exits 0 only when the app's exit code is 0 **and** its output holds the line `launch check: passed`; on any
-    failure it also lists the processes still running whose name holds `storiiboard`.
+    failure it also lists the processes still running whose name holds `storiiboard`, the script's own line left
+    out.
   - Checked on this PC: a Rust program built with `windows_subsystem = "windows"`, as the release app is, does hand
     its stdout, stderr and exit code to Git Bash, to a pipe and to a file, and bash waits for it.
 - **`checkpoint.yml`, the `installers` job:**
@@ -231,7 +245,9 @@ New folder `src/app/launchCheck/`; small changes in `src/main.tsx` and `src/ui/t
     macOS, `src-tauri/target/release/storiiboard.exe` for Windows (both names are in the last green run's log);
   - one new step, the last of the job (after the upload and the bundle listing, so a fault in the check never costs
     the installers): `shell: bash`, `timeout-minutes: 5`, `run: bash scripts/launchCheck.sh "${{ matrix.app }}"`,
-    with a comment that says what it is and names this brief.
+    with a comment that says what it is and names this brief. It runs whenever the build step succeeded, whatever
+    the steps between did: the build step (`tauri-apps/tauri-action`) gets `id: build`, and this step
+    `if: ${{ !cancelled() && steps.build.outcome == 'success' }}`.
   - Nothing else in the workflow changes. `ci.yml` is not touched.
 
 ## Tests to add
@@ -255,6 +271,7 @@ New folder `src/app/launchCheck/`; small changes in `src/main.tsx` and `src/ui/t
     workers; a script with no policy, another policy, a non-JavaScript type, a 404; a second violation;
   - `window.Worker` is put back after steps 5 and 6, on failure too;
   - the policy constant against `src-tauri/worker-csp.txt`;
+  - the page's six step names against Rust's list, read from `src-tauri/src/launch_check.rs`;
   - the built-in constants against the script.
   - `src/app/tauriContract.test.ts` and `src/core/i18n/i18n.test.ts` pass as they are, with no new entry in any of
     their lists.
@@ -278,7 +295,8 @@ New folder `src/app/launchCheck/`; small changes in `src/main.tsx` and `src/ui/t
 
 - `src/features/script/readPdf.ts`, the worker files, `src-tauri/worker-csp.txt`, `src-tauri/worker_csp.rs`,
   `src-tauri/tauri.conf.json`, `src-tauri/capabilities`.
-- Any existing test's assertions, and the lists inside `tauriContract.test.ts` and `i18n.test.ts`.
+- Any existing test's assertions, and the lists inside `tauriContract.test.ts` and `i18n.test.ts`. The one list that
+  changes is `cspFetch.test.ts`'s `ALLOWED`, by the entry named above.
 - The end-to-end specs and their fixtures, `vite.config.ts`, `playwright.config.ts`.
 - `ci.yml`, and every job of `checkpoint.yml` but `installers`.
 - `CLAUDE.md`, `docs/PLAN.md`, `docs/HANDOFF.md`, `docs/ALPHA_TEST.md`: the main session writes those.
