@@ -362,20 +362,46 @@ pub(crate) struct LutFile {
 /// The file's name inside its folder.
 pub(crate) const LUT_FILE: &str = "grade.cube";
 
+/// The LUT's file couldn't be written. Said in no words of its own: each caller names what it was making (Kevin,
+/// Nov 19), so a still or a clip is never called a playback copy.
+#[derive(Debug, PartialEq)]
+pub(crate) struct LutUnwritten;
+
+#[cfg(test)]
+thread_local! {
+    /// Where this test thread's LUT folders go in place of the system's temp folder, so a test can name one that
+    /// doesn't exist; per thread, so tests running beside it are untouched.
+    static LUT_BASE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Sets where this test thread's LUT folders go (`None`: the system's temp folder again).
+#[cfg(test)]
+pub(crate) fn set_lut_base(base: Option<PathBuf>) {
+    LUT_BASE.with(|cell| *cell.borrow_mut() = base);
+}
+
+/// The folder LUT folders are made in: the system's temp folder, or a test's own.
+fn lut_base() -> PathBuf {
+    #[cfg(test)]
+    if let Some(base) = LUT_BASE.with(|cell| cell.borrow().clone()) {
+        return base;
+    }
+    std::env::temp_dir()
+}
+
 impl LutFile {
     /// A folder no one can have made ahead of it: a random name, made new (never one already there, which on a
     /// computer several people share could be someone else's, or lead elsewhere), and the file made new in it.
-    pub(crate) fn write(lut: &Lut) -> Result<Self, String> {
-        let folder =
-            std::env::temp_dir().join(format!("storiiboard-lut-{}", crate::lock::random_id()));
-        fs::create_dir(&folder).map_err(|_| FAILED.to_string())?;
+    pub(crate) fn write(lut: &Lut) -> Result<Self, LutUnwritten> {
+        let folder = lut_base().join(format!("storiiboard-lut-{}", crate::lock::random_id()));
+        fs::create_dir(&folder).map_err(|_| LutUnwritten)?;
         let file = Self { folder };
         let mut out = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(file.folder.join(LUT_FILE))
-            .map_err(|_| FAILED.to_string())?;
-        std::io::Write::write_all(&mut out, lut.cube.as_bytes()).map_err(|_| FAILED.to_string())?;
+            .map_err(|_| LutUnwritten)?;
+        std::io::Write::write_all(&mut out, lut.cube.as_bytes()).map_err(|_| LutUnwritten)?;
         Ok(file)
     }
 }
@@ -1220,7 +1246,7 @@ impl PlaybackCache {
         // A LUT is made for the signal the camera recorded (S-Log3, an HLG or PQ grade), so it takes the place of the
         // tone-mapping: the LUT brings the picture to BT.709 itself.
         let grade = match lut {
-            Some(lut) => Some(LutFile::write(lut)?),
+            Some(lut) => Some(LutFile::write(lut).map_err(|_| FAILED.to_string())?),
             None => None,
         };
         let hdr = video::tone_map(&facts.colour);
@@ -2532,6 +2558,38 @@ mod tests {
         drop(one);
         assert!(!folder.exists(), "gone with it");
         assert!(two.folder.join(LUT_FILE).is_file());
+    }
+
+    /// Kevin, Nov 19: a LUT file that can't be written is no words of its own; a playback copy says `FAILED`, as
+    /// before (a still and a clip say theirs: video.rs).
+    #[test]
+    fn a_lut_that_cant_be_written_leaves_the_copy_failed_in_its_own_words() {
+        let dir = temp_dir("lut-unwritten");
+        let lut = Lut {
+            sha256: "ab".repeat(32),
+            cube: INVERT.to_owned(),
+        };
+        set_lut_base(Some(dir.join("not there")));
+        let refused = LutFile::write(&lut).map(|_| ());
+        let cache = sound_test_cache(&dir.join("cache"));
+        let clip = make_clip(
+            &dir,
+            "C0091.mov",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=0x202020:size=320x180:rate=25:duration=1",
+            ],
+            &["-c:v", "mpeg4", "-q:v", "2"],
+        );
+        let made = cache.make_graded(&clip, Some(&lut), |_| {});
+        set_lut_base(None);
+        assert_eq!(refused, Err(LutUnwritten));
+        assert_eq!(made.unwrap_err(), FAILED);
+        let (folder, _) = cache.folder().unwrap();
+        assert!(names(&folder).is_empty(), "nothing half-made");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// An inverting 2-point `.cube`, written here: no camera maker's LUT is ever shipped.

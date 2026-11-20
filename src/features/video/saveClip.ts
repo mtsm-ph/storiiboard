@@ -96,8 +96,8 @@ export async function saveClip(shotId: string): Promise<boolean> {
     const dest = await invoke<string | null>('export_choose_file', { name });
     if (dest === null || cancelled()) return false;
     const lut = video.lutId ? await lutForCopy(project.file, video.lutId) : null;
-    // Gone from the project, or stored but unreadable (round 3), each in its own words.
-    if (video.lutId && !lut) throw new Error(t((await lutName(project.file, video.lutId)) === null ? 'saveClip.lutMissing' : 'error.lutUnreadable'));
+    // Gone from the project, or stored but unreadable (round 3), each in its own words, naming the clip (Kevin, Nov 19).
+    if (video.lutId && !lut) throw new Error(t((await lutName(project.file, video.lutId)) === null ? 'saveClip.lutMissing' : 'error.lutUnreadableClip'));
     if (cancelled()) throw new Error(t('error.clipCancelled'));
     const frameAspect = aspectRatioValue(projectStoryboard(records[project.projectId]?.props).aspectRatio);
     const box = cropWindow(clip.crop, displayAspect(video), frameAspect);
