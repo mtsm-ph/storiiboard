@@ -38,9 +38,10 @@
   (`heic_picture`, src-tauri/src/heic.rs, through src/core/media/image.ts and src/app/heicPicture.ts). ffmpeg decodes
   it, upright, fitted inside 2560 px, as a PNG tagged with the file's own colour: its ICC profile carried (at most
   64 KiB, else the photo is refused), else its four-number tag as cICP, else sRGB. The page then stores from it what
-  a Mac stores. 64 MiB in at most, 10 s, two decodes at a time, an HDR photo refused with a line. The Mac changes
-  nothing: WebKit reads HEIC itself. While two or more files are being added the status line counts them ("Reading
-  3 of 30…").
+  a Mac stores. 64 MiB in at most, 10 s, two decodes at a time, an HDR photo refused with a line, and over 120
+  megapixels refused before any decode (the picture, and its grid's tiles as ffmpeg counts them; 6.27v). A key image
+  and a company logo come in the same way (`readablePicture` in image.ts, 6.27z). The Mac changes nothing: WebKit
+  reads HEIC itself. While two or more files are being added the status line counts them ("Reading 3 of 30…").
 - Network (Kevin, Nov 9): one HTTP client for every need, reqwest with rustls (ring, as Tauri's updater uses it), only
   in src-tauri/src/net.rs.
 - PDFs: pdf-lib; QR codes: qrcode-generator. Sun times: SunCalc. A place's time zone: tzf-rs in Rust,
