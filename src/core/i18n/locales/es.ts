@@ -1468,6 +1468,8 @@ export const es: Messages = {
   // src/features/storyboard/addPictures.ts
   'pictures.targetGone': 'El cuadro o la escena para los que eran esas imágenes ya no está en el storyboard.',
   'pictures.someNotAdded': 'Archivos no agregados: {failed} de {total}. {name}: {reason}',
+  // src/features/storyboard/picturesBusy.ts
+  'pictures.reading': 'Leyendo {done} de {total}…',
   // src/features/storyboard/board.ts
   'board.relettered': '{from} ahora es {to}',
   'board.lockNotice': 'Se bloqueó {scene}. Para que los números de claqueta no se repitan, {list}.',

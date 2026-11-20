@@ -8,6 +8,7 @@ import { installTabWrap } from './ui/tabWrap';
 import { installClickFocus } from './ui/clickFocus';
 import { fileMode } from './app/fileAccess';
 import { startLaunchCheck } from './app/launchCheck/start';
+import { installHeicDecoder } from './app/heicPicture';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html is missing #root');
@@ -26,6 +27,8 @@ if (launchCheck) {
   if (fileMode !== 'none') installTabWrap();
   // A clicked button takes focus in every engine, as Chromium gives it: WebKit (the Mac app) gives it none.
   if (fileMode !== 'none') installClickFocus();
+  // A HEIC the webview can't read goes to Rust (6.27n): in the desktop app only, before any picture can be added.
+  installHeicDecoder();
 
   createRoot(root).render(
     <StrictMode>

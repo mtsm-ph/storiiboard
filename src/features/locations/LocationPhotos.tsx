@@ -15,6 +15,7 @@ import { photoWhen } from '../../core/model/sunSources';
 import { Button, IconButton } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { CloseGlyph } from '../../ui/glyphs';
+import { prepareEach, usePicturesReading } from '../storyboard/picturesBusy';
 import { addLocationPhotos, trashLocationPhoto } from './locationEdits';
 import { applyPhotoPlaceTime, clearLightPhoto, importNote } from './scoutPhoto';
 
@@ -35,9 +36,14 @@ export function LocationPhotos({ locationId, name }: { locationId: string; name:
   const photos = locationPhotos(records, locationId);
   const adding = useRef(false);
   const [busy, setBusy] = useState(false);
+  // Its own files are being read (not the dialog still open).
+  const [preparing, setPreparing] = useState(false);
   const [said, setSaid] = useState('');
   const list = useRef<HTMLUListElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
+  const reading = usePicturesReading();
+  // While its own add runs, two or more files in hand read "Reading 3 of 30…" (6.27n); one file, as before.
+  const line = preparing && reading !== null ? reading : said;
   if (!project) return null;
   const location = records[locationId];
   const reference: LightReference = location ? lightReferenceOf(records, location) : { kind: 'none' };
@@ -65,18 +71,23 @@ export function LocationPhotos({ locationId, name }: { locationId: string; name:
       // Why each prepared photo's date and place were or weren't read (6.27 round 3), in the import's order; a photo
       // that couldn't be prepared isn't imported and has its own notice.
       const reasons: ExifReason[] = [];
-      for (const file of picked) {
-        try {
+      // Counted with every other add (6.27n), so the status line below reads "Reading 3 of 30…" meanwhile.
+      setPreparing(true);
+      await prepareEach(
+        picked,
+        async (file) => {
           const picture = await file.read();
           const image = await prepareImage(picture);
           // Only for a picture that was read: when and where it was taken, from the file's own bytes (6.27).
           const exif = await readPhotoExif(picture, file.name);
           prepared.push({ image, source: { name: file.name, ...(file.path ? { path: file.path } : {}) }, exif });
           reasons.push(exifReasonOf(exif));
-        } catch (error) {
+        },
+        (_, error) => {
           showNotice(error);
-        }
-      }
+        },
+      );
+      setPreparing(false);
       // The new photos' ids, in the import's order (one record each), so the note can name them as the tile does.
       const made: string[] = [];
       const done = await projectStore.getState().applyWith((now) => {
@@ -94,6 +105,7 @@ export function LocationPhotos({ locationId, name }: { locationId: string; name:
       if (done && note !== '') setSaid(note);
     } finally {
       adding.current = false;
+      setPreparing(false);
       setBusy(false);
     }
   };
@@ -174,8 +186,8 @@ export function LocationPhotos({ locationId, name }: { locationId: string; name:
         </div>
       )}
       {/* Always in the page (out of sight while empty), so each new word is read out. */}
-      <p role="status" className={said === '' ? 'sr-only' : 'text-[12px]'} data-photo-said="">
-        {said}
+      <p role="status" className={line === '' ? 'sr-only' : 'text-[12px]'} data-photo-said="">
+        {line}
       </p>
       <Button
         ref={addButton}
