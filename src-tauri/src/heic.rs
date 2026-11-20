@@ -64,7 +64,8 @@ fn refusal_on(os: &str) -> Option<&'static str> {
     (os == "macos").then_some(ON_THE_MAC)
 }
 
-/// Refused before anything is written or run: too large, or not a HEIF.
+/// Refused before anything is written or run: too large, not a HEIF, or a grid whose colour its own boxes describe
+/// in a way its first tile doesn't carry (`grid_refusal`).
 fn refuse(bytes: &[u8]) -> Result<(), &'static str> {
     if bytes.len() > MAX_INPUT {
         return Err(TOO_BIG);
@@ -72,14 +73,278 @@ fn refuse(bytes: &[u8]) -> Result<(), &'static str> {
     if !crate::exif::is_heif(bytes) {
         return Err(NOT_HEIC);
     }
-    Ok(())
+    grid_refusal(bytes).map_or(Ok(()), Err)
+}
+
+// ---- The HEIF's own boxes (ISO/IEC 14496-12 and 23008-12) -----------------------------------------------------------
+//
+// ffprobe reports the colour of a grid's tiles but has no section for the grid item's own properties, so a colour the
+// grid alone describes would go unseen. This reads the boxes for that one question: the primary item, its tiles
+// (`dimg`), and the `colr` properties of the primary item and its first tile. It reads a person's file: every length
+// is checked before a slice, nothing panics, no list is followed past `MAX_ENTRIES`, and a file whose boxes can't be
+// followed adds no refusal (ffmpeg stays the judge of whether it decodes).
+
+/// The most entries of any list followed: boxes in a container, references, associations, `ipma` entries.
+const MAX_ENTRIES: usize = 4096;
+/// H.273's PQ and HLG transfers.
+const HDR_TRANSFERS: [u16; 2] = [16, 18];
+
+/// The boxes one after another in `bytes`, each as its type and its body. A size of 0 runs to the end, 1 means a
+/// 64-bit size follows; a size smaller than its header, or past the end, ends the list (`broken` says so).
+struct Boxes<'a> {
+    rest: &'a [u8],
+    seen: usize,
+    broken: bool,
+}
+
+fn boxes(bytes: &[u8]) -> Boxes<'_> {
+    Boxes {
+        rest: bytes,
+        seen: 0,
+        broken: false,
+    }
+}
+
+impl<'a> Iterator for Boxes<'a> {
+    type Item = ([u8; 4], &'a [u8]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.rest.is_empty() {
+            return None;
+        }
+        let found = if self.seen < MAX_ENTRIES {
+            split_box(self.rest)
+        } else {
+            None
+        };
+        match found {
+            Some((kind, body, rest)) => {
+                self.seen += 1;
+                self.rest = rest;
+                Some((kind, body))
+            }
+            None => {
+                self.broken = true;
+                self.rest = &[];
+                None
+            }
+        }
+    }
+}
+
+/// The first box of `bytes`: its type, its body and what follows it.
+fn split_box(bytes: &[u8]) -> Option<([u8; 4], &[u8], &[u8])> {
+    let size = u64::from(be_u32(bytes, 0)?);
+    let kind: [u8; 4] = bytes.get(4..8)?.try_into().ok()?;
+    let (head, size) = match size {
+        0 => (8, bytes.len() as u64),
+        1 => (16, be_u64(bytes, 8)?),
+        size => (8, size),
+    };
+    if size < head as u64 {
+        return None;
+    }
+    let size = usize::try_from(size).ok()?;
+    Some((kind, bytes.get(head..size)?, bytes.get(size..)?))
+}
+
+fn be_u16(bytes: &[u8], at: usize) -> Option<u16> {
+    Some(u16::from_be_bytes(
+        bytes.get(at..at.checked_add(2)?)?.try_into().ok()?,
+    ))
+}
+
+fn be_u32(bytes: &[u8], at: usize) -> Option<u32> {
+    Some(u32::from_be_bytes(
+        bytes.get(at..at.checked_add(4)?)?.try_into().ok()?,
+    ))
+}
+
+fn be_u64(bytes: &[u8], at: usize) -> Option<u64> {
+    Some(u64::from_be_bytes(
+        bytes.get(at..at.checked_add(8)?)?.try_into().ok()?,
+    ))
+}
+
+/// A full box's version, flags and the rest of its body.
+fn full_box(body: &[u8]) -> Option<(u8, u32, &[u8])> {
+    let version = *body.first()?;
+    let flags = be_u32(body, 0)? & 0x00ff_ffff;
+    Some((version, flags, body.get(4..)?))
+}
+
+/// Every box of a list, or None when the list can't be followed to its end.
+fn all_boxes(bytes: &[u8]) -> Option<Vec<([u8; 4], &[u8])>> {
+    let mut list = boxes(bytes);
+    let found: Vec<_> = list.by_ref().collect();
+    (!list.broken).then_some(found)
+}
+
+/// An item id of 16 bits (version 0) or 32 (version 1) at `at`, and where the next field starts.
+fn item_id(bytes: &[u8], at: usize, version: u8) -> Option<(u32, usize)> {
+    match version {
+        0 => Some((u32::from(be_u16(bytes, at)?), at + 2)),
+        1 => Some((be_u32(bytes, at)?, at + 4)),
+        _ => None,
+    }
+}
+
+/// What an item's `colr` properties say: an ICC profile (`prof` or `rICC`), four numbers (`nclx`), and whether those
+/// name an HDR transfer.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct ItemColour {
+    icc: bool,
+    nclx: bool,
+    hdr: bool,
+}
+
+impl ItemColour {
+    fn any(self) -> bool {
+        self.icc || self.nclx
+    }
+
+    fn with(self, other: Self) -> Self {
+        Self {
+            icc: self.icc || other.icc,
+            nclx: self.nclx || other.nclx,
+            hdr: self.hdr || other.hdr,
+        }
+    }
+}
+
+/// A `colr` property's body: None when it can't be read.
+fn colr(body: &[u8]) -> Option<ItemColour> {
+    match body.get(..4)? {
+        b"prof" | b"rICC" => Some(ItemColour {
+            icc: true,
+            ..ItemColour::default()
+        }),
+        b"nclx" => {
+            // Primaries, transfer and matrix as 16-bit numbers, then the byte whose top bit is the range.
+            body.get(10)?;
+            let transfer = be_u16(body, 6)?;
+            Some(ItemColour {
+                nclx: true,
+                hdr: HDR_TRANSFERS.contains(&transfer),
+                ..ItemColour::default()
+            })
+        }
+        // Another colour type says nothing either way.
+        _ => Some(ItemColour::default()),
+    }
+}
+
+/// The primary item's colour and its first tile's, when the primary item has tiles; None for a single picture or a
+/// file whose boxes can't be followed.
+fn grid_colours(bytes: &[u8]) -> Option<(ItemColour, ItemColour)> {
+    let (_, meta) = all_boxes(bytes)?
+        .into_iter()
+        .find(|(kind, _)| kind == b"meta")?;
+    let (_, _, meta) = full_box(meta)?;
+    let children = all_boxes(meta)?;
+    let child = |name: &[u8; 4]| {
+        children
+            .iter()
+            .find(|(kind, _)| kind == name)
+            .map(|(_, body)| *body)
+    };
+    // The primary item.
+    let (version, _, pitm) = full_box(child(b"pitm")?)?;
+    let (primary, _) = item_id(pitm, 0, version)?;
+    // Its first tile: the first to-item of its first `dimg` reference.
+    let (version, _, iref) = full_box(child(b"iref")?)?;
+    let mut first_tile = None;
+    for (kind, reference) in all_boxes(iref)? {
+        if &kind != b"dimg" {
+            continue;
+        }
+        let (from, at) = item_id(reference, 0, version)?;
+        let count = usize::from(be_u16(reference, at)?);
+        if count > MAX_ENTRIES {
+            return None;
+        }
+        if from == primary && count > 0 {
+            first_tile = Some(item_id(reference, at + 2, version)?.0);
+            break;
+        }
+    }
+    let first_tile = first_tile?;
+    // The properties, counted from 1, and which item has which.
+    let iprp = all_boxes(child(b"iprp")?)?;
+    let (_, ipco) = iprp.iter().find(|(kind, _)| kind == b"ipco")?;
+    let properties = all_boxes(ipco)?
+        .into_iter()
+        .map(|(kind, body)| {
+            if &kind == b"colr" {
+                colr(body)
+            } else {
+                Some(ItemColour::default())
+            }
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let mut colours = [ItemColour::default(); 2];
+    for (_, ipma) in iprp.iter().filter(|(kind, _)| kind == b"ipma") {
+        let (version, flags, ipma) = full_box(ipma)?;
+        let entries = usize::try_from(be_u32(ipma, 0)?).ok()?;
+        if entries > MAX_ENTRIES {
+            return None;
+        }
+        let mut at = 4;
+        for _ in 0..entries {
+            let (item, next) = item_id(ipma, at, version)?;
+            let count = usize::from(*ipma.get(next)?);
+            at = next + 1;
+            for _ in 0..count {
+                // The top bit is "essential"; the rest is the property's index, 0 for none.
+                let index = if flags & 1 == 1 {
+                    let index = usize::from(be_u16(ipma, at)? & 0x7fff);
+                    at += 2;
+                    index
+                } else {
+                    let index = usize::from(*ipma.get(at)? & 0x7f);
+                    at += 1;
+                    index
+                };
+                let property = match index {
+                    0 => ItemColour::default(),
+                    index => *properties.get(index - 1)?,
+                };
+                for (slot, id) in [primary, first_tile].into_iter().enumerate() {
+                    if item == id {
+                        colours[slot] = colours[slot].with(property);
+                    }
+                }
+            }
+        }
+    }
+    Some((colours[0], colours[1]))
+}
+
+/// The refusals a grid's own boxes call for (Kevin, Nov 20: never shown in the wrong colour): an HDR transfer on the
+/// grid, whatever its tiles say; a profile on the grid its first tile lacks; four numbers on the grid and no colour on
+/// its first tile. None for anything else, a file whose boxes can't be followed included.
+fn grid_refusal(bytes: &[u8]) -> Option<&'static str> {
+    let (grid, tile) = grid_colours(bytes)?;
+    if grid.hdr {
+        return Some(HDR);
+    }
+    if (grid.icc && !tile.icc) || (grid.nclx && !tile.any()) {
+        return Some(UNREAD);
+    }
+    None
 }
 
 /// At most `most` callers inside at once; the next waits its turn (std only, no crate).
 pub(crate) struct Gate {
-    inside: Mutex<usize>,
+    turns: Mutex<Turns>,
     turn: Condvar,
     most: usize,
+}
+
+/// Who is inside the gate, and who is waiting at it (so a test can see a call wait without guessing how long).
+struct Turns {
+    inside: usize,
+    waiting: usize,
 }
 
 /// A turn inside the gate, given back when it goes.
@@ -88,29 +353,38 @@ pub(crate) struct Pass<'a>(&'a Gate);
 impl Gate {
     pub(crate) const fn new(most: usize) -> Self {
         Self {
-            inside: Mutex::new(0),
+            turns: Mutex::new(Turns {
+                inside: 0,
+                waiting: 0,
+            }),
             turn: Condvar::new(),
             most,
         }
     }
 
+    fn turns(&self) -> std::sync::MutexGuard<'_, Turns> {
+        self.turns.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
     pub(crate) fn enter(&self) -> Pass<'_> {
-        let mut inside = self.inside.lock().unwrap_or_else(PoisonError::into_inner);
-        while *inside >= self.most {
-            inside = self
+        let mut turns = self.turns();
+        turns.waiting += 1;
+        while turns.inside >= self.most {
+            turns = self
                 .turn
-                .wait(inside)
+                .wait(turns)
                 .unwrap_or_else(PoisonError::into_inner);
         }
-        *inside += 1;
+        turns.waiting -= 1;
+        turns.inside += 1;
         Pass(self)
     }
 }
 
 impl Drop for Pass<'_> {
     fn drop(&mut self) {
-        let mut inside = self.0.inside.lock().unwrap_or_else(PoisonError::into_inner);
-        *inside = inside.saturating_sub(1);
+        let mut turns = self.0.turns();
+        turns.inside = turns.inside.saturating_sub(1);
         self.0.turn.notify_one();
     }
 }
@@ -242,9 +516,16 @@ fn read_picture(json: &Value) -> Result<Picture, &'static str> {
                 .as_array()
                 .map(Vec::as_slice)
                 .unwrap_or_default();
-            let listed = lists_profile(group)
-                || components.iter().any(lists_profile)
-                || tiles.iter().any(lists_profile);
+            // Each tile's side data read where it is shown to be printed: its own entry in the top-level streams.
+            let tile_listed = tiles.iter().any(|tile| {
+                let index = &tile["index"];
+                !index.is_null()
+                    && streams
+                        .iter()
+                        .any(|stream| stream["index"] == *index && lists_profile(stream))
+            });
+            let listed =
+                lists_profile(group) || components.iter().any(lists_profile) || tile_listed;
             (Source::Grid(n), first, listed)
         }
         None => {
@@ -575,6 +856,15 @@ fn run(
 /// How old a temp file of ours must be to count as left by a crash: a decode lasts seconds.
 const LEFT_BEHIND: Duration = Duration::from_secs(10 * 60);
 
+/// A name `TempPicture::write` could have given: `heic-`, 32 lowercase hex characters (`lock::random_id`), `.heic`.
+fn is_temp_name(name: &str) -> bool {
+    name.strip_prefix("heic-")
+        .and_then(|rest| rest.strip_suffix(".heic"))
+        .is_some_and(|id| {
+            id.len() == 32 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        })
+}
+
 /// Removes our temp files in `folder` older than 10 minutes, left by a crash or a power cut: they are a person's
 /// photos, EXIF and all. Only `heic-*.heic`; every error is ignored (the call goes on either way).
 fn sweep(folder: &Path) {
@@ -584,9 +874,7 @@ fn sweep(folder: &Path) {
     let now = std::time::SystemTime::now();
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let ours = name
-            .to_str()
-            .is_some_and(|name| name.starts_with("heic-") && name.ends_with(".heic"));
+        let ours = name.to_str().is_some_and(is_temp_name);
         let old = entry
             .metadata()
             .ok()
@@ -636,8 +924,13 @@ fn decode_within(
 /// A HEIC's bytes as a tagged PNG, its temp file in `folder`: refused before anything runs when too large or not a
 /// HEIF, then decoded once it has its turn, within 10 s of it.
 fn picture(bytes: &[u8], folder: &Path) -> Result<Vec<u8>, &'static str> {
+    picture_at(&GATE, bytes, folder)
+}
+
+/// `picture` through a given gate (the app's is `GATE`; a test brings its own, so it sees the call wait).
+fn picture_at(gate: &Gate, bytes: &[u8], folder: &Path) -> Result<Vec<u8>, &'static str> {
     refuse(bytes)?;
-    let _turn = GATE.enter();
+    let _turn = gate.enter();
     decode_within(bytes, folder, LIMIT, &decode_command)
 }
 
@@ -782,7 +1075,7 @@ mod tests {
     }
 
     #[test]
-    fn takes_the_default_tile_grid_else_the_first_else_the_first_stream_that_isnt_a_tile() {
+    fn takes_the_default_tile_grid_else_the_largest_else_a_stream_that_isnt_a_tile() {
         // Two grids, the second marked default; an audio stream before the video ones doesn't count among them.
         let json = json!({
             "streams": [
@@ -872,17 +1165,32 @@ mod tests {
     #[test]
     fn refuses_a_profile_the_grid_lists_but_its_first_stream_doesnt_carry() {
         let streams = json!([stream(0, 1, json!({})), stream(1, 1, json!({}))]);
-        // On the group, on a component, on another of its tiles.
+        // On the group, on a component.
         let mut on_group = grid(1, 0);
         on_group["side_data_list"] = icc()["side_data_list"].clone();
         let mut on_component = grid(1, 0);
         on_component["components"][0]["side_data_list"] = icc()["side_data_list"].clone();
-        let mut on_a_tile = grid(1, 0);
-        on_a_tile["streams"][1]["side_data_list"] = icc()["side_data_list"].clone();
-        for group in [on_group, on_component, on_a_tile] {
+        for group in [on_group, on_component] {
             let json = json!({ "streams": streams, "stream_groups": [group] });
             assert_eq!(read_picture(&json), Err(UNREAD), "{json}");
         }
+        // On another of its tiles, found by the tile's index in the top-level streams, where real files are read.
+        let json = json!({
+            "streams": [stream(0, 1, json!({})), stream(1, 1, icc())],
+            "stream_groups": [grid(1, 0)],
+        });
+        assert_eq!(read_picture(&json), Err(UNREAD));
+        // A stream outside the grid with a profile isn't one of its tiles.
+        let json = json!({
+            "streams": [stream(0, 1, json!({})), stream(1, 1, json!({})), stream(2, 0, icc())],
+            "stream_groups": [grid(1, 0)],
+        });
+        assert!(!read_picture(&json).unwrap().profile);
+        // Side data inside the group's own stream entry is not where it's read.
+        let mut inside = grid(1, 0);
+        inside["streams"][1]["side_data_list"] = icc()["side_data_list"].clone();
+        let json = json!({ "streams": streams, "stream_groups": [inside] });
+        assert!(!read_picture(&json).unwrap().profile);
         // Listed on the group and carried by its first stream: read.
         let mut both = grid(1, 0);
         both["side_data_list"] = icc()["side_data_list"].clone();
@@ -938,6 +1246,288 @@ mod tests {
             "side_data_list": [{ "side_data_type": "Content light level metadata" }],
         }))] });
         assert!(read_picture(&json).is_ok());
+    }
+
+    // ---- The HEIF's own boxes -------------------------------------------------------------------------------------
+
+    fn bx(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+        let mut out = ((8 + body.len()) as u32).to_be_bytes().to_vec();
+        out.extend(kind);
+        out.extend(body);
+        out
+    }
+
+    fn full(kind: &[u8; 4], version: u8, flags: u32, body: &[u8]) -> Vec<u8> {
+        let mut head = vec![version];
+        head.extend(&flags.to_be_bytes()[1..]);
+        head.extend(body);
+        bx(kind, &head)
+    }
+
+    fn id(version: u8, id: u32) -> Vec<u8> {
+        if version == 0 {
+            (id as u16).to_be_bytes().to_vec()
+        } else {
+            id.to_be_bytes().to_vec()
+        }
+    }
+
+    fn prof() -> Vec<u8> {
+        bx(b"colr", b"prof\0\0\x02\x30profile bytes")
+    }
+
+    fn nclx(primaries: u16, transfer: u16) -> Vec<u8> {
+        let mut body = b"nclx".to_vec();
+        for n in [primaries, transfer, 0] {
+            body.extend(n.to_be_bytes());
+        }
+        body.push(0x80);
+        bx(b"colr", &body)
+    }
+
+    /// A HEIF's box tree, built byte by byte: a grid (the primary item) whose tiles follow, with these properties.
+    struct Tree {
+        versions: [u8; 3],
+        wide: bool,
+        primary: u32,
+        tiles: Vec<u32>,
+        properties: Vec<Vec<u8>>,
+        /// Which item has which properties, counted from 1.
+        has: Vec<(u32, Vec<u16>)>,
+    }
+
+    impl Tree {
+        /// A grid item 5 of tiles 1 and 2; property 1 is `ispe`, then `grid` and `tile`, the grid's and the first
+        /// tile's.
+        fn grid(grid: &[Vec<u8>], tile: &[Vec<u8>]) -> Self {
+            let mut properties = vec![bx(b"ispe", &[0; 12])];
+            let mut has = vec![(5, vec![1]), (1, vec![1]), (2, vec![1])];
+            for property in grid {
+                properties.push(property.clone());
+                has[0].1.push(properties.len() as u16);
+            }
+            for property in tile {
+                properties.push(property.clone());
+                has[1].1.push(properties.len() as u16);
+            }
+            Self {
+                versions: [0; 3],
+                wide: false,
+                primary: 5,
+                tiles: vec![1, 2],
+                properties,
+                has,
+            }
+        }
+
+        fn meta_body(&self) -> Vec<u8> {
+            let [pitm, iref, ipma] = self.versions;
+            let mut meta = full(b"hdlr", 0, 0, b"\0\0\0\0pict\0\0\0\0\0\0\0\0\0\0\0\0\0");
+            meta.extend(full(b"pitm", pitm, 0, &id(pitm, self.primary)));
+            if !self.tiles.is_empty() {
+                let mut dimg = id(iref, self.primary);
+                dimg.extend((self.tiles.len() as u16).to_be_bytes());
+                for tile in &self.tiles {
+                    dimg.extend(id(iref, *tile));
+                }
+                // A reference of another kind first, which isn't a tile.
+                let mut thmb = id(iref, 9);
+                thmb.extend(1u16.to_be_bytes());
+                thmb.extend(id(iref, self.primary));
+                meta.extend(full(
+                    b"iref",
+                    iref,
+                    0,
+                    &[bx(b"thmb", &thmb), bx(b"dimg", &dimg)].concat(),
+                ));
+            }
+            let ipco = bx(b"ipco", &self.properties.concat());
+            let mut entries = (self.has.len() as u32).to_be_bytes().to_vec();
+            for (item, indexes) in &self.has {
+                entries.extend(id(ipma, *item));
+                entries.push(indexes.len() as u8);
+                for index in indexes {
+                    if self.wide {
+                        entries.extend((0x8000 | index).to_be_bytes());
+                    } else {
+                        entries.push(0x80 | *index as u8);
+                    }
+                }
+            }
+            let ipma = full(b"ipma", ipma, u32::from(self.wide), &entries);
+            meta.extend(bx(b"iprp", &[ipco, ipma].concat()));
+            meta
+        }
+
+        fn bytes(&self) -> Vec<u8> {
+            let mut out = bx(b"ftyp", b"heic\0\0\0\0mif1heic");
+            out.extend(full(b"meta", 0, 0, &self.meta_body()));
+            out
+        }
+    }
+
+    #[test]
+    fn the_grids_own_colour_refuses_what_its_first_tile_doesnt_carry() {
+        let refusal = |tree: &Tree| grid_refusal(&tree.bytes());
+        // A profile on the grid its first tile lacks: refused, here and before anything is written or run.
+        let lacking = Tree::grid(&[prof()], &[]);
+        assert_eq!(refusal(&lacking), Some(UNREAD));
+        assert_eq!(refuse(&lacking.bytes()), Err(UNREAD));
+        assert_eq!(
+            refusal(&Tree::grid(&[prof()], &[nclx(12, 13)])),
+            Some(UNREAD)
+        );
+        // Both carry one: fine.
+        assert_eq!(refusal(&Tree::grid(&[prof()], &[prof()])), None);
+        assert_eq!(refuse(&Tree::grid(&[prof()], &[prof()]).bytes()), Ok(()));
+        // PQ or HLG on the grid: the HDR words, whatever the tiles say.
+        for transfer in [16, 18] {
+            assert_eq!(
+                refusal(&Tree::grid(&[nclx(9, transfer)], &[prof()])),
+                Some(HDR)
+            );
+            assert_eq!(
+                refusal(&Tree::grid(&[nclx(9, transfer)], &[nclx(9, transfer)])),
+                Some(HDR)
+            );
+            assert_eq!(
+                refuse(&Tree::grid(&[nclx(9, transfer)], &[]).bytes()),
+                Err(HDR)
+            );
+        }
+        // Four numbers on the grid and no colour on the tile: refused; any colour on the tile: fine.
+        assert_eq!(refusal(&Tree::grid(&[nclx(12, 13)], &[])), Some(UNREAD));
+        assert_eq!(refusal(&Tree::grid(&[nclx(12, 13)], &[nclx(12, 13)])), None);
+        assert_eq!(refusal(&Tree::grid(&[nclx(12, 13)], &[prof()])), None);
+        // Nothing on the grid: as today, whatever the tile says.
+        assert_eq!(refusal(&Tree::grid(&[], &[])), None);
+        assert_eq!(refusal(&Tree::grid(&[], &[nclx(9, 16)])), None);
+        // The colour the second tile carries isn't the first's.
+        let mut second = Tree::grid(&[prof()], &[]);
+        second.properties.push(prof());
+        second.has[2].1.push(second.properties.len() as u16);
+        assert_eq!(refusal(&second), Some(UNREAD));
+        // A single picture, no tiles: nothing added, even PQ (ffprobe sees its stream's own).
+        let mut single = Tree::grid(&[nclx(9, 16)], &[]);
+        single.tiles.clear();
+        assert_eq!(grid_colours(&single.bytes()), None);
+        assert_eq!(refusal(&single), None);
+    }
+
+    #[test]
+    fn reads_pitm_iref_and_ipma_in_both_versions_and_two_byte_indexes() {
+        for versions in [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]] {
+            for wide in [false, true] {
+                let mut tree = Tree::grid(&[prof()], &[]);
+                tree.versions = versions;
+                tree.wide = wide;
+                assert_eq!(
+                    grid_refusal(&tree.bytes()),
+                    Some(UNREAD),
+                    "{versions:?} {wide}"
+                );
+                // Ids past 16 bits, where version 1 allows them.
+                if versions == [1, 1, 1] {
+                    tree.primary = 70_000;
+                    tree.tiles = vec![70_001, 70_002];
+                    tree.has[0].0 = 70_000;
+                    tree.has[1].0 = 70_001;
+                    tree.has[2].0 = 70_002;
+                    assert_eq!(grid_refusal(&tree.bytes()), Some(UNREAD), "{wide}");
+                }
+            }
+        }
+        // Two-byte indexes past 127.
+        let mut tree = Tree::grid(&[], &[]);
+        tree.wide = true;
+        for _ in 0..200 {
+            tree.properties.push(bx(b"free", &[]));
+        }
+        tree.properties.push(prof());
+        tree.has[0].1.push(tree.properties.len() as u16);
+        assert!(tree.properties.len() > 127);
+        assert_eq!(grid_refusal(&tree.bytes()), Some(UNREAD));
+        // A version this reader doesn't know: not followed, nothing added.
+        let mut tree = Tree::grid(&[prof()], &[]);
+        tree.versions = [2, 0, 0];
+        assert_eq!(grid_refusal(&tree.bytes()), None);
+    }
+
+    #[test]
+    fn a_tree_it_cant_follow_adds_no_refusal_and_never_panics() {
+        let tree = Tree::grid(&[prof()], &[]);
+        let bytes = tree.bytes();
+        assert_eq!(grid_refusal(&bytes), Some(UNREAD));
+        // Cut at every length.
+        for end in 0..bytes.len() {
+            assert_eq!(grid_refusal(&bytes[..end]), None, "cut at {end}");
+        }
+        let meta = full(b"meta", 0, 0, &tree.meta_body());
+        let ftyp = bx(b"ftyp", b"heic\0\0\0\0mif1heic");
+        // A size of 0 runs to the end: followed.
+        let mut to_the_end = meta.clone();
+        to_the_end[..4].copy_from_slice(&0u32.to_be_bytes());
+        assert_eq!(
+            grid_refusal(&[ftyp.clone(), to_the_end].concat()),
+            Some(UNREAD)
+        );
+        // A size of 1: the 64-bit size after the type, followed.
+        let mut large = 1u32.to_be_bytes().to_vec();
+        large.extend(b"meta");
+        large.extend(((meta.len() + 8) as u64).to_be_bytes());
+        large.extend(&meta[8..]);
+        assert_eq!(
+            grid_refusal(&[ftyp.clone(), large.clone()].concat()),
+            Some(UNREAD)
+        );
+        // A 64-bit size smaller than its own header, or past the end: an end.
+        for size in [15u64, 0, u64::MAX, (large.len() + 1) as u64] {
+            let mut bad = large.clone();
+            bad[8..16].copy_from_slice(&size.to_be_bytes());
+            assert_eq!(grid_refusal(&[ftyp.clone(), bad].concat()), None, "{size}");
+        }
+        // A 32-bit size smaller than its header, and every size from 2 to 7.
+        for size in 2u32..8 {
+            let mut bad = meta.clone();
+            bad[..4].copy_from_slice(&size.to_be_bytes());
+            assert_eq!(grid_refusal(&[ftyp.clone(), bad].concat()), None, "{size}");
+        }
+        // Lists longer than the limit: ipma's entries, a reference's ids, boxes in a container.
+        let mut tree = Tree::grid(&[prof()], &[]);
+        for item in 0..=MAX_ENTRIES as u32 {
+            tree.has.push((100 + item, vec![]));
+        }
+        assert_eq!(grid_refusal(&tree.bytes()), None);
+        let mut tree = Tree::grid(&[prof()], &[]);
+        tree.tiles = (1..=MAX_ENTRIES as u32 + 1).collect();
+        assert_eq!(grid_refusal(&tree.bytes()), None);
+        let mut tree = Tree::grid(&[prof()], &[]);
+        for _ in 0..MAX_ENTRIES {
+            tree.properties.insert(0, bx(b"free", &[]));
+        }
+        assert_eq!(grid_refusal(&tree.bytes()), None);
+        // An index past the properties, a short nclx: not followed.
+        let mut tree = Tree::grid(&[prof()], &[]);
+        tree.has[1].1.push(99);
+        assert_eq!(grid_refusal(&tree.bytes()), None);
+        let short = bx(b"colr", b"nclx\0\x09\0\x10");
+        assert_eq!(grid_refusal(&Tree::grid(&[short], &[]).bytes()), None);
+        // Bytes that aren't boxes at all.
+        assert_eq!(grid_refusal(&[0xff; 64]), None);
+        assert_eq!(grid_refusal(&[]), None);
+    }
+
+    #[test]
+    fn the_real_grid_carries_its_profile_on_its_tiles_and_adds_no_refusal() {
+        // sips's grid: the primary item 5, tiles 1 to 4, the one `prof` colr (property 1) on the grid and its tiles.
+        let colours = grid_colours(&proof()).expect("its boxes are followed");
+        let icc = ItemColour {
+            icc: true,
+            ..ItemColour::default()
+        };
+        assert_eq!(colours, (icc, icc));
+        assert_eq!(grid_refusal(&proof()), None);
+        assert_eq!(refuse(&proof()), Ok(()));
     }
 
     // ---- The colour tag --------------------------------------------------------------------------------------------
@@ -1355,29 +1945,35 @@ mod tests {
         }
         assert!(most.load(Ordering::SeqCst) <= 2, "never three at once");
         assert!(two_seen.load(Ordering::SeqCst), "two did get in at once");
-        assert_eq!(*gate.inside.lock().unwrap(), 0, "every turn given back");
+        assert_eq!(gate.turns().inside, 0, "every turn given back");
+        assert_eq!(gate.turns().waiting, 0, "no one left waiting");
     }
 
     #[test]
     fn picture_waits_its_turn_at_the_gate_but_a_refusal_never_does() {
-        // Both turns taken here (another test's call may hold one a moment first): the photo waits.
-        let first = GATE.enter();
-        let second = GATE.enter();
+        // A gate of the test's own, both turns taken here: the photo is seen waiting at it, then it can't have
+        // decoded, since it holds no turn.
+        let gate = Arc::new(Gate::new(2));
+        let first = gate.enter();
+        let second = gate.enter();
         let dir = temp_dir("gate");
         let folder = dir.join("cache");
         let (done, heard) = std::sync::mpsc::channel();
         let waiting = std::thread::spawn({
-            let folder = folder.clone();
+            let (gate, folder) = (gate.clone(), folder.clone());
             move || {
-                let _ = done.send(picture(&proof(), &folder));
+                let _ = done.send(picture_at(&gate, &proof(), &folder));
             }
         });
-        assert!(
-            heard.recv_timeout(Duration::from_millis(500)).is_err(),
-            "decoded with both turns taken"
-        );
+        let started = Instant::now();
+        while gate.turns().waiting == 0 && started.elapsed() < Duration::from_secs(30) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(gate.turns().waiting, 1, "the photo waits at the gate");
+        assert!(heard.try_recv().is_err(), "decoded with both turns taken");
         // A file that isn't a HEIF is refused before the gate.
-        assert_eq!(picture(&[0, 0, 0], &folder), Err(NOT_HEIC));
+        assert_eq!(picture_at(&gate, &[0, 0, 0], &folder), Err(NOT_HEIC));
+        assert_eq!(gate.turns().waiting, 1);
         drop(first);
         let answer = heard
             .recv_timeout(Duration::from_secs(30))
@@ -1398,16 +1994,39 @@ mod tests {
                 .unwrap();
             path
         };
-        let old = planted("heic-0123456789abcdef.heic", Duration::from_secs(11 * 60));
-        let fresh = planted("heic-fedcba9876543210.heic", Duration::from_secs(60));
-        let not_ours = planted("tile-16-20-30.png", Duration::from_secs(60 * 60));
+        let hour = Duration::from_secs(60 * 60);
+        let old = planted(
+            "heic-0123456789abcdef0123456789abcdef.heic",
+            Duration::from_secs(11 * 60),
+        );
+        let fresh = planted(
+            "heic-fedcba9876543210fedcba9876543210.heic",
+            Duration::from_secs(60),
+        );
+        // Old, but names it could never have written: left alone.
+        let not_ours = [
+            planted("tile-16-20-30.png", hour),
+            planted("heic-.heic", hour),
+            planted("heic-abc.heic", hour),
+            // Upper case, never `old`'s name in capitals: Windows would take the two for one file.
+            planted("heic-ABCDEF0123456789ABCDEF0123456789.heic", hour),
+            planted("heic-0123456789abcdef0123456789abcdef0.heic", hour),
+            planted("heic-0123456789abcdef0123456789abcdeg.heic", hour),
+        ];
         assert!(picture(&proof(), &dir).is_ok());
         assert!(!old.exists(), "an old one of ours goes");
         assert!(
             fresh.exists(),
             "a fresh one may be another call's: it stays"
         );
-        assert!(not_ours.exists(), "only ours");
+        for path in &not_ours {
+            assert!(path.exists(), "only ours: {}", path.display());
+        }
+        // The names random_id gives are the ones it takes.
+        assert!(is_temp_name(&format!(
+            "heic-{}.heic",
+            crate::lock::random_id()
+        )));
         // A folder that isn't there yet: nothing to sweep, and no error.
         sweep(&dir.join("not-there"));
         let _ = fs::remove_dir_all(&dir);
