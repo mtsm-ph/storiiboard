@@ -461,11 +461,11 @@ all eight steps.
          can't be decoded fails with words of its own ("Cannot decode the data in the argument to
          createImageBitmap"). The bare "invalid state" words are what `getImageData` gives when a canvas's pixels
          can't be read back (CanvasRenderingContext2DBase.cpp), so expect `(worker: read)`.
-       - **The lean is the runner, and only a real Mac says.** The Mac's real webview draws a worker's canvas in
-         its GPU process, and GitHub's Macs have only a virtual GPU (VideoToolbox wedged on it too, 2.3c). #223's line
-         also says what the page gets from the same picture: if the page reads it where the worker can't, the page
-         standing in for a worker that reports an error is the small fix (today only a worker that can't start or
-         takes too long is replaced by the page, extract.ts).
+       - **The lean is the runner, and only a real Mac says.** Safari's engine is understood to draw a canvas in
+         its GPU process (not checked in the source that night), and GitHub's Macs have only a virtual GPU
+         (VideoToolbox wedged on it too, 2.3c). #223's line also says what the page gets from the same picture: if
+         the page reads it where the worker can't, the page standing in for a worker that reports an error is the
+         small fix (today only a worker that can't start or takes too long is replaced by the page, extract.ts).
   - **The quickest answer is Kevin's own Mac** (Only Kevin): on #223's branch, a debug build and
     `bash scripts/launchCheck.sh src-tauri/target/debug/storiiboard`.
   - The stack can't merge while the Mac's installer job is red at that step.
