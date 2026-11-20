@@ -1,9 +1,9 @@
 import type { PlanUnit } from '../../core/model/length';
 import type { SbdRecord } from '../../core/model/record';
-import { childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { childrenBefore, childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
 import { listVersions, type NamedVersion } from '../../core/storage/versions';
-import { byStep, describeGroup, lineText, peopleDiff, type Line } from './summary';
+import { byStep, describeGroup, lineText, moveTarget, peopleDiff, scheduledScene, stepScene, type Line } from './summary';
 import { t } from '../../core/i18n';
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -69,6 +69,7 @@ export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUni
  */
 export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<string, readonly LoggedOp[]>): Promise<Map<string, Map<string, SbdRecord>>> {
   const asks: { group: string; id: string; seq: number }[] = [];
+  const kids: { group: string; parentId: string; seq: number }[] = [];
   for (const [group, ops] of byGroup) {
     const stroke = ops.find((op) => (op.after ?? op.before)?.type === 'stroke');
     const shotId = stroke ? (stroke.after ?? stroke.before)?.parentId : null;
@@ -130,6 +131,20 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
       return [...diff.added, ...diff.removed, ...timed];
     });
     for (const id of new Set([...places, ...people])) if (typeof id === 'string' && id !== '') asks.push({ group, id, seq: end });
+    // Where a drag put frames, notes, scenes or pages (Kevin, Nov 18): the place, and what was in it just before the
+    // step, so the line names the neighbour as numbered when it was dragged ("Moved 4A to after 3C").
+    const start = ops.reduce((min, op) => Math.min(min, op.seq), Number.MAX_SAFE_INTEGER);
+    const into = moveTarget(ops);
+    if (into !== null) {
+      if (!ops.some((op) => op.recordId === into)) asks.push({ group, id: into, seq: end });
+      kids.push({ group, parentId: into, seq: start });
+    }
+    // The scene a step's records share, so "Changed 3 items in SC 12" can name it; a scene's frames scheduled together,
+    // with its frames as the step left them, so a whole scene reads as the scene.
+    const scene = stepScene(ops);
+    if (scene !== null && !ops.some((op) => op.recordId === scene)) asks.push({ group, id: scene, seq: end });
+    const scheduled = scheduledScene(ops);
+    if (scheduled !== null) kids.push({ group, parentId: scheduled, seq: end });
   }
   const found = await recordsBefore(file, asks);
   const around = new Map<string, Map<string, SbdRecord>>();
@@ -143,6 +158,13 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
     });
   };
   keep(asks, found);
+  // A place's records as they were then, each kept only where the step's own asks haven't named it already.
+  const children = await childrenBefore(file, kids);
+  kids.forEach((ask, i) => {
+    const named = around.get(ask.group) ?? new Map<string, SbdRecord>();
+    for (const record of children[i] ?? []) if (!named.has(record.id)) named.set(record.id, record);
+    around.set(ask.group, named);
+  });
   // An issued call sheet that already existed (4.7): its day, which only the call sheet record knows.
   const days = [...around].flatMap(([group, named]) => {
     const issued = byGroup.get(group)?.find((op) => op.after?.type === 'media' && typeof op.after.props.issue_version === 'number');

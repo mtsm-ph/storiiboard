@@ -1028,6 +1028,33 @@ export async function recordsBefore(file: ProjectFile, asks: readonly { id: stri
   return rows.map((row) => fromSnapshot(row.after));
 }
 
+/**
+ * The records under each asked parent as their last write before `seq` left them, by ask: where a step put a frame
+ * ("after 3C"), named by the neighbours it had then. Read, never written. The ones there now (records_by_parent) and
+ * the ones a later write took out of it (ops after `seq` only, by seq), so a frame moved away since still counts.
+ */
+export async function childrenBefore(file: ProjectFile, asks: readonly { parentId: string; seq: number }[]): Promise<SbdRecord[][]> {
+  if (asks.length === 0) return [];
+  const rows = await file.query(
+    `SELECT c.i AS i, (SELECT o.after FROM ops o WHERE o.record_id = c.id AND o.seq < c.seq ORDER BY o.seq DESC LIMIT 1) AS after
+      FROM (
+        SELECT j.key AS i, json_extract(j.value, '$.seq') AS seq, r.id AS id FROM json_each(?) j
+          JOIN records r ON r.parent_id = json_extract(j.value, '$.parentId')
+        UNION
+        SELECT j.key, json_extract(j.value, '$.seq'), o.record_id FROM json_each(?) j
+          JOIN ops o ON o.seq >= json_extract(j.value, '$.seq') AND json_extract(o.before, '$.parent_id') = json_extract(j.value, '$.parentId')
+      ) c ORDER BY c.i`,
+    [JSON.stringify(asks), JSON.stringify(asks)],
+  );
+  const out: SbdRecord[][] = asks.map(() => []);
+  for (const row of rows) {
+    const record = fromSnapshot(row.after);
+    const ask = asks[Number(row.i)];
+    if (record && ask && record.parentId === ask.parentId) out[Number(row.i)]?.push(record);
+  }
+  return out;
+}
+
 /** The picture files still stored: a step whose picture isn't among them shows "picture removed" (1.21). */
 export async function storedPictures(file: ProjectFile): Promise<Set<string>> {
   return new Set((await file.query('SELECT sha256 FROM media_files')).map((row) => String(row.sha256)));

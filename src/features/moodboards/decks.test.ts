@@ -683,7 +683,7 @@ describe('History words for decks and pages (L1)', () => {
     await store.getState().apply([{ kind: 'trash', id: boardId }]);
     const lines = (await loadSteps(project.file, Number.MAX_SAFE_INTEGER)).steps.map((s) => lineText(s.line));
     expect(lines[0]).toBe('Deleted deck Pitch');
-    expect(lines[1]).toBe("Moved page 'Cover'");
+    expect(lines[1]).toBe("Moved page 'Cover' to the start of Pitch");
     expect(lines[2]).toBe("Duplicated page 'Cover'");
     expect(lines.at(-1)).toBe('Added deck Pitch');
   });
