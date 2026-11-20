@@ -44,6 +44,13 @@ After a stall, the app reads the file itself past where ffmpeg stopped, with a t
 - **The loop itself doesn't change.** `Err(Stop::Stalled)` still breaks on the last encoder or when
   `video::starts(path)` fails, and still goes on to the next encoder otherwise. Nothing about when a second encoder is
   tried changes, and no timing in an existing test changes.
+- **No check where it could tell nothing new** (review, Nov 20):
+  - the loop ended because `video::starts` itself failed: the drive is already known not to answer, so the words are
+    `STALLED` with no check (the loop only notes that this is why it broke);
+  - the message is about to be thrown away because an earlier copy is kept instead (`keep_earlier`): no check. If
+    that needs more than a small condition, leave it and say so in the report.
+- **A computer's sleep during the check is not a hang.** A gap between two looks at the reader longer than `SLEPT`
+  restarts the quiet time, as the encode's own watch does.
 - **The check: does the file keep answering past where ffmpeg stopped?**
   - Where to start: no byte position is known, only frames. Start at `size × reached ÷ total` (the file's size, the
     last frame reported, the frames expected); at 0 when the total isn't known. Bytes before that point were just
@@ -104,7 +111,19 @@ Every system unless marked:
   - a slow reader that keeps handing over chunks past `CHECK_BUDGET` (shortened) keeps answering;
   - reaching `CHECK_SPAN` (shortened) keeps answering;
   - a Cancel during a blocked read ends the wait quickly.
+  - The slow reader's test must be able to fail: its quiet time shorter than its budget (say 300 ms and 1 s, the
+    reader handing over a chunk every 50 ms), so only chunks that restart the quiet time get it to the budget.
+  - A gap longer than `SLEPT` between two looks restarts the quiet time.
 - Where the read starts: the middle for half the frames, 0 when the total is unknown, never past the file's end.
+- Inside `make`, through the seam:
+  - a Cancel while the check waits on a reader that never answers gives `CANCELLED`, quickly;
+  - the file is opened for the check exactly once when every encoder stalls, and never for a copy that was made (an
+    opener that counts);
+  - a stall, then `video::starts` failing: `STALLED`, and the opener is never asked (if that can be arranged without
+    a shim; else say so).
+- **Linux, with the shim:** the check starts from where the stalled encode had got to: the shim hangs at half the
+  file, one encoder, an opener that records the byte it is asked for: between a quarter and three quarters of the
+  file's size.
 - Every encoder stalls on a readable file: two light encoders, a 1 ms stall: `ENCODER_STALLED`, and both were tried.
 - A stall, then a reader that fails (the seam): `STALLED`.
 - **Linux, with the shim:** a stalled encoder with a readable file goes on and makes the copy. The shim gets one new

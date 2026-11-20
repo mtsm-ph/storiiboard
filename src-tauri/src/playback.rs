@@ -202,6 +202,16 @@ fn check_from(size: u64, reached: f64, total: u64) -> u64 {
     ((size as f64 * share) as u64).min(size)
 }
 
+/// When the check's quiet time counts from, looking at the reader `now` after the last look at `looked`: a gap longer
+/// than `SLEPT` means the computer slept (as in the encode's watch), and a sleep is not a hang, so it starts over.
+fn quiet_since(last: Instant, looked: Instant, now: Instant) -> Instant {
+    if now.saturating_duration_since(looked) > SLEPT {
+        now
+    } else {
+        last
+    }
+}
+
 /// Word from the check's own thread.
 enum Heard {
     Chunk(usize),
@@ -1386,6 +1396,8 @@ impl PlaybackCache {
         }
         // Where the latest stall stood (the last frame ffmpeg reported), for the check after the loop.
         let mut stalled: Option<f64> = None;
+        // The loop ended because the original no longer answered after a stall: the drive is known not to.
+        let mut unanswered = false;
         let mut measured = false;
         let mut outcome = Err(Stop::Failed(Said::default()));
         let mut partial = PathBuf::new();
@@ -1435,7 +1447,11 @@ impl PlaybackCache {
                     // follows and the original still answers.
                     Err(Stop::Stalled) => {
                         stalled = Some(reached.get());
-                        if last || video::starts(path).is_err() {
+                        if last {
+                            break 'encoders;
+                        }
+                        if video::starts(path).is_err() {
+                            unanswered = true;
                             break 'encoders;
                         }
                     }
@@ -1478,12 +1494,15 @@ impl PlaybackCache {
             outcome = Err(Stop::Cancelled);
         }
         // A stall that names the failure: the original read on past where ffmpeg stopped tells whose it was. Still
-        // answering, the encoder hung (every one tried); hung or failing, the drive. Once, and only for these.
+        // answering, the encoder hung (every one tried); hung or failing, the drive. Once, and only for these. None where
+        // it could tell nothing new: the original already didn't answer, or an earlier copy is kept instead of the words
+        // (`keep_earlier` keeps it whatever the error).
         let names_stall = match &outcome {
             Err(Stop::Stalled) => true,
             Err(Stop::Failed(said)) => stalled.is_some() && !said.read_failed,
             _ => false,
         };
+        let names_stall = names_stall && !unanswered && earlier.is_none();
         let mut stall_words = STALLED;
         if let (true, Some(at)) = (names_stall, stalled) {
             match self.reads_on(path, at, total, || asked.stopped()) {
@@ -1604,9 +1623,14 @@ impl PlaybackCache {
         let started = Instant::now();
         let mut last = started;
         let mut read = 0u64;
+        let mut looked = started;
         let tick = TICK.min(self.check_quiet);
         loop {
-            match heard.recv_timeout(tick) {
+            let word = heard.recv_timeout(tick);
+            let now = Instant::now();
+            last = quiet_since(last, looked, now);
+            looked = now;
+            match word {
                 Ok(Heard::Chunk(n)) => {
                     last = Instant::now();
                     read = read.saturating_add(n as u64);
@@ -3941,10 +3965,11 @@ ssize_t read(int fd, void *buf, size_t count) {
             took >= cache.check_quiet && took < Duration::from_secs(3),
             "{took:?}"
         );
-        // A slow read that keeps handing over chunks past the budget keeps answering.
+        // A slow read that keeps handing over chunks past the budget keeps answering. The quiet time is shorter than the
+        // budget, so only chunks that start it over get it that far.
         reading_with(&mut cache, || Box::new(Slow));
-        cache.check_quiet = Duration::from_secs(2);
-        cache.check_budget = Duration::from_millis(400);
+        cache.check_quiet = Duration::from_millis(300);
+        cache.check_budget = Duration::from_secs(1);
         let started = Instant::now();
         assert_eq!(cache.reads_on(&file, 0.0, 0, never), Reading::Answers);
         let took = started.elapsed();
@@ -4001,6 +4026,98 @@ ssize_t read(int fd, void *buf, size_t count) {
         );
         assert_eq!(check_from(1000, 300.0, 100), 1000, "never past the end");
         assert_eq!(check_from(1000, f64::NAN, 100), 0);
+    }
+
+    #[test]
+    fn a_sleep_during_the_check_is_not_a_hang() {
+        let start = Instant::now();
+        assert_eq!(
+            quiet_since(start, start, start + TICK),
+            start,
+            "a look a tick later keeps the quiet time"
+        );
+        let woke = start + SLEPT + Duration::from_secs(1);
+        assert_eq!(
+            quiet_since(start, start, woke),
+            woke,
+            "after a sleep it starts over"
+        );
+        assert_eq!(
+            quiet_since(start, start + Duration::from_secs(1), start + SLEPT),
+            start,
+            "the gap is the one between two looks"
+        );
+    }
+
+    /// An opener for the check that counts how often it's asked, then opens the file as the app does.
+    fn counting(cache: &mut PlaybackCache) -> Arc<AtomicU64> {
+        let asked = Arc::new(AtomicU64::new(0));
+        let count = Arc::clone(&asked);
+        cache.open_check = Arc::new(move |path: &Path, from: u64| {
+            count.fetch_add(1, Ordering::SeqCst);
+            open_at(path, from)
+        });
+        asked
+    }
+
+    #[test]
+    fn the_file_is_read_for_the_check_once_when_every_encoder_stalls_and_never_for_a_copy_made() {
+        let dir = temp_dir("check-count");
+        let _gone = Gone(dir.clone());
+        let clip = long_clip(&dir);
+        let mut cache = sound_test_cache(&dir.join("cache"));
+        cache.encoders = vec![LIGHT_ENCODER.to_vec(), LIGHT_ENCODER.to_vec()];
+        cache.stall = Duration::from_millis(1);
+        let opened = counting(&mut cache);
+        assert_eq!(cache.make(&clip, |_| {}).unwrap_err(), ENCODER_STALLED);
+        assert_eq!(opened.load(Ordering::SeqCst), 1, "once, after the loop");
+        cache.stall = STALL;
+        let quick = pcm_clip(&dir, "C0058.mov");
+        assert!(cache.make(&quick, |_| {}).is_ok());
+        assert_eq!(opened.load(Ordering::SeqCst), 1, "never for a copy made");
+    }
+
+    #[test]
+    fn a_cancel_while_the_check_waits_on_a_stuck_read_cancels_the_copy_at_once() {
+        let dir = temp_dir("check-cancel-make");
+        let _gone = Gone(dir.clone());
+        let clip = long_clip(&dir);
+        let mut cache = sound_test_cache(&dir.join("cache"));
+        cache.stall = Duration::from_millis(1);
+        let opened = Arc::new(AtomicBool::new(false));
+        {
+            let opened = Arc::clone(&opened);
+            cache.open_check = Arc::new(move |_: &Path, _: u64| {
+                opened.store(true, Ordering::SeqCst);
+                Ok(Box::new(Stuck) as Box<dyn Read + Send>)
+            });
+        }
+        let name = clip.to_string_lossy().into_owned();
+        std::thread::scope(|scope| {
+            let cancelling = scope.spawn(|| {
+                let waited = Instant::now();
+                while !opened.load(Ordering::SeqCst) {
+                    assert!(
+                        waited.elapsed() < Duration::from_secs(60),
+                        "the check never started"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                let at = Instant::now();
+                assert!(cache.cancel(&name));
+                at
+            });
+            let made = cache.make(&clip, |_| {});
+            let ended = Instant::now();
+            let cancelled_at = cancelling.join().unwrap();
+            assert_eq!(made.unwrap_err(), CANCELLED);
+            assert!(
+                ended.duration_since(cancelled_at) < Duration::from_secs(2),
+                "well inside the quiet time"
+            );
+        });
+        let (folder, _) = cache.folder().unwrap();
+        assert!(names(&folder).is_empty(), "nothing half-made");
     }
 
     #[test]
@@ -4617,6 +4734,53 @@ ssize_t read(int fd, void *buf, size_t count) {
             cache.attempts.load(Ordering::SeqCst),
             2,
             "both encoders tried"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_check_after_a_stall_starts_where_the_encode_had_got_to() {
+        let dir = temp_dir("stall-from");
+        let _gone = Gone(dir.clone());
+        let shim = read_shim(&dir);
+        let clip = cutme_mov(&dir);
+        let size = fs::metadata(&clip).unwrap().len();
+        let mut cache = PlaybackCache::in_folder(&dir.join("cache"));
+        through_shim(&mut cache, &shim, "hang", size / 2);
+        cache.stall = Duration::from_secs(2);
+        cache.encoders = vec![encoders().pop().unwrap()];
+        // The byte the check is asked to start at; then a read that never answers, as the share that stopped.
+        let asked_at = Arc::new(Mutex::new(None));
+        {
+            let asked_at = Arc::clone(&asked_at);
+            cache.open_check = Arc::new(move |_: &Path, from: u64| {
+                *lock(&asked_at) = Some(from);
+                Ok(Box::new(Stuck) as Box<dyn Read + Send>)
+            });
+        }
+        cache.check_quiet = Duration::from_millis(500);
+        let cache = Arc::new(cache);
+        let (sent, outcome) = mpsc::channel();
+        let making = {
+            let (cache, clip) = (Arc::clone(&cache), clip.clone());
+            std::thread::spawn(move || {
+                let made = cache.make(&clip, |_| {});
+                let _ = sent.send(());
+                made
+            })
+        };
+        // A stall never caught would hang here for good: cancelled, so the test fails instead.
+        if outcome.recv_timeout(Duration::from_secs(60)).is_err() {
+            cache.cancel(&clip.to_string_lossy());
+            let _ = making.join();
+            panic!("the stuck copy was never stopped");
+        }
+        assert_eq!(making.join().unwrap().unwrap_err(), STALLED);
+        let recorded: Option<u64> = *lock(&asked_at);
+        let from = recorded.expect("the check opened the file");
+        assert!(
+            (size / 4..=size * 3 / 4).contains(&from),
+            "{from} of {size} bytes"
         );
     }
 
