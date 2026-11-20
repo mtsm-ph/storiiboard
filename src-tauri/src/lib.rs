@@ -1,5 +1,10 @@
-use std::{path::Path, thread, time::Duration};
+use std::{
+    path::Path,
+    thread,
+    time::{Duration, Instant},
+};
 
+use launch_check::{LaunchCheck, Reporter};
 use tauri::{webview::PageLoadEvent, Manager};
 
 mod app_data;
@@ -11,6 +16,7 @@ mod export;
 mod fonts;
 mod geocode;
 mod hospital;
+mod launch_check;
 mod licences;
 mod lock;
 mod net;
@@ -120,6 +126,7 @@ pub(crate) fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> ta
             tiles::map_tiles_clear,
             tiles::map_tile_provider,
             tiles::map_tile_provider_set,
+            launch_check::launch_check_step,
         ])
 }
 
@@ -176,17 +183,93 @@ pub(crate) fn app_context<R: tauri::Runtime>() -> tauri::Context<R> {
 #[link(name = "resource", kind = "static")]
 extern "C" {}
 
+/// The 3-second safety net: macOS reports no event for a page that fails to load (for example `cargo run` with the
+/// dev server stopped), so a window still hidden after a few seconds is shown anyway.
+fn show_if_still_hidden(window: tauri::WebviewWindow) {
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(3));
+        if !window.is_visible().unwrap_or(false) {
+            let _ = window.show();
+        }
+    });
+}
+
+/// Setup in the launch check: the main window exactly as always, plus the script that watches for policy violations
+/// from the document's first moment, and nothing else (no state from this computer's folders, no clean-up, no files
+/// from outside). Step 1, `window`; a failure ends the process with its code rather than the setup's panic.
+fn launch_check_setup(app: &tauri::App) {
+    let check = app.state::<LaunchCheck<tauri::Wry>>();
+    let made = main_window(app.handle()).and_then(|builder| {
+        builder
+            .initialization_script(launch_check::WATCH_SCRIPT)
+            .build()
+    });
+    let reported = match made {
+        Ok(window) => {
+            show_if_still_hidden(window);
+            check.report(app.handle(), Reporter::Rust, "window", true, "")
+        }
+        Err(error) => check.report(
+            app.handle(),
+            Reporter::Rust,
+            "window",
+            false,
+            &error.to_string(),
+        ),
+    };
+    if let Err(error) = reported {
+        eprintln!("launch check: {error}");
+    }
+}
+
+/// Step 2, `loaded`: the main window's page finished loading, the app's own show() worked and the window is visible.
+fn launch_check_loaded(webview: &tauri::Webview, shown: tauri::Result<()>) {
+    let Some(check) = webview.try_state::<LaunchCheck<tauri::Wry>>() else {
+        return;
+    };
+    let visible = webview.window().is_visible().unwrap_or(false);
+    let (ok, detail) = match shown {
+        Err(error) => (false, format!("show() failed: {error}")),
+        Ok(()) if !visible => (
+            false,
+            "show() worked but the window is not visible".to_owned(),
+        ),
+        Ok(()) => (true, String::new()),
+    };
+    if let Err(error) = check.report(webview.app_handle(), Reporter::Rust, "loaded", ok, &detail) {
+        eprintln!("launch check: {error}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let started = Instant::now();
+    // The launch check (launch_check.rs, 6.27l): read once, here, from the environment and nothing else.
+    let launch = launch_check::read_switch();
     let builder = tauri::Builder::default();
-    // Registered first, as the plugin asks, so a second launch exits before it sets anything else up.
-    #[cfg(desktop)]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
-        opened::queue(
-            app,
-            opened::sbd_paths(args.into_iter().skip(1), Path::new(&cwd)),
+    let builder = if launch {
+        let check = LaunchCheck::<tauri::Wry>::new(
+            Box::new(launch_check::say_on_stdout),
+            Box::new(launch_check::finish_in_app),
         );
-    }));
+        check.arm_time_limit(started + launch_check::TIME_LIMIT);
+        builder.manage(check)
+    } else {
+        builder
+    };
+    // Registered first, as the plugin asks, so a second launch exits before it sets anything else up. Not in the
+    // launch check: a second launch would hand over to a running copy and exit with 0, which would read as a pass.
+    #[cfg(desktop)]
+    let builder = if launch {
+        builder
+    } else {
+        builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            opened::queue(
+                app,
+                opened::sbd_paths(args.into_iter().skip(1), Path::new(&cwd)),
+            );
+        }))
+    };
     with_commands(builder)
         // The Player reads playback copies, and nothing else, through a scheme of its own, a slice at a time
         // (playback.rs, 2.4); each answer is read on a thread of its own, so a slow drive never holds the window up.
@@ -226,20 +309,18 @@ pub fn run() {
                 pictures::dragged(window, drag);
             }
         })
-        // Safety net: macOS reports no event for a page that fails to load (for example `cargo run` with the dev
-        // server stopped), so a window still hidden after a few seconds is shown anyway.
-        .setup(|app| {
+        // The main window, and the safety net that shows it should no load event come (show_if_still_hidden).
+        .setup(move |app| {
+            if launch {
+                launch_check_setup(app);
+                return Ok(());
+            }
             // The main window, built here rather than from the config (main_window, above), and first, as Tauri built
             // a config window before setup: everything below that looks up "main" (opened::queue brings it to the
             // front on a double-click launch) finds it. The drag-drop event and the show on load below reach it as
             // they reach every window.
             let window = main_window(app.handle())?.build()?;
-            thread::spawn(move || {
-                thread::sleep(Duration::from_secs(3));
-                if !window.is_visible().unwrap_or(false) {
-                    let _ = window.show();
-                }
-            });
+            show_if_still_hidden(window);
             manage_at_start(app.handle());
             // Copies cut off by a crash or a quit, on a thread of its own: a drive slow to wake (or a share that
             // doesn't answer) never holds up the window, and it waits its turn behind a copy started meanwhile.
@@ -258,16 +339,34 @@ pub fn run() {
         })
         // The window starts hidden (tauri.conf.json) and appears once the page has loaded, after theme-boot.js has
         // set the theme. Shown any earlier, a Mac in dark mode flashes the paper window background at launch.
-        .on_page_load(|webview, payload| {
+        .on_page_load(move |webview, payload| {
             if payload.event() == PageLoadEvent::Finished {
-                if let Err(error) = webview.window().show() {
+                let shown = webview.window().show();
+                if let Err(error) = &shown {
                     eprintln!("could not show the main window: {error}");
+                }
+                if launch && webview.label() == "main" {
+                    launch_check_loaded(webview, shown);
                 }
             }
         })
         .build(app_context())
         .expect("error while building Storiiboard")
-        .run(|app, event| {
+        .run(move |app, event| {
+            if launch {
+                // A quit nobody asked the check for (its window closed) would end the app with 0.
+                if let tauri::RunEvent::ExitRequested { .. } = event {
+                    if let Some(check) = app.try_state::<LaunchCheck<tauri::Wry>>() {
+                        if !check.decided() {
+                            check.say(launch_check::QUIT_EARLY_LINE);
+                            launch_check::end_process(launch_check::EXIT_QUIT_EARLY);
+                        }
+                    }
+                }
+                // Nothing else: the clean-ups on Exit read state the mode never made (app.state panics on it), and on
+                // a Mac a file opened from outside is not the check's.
+                return;
+            }
             if let tauri::RunEvent::Exit = event {
                 app.state::<sbd::OpenFiles>().close_all();
                 // A playback copy being made stops with the app, rather than going on alone (playback.rs).
