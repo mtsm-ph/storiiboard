@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { countMissed, expectInside, frameOf, type Presented, type RawReport } from './frameCount';
+import { countMissed, expectInside, frameOf, lateness, type Presented, type RawReport } from './frameCount';
 
 // The count player.spec.ts's busy-page test makes (e2e/frameCount.ts), on the reports kept from the checkpoint runs
 // (e2e/fixtures/frameReports) and on made-up ones. Runs in Vitest: no browser, no clip.
@@ -166,5 +166,86 @@ describe('the count', () => {
     const seen = countMissed(run([[19, 1000, 19], [21, 1000 + 2 * FRAME_MS, 21], [22, 1000 + 3 * FRAME_MS, 22]]));
     expect(seen.map((s) => s.missed)).toEqual([0, 1, 0]);
     expect(ruleOk(seen)).toThrow(/frame 22 reported after 0 missed \(1 allowed in this run\)/);
+  });
+});
+
+/** The rule with the turn's lateness counted, from the raw reports. */
+const lateOk = (raw: readonly RawReport[]) => () => {
+  expectInside(countMissed(raw), 10, 20, expect, lateness(raw));
+};
+
+describe("the turn's own late report (nov20-a)", () => {
+  it.each(['nov20a-webkit-try0', 'nov20a-webkit-try1'])(
+    '%s failed without the lateness, as the checkpoint said, and passes with the out frame\'s report 2 frames late',
+    (name) => {
+      const { raw, seen, clip } = kept(name);
+      expect(clip).toEqual({ in: 10, out: 20, fps: '24000/1001' });
+      // These attachments already carry the new count.
+      expect(countMissed(raw)).toEqual(seen);
+      expect(ruleOk(countMissed(raw))).toThrow(/frame 22 reported after 1 missed \(1 allowed in this run\)/);
+      expect(lateOk(raw)).not.toThrow();
+      const out = raw.findIndex((report) => frameOf(report.mediaTime) === 20);
+      expect(lateness(raw)[out]).toBe(2);
+    },
+  );
+});
+
+describe("the turn's lateness", () => {
+  // Every step: frame, presentation time, and how far after it the callback came, in frames.
+  const timed = (steps: [frame: number, presentation: number, lateBy: number][]) =>
+    run(steps.map(([frame, presentation, lateBy]) => [frame, 1000 + (presentation + lateBy) * FRAME_MS, null, 1000 + presentation * FRAME_MS]));
+
+  it('lends the out frame\'s report 2.3 frames late its 2 whole frames: 20, then 22 with 1 missed, then the turn', () => {
+    const raw = timed([[18, 0, 0.1], [19, 1, 0.1], [20, 2, 2.3], [22, 4, 0.5], [10, 5, 0.1]]);
+    expect(lateness(raw)).toEqual([0, 0, 2, 0, 0]);
+    expect(countMissed(raw).find((s) => s.frame === 22)?.missed).toBe(1);
+    expect(lateOk(raw)).not.toThrow();
+    expect(ruleOk(countMissed(raw))).toThrow(/frame 22 reported after 1 missed \(1 allowed in this run\)/);
+  });
+
+  it('lends nothing for an out frame reported 0.9 frame late: it fails either way', () => {
+    const raw = timed([[18, 0, 0.1], [19, 1, 0.1], [20, 2, 0.9], [22, 4, 0.5], [10, 5, 0.1]]);
+    expect(lateness(raw)[2]).toBe(0);
+    expect(lateOk(raw)).toThrow(/frame 22 reported after 1 missed \(1 allowed in this run\)/);
+    expect(ruleOk(countMissed(raw))).toThrow(/frame 22 reported after 1 missed \(1 allowed in this run\)/);
+  });
+
+  it('counts the first of two out-frame reports in a row: the first 2 frames late, the second on time', () => {
+    const raw = timed([[19, 0, 0.1], [20, 1, 2.2], [20, 3, 0.4], [22, 5, 0.5], [10, 6, 0.1]]);
+    expect(lateness(raw)).toEqual([0, 2, 0, 0, 0]);
+    expect(countMissed(raw).find((s) => s.frame === 22)?.missed).toBe(1);
+    expect(lateOk(raw)).not.toThrow();
+    expect(ruleOk(countMissed(raw))).toThrow(/frame 22 reported after 1 missed \(1 allowed in this run\)/);
+  });
+
+  it('lends the first report past the out point its lateness when the out frame was never reported', () => {
+    // 19, then 22 two frames late with time for 2 missed (20 and 21), then 23 on time before the turn lands: 22 alone is
+    // within its 2 missed, so 23 is what needs the lateness.
+    const raw = timed([[19, 0, 0.2], [22, 3, 2.2], [23, 6, 0.1], [10, 7, 0.1]]);
+    expect(lateness(raw)).toEqual([0, 2, 0, 0]);
+    expect(countMissed(raw).map((s) => s.missed)).toEqual([0, 2, 0, 0]);
+    expect(lateOk(raw)).not.toThrow();
+    expect(ruleOk(countMissed(raw))).toThrow(/frame 23 reported after 0 missed \(2 allowed in this run\)/);
+  });
+
+  it('lends 0 from a report with no presentation time', () => {
+    const raw = run([[19, 1000, null], [20, 1000 + FRAME_MS, null], [22, 1000 + 3 * FRAME_MS, null], [10, 1000 + 4 * FRAME_MS, null]]);
+    expect(lateness(raw)).toEqual([0, 0, 0, 0]);
+    expect(countMissed(raw).find((s) => s.frame === 22)?.missed).toBe(1);
+    expect(lateOk(raw)).toThrow(/frame 22 reported after 1 missed \(1 allowed in this run\)/);
+  });
+
+  it('lends nothing from a late report inside the clip that is not the turn: 15 three frames late, then an overshoot to 21', () => {
+    const raw = timed([[14, 0, 0.2], [15, 1, 3.2], [16, 5, 0.2], [17, 6, 0.2], [18, 7, 0.2], [19, 8, 0.2], [20, 9, 0.2], [21, 10, 0.2]]);
+    expect(lateness(raw)[1]).toBe(3);
+    expect(countMissed(raw).map((s) => s.missed)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(lateOk(raw)).toThrow(/frame 21 reported after 0 missed \(0 allowed in this run\)/);
+  });
+
+  it('still fails a real overshoot with the list: on time everywhere, no turn at the out point, fails on 21', () => {
+    const raw = timed([[19, 0, 0.2], [20, 1, 0.2], [21, 2, 0.2], [22, 3, 0.2]]);
+    expect(lateness(raw)).toEqual([0, 0, 0, 0]);
+    expect(lateOk(raw)).toThrow(/frame 21 reported after 0 missed \(0 allowed in this run\)/);
+    expect(ruleOk(countMissed(raw))).toThrow(/frame 21 reported after 0 missed \(0 allowed in this run\)/);
   });
 });

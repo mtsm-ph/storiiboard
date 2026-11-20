@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { answerAsk } from './ask';
-import { countMissed, expectInside as inside, type Presented, type RawReport } from './frameCount';
+import { countMissed, expectInside as inside, lateness, type Presented, type RawReport } from './frameCount';
 import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings } from './settings';
 
@@ -66,9 +66,12 @@ const presentedReports = (clip: Locator) =>
 
 const presentedFrames = (clip: Locator) => presentedReports(clip).then((reports) => reports.seen);
 
-/** Every frame shown is inside the clip, from `from` to `to` (the rule is in e2e/frameCount.ts, beside the count). */
-const expectInside = (seen: Presented[], from: number, to: number) => {
-  inside(seen, from, to, expect);
+/**
+ * Every frame shown is inside the clip, from `from` to `to` (the rule is in e2e/frameCount.ts, beside the count). With the
+ * raw reports at hand, the report that turned the clip lends how late it ran.
+ */
+const expectInside = (seen: Presented[], from: number, to: number, raw?: RawReport[]) => {
+  inside(seen, from, to, expect, raw && lateness(raw));
 };
 
 async function linkAndOpen(page: Page) {
@@ -414,7 +417,7 @@ test('a page too busy to see every frame shows a frame or two past the out point
     contentType: 'application/json',
   });
   expect(seen.some((s) => s.missed >= 1)).toBe(true);
-  expectInside(seen, 10, 20);
+  expectInside(seen, 10, 20, raw);
   // And it still goes round: back at its start more than once.
   const frames = seen.map((s) => s.frame);
   expect(frames.filter((frame, i) => i > 0 && frame < (frames[i - 1] ?? 0)).length).toBeGreaterThanOrEqual(2);

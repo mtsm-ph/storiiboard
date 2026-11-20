@@ -51,6 +51,17 @@ export function countMissed(raw: readonly RawReport[]): Presented[] {
   });
 }
 
+/**
+ * How late each report ran for its own frame, in whole frames: its callback's time minus its picture's, never below 0, and
+ * 0 when the engine gives no presentation time. On checkpoint nov20-a the out frame's report ran over two frames late and
+ * the picture was on 22 when the clip turned, which `countMissed` (frames skipped between reports) has no way to see.
+ */
+export function lateness(raw: readonly RawReport[]): number[] {
+  return raw.map((report) =>
+    report.presentationTime === null ? 0 : Math.max(0, Math.floor((report.now - report.presentationTime) / FRAME_MS)),
+  );
+}
+
 /** The few matchers expectInside uses, so the spec hands it Playwright's `expect` and the unit test Vitest's. */
 type Expect = (
   actual: number,
@@ -61,17 +72,32 @@ type Expect = (
  * Every frame shown is inside the clip, from `from` to `to`. The clip turns on the callback that reports its out frame, so
  * a frame past it can only have been shown while the page was too busy to be told: the frames past the out point, one run of
  * them up to the turn, are allowed as many as the page missed in that run. A page under load, as a suite running in parallel
- * is, does this; a count with no slack failed on it (21 where 20).
+ * is, does this; a count with no slack failed on it (21 where 20). With `late` (from `lateness`), a run also starts with as
+ * many frames as the report that turned the clip ran late by: the out frame's own report (the first of them in a row just
+ * before the run), else the run's first report. Without it every report counts as on time.
  */
-export function expectInside(seen: readonly Presented[], from: number, to: number, expect: Expect) {
+export function expectInside(seen: readonly Presented[], from: number, to: number, expect: Expect, late?: readonly number[]) {
   expect(Math.min(...seen.map((s) => s.frame))).toBeGreaterThanOrEqual(from);
   let allowed = 0;
-  for (const { frame, missed } of seen) {
+  let inRun = false;
+  // The lateness of the first of the out frame's reports just before this point, null when the last report wasn't one.
+  let outLate: number | null = null;
+  let turnLate = 0;
+  seen.forEach(({ frame, missed }, i) => {
     if (frame <= to) {
       allowed = 0;
-      continue;
+      inRun = false;
+      outLate = frame === to ? (outLate ?? late?.[i] ?? 0) : null;
+      return;
+    }
+    if (!inRun) {
+      inRun = true;
+      turnLate = outLate ?? late?.[i] ?? 0;
+      outLate = null;
+      allowed = turnLate;
     }
     allowed += missed;
-    expect(frame - to, `frame ${String(frame)} reported after ${String(missed)} missed (${String(allowed)} allowed in this run)`).toBeLessThanOrEqual(allowed);
-  }
+    const turn = turnLate > 0 ? `, the turn's report ran ${String(turnLate)} frame${turnLate === 1 ? '' : 's'} late` : '';
+    expect(frame - to, `frame ${String(frame)} reported after ${String(missed)} missed (${String(allowed)} allowed in this run)${turn}`).toBeLessThanOrEqual(allowed);
+  });
 }
