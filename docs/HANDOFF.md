@@ -12,7 +12,8 @@ What only Kevin can do or answer, one line each, with what it unblocks. Nothing 
   `npm run tauri build -- --debug --no-bundle`, then `bash scripts/launchCheck.sh src-tauri/target/debug/storiiboard`.
   It prints eight lines. `accents ok`: the failure on nov20-c is GitHub's virtual Mac, and the question becomes what
   the check should do there. A failure: the line says which call failed and what the page gets, and choosing a
-  project's key image or logo is broken in the Mac app. Unblocks: #206, #213, #219 and #223.
+  project's key image or logo is broken in the Mac app. The check's own picture is ruled out, and the likely call is
+  the worker reading its canvas back, `(worker: read)` (start here, below). Unblocks: #206, #213, #219 and #223.
 - **Name the next checkpoint, and say whether a job that is green with a flaky test is enough to merge on.** Tonight
   it was read as no, and no checkpoint was clean anyway. Flaky this night, none touched by the PRs beside them:
   - perspectiveViews.spec.ts, "a gaffer sees Grip & electric first…" (nov20-a, the Mac): the first letter typed
@@ -62,6 +63,9 @@ What only Kevin can do or answer, one line each, with what it unblocks. Nothing 
     moodboards).
   - A HEIC whose grid carries a colour profile that its tiles don't is refused as unreadable, never guessed. None
     has been seen: Kevin's two iPhone photos and the fixture carry it on both.
+  - With no profile, the grid's own colour numbers are used over its tiles'. One that says "unspecified" (2, or the
+    reserved 0) falls to what the tiles' stream says for that number, so the two numbers can come from two places; a
+    stated number the page can't be told makes the photo sRGB. No such file has been seen.
   - No limit on a photo's pixels: a 200 MP HEIC would take over 1 GB while decoding, or be refused as too slow. Name
     a number to refuse it first.
   - Not covered: a HEIC as a project's key image on Windows (the accent reader takes its own path), and a HEIC
@@ -420,7 +424,7 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20, after the overnight run; written at 05:25 EST)
+### Next session: start here (Nov 20, after the overnight run; written at 05:40 EST)
 
 Kevin's overnight note (Nov 20) is word for word in `private/NOV20_NIGHT.md` on his PC. The night's three checkpoints
 are spent (nov20-a, -b, -c); `checkpoint/baselines-nov20` was not run, because nothing mergeable needed it.
@@ -450,8 +454,18 @@ all eight steps.
        `createImageBitmap`, the canvas, `drawImage` or `getImageData` threw inside the worker. The same worker
        passes the themes spec in Playwright's WebKit on the same runner. It is GitHub's virtual Mac only, or every
        Mac (then choosing a project's key image fails in the Mac app: there is no fallback when the worker itself
-       reports an error), or the check's own 16 × 16 picture. No run can tell yet. #223 makes the next one say which
-       call failed and what the page gets from the same picture.
+       reports an error). No run can tell yet. #223 makes the next one say which call failed and what the page gets
+       from the same picture.
+       - **The check's own 16 × 16 picture is not the cause** (read at 05:40 EST, in #223's comments). It is a
+         valid PNG by a strict read (every CRC, the zlib stream, every pixel), and in WebKit's source a picture that
+         can't be decoded fails with words of its own ("Cannot decode the data in the argument to
+         createImageBitmap"). The bare "invalid state" words are what `getImageData` gives when a canvas's pixels
+         can't be read back (CanvasRenderingContext2DBase.cpp), so expect `(worker: read)`.
+       - **The lean is the runner, and only a real Mac says.** Safari's engine is understood to draw a canvas in
+         its GPU process (not checked in the source that night), and GitHub's Macs have only a virtual GPU
+         (VideoToolbox wedged on it too, 2.3c). #223's line also says what the page gets from the same picture: if
+         the page reads it where the worker can't, the page standing in for a worker that reports an error is the
+         small fix (today only a worker that can't start or takes too long is replaced by the page, extract.ts).
   - **The quickest answer is Kevin's own Mac** (Only Kevin): on #223's branch, a debug build and
     `bash scripts/launchCheck.sh src-tauri/target/debug/storiiboard`.
   - The stack can't merge while the Mac's installer job is red at that step.
@@ -461,10 +475,10 @@ all eight steps.
   Linux-only tests pass in its own checks (a stalled encoder with a readable file goes on and makes the copy). Both
   passed everything on nov20-c; they wait only because that run had a red job.
 - **#215 (HEIC on Windows, part 1: Rust, 6.27n) ← #218 (part 2: the page).** Part 1 was in nov20-c as it stood then
-  and passed on all three systems; it has had two more rounds since (a colour the grid alone describes is read from
-  the HEIF's own boxes and used or refused, never ignored), checked on Linux only. A last small round was being
-  built at 05:25 EST (a grid whose colour number is "unspecified" no longer hides what its tiles' stream says): it
-  landed only if a commit after `b7ea680` on `feat/heic-windows` says so. Part 2 has never been in a checkpoint: its
+  and passed on all three systems; it has had three more rounds since, each reviewed and checked on Linux (and by
+  its Rust suite on Kevin's PC), none in a checkpoint: a colour the grid alone describes is read from the HEIF's own
+  boxes and used or refused, never ignored (two rounds), and a grid whose colour number is "unspecified" no longer
+  hides what its tiles' stream says (the last, `f88cb3c`). Part 2 has never been in a checkpoint: its
   WebKit-on-a-Mac test has never run.
 - **#221 ("This picture is no longer in the project.", 6.27o):** three strings in en and es, two tests' expected
   words. No screenshot shows them. Never in a checkpoint.
