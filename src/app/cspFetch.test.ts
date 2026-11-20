@@ -20,6 +20,10 @@ const ALLOWED: Readonly<Record<string, { count: number; reason: string }>> = {
     count: 1,
     reason: 'fontBytes: bundled font files imported with ?url (same-origin), for the storyboard and call sheet PDFs',
   },
+  'src/app/launchCheck/start.tsx': {
+    count: 1,
+    reason: 'the worker scripts the app itself just started (same-origin), read for their policy header by the launch check (6.27l)',
+  },
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {
