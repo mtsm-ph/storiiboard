@@ -64,17 +64,22 @@ type TextChunk = Pick<Awaited<ReturnType<PdfPage['getTextContent']>>, 'items'>;
 async function read(pdfjs: PdfJs, task: ReturnType<PdfJs['getDocument']>, signal: AbortSignal): Promise<PdfText[]> {
   const document = await task.promise;
   const items: PdfText[] = [];
+  // A call, not the property: the signal changes across an await, which TypeScript's narrowing doesn't see.
+  const stopped = (): boolean => signal.aborted;
   for (let number = 1; number <= document.numPages; number += 1) {
     // Past the time limit the import has already failed with its own words: nothing more is read.
-    if (signal.aborted) break;
+    if (stopped()) break;
     const page = await document.getPage(number);
+    // The limit can pass while the page is fetched: an abort listener added now would never fire.
+    if (stopped()) break;
     // The page as it's shown: a rotated or offset page maps its text through this, so reading order holds.
     const viewport = page.getViewport({ scale: 1 });
     // Read chunk by chunk through a reader, not pdf.js's getTextContent: it gathers the chunks with
     // `for await … of` a ReadableStream, which Safari's engine (macOS's webview) doesn't have (6.27p).
     const reader = (page.streamTextContent() as ReadableStream<TextChunk>).getReader();
-    // At the time limit a pending read ends as done, so the lock below is let go of.
-    const cancel = (): void => void reader.cancel().catch(() => undefined);
+    // At the time limit a pending read ends as done, so the lock below is let go of. pdf.js asserts its cancel has an
+    // Error for a reason; nobody sees these words.
+    const cancel = (): void => void reader.cancel(new Error('PDF reading stopped at the time limit')).catch(() => undefined);
     signal.addEventListener('abort', cancel, { once: true });
     try {
       for (;;) {
