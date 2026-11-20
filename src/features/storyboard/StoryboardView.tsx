@@ -7,6 +7,7 @@ import { choiceLabel, HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneLabel, SHOT_SIZE
 import type { ShotStatus } from '../../core/model/shotStatus';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { Button } from '../../ui/Button';
+import { useScrollLane } from '../../ui/scrollLane';
 import { cx } from '../../ui/cx';
 import { fromKeyboard, isMenuKey } from '../../ui/menuKey';
 import { PencilButton, TitleField } from '../../ui/EditableTitle';
@@ -372,6 +373,8 @@ export function StoryboardView({
   onRetitleShot,
   onContextMenu,
 }: StoryboardViewProps) {
+  const strip = useRef<HTMLDivElement>(null);
+  useScrollLane(strip);
   const frameCount = scenes.reduce((n, s) => n + s.frames.length, 0);
   // Your departments alone on the cards, in a focus view (3.6c); the tile gives it.
   const focus = useContext(FocusContext);
@@ -749,7 +752,7 @@ export function StoryboardView({
     // One row through the whole board. Cards keep a fixed height, so wide and tall frames line up along it.
     const width = Math.round(120 * aspectRatio);
     body = (
-      <div data-scroll-root="" className="flex min-h-0 flex-1 gap-gap overflow-x-auto p-3">
+      <div ref={strip} data-scroll-root="" className="flex min-h-0 flex-1 gap-gap overflow-x-auto p-3">
         {scenes.map((scene) => (
           <section
             key={scene.id}
@@ -888,8 +891,10 @@ function ShotList({ scenes, customNames, selectedShotId, itemProps, addProps, sc
   const cell = 'px-2 py-1.5 align-top';
   // The built-in columns, then one per custom field the project's frames use.
   const columns = 10 + customNames.length;
+  const table = useRef<HTMLDivElement>(null);
+  useScrollLane(table);
   return (
-    <div className="overflow-x-auto">
+    <div ref={table} className="overflow-x-auto">
       <table className="w-full border-collapse text-[12px]">
         <caption className="sr-only">{t('storyboardView.shotList')}</caption>
         <thead>

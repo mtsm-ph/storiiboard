@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react';
 import { projectStore, useProject } from '../../app/projectStore';
 import { t } from '../../core/i18n';
 import { cx } from '../../ui/cx';
+import { useScrollLane } from '../../ui/scrollLane';
 import { Select } from '../../ui/fields';
 import { useRowDrag, type RowDragList } from '../../ui/useRowDrag';
 import { addPage, deletePage, duplicatePage, movePage } from './deckActions';
@@ -34,6 +35,8 @@ export function PagesPanel({ boardId, onCentre }: { boardId: string; onCentre: (
   const [open, setOpen] = useState(true);
   const [format, setFormat] = useState<PageFormat | ''>('');
   const [turn, setTurn] = useState<PageOrientation | ''>('');
+  const list = useRef<HTMLDivElement>(null);
+  useScrollLane(list);
   const root = useRef<HTMLElement>(null);
   const listId = useId();
   const pages = pagesOf(records, boardId);
@@ -78,7 +81,7 @@ export function PagesPanel({ boardId, onCentre }: { boardId: string; onCentre: (
           {open ? '‹' : '›'}
         </button>
       </div>
-      <div id={listId} data-pages-scroll={boardId} className={cx('min-h-0 flex-1 flex-col overflow-y-auto', open ? 'flex' : 'hidden')}>
+      <div ref={list} id={listId} data-pages-scroll={boardId} className={cx('min-h-0 flex-1 flex-col overflow-y-auto', open ? 'flex' : 'hidden')}>
         {pages.length === 0 && <p className="p-3 text-[12px] text-text-muted">{t('deck.noPages')}</p>}
         <ol data-pages-list={boardId}>
           {pages.map((page, i) => {
