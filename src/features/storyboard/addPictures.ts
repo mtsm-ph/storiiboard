@@ -6,7 +6,7 @@ import { placeFiles, type PreparedFile } from '../video/linkVideos';
 import { rememberVideoFile } from '../../app/videoFiles';
 import { makeCopy } from '../video/playbackCopies';
 import { prepareVideo } from '../video/prepareVideo';
-import { picturesBusy } from './picturesBusy';
+import { prepareEach } from './picturesBusy';
 import { projectStore } from '../../app/projectStore';
 import { prepareImage } from '../../core/media/image';
 import type { PictureTarget } from './framePictures';
@@ -36,20 +36,17 @@ export async function prepare(added: AddedFile, handle: number | undefined): Pro
 export async function addFiles(files: readonly AddedFile[], target: PictureTarget): Promise<void> {
   const { project } = projectStore.getState();
   if (!project || files.length === 0) return;
-  picturesBusy.setState((s) => ({ count: s.count + files.length }));
   const prepared: PreparedFile[] = [];
   const problems: { name: string; reason: string }[] = [];
-  try {
-    for (const added of files) {
-      try {
-        prepared.push(await prepare(added, project.file.nativeHandle));
-      } catch (error) {
-        problems.push({ name: added.file.name, reason: reason(error) });
-      }
-    }
-  } finally {
-    picturesBusy.setState((s) => ({ count: s.count - files.length }));
-  }
+  await prepareEach(
+    files,
+    async (added) => {
+      prepared.push(await prepare(added, project.file.nativeHandle));
+    },
+    (added, error) => {
+      problems.push({ name: added.file.name, reason: reason(error) });
+    },
+  );
 
   // Another project may have opened while the files were prepared; they belong to the one they were dropped on.
   if (prepared.length > 0 && projectStore.getState().project === project) {
