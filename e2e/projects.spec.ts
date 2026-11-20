@@ -547,3 +547,176 @@ test('no section can be chosen while a project opens, by click or key, and every
   await page.keyboard.press('Alt+5');
   await expect(page.getByRole('region', { name: 'Production workspace' })).toBeVisible();
 });
+
+// Holds the page's next project open back until the test lets it go: a project's file is read through
+// src/app/fileAccess.ts's driver, wrapped here in the page. `fail` makes the held open fail, as a file a sync left
+// unreadable would.
+type HeldOpen = { asked: boolean; release: () => void };
+type HeldWindow = { __sbdHeldOpen: HeldOpen };
+async function holdNextOpen(page: Page, fail = false) {
+  await page.evaluate(async (fail) => {
+    const url = '/src/app/fileAccess.ts';
+    const { appDriver } = (await import(/* @vite-ignore */ url)) as typeof import('../src/app/fileAccess');
+    const open = appDriver.open.bind(appDriver);
+    let letGo!: () => void;
+    const gate = new Promise<void>((resolve) => (letGo = resolve));
+    const held: HeldOpen = {
+      asked: false,
+      release: () => {
+        appDriver.open = open;
+        letGo();
+      },
+    };
+    (window as unknown as HeldWindow).__sbdHeldOpen = held;
+    appDriver.open = async (path) => {
+      held.asked = true;
+      await gate;
+      return open(fail ? 'Nowhere.sbd' : path);
+    };
+  }, fail);
+}
+const openAsked = (page: Page) => page.waitForFunction(() => (window as unknown as HeldWindow).__sbdHeldOpen.asked);
+const releaseOpen = (page: Page) =>
+  page.evaluate(() => {
+    (window as unknown as HeldWindow).__sbdHeldOpen.release();
+  });
+/** A sync replacing the open file, flagged as a refused write flags it (src/app/projects/actions.ts reopens it). */
+const syncReplacedFile = (page: Page) =>
+  page.evaluate(async () => {
+    const url = '/src/app/projectStore.ts';
+    const { projectStore } = (await import(/* @vite-ignore */ url)) as typeof import('../src/app/projectStore');
+    projectStore.setState({ changedOnDisk: true });
+  });
+const isOpening = (page: Page) =>
+  page.evaluate(async () => {
+    const url = '/src/app/openingProject.ts';
+    const { isOpeningProject } = (await import(/* @vite-ignore */ url)) as typeof import('../src/app/openingProject');
+    return isOpeningProject();
+  });
+const sectionButton = (page: Page, name: string) =>
+  sidebar(page).locator('[id^="section-"]').filter({ hasText: new RegExp(`^${name}`) });
+const SECTIONS = ['Storyboard', 'Assets', 'Team', 'Setup', 'Production', 'Moodboard'];
+
+test('no scene or board row can be chosen while another project opens in place, and every one can once it is open', async ({ page }) => {
+  // Two projects: Open Water, empty, and Bey County, with a scene and a board, open.
+  await newProject(page, 'Open Water');
+  await sidebar(page).getByRole('button', { name: /^Project:/ }).click();
+  await newProject(page, 'Bey County');
+  const addScene = sidebar(page).getByRole('button', { name: '+ Add Scene' });
+  const addBoard = sidebar(page).getByRole('button', { name: '+ Add Board' });
+  await addScene.click();
+  await expect(scenes(page)).toHaveText([/SC 01/]);
+  await sectionButton(page, 'Moodboard').click();
+  const moodboard = page.getByRole('region', { name: 'Moodboard', exact: true });
+  await moodboard.getByRole('button', { name: 'New board' }).click();
+  await moodboard.getByLabel('Board name').fill('Look book');
+  await moodboard.getByRole('button', { name: 'Create board' }).click();
+  const boardRow = sidebar(page).getByRole('list', { name: 'Boards' }).getByRole('button', { name: 'Look book' });
+  await expect(boardRow).toHaveCount(1);
+  await sectionButton(page, 'Storyboard').click();
+  const storyboard = page.getByRole('region', { name: 'Storyboard workspace' });
+  await expect(storyboard).toBeVisible();
+
+  // Focus on the board's row as the switch to Open Water begins from outside the sidebar, as a file handed over by
+  // the system would, held until the test lets it go.
+  await boardRow.focus();
+  await holdNextOpen(page);
+  void page.evaluate(async () => {
+    const url = '/src/app/projects/actions.ts';
+    const { openRecent, recentStore } = (await import(/* @vite-ignore */ url)) as typeof import('../src/app/projects/actions');
+    const entry = recentStore.getState().entries.find((e) => e.name === 'Open Water');
+    if (!entry) throw new Error('Open Water is not in Recent');
+    await openRecent(entry.path);
+  });
+  await openAsked(page);
+
+  // Opening: Bey County's rows are still listed, and every one is disabled, the "+" rows too.
+  await expect(scenes(page)).toHaveText([/SC 01/]);
+  await expect(scenes(page)).toBeDisabled();
+  await expect(boardRow).toBeDisabled();
+  await expect(addScene).toBeDisabled();
+  await expect(addBoard).toBeDisabled();
+  for (const name of SECTIONS) await expect(sectionButton(page, name)).toBeDisabled();
+  // Enter where the board's row had focus chooses nothing.
+  await page.keyboard.press('Enter');
+  // A press on the board's row, released once Open Water is in: its rows are gone by then, so the release lands
+  // elsewhere. Neither chooses anything.
+  const box = await boardRow.boundingBox();
+  if (!box) throw new Error('The board row has no box');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await releaseOpen(page);
+  await expect(sidebar(page).getByRole('button', { name: 'Project: Open Water' })).toBeVisible();
+  await expect(scenes(page)).toHaveCount(0);
+  await expect(boardRow).toHaveCount(0);
+  await page.mouse.up();
+
+  // Open: the workspace shown before the switch, its section the current one and no other, and focus, whose row went
+  // with Bey County, on that section.
+  await expect(storyboard).toBeVisible();
+  await expect(sectionButton(page, 'Storyboard')).toHaveAttribute('aria-current', 'page');
+  await expect(sidebar(page).locator('[aria-current="page"]')).toHaveCount(1);
+  await expect(sectionButton(page, 'Storyboard')).toBeFocused();
+  for (const name of SECTIONS) await expect(sectionButton(page, name)).toBeEnabled();
+
+  // Every row works again.
+  await addScene.click();
+  await expect(scenes(page)).toHaveText([/SC 01/]);
+  await sectionButton(page, 'Setup').click();
+  await expect(page.getByRole('region', { name: 'Setup workspace' })).toBeVisible();
+  await scenes(page).click();
+  await expect(storyboard).toBeVisible();
+  await expect(scenes(page)).toHaveAttribute('aria-current', 'true');
+  await addBoard.click();
+  await expect(moodboard.getByRole('button', { name: 'New board' })).toBeVisible();
+  await expect(sectionButton(page, 'Moodboard')).toHaveAttribute('aria-current', 'page');
+});
+
+test('focus on a sidebar row while a sync reopen runs comes back to that row once it is open', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  await sidebar(page).getByRole('button', { name: '+ Add Scene' }).click();
+  const scene = scenes(page);
+  await expect(scene).toHaveText([/SC 01/]);
+  await scene.click();
+  await expect(scene).toBeFocused();
+
+  await holdNextOpen(page);
+  await syncReplacedFile(page);
+  await openAsked(page);
+  await expect(scene).toBeDisabled();
+  for (const name of SECTIONS) await expect(sectionButton(page, name)).toBeDisabled();
+  await expect(scene).not.toBeFocused();
+
+  await releaseOpen(page);
+  await expect(page.getByText('so Storiiboard opened the newest version')).toBeVisible();
+  await expect(scene).toBeEnabled();
+  await expect(scene).toBeFocused();
+  expect(await isOpening(page)).toBe(false);
+});
+
+test('after a sync reopen that fails, the project closes while the sections still wait', async ({ page }) => {
+  await newProject(page, 'Bey County');
+  await sidebar(page).getByRole('button', { name: '+ Add Scene' }).click();
+  await expect(scenes(page)).toHaveText([/SC 01/]);
+
+  // Whether a project is shown as opening at the moment the project leaves the store, read in the page as it goes.
+  await page.evaluate(async () => {
+    const urls = ['/src/app/projectStore.ts', '/src/app/openingProject.ts'] as const;
+    const { projectStore } = (await import(/* @vite-ignore */ urls[0])) as typeof import('../src/app/projectStore');
+    const { isOpeningProject } = (await import(/* @vite-ignore */ urls[1])) as typeof import('../src/app/openingProject');
+    const seen: boolean[] = [];
+    (window as unknown as { __sbdClosing: boolean[] }).__sbdClosing = seen;
+    projectStore.subscribe((state, before) => {
+      if (state.project === null && before.project !== null) seen.push(isOpeningProject());
+    });
+  });
+  await holdNextOpen(page, true);
+  await syncReplacedFile(page);
+  await openAsked(page);
+  for (const name of SECTIONS) await expect(sectionButton(page, name)).toBeDisabled();
+  await releaseOpen(page);
+
+  await expect(page.getByText(/^Couldn’t open “Bey County\.sbd”/)).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __sbdClosing: boolean[] }).__sbdClosing)).toEqual([true]);
+  expect(await isOpening(page)).toBe(false);
+});

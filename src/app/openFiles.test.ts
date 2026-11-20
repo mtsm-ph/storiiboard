@@ -203,4 +203,34 @@ describe('a project shown as opening', () => {
     expect(isOpeningProject()).toBe(false);
     await elsewhere.close();
   });
+
+  /** Whether a project was shown as opening at each moment one arrived in the store while `run` ran. */
+  async function arrivals(run: () => Promise<unknown>): Promise<boolean[]> {
+    const arriving: boolean[] = [];
+    const unsubscribe = store.subscribe((state, before) => {
+      if (state.project !== null && state.project !== before.project) arriving.push(isOpeningProject());
+    });
+    try {
+      await run();
+    } finally {
+      unsubscribe();
+    }
+    return arriving;
+  }
+
+  it('is opening as a new project arrives, and not after it is made', async () => {
+    const path = folder.path('Open Water.sbd');
+    expect(await arrivals(() => createProjectFile(path, { store, driver: nodeDriver }))).toEqual([true]);
+    expect(openPath()).toBe(path);
+    expect(isOpeningProject()).toBe(false);
+  });
+
+  it('is opening as the reopened project arrives after a sync, and not after it is open', async () => {
+    const path = await onDisk('Bey County.sbd');
+    await openProjectFile(path, { store, driver: nodeDriver });
+    const first = store.getState().project;
+    expect(await arrivals(() => reopenProjectFile(path, { store, driver: nodeDriver }))).toEqual([true]);
+    expect(store.getState().project).not.toBe(first);
+    expect(isOpeningProject()).toBe(false);
+  });
 });
