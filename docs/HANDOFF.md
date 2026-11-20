@@ -11,10 +11,31 @@ What only Kevin can do or answer, one line each, with what it unblocks. Nothing 
 - **A decoded copy of one of Kevin's HEICs** (and two error logs, one with its file name) is still in the Nov 19
   session's scratch folder. Kevin said to delete it (Nov 20); the delete was refused again before any prompt reached
   him. Kevin deletes the folder by hand, or allows the delete. Unblocks: closing the Nov 19 slip; no work waits.
-- **The launch check: what it can and can't prove,** once its brief is written. Kevin reads it; the build goes on
-  unless he says stop.
-- **The stalled encoder's fallback:** the plan, if the app doesn't try the next encoder by itself today. Unblocks:
-  that small fix.
+- **The agents' model (#211, open, not merged).** Kevin's Nov 20 overnight message carried two opposite lines: typed,
+  "set `model: inherit` in builder.md and reviewer.md as a docs-only PR first"; in the note, "Don't change those
+  files tonight." #211 is the first line, ready; `v2`'s agent files are unchanged. Merge it or close it. Unblocks:
+  which model builders and reviewers run on from the next chat.
+- **checkpoint/nov20-a was red on the Mac's WebKit job, so #207 and #208 are not merged** (run 44685330762; every
+  other job green):
+  - **player.spec's busy-page test, the one #207 rewrote, failed twice with the same numbers** ("frame 22 reported
+    after 1 missed (1 allowed)"). The out frame's callback ran 98 and 90 ms after its picture (over 2 frames late);
+    the clip paused in that very callback; frame 22 had already been shown. #207's count gives credit for frames
+    skipped between two reports (1 here), not for a callback that is late for its own frame (2 here). The app did
+    its part; the count is short. Proposed: what a run past the out point is allowed also counts how late the turning
+    callback ran (whole frames of its `now` minus its presentation time). Both kept reports pass with it
+    (test-results/nov20a-frames on Kevin's PC; they belong with the fix as fixtures). It loosens a test's allowance,
+    so it is Kevin's. Unblocks: #207.
+  - **Two tests were flaky there** (each timed out once, passed on retry); neither is touched by #207 or #208:
+    - perspectiveViews.spec.ts, "a gaffer sees Grip & electric first…": the first letter typed after "+ New
+      person" was lost (the person was "am Ortiz"). The spec's `addPerson` types before the name field has focus.
+    - planLayers.spec.ts line 220 (not the scroll bar this time): after the reload, Setup was clicked while the
+      project was still opening, and the app then showed Storyboard.
+    For each: fix the test (wait for the field's focus; wait for the project to be open), or the app (the name
+    field takes focus at once; a section chosen while a project opens is kept)? Unblocks: a Mac job that stays clean.
+- **The launch check: what it can and can't prove** is in docs/briefs/launch-check.md (on `ci/launch-check`). Kevin
+  reads it; the build went on.
+- **A second encoder on the Mac?** A playback copy has one there (VideoToolbox), so a stall has nothing to fall back
+  to. A software one would change clips too and needs a try on a real Mac. Unblocks: a fallback on the Mac.
 - **An HDR HEIF from Kevin's camera** in private/samples, when he can. Unblocks: HDR HEIF beyond a refusal.
 
 ## What a cloud session can and can't do
@@ -360,7 +381,43 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20: Kevin's answers to the evening report; nothing of them started)
+### Next session: start here (Nov 20, overnight run; written at 02:15 EST, kept current after each step)
+
+Kevin's overnight note (Nov 20) is word for word in `private/NOV20_NIGHT.md` on his PC. In short: the work in order
+(1 nov20-a for #207 and #208; 2 a launch check stacked on #206, then nov20-b; 3 the stalled encoder; 4 HEIC on
+Windows; 5 the two ready screenshot changes on baselines-nov20; 6 the work list); four checkpoints at most
+(`checkpoint/nov20-a`, `-b`, `-c`, `checkpoint/baselines-nov20`); a PR merges only on a checkpoint green in every
+job; a red or flaky job that isn't the machine's waits for him, as does anything that changes the file format, adds
+a dependency, touches `main`, deletes, or changes any other screenshot.
+
+- **Agents' model:** #211 open, not merged (see Only Kevin). This chat's builders and reviewers ran on
+  claude-opus-5-5, as their files say (the model check passed on the first builder run).
+- **1. nov20-a (run 44685330762): red on the Mac's WebKit job; nothing merged.** See Only Kevin for the three tests
+  and their causes. #207 waits for Kevin. #208 is not at fault; it goes into nov20-c with the encoder fix stacked on
+  it.
+- **2. The launch check is built** on `ci/launch-check` (stacked on `fix/worker-csp`; commits d74e3c1 and 3cc17a5,
+  not pushed when this was written): `STORIIBOARD_LAUNCH_CHECK=1`, eight steps, exit codes, `scripts/launchCheck.sh`,
+  one new last step in checkpoint.yml's `installers` job. It passed for real on this PC (a debug build, WebView2
+  157): all eight steps, exit 0, about 2 s. One design review before the build and two reviews after. Next: the
+  reviews' fixes, push, PR, then `checkpoint/nov20-b` = `v2` + #206 + the launch check. Nothing of it has run on a
+  Mac: WKWebView's first try is that checkpoint.
+- **3. The stalled encoder.** What the app does today: on Windows it already goes on from the hardware encoder to
+  the software one after a stall (if the file's start still answers), but every stall ends in the drive's words; on
+  the Mac there is one encoder. The brief is `private/briefs/stalled-encoder.md`: a read of the file past where
+  ffmpeg stopped chooses the words; the two changed expectations are
+  `stops_an_encode_that_says_nothing_for_the_stall_time_and_frees_the_turn` and
+  `a_failure_after_a_stall_reports_the_stall`; the read-stall test gets a seam. Its Linux-only tests can't run on
+  this PC: the PR's own checks run them. Not started.
+- **4. HEIC on Windows.** The first brief is `private/briefs/heic-rust.md` (Rust: `heic_picture`, the fixtures, a
+  thin caller in the page that nothing uses yet). Probed Nov 20 with the app's own ffmpeg on the script-drawn
+  fixture: the tile grid's PNG carries no colour profile, a PNG of one tile does, so the profile is carried by a
+  second small ffmpeg run. The fixtures are downloaded to `test-results/heic-artifact` (the run's artifact expires
+  about Nov 26). Part 2 (the page's fallback, "Reading 3 of 30", the end-to-end proof) has no brief yet. Not started.
+- **5. The two screenshot changes.** The brief is `private/briefs/scroll-lane-and-picture-words.md`: a lane beside a
+  scroller only while it overflows and bars overlay content (measured, never by the system's name);
+  `moodboard.pictureGone` and the two paste notices say "no longer in the project". Not started.
+
+### Earlier: start here (Nov 20: Kevin's answers to the evening report; nothing of them started)
 
 The whole list, Kevin's words and what each item needs are in `private/NOV20_START.md` on Kevin's PC (git-ignored).
 Read it after this file. In short:
