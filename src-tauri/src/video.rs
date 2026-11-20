@@ -320,9 +320,94 @@ enum StopEnd {
     Later,
 }
 
+/// What ended the last watched run's stall watch on this thread, for the tests: the clip's index rewrite heard
+/// starting, or the last frame reported.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum WatchEnd {
+    Rewrite,
+    LastFrame,
+}
+
 #[cfg(test)]
 thread_local! {
     static STOP_END: std::cell::Cell<Option<StopEnd>> = const { std::cell::Cell::new(None) };
+    static WATCH_END: std::cell::Cell<Option<WatchEnd>> = const { std::cell::Cell::new(None) };
+    /// Whether the last run that ended by itself on this thread said its index rewrite was starting (`SECOND_PASS`).
+    static REWRITE_HEARD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The log level a clip's ffmpeg runs at: info, each line tagged with its level, so the one info line the stall watch
+/// needs (`SECOND_PASS`) can be heard while the errors are kept exactly as `-loglevel error` gives them (`Errors`).
+const CLIP_LOG: &str = "level+info";
+
+/// What MP4's muxer says at info level just before `+faststart` rewrites the whole file to move its index to the front:
+/// the last word before a silence that can outlast the stall time on a slow share. ffmpeg's own `-progress` says
+/// nothing in time: its blocks come from the main loop only, and the one with the last frame comes after the rewrite.
+const SECOND_PASS: &str = "Starting second pass: moving the moov atom to the beginning of the file";
+
+/// ffmpeg's level names, as `level` tags its lines with them, and the ones `-loglevel error` would print.
+const LEVELS: [&str; 9] = [
+    "quiet", "panic", "fatal", "error", "warning", "info", "verbose", "debug", "trace",
+];
+const ERROR_LEVELS: [&str; 3] = ["panic", "fatal", "error"];
+
+/// A line of ffmpeg's error output at `CLIP_LOG`: the line without its level tag, the level, and the message after the
+/// prefixes. The tag follows the line's `[name @ 0x…] ` prefixes, if any; a line with none (one message carried over
+/// several lines, "Last message repeated") has no level of its own.
+fn level_of(line: &str) -> (String, Option<&str>, &str) {
+    let mut at = 0;
+    while let Some(end) = line[at..]
+        .strip_prefix('[')
+        .and_then(|rest| rest.find("] "))
+    {
+        let name = &line[at + 1..at + 1 + end];
+        let after = at + end + 3;
+        if LEVELS.contains(&name) {
+            return (
+                format!("{}{}", &line[..at], &line[after..]),
+                Some(name),
+                &line[after..],
+            );
+        }
+        if !name.contains(" @ ") {
+            break;
+        }
+        at = after;
+    }
+    (line.to_owned(), None, &line[at..])
+}
+
+/// A clip's ffmpeg's error output heard line by line as it runs: the errors kept as `-loglevel error` would give them
+/// (a line with no level of its own goes with the one before it), so `read_failed_in` and the words it leads to read
+/// them as before, and whether the index rewrite has begun. Without tags (another log level) every line is kept.
+struct Errors {
+    kept: Vec<u8>,
+    keeping: bool,
+    rewriting: bool,
+}
+
+impl Errors {
+    fn new() -> Self {
+        Self {
+            kept: Vec::new(),
+            keeping: true,
+            rewriting: false,
+        }
+    }
+
+    fn hear(&mut self, line: &str) {
+        let (untagged, level, message) = level_of(line);
+        if let Some(level) = level {
+            self.keeping = ERROR_LEVELS.contains(&level);
+        }
+        if message.trim_end() == SECOND_PASS {
+            self.rewriting = true;
+        }
+        if self.keeping {
+            self.kept.extend_from_slice(untagged.as_bytes());
+        }
+    }
 }
 
 /// `run_heard`, stopped as soon as `stop` is set (a Cancel, the app quitting): `CLIP_CANCELLED`. `leftover`, a file
@@ -364,9 +449,10 @@ struct Stall {
 /// ffmpeg's `-progress`, and a run whose counts go no further for the stall time has stalled, wherever it is. Watched,
 /// the time limit no longer cuts a stall short: past it, a run still moving ends as too slow the next time it's heard
 /// (within half a second, as ffmpeg reports), while a quiet one is left to the stall, so it can be told an encoder's
-/// hang. Once the last frame has been reported the watch ends and the time limit alone holds: a clip's `+faststart`
-/// rewrites the whole file then without a word, which on a slow share can outlast the stall time. A run lasts at most
-/// `timeout` plus the stall time.
+/// hang. Once its error output says the index rewrite is starting (`SECOND_PASS`, heard as `Errors` hears it), or the
+/// last frame has been reported, the watch ends and the time limit alone holds: a clip's `+faststart` rewrites the
+/// whole file then without a word, which on a slow share can outlast the stall time. A run lasts at most `timeout`
+/// plus the stall time.
 fn run_watched(
     mut command: Command,
     timeout: Duration,
@@ -440,12 +526,29 @@ fn run_watched(
         }
         (_, pipe) => read_all(pipe),
     };
-    let stderr = read_all(
-        child
-            .stderr
-            .take()
-            .map(|p| Box::new(p) as Box<dyn Read + Send>),
-    );
+    // Watched, the error output is heard as it comes, on its own thread and to its end as the progress is: the rewrite
+    // starting ends the watch, and only the errors are kept.
+    let rewriting = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pipe = child
+        .stderr
+        .take()
+        .map(|p| Box::new(p) as Box<dyn Read + Send>);
+    let stderr = match (stall, pipe) {
+        (Some(_), Some(pipe)) => {
+            let rewriting = std::sync::Arc::clone(&rewriting);
+            std::thread::spawn(move || {
+                let mut errors = Errors::new();
+                crate::playback::for_each_line(pipe, |line| {
+                    errors.hear(line);
+                    if errors.rewriting {
+                        rewriting.store(true, Ordering::SeqCst);
+                    }
+                });
+                Ok(errors.kept)
+            })
+        }
+        (_, pipe) => read_all(pipe),
+    };
     let leftover = leftover.map(Path::to_path_buf);
     // Windows can refuse to delete a file for a moment after the process that wrote it has gone (the system, or a virus
     // scanner, still has it open), so the delete is tried again for up to a second.
@@ -488,6 +591,11 @@ fn run_watched(
             }
         });
     };
+    #[cfg(test)]
+    {
+        WATCH_END.with(|end| end.set(None));
+        REWRITE_HEARD.with(|heard| heard.set(false));
+    }
     let mut last_tick = Instant::now();
     let status = loop {
         let stopped = stop.is_some_and(|stop| stop.load(Ordering::SeqCst));
@@ -498,10 +606,25 @@ fn run_watched(
         last_tick = Instant::now();
         let now = started.elapsed();
         let moved = Duration::from_millis(heard.load(Ordering::SeqCst));
-        // Every frame reported: what's left is writing the file out, watched by the time limit alone.
-        let done = stall.is_some_and(|stall| {
+        // The index rewrite begun, or every frame reported: what's left is writing the file out, watched by the time
+        // limit alone. The rewrite is what's heard in practice; the last frame rarely comes before it (`SECOND_PASS`).
+        let rewrite = rewriting.load(Ordering::SeqCst);
+        let last_frame = stall.is_some_and(|stall| {
             f64::from_bits(reached.load(Ordering::SeqCst)) >= stall.frames as f64
         });
+        let done = stall.is_some() && (rewrite || last_frame);
+        #[cfg(test)]
+        if done {
+            WATCH_END.with(|end| {
+                if end.get().is_none() {
+                    end.set(Some(if rewrite {
+                        WatchEnd::Rewrite
+                    } else {
+                        WatchEnd::LastFrame
+                    }));
+                }
+            });
+        }
         let late = match stall {
             None => now >= timeout,
             Some(_) if done => now >= timeout,
@@ -538,7 +661,11 @@ fn run_watched(
             .and_then(Result::ok)
             .ok_or_else(|| Unended::Said(CANT_READ.to_string()))
     };
-    Ok((status, all(stdout)?, all(stderr)?))
+    let (stdout, stderr) = (all(stdout)?, all(stderr)?);
+    // A rewrite quicker than a look (a local drive) can be over before the watch sees it: whether it was heard at all.
+    #[cfg(test)]
+    REWRITE_HEARD.with(|heard| heard.set(rewriting.load(Ordering::SeqCst)));
+    Ok((status, stdout, stderr))
 }
 
 /// Runs ffprobe on a file. The path is one argument of the list, after `-i`, never part of a shell string, and ffprobe
@@ -1286,7 +1413,7 @@ fn clip_filter(
 
 /// How long a clip's encode may take before it's given up on: generous, as an 8K original decodes slowly. Each encoder
 /// tried gets it whole (one that stalled says nothing of how long the next needs), and a stall is caught past it too
-/// (`run_watched`). Once the last frame is reported it alone ends a rewrite that never finishes.
+/// (`run_watched`). Once the index rewrite starts it alone ends a rewrite that never finishes.
 fn clip_timeout(frames: u64, fps_num: u32, fps_den: u32) -> Duration {
     let seconds = frames as f64 * f64::from(fps_den) / f64::from(fps_num.max(1));
     Duration::from_secs_f64(60.0 + seconds * 8.0)
@@ -1462,8 +1589,9 @@ fn walk_encoders(
         if let Some(grade) = &grade {
             command.current_dir(&grade.folder);
         }
+        // At info, tagged, for the one line that says the index rewrite is starting; only the errors are kept (`Errors`).
         command
-            .args(["-hide_banner", "-loglevel", "error", "-y", "-copyts"])
+            .args(["-hide_banner", "-loglevel", CLIP_LOG, "-y", "-copyts"])
             .args(["-protocol_whitelist", "file", "-ss"])
             .arg(format!("{early:.6}"))
             .arg("-i")
@@ -1503,7 +1631,7 @@ fn walk_encoders(
         }
         // Each encoder under the clip's own limit, and a stall past it (`run_watched`): a clip lasts at most the
         // encoders' limits and stalls, and a check after each stall, however it goes.
-        // The watch ends with the last frame: `+faststart` then rewrites the whole file without a word.
+        // The watch ends as the index rewrite starts: `+faststart` then rewrites the whole file without a word.
         let outcome = run_watched(
             command,
             clip_timeout(frames, fps_num, fps_den),
@@ -2757,6 +2885,127 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// A clip's ffmpeg 8.1 error output at `CLIP_LOG`, as recorded on Windows (Nov 20) for a take cut short partway,
+    /// with made-up names: the info lines around the encode, the decoder's errors, and the muxer's line just before
+    /// `+faststart` rewrites the file.
+    const RECORDED_CLIP_LOG: &str = concat!(
+        "[info] Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:/Users/robin/Takes/A001_C004.mp4':\r\n",
+        "[info]   Metadata:\r\n",
+        "[info]     major_brand     : isom\r\n",
+        "[info]   Duration: 00:01:00.00, start: 0.000000, bitrate: 4000 kb/s\r\n",
+        "[info]   Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1920x1080 ",
+        "[SAR 1:1 DAR 16:9], 7913 kb/s, 25 fps, 25 tbr, 12800 tbn (default)\r\n",
+        "[info] Stream mapping:\r\n",
+        "[info]   Stream #0:0 -> #0:0 (h264 (native) -> h264 (h264_mf))\r\n",
+        "[info] Press [q] to stop, [?] for help\r\n",
+        "[h264_mf @ 0000021a9a9f08c0] [info] MFT name: 'H264 Encoder MFT'\r\n",
+        "[info] Output #0, mp4, to '.SC012_12K.mp4.1-0.part':\r\n",
+        "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0000021a9a500000] [warning] Packet corrupt (stream = 0, dts = 378880).\r\n",
+        "[h264 @ 0000021a9a5d8740] [error] Invalid NAL unit size (38962 > 5331).\r\n",
+        "[h264 @ 0000021a9a5d8740] [error] missing picture in access unit with size 5341\r\n",
+        "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0000021a9a4ffd00] [warning] corrupt input packet in stream 0\r\n",
+        "[vist#0:0/h264 @ 0000021a98c799c0] [dec:h264 @ 0000021a9a506640] [error] Decoding error: Invalid data found ",
+        "when processing input\r\n",
+        "[mp4 @ 0000021a98c7e6c0] [info] Starting second pass: moving the moov atom to the beginning of the file\r\n",
+        "[out#0/mp4 @ 0000021a98c77cc0] [info] video:36450KiB audio:694KiB subtitle:0KiB other streams:0KiB global ",
+        "headers:0KiB muxing overhead: 0.047916%\r\n",
+        "[info] frame=  740 fps=346 q=-0.0 Lsize=   37162KiB time=00:00:24.14 bitrate=12606.0kbits/s speed=11.3x ",
+        "elapsed=0:00:02.13    \r\n",
+        "[aac @ 0000021a9a6bbc80] [info] Qavg: 64174.227\r\n",
+    );
+
+    fn heard(said: &str) -> Errors {
+        let mut errors = Errors::new();
+        for line in said.split_inclusive('\n') {
+            errors.hear(line);
+        }
+        errors
+    }
+
+    #[test]
+    fn hears_the_index_rewrite_start_and_keeps_only_the_errors_as_loglevel_error_gives_them() {
+        let errors = heard(RECORDED_CLIP_LOG);
+        assert!(errors.rewriting, "the second pass was heard");
+        assert_eq!(
+            String::from_utf8(errors.kept).unwrap(),
+            concat!(
+                "[h264 @ 0000021a9a5d8740] Invalid NAL unit size (38962 > 5331).\r\n",
+                "[h264 @ 0000021a9a5d8740] missing picture in access unit with size 5341\r\n",
+                "[vist#0:0/h264 @ 0000021a98c799c0] [dec:h264 @ 0000021a9a506640] Decoding error: Invalid data found ",
+                "when processing input\r\n",
+            ),
+            "the warnings and the info lines left out, the errors untagged"
+        );
+        // Without the second pass's line, nothing says the rewrite started; nor does the line said by anything but
+        // the muxer's message itself.
+        let before: String = RECORDED_CLIP_LOG
+            .split_inclusive('\n')
+            .filter(|line| !line.contains("Starting second pass"))
+            .collect();
+        assert!(!heard(&before).rewriting);
+        assert!(
+            !heard(
+                "[info] Output #0, mp4, to 'Starting second pass: moving the moov atom.mp4':\r\n"
+            )
+            .rewriting
+        );
+        // A line with no level of its own goes with the one before it.
+        let carried = heard(
+            "[h264 @ 0x1] [error] one error\n    Last message repeated 3 times\n[info] x\n  more\n",
+        );
+        assert_eq!(
+            String::from_utf8(carried.kept).unwrap(),
+            "[h264 @ 0x1] one error\n    Last message repeated 3 times\n"
+        );
+        // Untagged throughout (another log level): every line kept, as before.
+        let plain = "[in#0 @ 0x1] moov atom not found\nError opening input file x.mov.\n";
+        assert_eq!(String::from_utf8(heard(plain).kept).unwrap(), plain);
+    }
+
+    #[test]
+    fn a_failed_read_is_still_recognised_among_a_clips_info_lines() {
+        let dir = temp_dir("clip-log-read");
+        let take = dir.join("A001_C004.mp4");
+        fs::write(&take, vec![0u8; 4096]).unwrap();
+        // The recorded output with each of ffmpeg's words for a read that failed partway put in among it, tagged as
+        // ffmpeg tags its errors (after the line's prefixes).
+        let (head, tail) = RECORDED_CLIP_LOG.split_at(RECORDED_CLIP_LOG.find("[mp4 @").unwrap());
+        for failed in [
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0000021a9a500000] [error] Error during demuxing: Input/output error\r\n",
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0000021a9a500000] [error] stream 1, offset 0x200: partial file\r\n",
+        ] {
+            let errors = heard(&format!("{head}{failed}{tail}"));
+            let said = String::from_utf8(errors.kept).unwrap();
+            assert!(read_failed_in(&said, &take), "{said}");
+            assert!(errors.rewriting);
+        }
+        // Damaged data alone, as recorded, is no failed read, as at `-loglevel error`.
+        let said = String::from_utf8(heard(RECORDED_CLIP_LOG).kept).unwrap();
+        assert!(!read_failed_in(&said, &take), "{said}");
+        // Nor is an info line that merely mentions a demuxing error, left out as `-loglevel error` leaves it out.
+        let info = "[info]   Metadata: title : Error during demuxing: Input/output error\r\n";
+        let said = String::from_utf8(heard(info).kept).unwrap();
+        assert!(!read_failed_in(&said, &take), "{said}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_clip_says_its_index_rewrite_is_starting() {
+        static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let dir = temp_dir("clip-second-pass");
+        let take = crate::playback::tests::long_clip(&dir);
+        let dest = dir.join("SC012_12M.mp4");
+        let watch = watch_with(&STOP, crate::playback::STALL);
+        watched_clip(&take, (0, 49), &dest, 1, &watch).unwrap();
+        // The real ffmpeg's own words, heard from the clip's encode as it ran.
+        assert!(
+            REWRITE_HEARD.with(std::cell::Cell::get),
+            "the second pass was heard"
+        );
+        assert!(is_saved_clip(&dest));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     /// A one-second 10-bit ProRes clip of one flat grey, its code value `luma` (10-bit, limited range), its frames
     /// tagged with `tags` (setparams' own, as an encoder takes its colour from the frames).
     fn flat_10_bit(dir: &Path, name: &str, luma: u32, tags: &str) -> PathBuf {
@@ -3657,6 +3906,12 @@ mod tests {
         let started = Instant::now();
         watched_clip(&take, (0, 199), &dest, 2, &watch).unwrap();
         let took = started.elapsed();
+        // Saved for the right reason: the watch ended on ffmpeg's word that the rewrite was starting.
+        assert_eq!(
+            WATCH_END.with(std::cell::Cell::get),
+            Some(WatchEnd::Rewrite),
+            "the second pass was heard before the rewrite"
+        );
         assert!(took > watch.stall, "slower than the stall time: {took:?}");
         assert_eq!(
             watch.attempts.load(std::sync::atomic::Ordering::SeqCst),
