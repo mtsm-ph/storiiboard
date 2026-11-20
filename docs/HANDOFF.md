@@ -381,7 +381,7 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20, overnight run; written at 02:15 EST, kept current after each step)
+### Next session: start here (Nov 20, overnight run; written at 03:15 EST, kept current after each step)
 
 Kevin's overnight note (Nov 20) is word for word in `private/NOV20_NIGHT.md` on his PC. In short: the work in order
 (1 nov20-a for #207 and #208; 2 a launch check stacked on #206, then nov20-b; 3 the stalled encoder; 4 HEIC on
@@ -395,27 +395,35 @@ a dependency, touches `main`, deletes, or changes any other screenshot.
 - **1. nov20-a (run 44685330762): red on the Mac's WebKit job; nothing merged.** See Only Kevin for the three tests
   and their causes. #207 waits for Kevin. #208 is not at fault; it goes into nov20-c with the encoder fix stacked on
   it.
-- **2. The launch check is built** on `ci/launch-check` (stacked on `fix/worker-csp`; commits d74e3c1 and 3cc17a5,
-  not pushed when this was written): `STORIIBOARD_LAUNCH_CHECK=1`, eight steps, exit codes, `scripts/launchCheck.sh`,
-  one new last step in checkpoint.yml's `installers` job. It passed for real on this PC (a debug build, WebView2
-  157): all eight steps, exit 0, about 2 s. One design review before the build and two reviews after. Next: the
-  reviews' fixes, push, PR, then `checkpoint/nov20-b` = `v2` + #206 + the launch check. Nothing of it has run on a
-  Mac: WKWebView's first try is that checkpoint.
-- **3. The stalled encoder.** What the app does today: on Windows it already goes on from the hardware encoder to
-  the software one after a stall (if the file's start still answers), but every stall ends in the drive's words; on
-  the Mac there is one encoder. The brief is `private/briefs/stalled-encoder.md`: a read of the file past where
-  ffmpeg stopped chooses the words; the two changed expectations are
-  `stops_an_encode_that_says_nothing_for_the_stall_time_and_frees_the_turn` and
-  `a_failure_after_a_stall_reports_the_stall`; the read-stall test gets a seam. Its Linux-only tests can't run on
-  this PC: the PR's own checks run them. Not started.
-- **4. HEIC on Windows.** The first brief is `private/briefs/heic-rust.md` (Rust: `heic_picture`, the fixtures, a
-  thin caller in the page that nothing uses yet). Probed Nov 20 with the app's own ffmpeg on the script-drawn
-  fixture: the tile grid's PNG carries no colour profile, a PNG of one tile does, so the profile is carried by a
-  second small ffmpeg run. The fixtures are downloaded to `test-results/heic-artifact` (the run's artifact expires
-  about Nov 26). Part 2 (the page's fallback, "Reading 3 of 30", the end-to-end proof) has no brief yet. Not started.
+- **2. The launch check is PR #213**, stacked on #206 (`ci/launch-check`; brief docs/briefs/launch-check.md, which
+  says what it can and can't prove). One design review before the build, two reviews after, nothing high or medium,
+  every low point fixed. It passed for real on this PC (a debug build, WebView2 157): all eight steps, exit 0. Its
+  own Linux checks are green. **`checkpoint/nov20-b` (run 44696981565, started 02:42 EST) is `v2` + #206 + #213.**
+  When it ends with every job green and nothing failed or flaky: merge #206, point #213 at `v2`, merge it (PLAN.md's
+  rows may need both kept), then update this section. Its first run on a Mac is that checkpoint: what only a Mac can
+  show is listed in #213.
+- **3. The stalled encoder is PR #214**, stacked on #208 (`fix/encoder-stall`; brief docs/briefs/stalled-encoder.md).
+  What the app did before: on Windows it already went on from the hardware encoder to the software one after a
+  stall, but every stall ended in the drive's words; the Mac has one encoder. Built, reviewed, one fix round, a
+  second look under way; its own Linux checks are green (356 Rust tests, the Linux-only ones among them: a stalled
+  encoder with a readable file goes on and makes the copy). It waits for nov20-c, with #208.
+- **4. HEIC on Windows.**
+  - Part 1 is PR #215 (`feat/heic-windows`, on `v2`; brief docs/briefs/heic-rust.md): the command `heic_picture`,
+    the fixtures, a caller nothing uses yet. Its own Linux checks are green (360 Rust tests). Reviewed, nothing
+    high: nine points to fix, listed at the end of `private/briefs/heic-rust.md` and not yet built. The one that
+    matters for a checkpoint: the committed answer must be compared within 1 level, or the Mac's Rust tests will
+    likely fail (the colour conversion's fast code differs by processor).
+  - Part 2 (the page asks Rust; "Reading 3 of 30"; the colour proof) is being built on `feat/heic-page`, stacked on
+    part 1, from docs/briefs/heic-page.md. Its WebKit-on-a-Mac test can only run at a checkpoint.
+  - Asked of Kevin's two sample HEICs in place, yes or no only: both decode with the new command line, upright, at
+    the expected size, in under 10 s; the main picture's grid is the default, the first and the largest; the
+    profile sits on its tiles.
 - **5. The two screenshot changes.** The brief is `private/briefs/scroll-lane-and-picture-words.md`: a lane beside a
   scroller only while it overflows and bars overlay content (measured, never by the system's name);
   `moodboard.pictureGone` and the two paste notices say "no longer in the project". Not started.
+- **The plan for the checkpoints left:** nov20-c is `v2` + #208 + #214 + #215 once #215's fixes are in and its
+  checks green; baselines-nov20 for item 5. A merge needs every job green with nothing failed or flaky; the Mac's
+  WebKit job has flaked on two tests (Only Kevin), so a clean run is not certain.
 
 ### Earlier: start here (Nov 20: Kevin's answers to the evening report; nothing of them started)
 
