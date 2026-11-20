@@ -100,6 +100,8 @@ export interface LaneState {
 
 export interface LaneMeasure {
   overlay: boolean;
+  /** Whether the content overflows sideways, and up and down, without any lane: never the overflow the lane's own room
+   *  causes (#222 round 6b: a lane that made the content wrap kept itself on where the content fitted without it). */
   overflowX: boolean;
   overflowY: boolean;
   /** The scroller's own box, its outer width and height: "320x480". */
@@ -110,9 +112,10 @@ const OFF: AxisLane = { on: false, heldAt: null, droppedAt: null };
 export const NO_LANE: LaneState = { x: OFF, y: OFF };
 
 /**
- * A lane narrows the content (or shortens it), which can change whether it overflows. If taking the lane away makes the
- * scroller overflow again while its own box is the same, the lane goes back on and stays until that box changes, so
- * it never flickers on and off.
+ * The overflow is measured without the lane, so the lane's own room never keeps it on. Content can still answer the
+ * lane (a tile that shows a line only where it fits): if the content overflows again on the measure right after the
+ * lane was taken off, while the scroller's own box is the same, the lane goes back on and stays until that box changes,
+ * so it never flickers on and off.
  */
 function nextAxis(prev: AxisLane, overflow: boolean, box: string): AxisLane {
   if (prev.heldAt === box) return { on: true, heldAt: box, droppedAt: null };
@@ -151,6 +154,26 @@ function contentBoxes(element: Element, boxes: Element[], lists: Element[], dept
 }
 
 /**
+ * Whether the content overflows each way with no lane. Where a lane is on, it is taken off for the reading and put back
+ * in the same task: the page lays out to answer, but never draws in between, and every size is the same again before
+ * the resize observers look, so they report nothing. Taking the lane off can shorten the content, which pulls the
+ * scroll position back; it is put back as it was.
+ */
+function overflowWithoutLane(element: HTMLElement): { x: boolean; y: boolean } {
+  const read = () => ({ x: element.scrollWidth > element.clientWidth, y: element.scrollHeight > element.clientHeight });
+  const lane = element.getAttribute('data-scroll-lane');
+  if (lane === null) return read();
+  const top = element.scrollTop;
+  const left = element.scrollLeft;
+  element.removeAttribute('data-scroll-lane');
+  const bare = read();
+  element.setAttribute('data-scroll-lane', lane);
+  if (element.scrollTop !== top) element.scrollTop = top;
+  if (element.scrollLeft !== left) element.scrollLeft = left;
+  return bare;
+}
+
+/**
  * Watches one scroller and keeps its `data-scroll-lane` up to date; returns the stop. Exported for its test.
  *
  * Nothing is read from the page until the next frame, the first watch included (it reads the children's computed
@@ -171,10 +194,11 @@ export function watchLane(element: HTMLElement): () => void {
     }
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
+    const bare = overflowWithoutLane(element);
     state = nextLane(state, {
       overlay: true,
-      overflowX: SCROLLS.has(style.overflowX) && element.scrollWidth > element.clientWidth,
-      overflowY: SCROLLS.has(style.overflowY) && element.scrollHeight > element.clientHeight,
+      overflowX: SCROLLS.has(style.overflowX) && bare.x,
+      overflowY: SCROLLS.has(style.overflowY) && bare.y,
       box: `${String(Math.round(rect.width))}x${String(Math.round(rect.height))}`,
     });
     const lane = laneAttribute(state);

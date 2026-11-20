@@ -290,9 +290,11 @@ const UnderlayRow = memo(function UnderlayRow({ state, count, solo, roomId, view
 function ShowChoice({ layer, name, show, muted, heldBy, heldId }: { layer: LayerRow; name: string; show: LayerShow; muted: boolean; heldBy: string | null; heldId: string }) {
   const held = heldBy !== null;
   return (
-    // Its outline sits a pixel above and below the row's 24 px (-my-px), its cells level with the lock and Solo, so a
-    // one-line row stays 24 px.
-    <div role="radiogroup" aria-label={t('layers.showOf', { layer: name })} className={cx('-my-px flex shrink-0 border', held && 'border-dashed', edge(muted || held))}>
+    // Its outline sits a pixel above the row's 24 px and below it, its cells level with the lock and Solo, so a one-line
+    // row stays 24 px. Set from the top, 1 px up, and 2 px taken off below: the rule is 1.5 px, which a screen at 1x
+    // draws as 1 px (the outline 26 px high) and a Mac's at 2x whole (27 px), and with 1 px off below the Mac's rows
+    // were a pixel taller each, so the tile overflowed at 200 px (#222 round 6b). At 1x nothing moves.
+    <div role="radiogroup" aria-label={t('layers.showOf', { layer: name })} className={cx('-mt-px -mb-[2px] flex shrink-0 self-start border', held && 'border-dashed', edge(muted || held))}>
       {LAYER_SHOWS.map((value, i) => {
         const selected = value === show;
         return (

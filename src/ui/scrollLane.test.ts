@@ -201,3 +201,135 @@ describe('watchLane', () => {
     expect(p.attributes.has('data-scroll-lane')).toBe(false);
   });
 });
+
+describe('watchLane measures the overflow without the lane', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * A scroller 400 px high whose content is `content.height(lane)` px high, so a test can make the lane's own room push
+   * it taller, as a lane that makes a line wrap does. `resize()` is a resize observer's call followed by the frame it
+   * asks for. The scroll position is pulled back as a browser pulls it when the content gets shorter.
+   */
+  function scroller(content: { height: (lane: string | null) => number }) {
+    const frames: FrameRequestCallback[] = [];
+    const resized: (() => void)[] = [];
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          resized.push(callback);
+        }
+        observe() {
+          return undefined;
+        }
+        disconnect() {
+          return undefined;
+        }
+      },
+    );
+    vi.stubGlobal(
+      'MutationObserver',
+      class {
+        observe() {
+          return undefined;
+        }
+        disconnect() {
+          return undefined;
+        }
+      },
+    );
+    vi.stubGlobal('getComputedStyle', () => ({ display: 'block', overflowX: 'hidden', overflowY: 'auto' }));
+    const attributes = new Map<string, string>();
+    const lanes: (string | null)[] = [];
+    let top = 0;
+    const height = () => content.height(attributes.get('data-scroll-lane') ?? null);
+    const element = {
+      children: [],
+      scrollWidth: 300,
+      clientWidth: 300,
+      clientHeight: 400,
+      scrollLeft: 0,
+      get scrollHeight() {
+        return height();
+      },
+      get scrollTop() {
+        return top;
+      },
+      set scrollTop(value: number) {
+        top = Math.min(value, Math.max(0, height() - 400));
+      },
+      getBoundingClientRect: () => ({ width: 300, height: 400 }),
+      getAttribute: (name: string) => attributes.get(name) ?? null,
+      // Each change of the lane lays the content out again, pulling the position back where the content got shorter.
+      setAttribute: (name: string, value: string) => {
+        attributes.set(name, value);
+        top = Math.min(top, Math.max(0, height() - 400));
+      },
+      removeAttribute: (name: string) => {
+        attributes.delete(name);
+        top = Math.min(top, Math.max(0, height() - 400));
+      },
+    };
+    const run = () => {
+      for (const callback of frames.splice(0)) callback(0);
+      lanes.push(attributes.get('data-scroll-lane') ?? null);
+    };
+    const stop = watchLane(element as unknown as HTMLElement);
+    run();
+    return {
+      element,
+      stop,
+      /** The lane after each measure so far. */
+      lanes,
+      resize: () => {
+        for (const callback of resized) callback();
+        run();
+      },
+    };
+  }
+
+  it('takes the lane while the content overflows without it, and drops it once the content fits without it', () => {
+    const content: { height: (lane: string | null) => number } = { height: (lane) => (lane === null ? 600 : 640) };
+    const s = scroller(content);
+    expect(s.lanes).toEqual(['y']);
+    // The content shrinks: it fits without the lane (400 px), but with the lane's room it wraps to 440 px. The lane goes.
+    content.height = (lane) => (lane === null ? 400 : 440);
+    s.resize();
+    expect(s.lanes.at(-1)).toBeNull();
+    s.stop();
+  });
+
+  it('takes no lane where the content fits without it, though the lane would make it overflow (the latch of round 6b)', () => {
+    const s = scroller({ height: (lane) => (lane === null ? 380 : 420) });
+    s.resize();
+    s.resize();
+    expect(s.lanes).toEqual([null, null, null]);
+    s.stop();
+  });
+
+  it('never flips at the boundary: a content exactly as high as the scroller takes none, a pixel more takes it and keeps it', () => {
+    const fits = scroller({ height: (lane) => (lane === null ? 400 : 430) });
+    for (let i = 0; i < 4; i += 1) fits.resize();
+    expect(fits.lanes).toEqual([null, null, null, null, null]);
+    fits.stop();
+    const over = scroller({ height: (lane) => (lane === null ? 401 : 431) });
+    for (let i = 0; i < 4; i += 1) over.resize();
+    expect(over.lanes).toEqual(['y', 'y', 'y', 'y', 'y']);
+    over.stop();
+  });
+
+  it('leaves the scroll position where it was after reading the content without the lane', () => {
+    const s = scroller({ height: (lane) => (lane === null ? 500 : 700) });
+    expect(s.lanes).toEqual(['y']);
+    // Scrolled near the end: without the lane the content is shorter, and a browser would pull the position back to 100.
+    s.element.scrollTop = 280;
+    s.resize();
+    expect(s.lanes.at(-1)).toBe('y');
+    expect(s.element.scrollTop).toBe(280);
+    s.stop();
+  });
+});
