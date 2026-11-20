@@ -352,18 +352,28 @@ enum Unended {
     Stalled(f64),
 }
 
+/// How a run is watched for a stall: no count going further for `time`, until it has reported its last frame of
+/// `frames`.
+#[derive(Clone, Copy)]
+struct Stall {
+    time: Duration,
+    frames: u64,
+}
+
 /// `run_stoppable`, and with `stall` watched as a playback copy's encode is (playback.rs `encode`): its output is
-/// ffmpeg's `-progress`, and a run whose counts go no further for `stall` has stalled, wherever it is. Watched, the
-/// time limit no longer cuts a stall short: past it, a run still moving ends as too slow the next time it's heard
+/// ffmpeg's `-progress`, and a run whose counts go no further for the stall time has stalled, wherever it is. Watched,
+/// the time limit no longer cuts a stall short: past it, a run still moving ends as too slow the next time it's heard
 /// (within half a second, as ffmpeg reports), while a quiet one is left to the stall, so it can be told an encoder's
-/// hang. A run lasts at most `timeout` plus `stall`.
+/// hang. Once the last frame has been reported the watch ends and the time limit alone holds: a clip's `+faststart`
+/// rewrites the whole file then without a word, which on a slow share can outlast the stall time. A run lasts at most
+/// `timeout` plus the stall time.
 fn run_watched(
     mut command: Command,
     timeout: Duration,
     errors: bool,
     stop: Option<&std::sync::atomic::AtomicBool>,
     leftover: Option<&Path>,
-    stall: Option<Duration>,
+    stall: Option<Stall>,
 ) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), Unended> {
     use std::sync::atomic::{AtomicU64, Ordering};
     let mut child = command
@@ -488,12 +498,17 @@ fn run_watched(
         last_tick = Instant::now();
         let now = started.elapsed();
         let moved = Duration::from_millis(heard.load(Ordering::SeqCst));
+        // Every frame reported: what's left is writing the file out, watched by the time limit alone.
+        let done = stall.is_some_and(|stall| {
+            f64::from_bits(reached.load(Ordering::SeqCst)) >= stall.frames as f64
+        });
         let late = match stall {
             None => now >= timeout,
+            Some(_) if done => now >= timeout,
             // Past the limit and heard moving since: too slow. Past it and quiet: left to the stall.
             Some(_) => now >= timeout && moved >= timeout,
         };
-        let stuck = stall.is_some_and(|stall| now.saturating_sub(moved) > stall);
+        let stuck = !done && stall.is_some_and(|stall| now.saturating_sub(moved) > stall.time);
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if stopped => {
@@ -1150,6 +1165,77 @@ fn clip_partial(dest: &Path) -> Result<PathBuf, String> {
     Err(CLIP_NOT_SAVED.into())
 }
 
+/// What a step run off the calling thread came to.
+#[derive(Debug)]
+enum Aside<T> {
+    Done(T),
+    /// No answer within the limit (or the step's thread died): the drive is taken for stuck.
+    Late,
+    Stopped,
+}
+
+/// Runs `step` on a thread of its own and waits for it at most `limit`, or until `stop` is set: a folder on a drive
+/// that stopped answering can hold a call up for good, and the person's Cancel must still end the clip at once. A
+/// step given up on is left to end by itself, and what it made then is handed to `undo` (a partial made late is
+/// removed). A look that comes later than `SLEPT` means the computer slept, which is no hang: the wait starts over.
+fn aside<T: Send + 'static>(
+    limit: Duration,
+    stop: &std::sync::atomic::AtomicBool,
+    step: impl FnOnce() -> T + Send + 'static,
+    undo: impl Fn(T) + Send + Sync + 'static,
+) -> Aside<T> {
+    use std::sync::atomic::Ordering;
+    let (sent, heard) = std::sync::mpsc::channel();
+    let undo = std::sync::Arc::new(undo);
+    // Set once the wait is over: a step that ends after it undoes what it made, as nobody will take it. Its answer is
+    // sent under the same lock, so it's either in the channel when the wait gives up, or undone there.
+    let gone = std::sync::Arc::new(Mutex::new(false));
+    {
+        let (gone, undo) = (std::sync::Arc::clone(&gone), std::sync::Arc::clone(&undo));
+        std::thread::spawn(move || {
+            let made = step();
+            let gone = gone
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if *gone {
+                undo(made);
+            } else {
+                let _ = sent.send(made);
+            }
+        });
+    }
+    let mut started = Instant::now();
+    let mut looked = started;
+    let tick = Duration::from_millis(20);
+    loop {
+        match heard.recv_timeout(tick) {
+            Ok(made) => return Aside::Done(made),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Aside::Late,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        let now = Instant::now();
+        if now.saturating_duration_since(looked) > crate::playback::SLEPT {
+            started = now;
+        }
+        looked = now;
+        let outcome = if stop.load(Ordering::SeqCst) {
+            Aside::Stopped
+        } else if started.elapsed() >= limit {
+            Aside::Late
+        } else {
+            continue;
+        };
+        *gone
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        // Answered just before: undone here rather than lost with the channel.
+        if let Ok(made) = heard.try_recv() {
+            undo(made);
+        }
+        return outcome;
+    }
+}
+
 /// Whether a clip may be saved at `dest`: where nothing is, or over a clip Storiiboard saved (the same slate name,
 /// saved again), never over the file it's made from. Not over any other file, whatever the Save dialog asked: a
 /// camera original beside it, even one that can't be read now (a card pulled mid-take, a share that's slow), is
@@ -1200,7 +1286,7 @@ fn clip_filter(
 
 /// How long a clip's encode may take before it's given up on: generous, as an 8K original decodes slowly. Each encoder
 /// tried gets it whole (one that stalled says nothing of how long the next needs), and a stall is caught past it too
-/// (`run_watched`).
+/// (`run_watched`). Once the last frame is reported it alone ends a rewrite that never finishes.
 fn clip_timeout(frames: u64, fps_num: u32, fps_den: u32) -> Duration {
     let seconds = frames as f64 * f64::from(fps_den) / f64::from(fps_num.max(1));
     Duration::from_secs_f64(60.0 + seconds * 8.0)
@@ -1229,13 +1315,22 @@ pub fn save_clip(
     )
 }
 
+/// Asks a clip's folder something small, to tell whether its drive still answers.
+type AskFolder = std::sync::Arc<dyn Fn(&Path) -> std::io::Result<()> + Send + Sync>;
+/// Makes an encoder's own file beside a clip (`clip_partial`).
+type MakePartial = std::sync::Arc<dyn Fn(&Path) -> Result<PathBuf, String> + Send + Sync>;
+
 /// How a clip's encoders are watched: the Cancel that stops it, the stall time and the check after a stall, the
-/// copies' own (playback.rs `STALL`, `ReadCheck`). Tests shorten them, give a stop of their own (so a test's Cancel
-/// never reaches another test's clip) and a shim's environment for ffmpeg, and count the encodes started.
+/// copies' own (playback.rs `STALL`, `ReadCheck`), and the clip's folder after a stall: `folder` asks it something
+/// small, `partial` makes the next encoder's file there. Tests shorten them, give a stop of their own (so a test's
+/// Cancel never reaches another test's clip), a folder that stops answering and a shim's environment for ffmpeg, and
+/// count the encodes started.
 struct ClipWatch {
     stop: &'static std::sync::atomic::AtomicBool,
     stall: Duration,
     check: crate::playback::ReadCheck,
+    folder: AskFolder,
+    partial: MakePartial,
     #[cfg(test)]
     env: Vec<(String, String)>,
     #[cfg(test)]
@@ -1248,6 +1343,9 @@ impl Default for ClipWatch {
             stop: &CLIP_STOP,
             stall: crate::playback::STALL,
             check: crate::playback::ReadCheck::default(),
+            // The folder's own metadata: the smallest question, and nothing left on the drive if it hangs.
+            folder: std::sync::Arc::new(|folder: &Path| std::fs::metadata(folder).map(|_| ())),
+            partial: std::sync::Arc::new(clip_partial),
             #[cfg(test)]
             env: Vec::new(),
             #[cfg(test)]
@@ -1261,6 +1359,27 @@ impl Default for ClipWatch {
 /// run opens many sessions. What's tested here, the frames, the window, the sound and the files, doesn't depend on
 /// the encoder, whose own tests are the copies'.
 fn save_clip_with(
+    path: &Path,
+    frames: (u64, u64),
+    rate: (u32, u32),
+    picture: (ClipWindow, Option<&crate::playback::Lut>),
+    dest: &Path,
+    encoders: &[Vec<&'static str>],
+    watch: &ClipWatch,
+) -> Result<(), String> {
+    let saved = walk_encoders(path, frames, rate, picture, dest, encoders, watch);
+    // The stop looked at one last time, as a copy ends (playback.rs `make_asked`): a Cancel that lands just after the
+    // last stall or failure is the clip's outcome, never the encoder's words.
+    match saved {
+        Err(_) if watch.stop.load(std::sync::atomic::Ordering::SeqCst) => {
+            Err(CLIP_CANCELLED.into())
+        }
+        saved => saved,
+    }
+}
+
+/// `save_clip_with`, but for the last look at the stop.
+fn walk_encoders(
     path: &Path,
     (in_frame, out_frame): (u64, u64),
     (fps_num, fps_den): (u32, u32),
@@ -1308,10 +1427,37 @@ fn save_clip_with(
     let mut said = String::from(CANT_READ);
     // The original kept answering when read past a stall: the encoder hung, not the drive.
     let mut answered = false;
+    // A stall has been seen: the clip's folder is on a drive that may stop answering, so it's only reached aside.
+    let mut stalled = false;
+    let folder = dest
+        .parent()
+        .filter(|folder| !folder.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
     for encoder in encoders {
         clip_stopped(watch.stop)?;
         // A file of its own for each encoder: one stalled may still hold its file until it ends, and then removes it.
-        let partial = clip_partial(dest)?;
+        // After a stall it's made aside, under the check's quiet time (the folder answered just before, so a slow
+        // drive waking up isn't in question) and cancellable; the first is made here, as it always was.
+        let partial = if stalled {
+            let (make, there) = (std::sync::Arc::clone(&watch.partial), dest.to_path_buf());
+            match aside(
+                watch.check.quiet,
+                watch.stop,
+                move || make(&there),
+                |made: Result<PathBuf, String>| {
+                    if let Ok(partial) = made {
+                        let _ = std::fs::remove_file(partial);
+                    }
+                },
+            ) {
+                Aside::Done(made) => made?,
+                Aside::Late => return Err(TOO_SLOW.into()),
+                Aside::Stopped => return Err(CLIP_CANCELLED.into()),
+            }
+        } else {
+            (watch.partial)(dest)?
+        };
         let mut command = command("ffmpeg");
         if let Some(grade) = &grade {
             command.current_dir(&grade.folder);
@@ -1357,13 +1503,17 @@ fn save_clip_with(
         }
         // Each encoder under the clip's own limit, and a stall past it (`run_watched`): a clip lasts at most the
         // encoders' limits and stalls, and a check after each stall, however it goes.
+        // The watch ends with the last frame: `+faststart` then rewrites the whole file without a word.
         let outcome = run_watched(
             command,
             clip_timeout(frames, fps_num, fps_den),
             true,
             Some(watch.stop),
             Some(&partial),
-            Some(watch.stall),
+            Some(Stall {
+                time: watch.stall,
+                frames,
+            }),
         );
         match outcome {
             Ok((status, _, _)) if status.success() => {
@@ -1382,8 +1532,12 @@ fn save_clip_with(
             // with none left, the encoder's words, a copy's own. Hung or failing, the drive's words, as a clip gives
             // them for a read that takes too long, and at once: another encoder would only wait out a second stall.
             // Read once a clip: once it answered, a later stall is the encoder's too. Its file goes once its ffmpeg
-            // ends (`run_watched`).
+            // ends (`run_watched`). Then the clip's folder, after every stall: ffmpeg blocked on a write to a drive
+            // that stopped answering (a NAS, a USB drive) stalls as well, and the source reads on; asked aside, under
+            // the check's quiet time, a folder that doesn't answer ends the clip at once in the drive's words, and the
+            // next encoder's file is never made there.
             Err(Unended::Stalled(reached)) => {
+                stalled = true;
                 if !answered {
                     match crate::playback::reads_past(
                         &watch.check,
@@ -1396,6 +1550,12 @@ fn save_clip_with(
                         crate::playback::Reading::Hangs => return Err(TOO_SLOW.into()),
                         crate::playback::Reading::Stopped => return Err(CLIP_CANCELLED.into()),
                     }
+                }
+                let (ask, there) = (std::sync::Arc::clone(&watch.folder), folder.clone());
+                match aside(watch.check.quiet, watch.stop, move || ask(&there), |_| {}) {
+                    Aside::Done(Ok(())) => {}
+                    Aside::Done(Err(_)) | Aside::Late => return Err(TOO_SLOW.into()),
+                    Aside::Stopped => return Err(CLIP_CANCELLED.into()),
                 }
                 said = crate::playback::ENCODER_STALLED.into();
             }
@@ -3255,6 +3415,152 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// A folder on a drive that stopped answering: the question never returns. Its thread is left parked for good.
+    fn never_answers() -> ! {
+        loop {
+            std::thread::park();
+        }
+    }
+
+    #[test]
+    fn a_clips_folder_that_stops_answering_after_a_stall_says_the_drives_words() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static STOP: AtomicBool = AtomicBool::new(false);
+        let dir = temp_dir("clip-folder-hang");
+        let take = crate::playback::tests::long_clip(&dir);
+        let dest = dir.join("SC012_12H.mp4");
+        // ffmpeg blocked on its write to a NAS stalls; the source reads on, and the clip's folder doesn't answer.
+        let mut watch = watch_with(&STOP, Duration::from_millis(1));
+        watch.folder = std::sync::Arc::new(|_: &Path| never_answers());
+        watch.check.quiet = Duration::from_millis(300);
+        let started = Instant::now();
+        assert_eq!(
+            watched_clip(&take, (0, 249), &dest, 2, &watch).unwrap_err(),
+            TOO_SLOW
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            watch.attempts.load(Ordering::SeqCst),
+            1,
+            "no second encoder, nor its file, on the dead drive"
+        );
+        assert!(!dest.exists());
+        assert!(no_partials_in(&dir), "nothing half-made");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cancel_while_a_clips_folder_is_asked_ends_it_at_once() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static STOP: AtomicBool = AtomicBool::new(false);
+        let dir = temp_dir("clip-folder-cancel");
+        let take = crate::playback::tests::long_clip(&dir);
+        let dest = dir.join("SC012_12J.mp4");
+        let asked = std::sync::Arc::new(AtomicBool::new(false));
+        // The folder's question under the app's own quiet time: a Cancel ends it well inside.
+        let mut watch = watch_with(&STOP, Duration::from_millis(1));
+        {
+            let asked = std::sync::Arc::clone(&asked);
+            watch.folder = std::sync::Arc::new(move |_: &Path| {
+                asked.store(true, Ordering::SeqCst);
+                never_answers()
+            });
+        }
+        std::thread::scope(|scope| {
+            let cancelling = scope.spawn(|| {
+                let waited = Instant::now();
+                while !asked.load(Ordering::SeqCst) {
+                    assert!(
+                        waited.elapsed() < Duration::from_secs(60),
+                        "the folder was never asked"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                let at = Instant::now();
+                STOP.store(true, Ordering::SeqCst);
+                at
+            });
+            let saved = watched_clip(&take, (0, 249), &dest, 2, &watch);
+            let ended = Instant::now();
+            let cancelled_at = cancelling.join().unwrap();
+            assert_eq!(saved.unwrap_err(), CLIP_CANCELLED);
+            assert!(
+                ended.duration_since(cancelled_at) < Duration::from_secs(2),
+                "well inside the folder's quiet time"
+            );
+        });
+        assert_eq!(
+            watch.attempts.load(Ordering::SeqCst),
+            1,
+            "nothing started after it"
+        );
+        assert!(!dest.exists());
+        assert!(no_partials_in(&dir), "nothing half-made");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_next_encoders_file_is_made_aside_after_a_stall_and_one_made_too_late_is_removed() {
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+        static STOP: AtomicBool = AtomicBool::new(false);
+        let dir = temp_dir("clip-partial-late");
+        let take = crate::playback::tests::long_clip(&dir);
+        let dest = dir.join("SC012_12K.mp4");
+        let made = std::sync::Arc::new(AtomicU64::new(0));
+        let late = std::sync::Arc::new(AtomicBool::new(false));
+        // The folder answers its question, then making the next encoder's file there takes longer than the limit.
+        let mut watch = watch_with(&STOP, Duration::from_millis(1));
+        watch.check.quiet = Duration::from_millis(300);
+        {
+            let (made, late) = (std::sync::Arc::clone(&made), std::sync::Arc::clone(&late));
+            watch.partial = std::sync::Arc::new(move |dest: &Path| {
+                if made.fetch_add(1, Ordering::SeqCst) == 0 {
+                    return clip_partial(dest);
+                }
+                std::thread::sleep(Duration::from_millis(900));
+                let partial = clip_partial(dest);
+                late.store(true, Ordering::SeqCst);
+                partial
+            });
+        }
+        let started = Instant::now();
+        assert_eq!(
+            watched_clip(&take, (0, 249), &dest, 2, &watch).unwrap_err(),
+            TOO_SLOW
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            made.load(Ordering::SeqCst),
+            2,
+            "the second file was asked for"
+        );
+        assert_eq!(
+            watch.attempts.load(Ordering::SeqCst),
+            1,
+            "no second encoder started"
+        );
+        assert!(!dest.exists());
+        // The late file, made once the clip had given up on it, is removed by the step that made it.
+        let waited = Instant::now();
+        while !late.load(Ordering::SeqCst) {
+            assert!(
+                waited.elapsed() < Duration::from_secs(10),
+                "the late file was made"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(no_partials_in(&dir), "nothing left beside it");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     /// The encodes' reads of the "cutme" take go through playback.rs's read shim, as `mode` says, past half the file.
     #[cfg(target_os = "linux")]
     fn through_shim(watch: &mut ClipWatch, shim: &Path, mode: &str, take: &Path) {
@@ -3325,6 +3631,43 @@ mod tests {
         );
         assert!(!dest.exists());
         assert!(no_partials_in(&dir), "nothing half-made");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_clip_whose_index_rewrite_outlasts_the_stall_time_is_saved_by_its_first_encoder() {
+        static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let dir = temp_dir("clip-rewrite");
+        let shim = crate::playback::tests::read_shim(&dir);
+        let take = crate::playback::tests::cutme_mov(&dir);
+        // A share that moves slowly: the frames are encoded at once, then `+faststart` reads the clip's own file back
+        // to move its index to the front, saying nothing, and every read of it waits.
+        let dest = dir.join("SC012_12L slowrewrite.mp4");
+        let mut watch = watch_with(&STOP, Duration::from_secs(2));
+        watch.env = vec![
+            ("LD_PRELOAD".into(), shim.to_string_lossy().into_owned()),
+            ("CUT_NAME".into(), "slowrewrite".into()),
+            ("CUT_MODE".into(), "slow".into()),
+            ("CUT_AT".into(), "0".into()),
+            // The clip holds 8 s of 192 kb/s sound alone, so the rewrite reads at least seven 32 KiB blocks: quiet for
+            // longer than the stall time, and well inside the clip's own limit.
+            ("CUT_SLOW_MS".into(), "400".into()),
+        ];
+        let started = Instant::now();
+        watched_clip(&take, (0, 199), &dest, 2, &watch).unwrap();
+        let took = started.elapsed();
+        assert!(took > watch.stall, "slower than the stall time: {took:?}");
+        assert_eq!(
+            watch.attempts.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "one attempt"
+        );
+        let saved = probe(&dest).unwrap();
+        assert_eq!(saved.duration_frames, 200, "whole");
+        assert!(saved.has_audio, "with its sound");
+        assert!(is_saved_clip(&dest));
+        assert!(no_partials_in(&dir), "nothing half-made beside it");
         let _ = fs::remove_dir_all(&dir);
     }
 

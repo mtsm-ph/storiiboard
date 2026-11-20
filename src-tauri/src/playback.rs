@@ -3662,8 +3662,9 @@ pub(crate) mod tests {
     /// Compiles a shim for reads of any file whose path holds "cutme", past `CUT_AT` bytes, as `CUT_MODE` says: `eio`
     /// fails them as a card pulled midway does; `hang` never returns, as a share that stopped answering; `slow` waits
     /// `CUT_SLOW_MS` before each, as a drive that's slow but working; `once` hangs only the first process to get there
-    /// (it makes `once.marker` beside the file), as an encoder hung in its driver, and every later one reads on. Linux
-    /// only, where the sidecar links the C library dynamically.
+    /// (it makes `once.marker` beside the file), as an encoder hung in its driver, and every later one reads on.
+    /// `CUT_NAME`, when set, is what the path holds instead of "cutme" (a clip's own file, read back by its
+    /// `+faststart` rewrite). Linux only, where the sidecar links the C library dynamically.
     #[cfg(target_os = "linux")]
     pub(crate) fn read_shim(dir: &Path) -> PathBuf {
         let source = dir.join("reads.c");
@@ -3685,7 +3686,7 @@ static int cut(int fd) {
   ssize_t n = readlink(link, path, sizeof path - 1);
   if (n <= 0) return 0;
   path[n] = 0;
-  return strstr(path, "cutme") != NULL;
+  return strstr(path, getenv("CUT_NAME") ? getenv("CUT_NAME") : "cutme") != NULL;
 }
 static int first(int fd) {
   char link[64], path[4096];
@@ -3875,10 +3876,12 @@ ssize_t read(int fd, void *buf, size_t count) {
             "it had started: {seen:?}"
         );
         // The attempt reaches the hang within ffmpeg's first report: one stall, then the check's quiet time, and never
-        // a second stall.
-        assert!(
-            took >= cache.stall && took < 2 * cache.stall,
-            "one stall time: {took:?}"
+        // a second encoder (counted, not timed: probes and start-up on a busy runner would blur a time's upper bound).
+        assert!(took >= cache.stall, "one stall time: {took:?}");
+        assert_eq!(
+            cache.attempts.load(Ordering::SeqCst),
+            1,
+            "no second encoder started"
         );
         let (folder, _) = cache.folder().unwrap();
         assert!(names(&folder).is_empty(), "nothing half-made");
@@ -4136,7 +4139,11 @@ ssize_t read(int fd, void *buf, size_t count) {
         cache.stall = Duration::from_millis(1);
         let opened = counting(&mut cache);
         assert_eq!(cache.make(&clip, |_| {}).unwrap_err(), ENCODER_STALLED);
-        assert_eq!(opened.load(Ordering::SeqCst), 1, "once, after the loop");
+        assert_eq!(
+            opened.load(Ordering::SeqCst),
+            1,
+            "once, after the first stall"
+        );
         cache.stall = STALL;
         let quick = pcm_clip(&dir, "C0058.mov");
         assert!(cache.make(&quick, |_| {}).is_ok());
