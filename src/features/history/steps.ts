@@ -1,6 +1,6 @@
 import type { PlanUnit } from '../../core/model/length';
 import type { SbdRecord } from '../../core/model/record';
-import { childrenBefore, childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { childrenBefore, childrenInLog, lastOpSeq, log, logOf, opsOfGroups, undoTops, opsOfRecords, opsSince, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
 import { listVersions, type NamedVersion } from '../../core/storage/versions';
 import { byStep, describeGroup, lineText, moveTarget, peopleDiff, scheduledScene, stepScene, type Line } from './summary';
@@ -41,13 +41,7 @@ export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUni
     wanted.add(group.id);
     pending.push(group.targetGroupId, group.restoreTo);
   }
-  const [ops, stored] = await Promise.all([opsOfGroups(file, [...wanted]), storedPictures(file)]);
-  const byGroup = byStep(ops);
-  // Only an edit's line names its own records; undo, redo and restore name the step they point at.
-  const around = await namedRecords(file, new Map([...byGroup].filter(([id]) => byId.get(id)?.kind === 'edit')));
-  // Oldest first, so the step an undo, redo or restore names already has its line.
-  const titles = new Map<string, Line>();
-  for (const group of groups) if (wanted.has(group.id)) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id), unit));
+  const { titles, byGroup } = await describeSteps(file, groups.filter((g) => wanted.has(g.id)), unit);
   return {
     steps: shown.reverse().map((group) => ({
       group,
@@ -59,6 +53,48 @@ export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUni
     versions,
     versionLines: new Map(versions.map((v) => [v.id, titles.get(v.opGroupId) ?? ['a step']])),
   };
+}
+
+/**
+ * Each step's line, by group id, for these groups (oldest first, with every step one of them names): the one wording
+ * History, Notifications and the top bar's Undo and Redo all read.
+ */
+async function describeSteps(file: ProjectFile, groups: readonly OpGroup[], unit?: PlanUnit): Promise<{ titles: Map<string, Line>; byGroup: Map<string, LoggedOp[]> }> {
+  const kinds = new Map(groups.map((g) => [g.id, g.kind]));
+  const [ops, stored] = await Promise.all([opsOfGroups(file, [...kinds.keys()]), storedPictures(file)]);
+  const byGroup = byStep(ops);
+  // Only an edit's line names its own records; undo, redo and restore name the step they point at.
+  const around = await namedRecords(file, new Map([...byGroup].filter(([id]) => kinds.get(id) === 'edit')));
+  // Oldest first, so the step an undo, redo or restore names already has its line.
+  const titles = new Map<string, Line>();
+  for (const group of groups) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id), unit));
+  return { titles, byGroup };
+}
+
+/** What the top bar's Undo and Redo name (item 8): the steps ⌘Z and ⌘⇧Z would take now, each as History lines it. */
+export interface UndoRedoLines {
+  /** Null: nothing to undo. */
+  undo: Line | null;
+  /** Null: nothing to redo. */
+  redo: Line | null;
+}
+
+/**
+ * The lines of the steps undo and redo would take now. Only those steps are read, with the steps they name (a restore
+ * names its point), never the whole log: this runs after every edit while a project is open.
+ */
+export async function undoRedoLines(file: ProjectFile, unit?: PlanUnit): Promise<UndoRedoLines> {
+  const { undoTop, redoTop } = await undoTops(file);
+  const found = new Map<string, OpGroup>();
+  let pending = [undoTop, redoTop].filter((id): id is string => id !== null);
+  while (pending.length > 0) {
+    const read = await logOf(file, pending);
+    for (const group of read) found.set(group.id, group);
+    pending = [...new Set(read.flatMap((g) => [g.targetGroupId, g.restoreTo]))].filter((id): id is string => id !== null && !found.has(id));
+  }
+  const { titles } = await describeSteps(file, [...found.values()].sort((a, b) => a.seq - b.seq), unit);
+  const line = (id: string | null): Line | null => (id === null ? null : (titles.get(id) ?? [t('history.aStep')]));
+  return { undo: line(undoTop), redo: line(redoTop) };
 }
 
 /**
