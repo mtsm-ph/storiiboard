@@ -181,7 +181,7 @@ export function BoardView({ board }: { board: SbdRecord }) {
   // What the items are, as plain data on the canvas's wrapper: the canvas is pixels, so the end-to-end tests read the
   // board's kinds, colours and words from here.
   // A picture item whose picture is gone from the file carries `missing: true` (round 5): the same condition the canvas
-  // draws its "deleted for good" words by (PictureNode).
+  // draws its "no longer in the project" words by (PictureNode).
   const gone = useGonePictures();
   const data = useMemo(
     () =>
