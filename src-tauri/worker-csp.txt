@@ -1,0 +1,16 @@
+# The content security policy of every worker the app starts (Kevin, Nov 19). The page's policy (tauri.conf.json,
+# app.security.csp) never reaches a worker: a worker started from a URL takes its policy from its own script's
+# response, and Tauri puts the page's only on .html files. So the app sends this one on every .js and .mjs asset
+# (src-tauri/src/worker_csp.rs); on a page's own script a browser ignores it, on a worker's script it is that
+# worker's policy. The end-to-end test server sends the same file's policy on every JavaScript response
+# (vite.config.ts, scripts/e2eCsp.ts).
+#
+# Strict on purpose: the PDF reader's worker parses files from strangers, so it may load nothing, reach no network
+# (not even the app's own origin) and run no eval. The theme's accent reader needs no more. Every directive is as
+# strict as the page's or stricter. worker-src is 'self', what the page itself allows, not 'none': WebKit checks a
+# module worker's own imports against worker-src (Chromium against script-src), so 'none' refused the workers'
+# modules there (Nov 19; the dev server's workers are unbundled modules). A worker that needs more is a decision for
+# Kevin, never a quiet loosening here.
+#
+# Lines starting with # are comments; the policy is every other line, joined.
+default-src 'none'; script-src 'self'; worker-src 'self'; base-uri 'none'

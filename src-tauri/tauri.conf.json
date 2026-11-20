@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "create": false,
         "title": "Storiiboard",
         "width": 1280,
         "height": 800,
