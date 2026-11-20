@@ -3,6 +3,7 @@ import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { t } from '../core/i18n';
 import { IconButton } from './Button';
+import { useScrollLane } from './scrollLane';
 import { cx } from './cx';
 import { CloseGlyph } from './glyphs';
 import { keepTabInWindow } from './tabWrap';
@@ -53,6 +54,8 @@ export function InAppWindow({ title, onClose, width = 520, height, projectUndo =
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const windowId = useId();
+  const body = useRef<HTMLDivElement>(null);
+  useScrollLane(body);
   const latest = useRef(onClose);
   useLayoutEffect(() => {
     latest.current = onClose;
@@ -147,7 +150,7 @@ export function InAppWindow({ title, onClose, width = 520, height, projectUndo =
             <CloseGlyph />
           </IconButton>
         </div>
-        <div data-window-body="" className="flex min-h-0 flex-1 flex-col overflow-auto">
+        <div ref={body} data-window-body="" className="flex min-h-0 flex-1 flex-col overflow-auto">
           {children}
         </div>
       </dialog>

@@ -43,6 +43,7 @@ import type { SbdRecord } from '../../../core/model/record';
 import { sceneSetups } from '../../../core/model/setup';
 import { sceneFields, sceneLabel } from '../../../core/model/storyboard';
 import { Button } from '../../../ui/Button';
+import { useScrollLane } from '../../../ui/scrollLane';
 import { Canvas, type CanvasProps } from '../../../ui/canvas/Canvas';
 import { middleBeside, toWorld } from '../../../ui/canvas/viewport';
 import { canvasPalette } from '../../../ui/canvas/canvasPalette';
@@ -239,6 +240,8 @@ export function PlanTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const live = useLiveView(records);
+  const noRoom = useRef<HTMLDivElement>(null);
+  useScrollLane(noRoom);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('plan.noProject')}</p>;
   if (!live) return <p className="p-3 text-[13px] text-text-muted">{t('plan.pick')}</p>;
   const scene = sceneLabel(sceneFields(live.scene.props).number);
@@ -263,7 +266,7 @@ export function PlanTile() {
   );
   if (!room) {
     return (
-      <div className="flex flex-col gap-3 overflow-y-auto p-3" data-plan-tile="">
+      <div ref={noRoom} className="flex flex-col gap-3 overflow-y-auto p-3" data-plan-tile="">
         {header}
         <p className="text-[13px]">{t('plan.noRoom', { scene })}</p>
         <RoomChooser sceneId={live.scene.id} />

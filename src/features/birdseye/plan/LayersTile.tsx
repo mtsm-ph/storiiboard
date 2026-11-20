@@ -1,4 +1,4 @@
-import { memo, useId, useMemo } from 'react';
+import { memo, useId, useMemo, useRef } from 'react';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { labels, t, tn } from '../../../core/i18n';
 import { sceneRoomId, shownItems, type PlanLayer } from '../../../core/model/plan';
@@ -6,6 +6,7 @@ import { LAYER_DEPARTMENT, LAYER_ORDER, LAYER_SHOWS, layerCounts, rowState, UNDE
 import { cx } from '../../../ui/cx';
 import { LayerShowGlyph, LockGlyph } from '../../../ui/glyphs';
 import { roveFocus, rovingIndex } from '../../../ui/roving';
+import { useScrollLane } from '../../../ui/scrollLane';
 import { DepartmentSwatch } from '../../../ui/tags';
 import { useLocale } from '../../../ui/useLocale';
 import { myDepartmentLayers, rowName, setLayerLocked, setLayerShow, showAllLayers, soloLayer, startUnderlayScale, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
@@ -50,9 +51,11 @@ export function LayersTile() {
   const sceneId = live?.view.sceneId ?? null;
   const setupId = live?.view.setupId ?? null;
   // The shown plan's items per layer; none when no plan is shown.
+  const scroller = useRef<HTMLElement>(null);
+  useScrollLane(scroller);
   const counts = useMemo(() => (sceneId === null ? null : layerCounts(records, shownItems(records, sceneId, setupId))), [records, sceneId, setupId]);
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2" data-layers-tile="" aria-label={t('layers.label')}>
+    <section ref={scroller} className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2" data-layers-tile="" aria-label={t('layers.label')}>
       {/* One row above the list; only where both can't fit whole (Spanish in a tile under 200 px) does it wrap. */}
       <div className="flex flex-wrap gap-1.5">
         <button
