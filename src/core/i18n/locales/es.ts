@@ -1599,6 +1599,7 @@ export const es: Messages = {
   'error.videoTooSlow': 'Ese video tardó demasiado en leerse. Si está en una unidad de red, cópialo primero a esta computadora.',
   // src-tauri/src/heic.rs
   'error.heicTooBig': 'Esta foto HEIC es demasiado grande para leerla (más de 64 MB). Conviértela primero a JPEG.',
+  'error.heicTooManyPixels': 'Esta foto HEIC es demasiado grande para leerla (más de 120 megapíxeles). Conviértela primero a JPEG.',
   'error.heicNotHeic': 'Ese archivo no es una foto HEIC.',
   'error.heicHdr': 'Esta es una foto HDR, que Storiiboard todavía no puede leer en esta computadora. Expórtala primero como JPEG.',
   'error.heicTooSlow': 'Esta foto HEIC tardó demasiado en leerse. Vuelve a intentarlo, o conviértela primero a JPEG.',
