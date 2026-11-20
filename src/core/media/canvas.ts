@@ -1,28 +1,13 @@
 import { t } from '../i18n';
 import { cleanPictureOrWhy, type CleanRefusal } from './cleanPicture';
+import type { AnyCanvas } from './makeCanvas';
 
-// A canvas to draw on away from the page, for the picture pipeline (image.ts) and exports (src/features/export).
-// OffscreenCanvas where the webview has it; a detached <canvas> where it doesn't: WKWebView before Safari 16.4, which
-// is macOS 13.0 to 13.2, a system the app still supports (tauri.conf.json, minimumSystemVersion).
+// A canvas to draw on away from the page, for the picture pipeline (image.ts) and exports (src/features/export), and
+// the one door every encode goes through. makeCanvas lives in a module of its own with no imports (makeCanvas.ts), so
+// the accent worker can use it without this file's translations; it is re-exported here so every import stays as it
+// was.
 
-export type AnyCanvas = OffscreenCanvas | HTMLCanvasElement;
-export type Canvas2D = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
-
-/** A canvas `width` by `height` and its 2D context, or a null context when the webview can't give one. */
-export function makeCanvas(
-  width: number,
-  height: number,
-  settings?: CanvasRenderingContext2DSettings,
-): { canvas: AnyCanvas; ctx: Canvas2D | null } {
-  if (typeof OffscreenCanvas !== 'undefined') {
-    const canvas = new OffscreenCanvas(width, height);
-    return { canvas, ctx: canvas.getContext('2d', settings) };
-  }
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  return { canvas, ctx: canvas.getContext('2d', settings) };
-}
+export { makeCanvas, type AnyCanvas, type Canvas2D } from './makeCanvas';
 
 /**
  * The clean refused what the webview's encoder wrote (cleanPicture.ts): nothing is stored or exported, and the person

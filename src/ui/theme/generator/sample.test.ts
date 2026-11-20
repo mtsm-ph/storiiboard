@@ -85,6 +85,44 @@ describe('samplePixels’ stages (6.27q)', () => {
     expect(stageOf(thrown)).toBe('canvas');
   });
 
+  it('makes its canvas from the document where there is no OffscreenCanvas (macOS 13.0 to 13.2), and reads', async () => {
+    const seen = engine();
+    vi.stubGlobal('OffscreenCanvas', undefined);
+    const made: { tag: string; width: number; height: number }[] = [];
+    vi.stubGlobal('document', {
+      createElement: (tag: string) => {
+        const element = { tag, width: 0, height: 0, getContext: () => context };
+        made.push(element);
+        return element;
+      },
+    });
+    const context = {
+      imageSmoothingEnabled: false,
+      imageSmoothingQuality: 'low',
+      drawImage: (_image: unknown, x: number, y: number, w: number, h: number) => {
+        seen.drawn.push([x, y, w, h]);
+      },
+      getImageData: (_x: number, _y: number, w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4).fill(9) }),
+    };
+    const sampled = await samplePixels(new Blob());
+    expect(made).toEqual([expect.objectContaining({ tag: 'canvas', width: 96, height: 48 })]);
+    expect([sampled.width, sampled.height]).toEqual([96, 48]);
+    expect(sampled.data).toHaveLength(96 * 48 * 4);
+    expect(sampled.data[0]).toBe(9);
+    expect(seen.drawn).toEqual([[0, 0, 96, 48]]);
+    expect(seen.closed).toBe(1);
+  });
+
+  it('fails at canvas in a worker with neither OffscreenCanvas nor a document (macOS 13.0)', async () => {
+    const seen = engine();
+    vi.stubGlobal('OffscreenCanvas', undefined);
+    expect(typeof document).toBe('undefined');
+    const thrown: unknown = await samplePixels(new Blob()).catch((caught: unknown) => caught);
+    expect(thrown).toBeInstanceOf(ReferenceError);
+    expect(stageOf(thrown)).toBe('canvas');
+    expect(seen.closed).toBe(1);
+  });
+
   it('knows only the four stages', () => {
     expect(stageOf({ stage: 'decode' })).toBe('decode');
     expect(stageOf({ stage: 'elsewhere' })).toBeUndefined();

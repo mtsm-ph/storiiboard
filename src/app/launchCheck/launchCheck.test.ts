@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PdfText } from '../../core/script/pdfLayout';
 import {
+  BY_THE_PAGE,
   CANARY,
   PAGE_STEPS,
   WORKER_POLICY,
@@ -401,7 +402,7 @@ describe('the launch check’s page steps (6.27l)', () => {
       const f = fakes(() => ({
         accentsFromWorker: (picture) => {
           pictures.push(picture);
-          return Promise.reject(atStage(invalid, 'draw'));
+          return Promise.reject(atStage(invalid, 'decode'));
         },
         accentsOnPage: (picture) => {
           pictures.push(picture);
@@ -409,10 +410,72 @@ describe('the launch check’s page steps (6.27l)', () => {
         },
       }));
       await run(f);
-      failedAt('accents', `${invalid} (worker: draw); ${pageOk}`)(f.reports);
+      failedAt('accents', `${invalid} (worker: decode); ${pageOk}`)(f.reports);
       expect(pictures).toHaveLength(2);
       expect(pictures[0]).toBe(f.deps.picture);
       expect(pictures[1]).toBe(f.deps.picture);
+      expect(f.window.Worker).toBe(f.originalWorker);
+    });
+  });
+
+  describe('accents passed by the page (6.27r)', () => {
+    const invalid = 'The object is in an invalid state.';
+    const unread = 'That image’s colours can’t be read.';
+    const atStage = (message: string, stage: string): Error => Object.assign(new Error(message), { stage });
+
+    /** The worker's second answers, each with the words the note gives it. */
+    const again = (stage: string): [string, () => Promise<string[] | null>, string][] => [
+      ['ok with 2 accents', () => Promise.resolve(['#d02020', '#2040d0']), 'ok, 2 accents'],
+      ['the same error', () => Promise.reject(atStage(invalid, stage)), `${invalid} (worker: ${stage})`],
+      ['an error with no stage', () => Promise.reject(new Error(unread)), `${unread} (worker: no stage)`],
+      ['null', () => Promise.resolve(null), 'no answer (null)'],
+      ['an empty list', () => Promise.resolve([]), 'no accent found'],
+      ['no answer in 10 s', () => never<string[] | null>(), 'no answer in 10 s'],
+    ];
+
+    for (const stage of ['canvas', 'draw', 'read']) {
+      for (const [what, second, words] of again(stage)) {
+        it(`passes with a note when the worker fails at ${stage}, the page finds accents, and then ${what}`, async () => {
+          const asked: Blob[] = [];
+          const onPage: Blob[] = [];
+          const f = fakes((g) => ({
+            accentsFromWorker: (picture) => {
+              asked.push(picture);
+              // Each ask starts the same worker script again, as askWorkerAlone does.
+              new g.window.Worker(new URL(ACCENT_WORKER), { type: 'module' });
+              return asked.length === 1 ? Promise.reject(atStage(invalid, stage)) : second();
+            },
+            accentsOnPage: (picture) => {
+              onPage.push(picture);
+              return Promise.resolve({ width: 16, height: 16, accents: 3 });
+            },
+          }));
+          await run(f);
+          const note =
+            `by the page: read ok, 16 × 16, 3 accents; the worker: ${invalid} (worker: ${stage}); ` +
+            `the worker asked again: ${words}`;
+          expect(f.reports).toEqual(PAGE_STEPS.map((step) => [step, true, step === 'accents' ? note : '']));
+          expect(note.startsWith(BY_THE_PAGE)).toBe(true);
+          expect(asked).toHaveLength(2);
+          expect(onPage).toHaveLength(1);
+          for (const picture of [...asked, ...onPage]) expect(picture).toBe(f.deps.picture);
+          // The accent worker started twice is one address: each script asked for once, and worker-policy passed.
+          expect(f.fetched).toEqual([`http://tauri.localhost${PDF_WORKER}`, ACCENT_WORKER]);
+          expect(f.window.Worker).toBe(f.originalWorker);
+        });
+      }
+    }
+
+    it('fails with #223’s line when the worker fails at read and the page reads but finds no accent', async () => {
+      const worker = vi.fn(() => Promise.reject(atStage(invalid, 'read')));
+      const f = fakes(() => ({
+        accentsFromWorker: worker,
+        accentsOnPage: () => Promise.resolve({ width: 16, height: 16, accents: 0 }),
+      }));
+      await run(f);
+      failedAt('accents', `${invalid} (worker: read); on the page: read ok, 16 × 16, 0 accents`)(f.reports);
+      // No second ask after a failure.
+      expect(worker).toHaveBeenCalledTimes(1);
       expect(f.window.Worker).toBe(f.originalWorker);
     });
   });
@@ -588,6 +651,12 @@ describe('what the check reads', () => {
     for (const type of yes) expect(isJavaScript(type), type).toBe(true);
     const no = ['text/html', 'application/json', 'text/javascriptx', 'text/plain; x=text/javascript', '', null];
     for (const type of no) expect(isJavaScript(type), String(type)).toBe(false);
+  });
+
+  it('scripts/launchCheck.sh looks for the same words a pass by the page begins with (6.27r)', () => {
+    const script = readFileSync(join(root, 'scripts/launchCheck.sh'), 'utf8');
+    expect(BY_THE_PAGE).toBe('by the page');
+    expect(script).toContain(`launch check: accents ok (${BY_THE_PAGE}`);
   });
 
   it('names a file by its name alone', () => {

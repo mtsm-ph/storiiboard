@@ -65,8 +65,13 @@
   runs in the real webviews: Playwright's WebKit is newer than any Safari, so an end-to-end test can pass where the
   Mac app fails. Its first run on a Mac found one (6.27p): pdf.js's `getTextContent` reads a stream with `for await`,
   which Safari's engine lacks, so the Mac app could not read a PDF; src/features/script/readPdf.ts reads through
-  `streamTextContent` and a reader instead, and src/app/pdfjsUse.test.ts keeps it so.
-  src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
+  `streamTextContent` and a reader instead, and src/app/pdfjsUse.test.ts keeps it so. Its accents step asks the
+  worker alone. When the worker fails at its canvas (not at decoding the picture) and the page reads the same picture,
+  the step passes by the page and says so, and scripts/launchCheck.sh refuses such a pass unless it is given
+  `--accents-by-page-ok`, which only the Mac installer job gives (6.27r, Kevin, Nov 20: GitHub's Mac has a virtual
+  GPU; Windows and a real Mac stay strict). A branch named `checkpoint/launch-<name>` runs only the ffmpeg sources
+  and the two installers, launch check included: about a quarter of an hour, never a checkpoint to merge on.
+- src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
   commands are tested in Rust through tauri's `test` feature (6.16). No HTML5 drag and drop anywhere in the app
   (lint and src/app/noHtmlDrag.test.ts, 6.15).
 - A failing functional or data-safety test gets fixed, never skipped.
@@ -386,6 +391,10 @@
     curated hue families, light and dark, so no theme can be unreadable.
   - The theme's tokens are stored in the project record; a project without an image uses the default theme.
   - Run every generated theme through the axe checks, light and dark.
+  - The image's accents are read in a Web Worker; when the worker can't start, dies, reports an error or takes too
+    long, the page reads them itself, and a person sees an error only when the page fails too (6.27r, Kevin, Nov 20).
+    No code calls `new OffscreenCanvas` directly: `makeCanvas` (src/core/media/makeCanvas.ts, re-exported by
+    canvas.ts) falls back to a `<canvas>` where there is none (macOS 13.0 to 13.2).
 - Export (Phase 1): src/features/export is a registry; a format is one file plus one line. Per scene or whole
   project. Exports skip the Trash, and files go to disk through src/core/storage.
 - Review (Phase 7 desktop, Phase 9 web): web suggestions come back as a change file (.sbdchanges, in

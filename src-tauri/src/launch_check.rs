@@ -268,7 +268,8 @@ impl<R: Runtime> LaunchCheck<R> {
         ok: bool,
         detail: &str,
     ) -> Result<(), String> {
-        self.report_noted(app, from, step, ok, detail, None)
+        let note = page_note(from, ok, detail);
+        self.report_noted(app, from, step, ok, detail, note.as_deref())
     }
 
     /// As `report`, with a note on the step's ok line (`loaded` shown first by the 3-second net).
@@ -317,6 +318,16 @@ impl<R: Runtime> LaunchCheck<R> {
             end_process(code);
         });
     }
+}
+
+/// The note on a page step's ok line: its detail, cleaned and bounded as a failure's reason is, when it gave one
+/// (6.27r: `accents` passed by the page says so). The verdict never reads it: the app reports, scripts/launchCheck.sh
+/// judges. None for an empty detail, a failure, or a step of Rust's own.
+pub(crate) fn page_note(from: Reporter, ok: bool, detail: &str) -> Option<String> {
+    if from != Reporter::Page || !ok {
+        return None;
+    }
+    Some(clean_detail(detail)).filter(|note| !note.is_empty())
 }
 
 /// A step's ok line, with its note in brackets when it has one.
@@ -497,6 +508,48 @@ mod tests {
             ok_line("loaded", Some(SHOWN_BY_NET)),
             "launch check: loaded ok (already shown by the 3-second net)"
         );
+    }
+
+    #[test]
+    fn a_page_steps_ok_detail_is_its_note_cleaned_and_bounded() {
+        let note = "by the page: read ok, 16 × 16, 3 accents; the worker: The object is in an invalid state. \
+                    (worker: read); the worker asked again: ok, 2 accents";
+        assert_eq!(page_note(Reporter::Page, true, note).as_deref(), Some(note));
+        assert_eq!(
+            ok_line("accents", page_note(Reporter::Page, true, note).as_deref()),
+            format!("launch check: accents ok ({note})")
+        );
+        // Cleaned and bounded as a failure's reason is.
+        assert_eq!(
+            page_note(Reporter::Page, true, "by the page:\nread\u{1b}ok").as_deref(),
+            Some("by the page: read ok")
+        );
+        let long = page_note(Reporter::Page, true, &"x".repeat(400)).unwrap();
+        assert_eq!(long, clean_detail(&"x".repeat(400)));
+        assert_eq!(long.chars().count(), 300);
+        // No note for an empty or blank detail, a failure, or one of Rust's own steps.
+        assert_eq!(page_note(Reporter::Page, true, ""), None);
+        assert_eq!(page_note(Reporter::Page, true, " \n "), None);
+        assert_eq!(page_note(Reporter::Page, false, "why"), None);
+        assert_eq!(page_note(Reporter::Rust, true, "x"), None);
+        assert_eq!(
+            ok_line("accents", page_note(Reporter::Page, true, "").as_deref()),
+            "launch check: accents ok"
+        );
+        // The verdict doesn't read it: every step ok with a note on accents is still a pass.
+        let mut record = Record::default();
+        for step in STEPS {
+            let from = if RUST_STEPS.contains(&step) {
+                Reporter::Rust
+            } else {
+                Reporter::Page
+            };
+            record
+                .report(from, step, true, if step == "accents" { note } else { "" })
+                .unwrap();
+        }
+        assert_eq!(record.verdict(), Some(&Verdict::Passed));
+        assert_eq!(Verdict::Passed.code(), 0);
     }
 
     #[test]

@@ -1140,6 +1140,62 @@ mod launch_check_step {
     }
 
     #[test]
+    fn a_page_step_ok_with_a_detail_says_it_as_its_note_and_still_passes() {
+        let h = Harness::new("launch-note");
+        let (lines, verdicts) = running(&h);
+        let check = h.app.state::<LaunchCheck<MockRuntime>>();
+        check
+            .report(h.app.handle(), Reporter::Rust, "window", true, "")
+            .unwrap();
+        // loaded's own note still works.
+        check
+            .report_noted(
+                h.app.handle(),
+                Reporter::Rust,
+                "loaded",
+                true,
+                "",
+                Some(crate::launch_check::SHOWN_BY_NET),
+            )
+            .unwrap();
+        let note = "by the page: read ok, 16 × 16, 3 accents; the worker: The object is in an invalid state. \
+                    (worker: read); the worker asked again: no answer in 10 s";
+        for name in PAGE_STEPS {
+            let detail = if name == "accents" {
+                format!("{note}\n\u{7}")
+            } else {
+                String::new()
+            };
+            assert_eq!(step(&h, name, true, &detail), Ok(Json::Null), "{name}");
+        }
+        assert_eq!(*verdicts.lock().unwrap(), vec![Verdict::Passed]);
+        assert_eq!(Verdict::Passed.code(), 0);
+        let said = lines.lock().unwrap().clone();
+        assert_eq!(
+            said,
+            vec![
+                "launch check: window ok".to_owned(),
+                "launch check: loaded ok (already shown by the 3-second net)".to_owned(),
+                "launch check: page ok".to_owned(),
+                "launch check: policy-watch ok".to_owned(),
+                "launch check: pdf-text ok".to_owned(),
+                format!("launch check: accents ok ({note})"),
+                "launch check: worker-policy ok".to_owned(),
+                "launch check: no-violation ok".to_owned(),
+                "launch check: passed".to_owned(),
+            ]
+        );
+        // Bounded as a failure's reason is.
+        let h = Harness::new("launch-long-note");
+        let (lines, _) = running(&h);
+        assert_eq!(step(&h, "accents", true, &"y".repeat(400)), Ok(Json::Null));
+        assert_eq!(
+            lines.lock().unwrap().clone(),
+            vec![format!("launch check: accents ok ({})", "y".repeat(300))]
+        );
+    }
+
+    #[test]
     fn a_failed_page_step_is_the_verdict_with_its_code_and_its_cleaned_reason() {
         let h = Harness::new("launch-fail");
         let (lines, verdicts) = running(&h);

@@ -3,22 +3,51 @@
 # (STORIIBOARD_LAUNCH_CHECK=1, src-tauri/src/launch_check.rs), waits for it to quit by itself, and says how it ended.
 # Run in both installer jobs of .github/workflows/checkpoint.yml, after the installers are uploaded:
 #
-#   bash scripts/launchCheck.sh <path to the app's executable>
+#   bash scripts/launchCheck.sh [--accents-by-page-ok] <path to the app's executable>
 #
 # Bash, LF line endings: Git Bash on the Windows runner, and the Mac's own bash, which is 3.2, so nothing newer here.
 # It passes only when the app's exit code is 0 and its output holds the line "launch check: passed". Without the
 # variable the app would open this computer's real projects, so the app is never started here without it.
+#
+# The app passes its accents step "by the page" (6.27r) when the accent worker reported an error at its canvas, its
+# drawing or its reading back, and the page read the same picture's accents: the app itself then works, as it falls
+# back to the page too. The app says so honestly; this script judges. Such a pass fails here unless
+# --accents-by-page-ok is given, and only GitHub's Mac job gives it: its GPU is virtual, and a worker's canvas there
+# may get no backing. Windows and a real Mac stay strict, so a worker that fails on a real machine is still caught.
 
 set -u
 
-app="${1:-}"
+say() { printf 'launch check: %s\n' "$*"; }
+usage="usage: bash scripts/launchCheck.sh [--accents-by-page-ok] <path to the app's executable>"
+
+app=""
+accents_by_page_ok=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --accents-by-page-ok) accents_by_page_ok=true ;;
+    -*)
+      say "FAILED: unknown flag \"$1\"; $usage"
+      exit 1
+      ;;
+    *)
+      if [ -n "$app" ]; then
+        say "FAILED: more than one path (\"$app\", \"$1\"); $usage"
+        exit 1
+      fi
+      app=$1
+      ;;
+  esac
+  shift
+done
+if [ -z "$app" ]; then
+  say "FAILED: no path to the app; $usage"
+  exit 1
+fi
 # The steps in order, as launch_check.rs's STEPS (a Rust test fails when the two differ): step n failed is 10 + n,
 # the time limit while waiting for step n is 30 + n.
 steps="window loaded page policy-watch pdf-text accents worker-policy no-violation"
 # Longer than the app's own 90 s, so the app's own time limit speaks first.
 wait_limit=150
-
-say() { printf 'launch check: %s\n' "$*"; }
 
 # The name of step n, from 1.
 step_name() {
@@ -131,7 +160,20 @@ echo '---'
 say "exit code $code: $(meaning "$code")"
 
 if [ "$code" = 0 ] && tr -d '\r' <"$log" | grep -qx 'launch check: passed'; then
-  exit 0
+  # A pass by the page: its line begins with these words (launchCheck.ts's BY_THE_PAGE; a test checks they match).
+  by_page=$(tr -d '\r' <"$log" | grep '^launch check: accents ok (by the page' | head -n 1)
+  if [ -z "$by_page" ]; then
+    exit 0
+  fi
+  note=${by_page#launch check: accents ok (}
+  note=${note%)}
+  if [ "$accents_by_page_ok" = true ]; then
+    say "warning: the accents came from the page, not the worker, as --accents-by-page-ok allows: $note"
+    exit 0
+  fi
+  say 'FAILED: the accents came from the page, not the worker'
+  say "only --accents-by-page-ok lets that pass, and it belongs on GitHub's Mac alone, whose GPU is virtual"
+  exit 1
 fi
 if [ "$code" = 0 ]; then
   say 'FAILED: the app quit with 0 but never said "launch check: passed"'
