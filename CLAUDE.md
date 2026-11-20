@@ -234,8 +234,10 @@
     location (no address search, no request). A compass at the plan's top right shows north and the sun: chrome,
     never printed, never stored.
     Scout photos (6.27, Kevin Nov 16 and 17): a location's photo keeps its EXIF date, time and GPS (read in Rust,
-    src-tauri/src/exif.rs, which checks every block itself before the library reads it; a refused or HEIC photo
-    still imports and the status line says so); one photo can be the location's light reference. Every picture the
+    src-tauri/src/exif.rs, which checks every block itself before the library reads it; a HEIC's block is found by
+    heic.rs's own box reader, its Exif item through iinf and iloc, no library code copied: 6.27y; a refused photo,
+    or a HEIC whose boxes can't be followed, still imports and the status line says so); one photo can be the
+    location's light reference. Every picture the
     page encodes is cleaned in `canvasBlob` (6.27b, src/core/media/cleanPicture.ts): kept by a list, never removed by
     one, the colour profile at most 64 KiB as stored; Rust's door (picture_door.rs, sbd.rs) and the in-page build
     refuse anything else, both readers tested against one shared list of statements; an import leaves out a stored
