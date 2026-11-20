@@ -17,3 +17,5 @@ Files the Rust tests read, small and checked in. Everything else the tests need 
 - `pictures/webkit-encoded-1.clean.jpg` and `pictures/webkit-encoded-2.clean.jpg`: each of the two as the page's clean
   (src/core/media/cleanPicture.ts) leaves it, only the picture's own data and its colour profile; the door lets them
   through, and a Vitest checks the clean still makes exactly these bytes.
+- `heic/`: our own drawing as a HEIC made by a Mac's `sips`, its source PNG, where to measure it, and the PNG
+  `heic_picture` makes from it (`src/heic.rs`, 6.27n); its own README says what each is and its hash.
