@@ -262,16 +262,19 @@ const workerWords = (error: unknown): string => `${reason(error)} (worker: ${sta
 async function accents(deps: LaunchCheckDeps): Promise<string | undefined> {
   let why: string | null = null;
   let pageMayStand = false;
+  let first: unknown;
   try {
     const asking = deps.accentsFromWorker(deps.picture);
     const found = await within(deps, ACCENTS_LIMIT_MS, asking, 'no answer from the accent worker in 20 s');
-    // One null for no worker, a dead worker and its own 15 s limit alike (extractAccents falls back on all three).
+    // One null for no worker, a dead worker and its own 15 s limit alike (extractAccents falls back on all three, and
+    // since 6.27r on an error the worker reports too, which askWorkerAlone rejects with instead).
     if (found === null) why = 'the accent worker failed or took over 15 s';
     else if (found.length === 0) why = 'the accent worker found no accent in the built-in picture';
   } catch (error) {
     // The check's own time limit has no worker stage; the worker's rejection has one, or says it had none.
     if (error instanceof StepFailed) why = error.message;
     else {
+      first = error;
       why = workerWords(error);
       const stage = stageOf(error);
       // A picture the worker couldn't decode, or an error from nowhere known, is never the page's to stand in for.
@@ -282,7 +285,7 @@ async function accents(deps: LaunchCheckDeps): Promise<string | undefined> {
   if (why === null) return undefined;
   const page = await onPage(deps);
   if (!pageMayStand || page.accents < 1) fail(`${why}; on the page: ${page.words}`);
-  return `${BY_THE_PAGE}: ${page.words}; the worker: ${why}; the worker asked again: ${await askAgain(deps)}`;
+  return `${BY_THE_PAGE}: ${page.words}; the worker: ${why}; the worker asked again: ${await askAgain(deps, first)}`;
 }
 
 /**
@@ -304,9 +307,11 @@ async function onPage(deps: LaunchCheckDeps): Promise<{ words: string; accents: 
 
 /**
  * The worker asked once more, with the same picture, after the page passed the step: whether its failure stays, for
- * the note alone. It never changes the verdict.
+ * the note alone. It never changes the verdict. A failure word for word the first one (the same words and stage) is
+ * `the same`: Rust cuts a note at 300 characters, and a long engine message written twice could cut off this part,
+ * the one the second ask exists for.
  */
-async function askAgain(deps: LaunchCheckDeps): Promise<string> {
+async function askAgain(deps: LaunchCheckDeps, first: unknown): Promise<string> {
   try {
     const asking = deps.accentsFromWorker(deps.picture);
     const found = await within(deps, AGAIN_LIMIT_MS, asking, 'no answer in 10 s');
@@ -314,7 +319,9 @@ async function askAgain(deps: LaunchCheckDeps): Promise<string> {
     if (found.length === 0) return 'no accent found';
     return `ok, ${String(found.length)} accents`;
   } catch (error) {
-    return error instanceof StepFailed ? error.message : workerWords(error);
+    if (error instanceof StepFailed) return error.message;
+    const words = workerWords(error);
+    return words === workerWords(first) ? 'the same' : words;
   }
 }
 

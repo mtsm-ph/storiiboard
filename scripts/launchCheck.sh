@@ -161,11 +161,11 @@ say "exit code $code: $(meaning "$code")"
 
 if [ "$code" = 0 ] && tr -d '\r' <"$log" | grep -qx 'launch check: passed'; then
   # A pass by the page: its line begins with these words (launchCheck.ts's BY_THE_PAGE; a test checks they match).
-  by_page=$(tr -d '\r' <"$log" | grep '^launch check: accents ok (by the page' | head -n 1)
+  by_page=$(tr -d '\r' <"$log" | grep -a '^launch check: accents ok (by the page' | head -n 1)
   if [ -z "$by_page" ]; then
     exit 0
   fi
-  note=${by_page#launch check: accents ok (}
+  note=${by_page#'launch check: accents ok ('}
   note=${note%)}
   if [ "$accents_by_page_ok" = true ]; then
     say "warning: the accents came from the page, not the worker, as --accents-by-page-ok allows: $note"

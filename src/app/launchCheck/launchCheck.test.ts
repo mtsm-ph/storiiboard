@@ -426,7 +426,13 @@ describe('the launch check’s page steps (6.27l)', () => {
     /** The worker's second answers, each with the words the note gives it. */
     const again = (stage: string): [string, () => Promise<string[] | null>, string][] => [
       ['ok with 2 accents', () => Promise.resolve(['#d02020', '#2040d0']), 'ok, 2 accents'],
-      ['the same error', () => Promise.reject(atStage(invalid, stage)), `${invalid} (worker: ${stage})`],
+      // Word for word the first failure: said as `the same`, so Rust's 300-character cut never takes this part.
+      ['the same error', () => Promise.reject(atStage(invalid, stage)), 'the same'],
+      [
+        'a different error at the same stage',
+        () => Promise.reject(atStage(unread, stage)),
+        `${unread} (worker: ${stage})`,
+      ],
       ['an error with no stage', () => Promise.reject(new Error(unread)), `${unread} (worker: no stage)`],
       ['null', () => Promise.resolve(null), 'no answer (null)'],
       ['an empty list', () => Promise.resolve([]), 'no accent found'],
@@ -477,6 +483,38 @@ describe('the launch check’s page steps (6.27l)', () => {
       // No second ask after a failure.
       expect(worker).toHaveBeenCalledTimes(1);
       expect(f.window.Worker).toBe(f.originalWorker);
+    });
+
+    for (const stage of ['canvas', 'draw', 'read']) {
+      it(`fails with #223’s line when the worker fails at ${stage} and the page fails with no stage`, async () => {
+        const worker = vi.fn(() => Promise.reject(atStage(invalid, stage)));
+        const f = fakes(() => ({
+          accentsFromWorker: worker,
+          accentsOnPage: () => Promise.reject(new TypeError('Load failed')),
+        }));
+        await run(f);
+        failedAt('accents', `${invalid} (worker: ${stage}); on the page: failed: Load failed`)(f.reports);
+        expect(worker).toHaveBeenCalledTimes(1);
+        expect(f.window.Worker).toBe(f.originalWorker);
+      });
+
+      it(`fails with #223’s line when the worker fails at ${stage} and the page gives no answer in 10 s`, async () => {
+        const worker = vi.fn(() => Promise.reject(atStage(invalid, stage)));
+        const f = fakes(() => ({ accentsFromWorker: worker, accentsOnPage: () => never() }));
+        await run(f);
+        failedAt('accents', `${invalid} (worker: ${stage}); on the page: no answer in 10 s`)(f.reports);
+        expect(worker).toHaveBeenCalledTimes(1);
+        expect(f.window.Worker).toBe(f.originalWorker);
+      });
+    }
+
+    it('fails with no stage when the worker’s stage is not one of the four, though the page reads 3 accents', async () => {
+      // A version that read the raw `stage` property would take `elsewhere` for a stage and pass by the page.
+      const worker = vi.fn(() => Promise.reject(atStage(invalid, 'elsewhere')));
+      const f = fakes(() => ({ accentsFromWorker: worker }));
+      await run(f);
+      failedAt('accents', `${invalid} (worker: no stage); on the page: read ok, 16 × 16, 3 accents`)(f.reports);
+      expect(worker).toHaveBeenCalledTimes(1);
     });
   });
 

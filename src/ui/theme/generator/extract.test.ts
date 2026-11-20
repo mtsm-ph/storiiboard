@@ -106,15 +106,6 @@ describe('extractAccents, as before', () => {
     await expect(extractAccents(new Blob())).rejects.toThrow('the page read it');
     expect(page).toHaveBeenCalledTimes(1);
   });
-
-  it('asks the page when the worker sent an error with a stage, and the page’s error is the answer (6.27r)', async () => {
-    standIn({ error: 'The object is in an invalid state.', stage: 'read' });
-    const page = vi.fn(() => Promise.reject(new Error('the page was asked')));
-    vi.stubGlobal('createImageBitmap', page);
-    const thrown: unknown = await extractAccents(new Blob()).catch((caught: unknown) => caught);
-    expect((thrown as Error).message).toBe('the page was asked');
-    expect(page).toHaveBeenCalledTimes(1);
-  });
 });
 
 /** The pixels the page's fake engine reads: a red half and a white half, 16 by 16. */
@@ -145,6 +136,15 @@ function pageEngine(): { decoded: () => number } {
 }
 
 describe('extractAccents when the worker reports an error (6.27r)', () => {
+  it('asks the page when the worker sent an error with a stage, and the page’s error is the answer (6.27r)', async () => {
+    standIn({ error: 'The object is in an invalid state.', stage: 'read' });
+    const page = vi.fn(() => Promise.reject(new Error('the page was asked')));
+    vi.stubGlobal('createImageBitmap', page);
+    const thrown: unknown = await extractAccents(new Blob()).catch((caught: unknown) => caught);
+    expect((thrown as Error).message).toBe('the page was asked');
+    expect(page).toHaveBeenCalledTimes(1);
+  });
+
   it('gives the page’s accents, whether the worker sent a stage or none', async () => {
     const expected = accentCandidates(redAndWhite(), SIDE, SIDE);
     expect(expected.length).toBeGreaterThan(0);
