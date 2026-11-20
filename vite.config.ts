@@ -4,7 +4,19 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { CSP_VIOLATION_PREFIX, CSP_VIOLATIONS_FILE, e2eCsp, tauriCsp } from './scripts/e2eCsp';
+import type { ServerResponse } from 'node:http';
+import {
+  CSP_REPORT_PATH,
+  CSP_VIOLATION_PREFIX,
+  CSP_VIOLATIONS_FILE,
+  cspReportLines,
+  e2eCsp,
+  e2eWorkerCsp,
+  isJavaScript,
+  tauriCsp,
+  workerCsp,
+  writeHeadHeader,
+} from './scripts/e2eCsp';
 
 const E2E = process.env.STORIIBOARD_E2E === '1';
 
@@ -41,7 +53,29 @@ function noDevSocket(): Plugin {
 }
 
 const CSP_WATCH = '/@storiiboard/csp-watch.js';
-const CSP_REPORT = '/@storiiboard/csp-violation';
+const CSP_REPORT = CSP_REPORT_PATH;
+
+/** Most of a report read, however much is sent: a browser's JSON report runs longer than the page's one line. */
+const REPORT_READ_MAX = 4000;
+
+/**
+ * The worker policy on a JavaScript response, as the app sends it on its .js and .mjs assets (src-tauri/src/
+ * worker_csp.rs): on a page's script a browser ignores it, on a worker's it is that worker's policy. Set as the
+ * response's head goes out, since only then is its Content-Type known (Vite's own handlers set it, or a static file's
+ * writeHead carries it); a response that already has a policy keeps it.
+ */
+function sendWorkerPolicy(res: ServerResponse, policy: string): void {
+  const writeHead = res.writeHead.bind(res);
+  res.writeHead = function (...args: unknown[]) {
+    // Set on the response already, or given to writeHead as an object or as Node's raw array (scripts/e2eCsp.ts).
+    const named = (name: string) => res.getHeader(name) ?? writeHeadHeader(args, name);
+    const type = named('content-type');
+    if (typeof type === 'string' && isJavaScript(type) && named('content-security-policy') === undefined) {
+      res.setHeader('Content-Security-Policy', policy);
+    }
+    return Reflect.apply(writeHead, res, args) as ServerResponse;
+  };
+}
 
 // Loaded first on the test server's page: every violation of the policy is printed to the console (e2e/cspWatch.ts
 // fails the test on it), kept for violations before a test listens, and sent to the server, which prints it to its log
@@ -66,6 +100,7 @@ const CSP_WATCH_SCRIPT = `(() => {
  */
 function e2eContentSecurityPolicy(): Plugin {
   const policy = e2eCsp(tauriCsp(import.meta.dirname));
+  const workerPolicy = e2eWorkerCsp(workerCsp(import.meta.dirname));
   const violations = join(import.meta.dirname, CSP_VIOLATIONS_FILE);
   return {
     name: 'storiiboard:e2e-csp',
@@ -76,6 +111,7 @@ function e2eContentSecurityPolicy(): Plugin {
       writeFileSync(violations, '');
       server.middlewares.use((req, res, next) => {
         const path = req.url?.replace(/\?.*$/, '');
+        sendWorkerPolicy(res, workerPolicy);
         if (path === CSP_WATCH) {
           res.setHeader('Content-Type', 'text/javascript');
           res.end(CSP_WATCH_SCRIPT);
@@ -84,19 +120,24 @@ function e2eContentSecurityPolicy(): Plugin {
         if (path === CSP_REPORT && req.method === 'POST') {
           let body = '';
           req.setEncoding('utf8');
-          // At most 1000 characters kept, however much is sent; a broken request ends without a report.
-          req.on('data', (chunk: string) => (body = (body + chunk).slice(0, 1000)));
+          // At most REPORT_READ_MAX characters read and 1000 kept per line, however much is sent; a broken request ends
+          // without a report. The page's line is kept as it is; a browser's JSON report (a worker's, through its
+          // policy's report-uri) is turned into the same line (scripts/e2eCsp.ts, cspReportLines).
+          req.on('data', (chunk: string) => (body = (body + chunk).slice(0, REPORT_READ_MAX)));
           req.on('error', () => res.destroy());
           req.on('end', () => {
-            process.stderr.write(`${body}\n`);
-            appendFileSync(violations, `${JSON.stringify({ at: Date.now(), line: body })}\n`);
+            const at = Date.now();
+            for (const line of cspReportLines(body)) {
+              process.stderr.write(`${line}\n`);
+              appendFileSync(violations, `${JSON.stringify({ at, line })}\n`);
+            }
             res.statusCode = 204;
             res.end();
           });
           return;
         }
-        // The page and any frame: what a browser asks for as a document. Scripts and workers carry no policy of their
-        // own, as in the app.
+        // The page and any frame: what a browser asks for as a document. Scripts get the worker policy instead
+        // (sendWorkerPolicy, above), as in the app.
         if (req.headers.accept?.includes('text/html')) res.setHeader('Content-Security-Policy', policy);
         next();
       });

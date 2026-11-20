@@ -127,10 +127,15 @@ test('reads a screenplay PDF by its layout: headings, scene numbers in the margi
       { row: 14, x: 108, text: 'BANG! A truck backfires.' },
     ],
   ]);
+  // Read in pdf.js's worker, under the workers' policy (src-tauri/worker-csp.txt; e2e/workerCsp.spec.ts checks its
+  // script carries it): the page hands it the bytes and never parses them itself.
+  const workers: string[] = [];
+  page.on('worker', (worker) => workers.push(new URL(worker.url()).pathname));
   const chooser = page.waitForEvent('filechooser');
   await scenesTile(page).getByRole('button', { name: 'Import script…' }).click();
   await (await chooser).setFiles({ name: 'Bey County.pdf', mimeType: 'application/pdf', buffer: pdf });
   await expect(preview(page).getByRole('heading', { name: 'Import BEY COUNTY' })).toBeVisible();
+  expect(workers).toContain('/node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs');
   const rows = preview(page).getByRole('table', { name: 'Scenes in the script' }).locator('tbody tr');
   await expect(rows).toHaveCount(2);
   // The scene number from the margins, in its own column.

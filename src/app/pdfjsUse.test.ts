@@ -76,6 +76,12 @@ describe('pdf.js stays a text reader (the pdfjs-dist ignore, Nov 18)', () => {
     expect(shipped.filter((path) => path !== READER && PDFJS_IMPORT.test(read(path)))).toEqual([]);
   });
 
+  it('opens a PDF with no WebAssembly, which the workers’ policy refuses (Nov 19)', () => {
+    // pdf.js 5.7's useWasm is on by default; its WebAssembly.Module would be refused in the worker and fail a run.
+    const options = /getDocument\(\{([\s\S]*?)\}\);/.exec(read(READER))?.[1] ?? '';
+    expect(options).toMatch(/^\s*useWasm: false,\s*$/m);
+  });
+
   it('never loads the viewer, the scripting sandbox, an annotation layer or scripting, anywhere', () => {
     // The viewer and the sandbox by their import (osv-scanner.toml's reason names the folder in words); the other two
     // by name at all.

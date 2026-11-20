@@ -9,8 +9,11 @@ import { t } from '../../../core/i18n';
 /** How long the worker may take before the page does the work instead, so a stuck worker never leaves a caller waiting. */
 const WORKER_TIMEOUT_MS = 15_000;
 
-/** The worker's accents; null when there's no worker to ask, it failed, or it took too long. */
-function askWorker(image: Blob): Promise<string[] | null> {
+/**
+ * The worker's accents, asked of the worker alone, never the page: null when there's no worker to ask, it failed, or it
+ * took too long. The launch check (src/app/launchCheck) calls it so a worker that fails can't pass as the page's answer.
+ */
+export function askWorkerAlone(image: Blob): Promise<string[] | null> {
   return new Promise((resolve, reject) => {
     let worker: Worker;
     try {
@@ -47,7 +50,7 @@ function askWorker(image: Blob): Promise<string[] | null> {
 
 /** The accents an image offers, most saturated first; empty for a grey one. */
 export async function extractAccents(image: Blob): Promise<string[]> {
-  const fromWorker = typeof Worker === 'undefined' ? null : await askWorker(image);
+  const fromWorker = typeof Worker === 'undefined' ? null : await askWorkerAlone(image);
   if (fromWorker) return fromWorker;
   const { data, width, height } = await samplePixels(image);
   return accentCandidates(data, width, height);
