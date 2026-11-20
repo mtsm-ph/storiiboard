@@ -248,4 +248,31 @@ describe("the turn's lateness", () => {
     expect(lateOk(raw)).toThrow(/frame 21 reported after 0 missed \(0 allowed in this run\)/);
     expect(ruleOk(countMissed(raw))).toThrow(/frame 21 reported after 0 missed \(0 allowed in this run\)/);
   });
+
+  it('lends nothing from an on-time out frame, even when the first report past it ran late: 20 on time, 22 late, the turn', () => {
+    // Aimed at a version that falls through to the run's first report when the out frame's lateness is 0.
+    const raw = timed([[19, 0, 0.1], [20, 1, 0.1], [22, 3, 2.3], [10, 6, 0.1]]);
+    expect(lateness(raw)).toEqual([0, 0, 2, 0]);
+    expect(countMissed(raw).find((s) => s.frame === 22)?.missed).toBe(1);
+    expect(lateOk(raw)).toThrow(/frame 22 reported after 1 missed \(1 allowed in this run\)/);
+  });
+
+  it("lends only the turn's report its lateness, not every report in the run: 21 late with none missed, then 22, no turn", () => {
+    // Aimed at a version that adds each report's own lateness as the run goes.
+    const raw = timed([[19, 0, 0.1], [20, 1, 0.1], [21, 2, 2.2], [22, 5, 0.1]]);
+    expect(lateness(raw)).toEqual([0, 0, 2, 0]);
+    expect(countMissed(raw).map((s) => s.missed)).toEqual([0, 0, 0, 0]);
+    expect(lateOk(raw)).toThrow(/frame 21 reported after 0 missed \(0 allowed in this run\)/);
+  });
+
+  it("starts a second run from nothing: a late turn first, then a pass on time and an overshoot to 21 that still fails", () => {
+    // Aimed at a version that carries the first turn's lateness into the next run.
+    const pass = Array.from({ length: 10 }, (_, i): [number, number, number] => [11 + i, 5 + i, 0.1]);
+    const raw = timed([[19, 0, 0.1], [20, 1, 2.2], [22, 3, 0.5], [10, 4, 0.1], ...pass, [21, 15, 0.1]]);
+    expect(lateness(raw)[1]).toBe(2);
+    expect(lateness(raw).slice(2)).toEqual(Array.from({ length: raw.length - 2 }, () => 0));
+    // The first run alone, up to the turn, is allowed its 2 late frames and the 1 missed.
+    expect(lateOk(raw.slice(0, 4))).not.toThrow();
+    expect(lateOk(raw)).toThrow(/frame 21 reported after 0 missed \(0 allowed in this run\)/);
+  });
 });

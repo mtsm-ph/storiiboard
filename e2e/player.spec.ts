@@ -64,8 +64,6 @@ const presentedReports = (clip: Locator) =>
     )
     .then((raw) => ({ seen: countMissed(raw), raw }));
 
-const presentedFrames = (clip: Locator) => presentedReports(clip).then((reports) => reports.seen);
-
 /**
  * Every frame shown is inside the clip, from `from` to `to` (the rule is in e2e/frameCount.ts, beside the count). With the
  * raw reports at hand, the report that turned the clip lends how late it ran.
@@ -359,12 +357,12 @@ test('the frame’s clip plays in the inspector, in to out, round and round, onl
   await expect.poll(() => clip.evaluate((video: HTMLVideoElement) => Math.floor((video.currentTime * 24000) / 1001))).toBe(10);
   expect(await new AxeBuilder({ page }).include('[data-inspector]').analyze().then((r) => r.violations)).toEqual([]);
 
-  const presented = () => presentedFrames(clip);
+  const presented = () => presentedReports(clip);
   await preview.getByRole('button', { name: 'Play clip' }).click();
   await expect(preview.getByRole('button', { name: 'Pause clip' })).toBeVisible();
   // Four times round an 11-frame clip: never a frame outside it, and back at its start more than once.
-  const seen = await presented();
-  expectInside(seen, 10, 20);
+  const { seen, raw } = await presented();
+  expectInside(seen, 10, 20, raw);
   const frames = seen.map((s) => s.frame);
   expect(frames.filter((frame, i) => i > 0 && frame < (frames[i - 1] ?? 0)).length).toBeGreaterThanOrEqual(2);
   await preview.getByRole('button', { name: 'Pause clip' }).click();
@@ -378,7 +376,8 @@ test('the frame’s clip plays in the inspector, in to out, round and round, onl
   await page.keyboard.press('i');
   await expect(player(page)).toContainText('In 00:00:01:13 · Out 00:00:01:23 · 11 frames');
   await preview.getByRole('button', { name: 'Play clip' }).click();
-  expectInside(await presented(), 37, 47);
+  const atEnd = await presented();
+  expectInside(atEnd.seen, 37, 47, atEnd.raw);
   // Still playing (or turning at the in point), not stopped at the take's end.
   await expect(preview.getByRole('button', { name: 'Pause clip' })).toBeVisible();
   await preview.getByRole('button', { name: 'Pause clip' }).click();
