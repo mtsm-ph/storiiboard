@@ -14,6 +14,9 @@ What only Kevin can do or answer, one line each, with what it unblocks. Nothing 
   are in `private/COLOR_PLAN.md` once written; nothing of it is built until Kevin says go, and says how far it
   reaches (that word only, or American spelling throughout; the words people see only, or names in code and docs
   too). Unblocks: the spelling change.
+- **CLAUDE.md's Models line.** From 13:52 EST Nov 20 the main session ran on Opus 5.5 at Kevin's word ("Continue
+  with opus"). The line still says the main session runs on Fable 5.2. Change it, or was it for that day only?
+  Unblocks: keeping CLAUDE.md true.
 - **An HDR HEIF from Kevin's camera** in private/samples, when he can. Unblocks: HDR HEIF beyond a refusal.
 - **Two folders Kevin said he will delete himself** (Nov 20; no work waits on either): the Nov 19 session's scratch
   folder (a decoded copy of one of his HEICs and two error logs, one with its file name), and
@@ -362,7 +365,60 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20, afternoon; written at 13:10 EST)
+### Next session: start here (Nov 20, afternoon; written at 14:05 EST)
+
+Kevin's afternoon note (Nov 20) is word for word in `private/NOV20_AFTERNOON.md` on his PC, with the session's
+status under it: read it first. From 13:52 EST the main session runs on Opus 5.5 at Kevin's word ("Continue with
+opus"); CLAUDE.md's Models line is unchanged.
+
+**Merged that afternoon:**
+
+- #208 and #214, on Kevin's word: nov20-c carried both as they stood.
+- #215 (HEIC on Windows, part 1) and #221 (a picture that's no longer in the project), on `checkpoint/nov20-d`
+  (run 44787724215):
+  - The Mac's WebKit job was green, with 1 flaky test: player.spec's busy-page test, which #207 fixes.
+  - The installers were green, launch checks included.
+  - Linux Chromium was red on one test, themes.spec's axe test, over its own 120 s twice. #228 splits it.
+  - Neither PR can have caused that test's failure, so both merged by Kevin's second rule.
+- #227: the docs.
+
+#211 is closed, and the branch `docs/nov20-night-2` is deleted, on GitHub and on Kevin's PC.
+
+**Held for `checkpoint/nov20-e`:** #218 (HEIC part 2). It passed nov20-d, the Mac's own HEIC decode within 3
+levels of the drawing. It changes the storyboard's footer, which the failing test scans, so "can't have caused it"
+couldn't be said.
+
+**Open, for nov20-e** (each built, reviewed, its own Linux checks green or running):
+
+| PR | What | Base |
+|---|---|---|
+| #206 | the workers' policy | `v2` |
+| #213 | the launch check | #206 |
+| #219 | PDF text in Safari's engine | #213 |
+| #223 | the accents step says where | #219 |
+| #229 | the page stands in for the accent worker; launch-only runs | #223 |
+| #207 | the busy-page count lends the turn's lateness | `v2` |
+| #228 | themes.spec, one axe test per accent | `v2` |
+| #230 | the name field has focus at once after + New person | `v2` |
+| #231 | no section can be chosen while a project opens | `v2` |
+| #218 | HEIC part 2 | `v2` |
+
+- `checkpoint/launch-1` (run 44791840079) built #229's branch: the Mac passed all eight steps, the accents by the
+  worker itself, so the stack goes into nov20-e as Kevin said.
+- #231's second round was being built at 14:05.
+
+**After nov20-e, in Kevin's order:**
+
+- #222, choice 1: the keys line shows only when it fits whole. Then `checkpoint/baselines-nov20`.
+- The HEIC follow-ups: a 120-megapixel limit, a HEIC as a key image or logo, "Vuelve a intentarlo", the encoder's
+  leftovers.
+- A HEIC photo's date and place.
+- The stacked screenshot milestones; the tile accent's picture goes to Kevin first.
+
+All briefs are in `private/briefs/`. The Safari list (item 7) is `private/SAFARI_AUDIT_NOV20.md`; the "Color" plan
+is `private/COLOR_PLAN.md` (Kevin's to approve).
+
+### Earlier: start here (Nov 20, afternoon; written at 13:10 EST)
 
 Kevin's afternoon note (Nov 20) is word for word in `private/NOV20_AFTERNOON.md` on his PC, with the session's status
 under it: read it first. It answers the whole morning list and sets the day's work, in order.
