@@ -202,13 +202,22 @@ fn check_from(size: u64, reached: f64, total: u64) -> u64 {
     ((size as f64 * share) as u64).min(size)
 }
 
-/// When the check's quiet time counts from, looking at the reader `now` after the last look at `looked`: a gap longer
-/// than `SLEPT` means the computer slept (as in the encode's watch), and a sleep is not a hang, so it starts over.
-fn quiet_since(last: Instant, looked: Instant, now: Instant) -> Instant {
-    if now.saturating_duration_since(looked) > SLEPT {
-        now
+/// When the check's quiet time and its budget count from, looking at the reader `now` after the last look at `looked`
+/// (`last` the last chunk, `started` the budget's start). A gap between the two looks longer than `SLEPT` means the
+/// computer slept (as in the encode's watch; Windows' clock counts a sleep). A sleep is not a hang, so the quiet time
+/// starts over; nor is it an answer, so the budget's start moves on by the gap: after a wake the check needs fresh
+/// word either way, a chunk or the quiet time running out.
+fn after_sleep(
+    last: Instant,
+    started: Instant,
+    looked: Instant,
+    now: Instant,
+) -> (Instant, Instant) {
+    let gap = now.saturating_duration_since(looked);
+    if gap > SLEPT {
+        (now, started + gap)
     } else {
-        last
+        (last, started)
     }
 }
 
@@ -1620,7 +1629,7 @@ impl PlaybackCache {
                 }
             }
         });
-        let started = Instant::now();
+        let mut started = Instant::now();
         let mut last = started;
         let mut read = 0u64;
         let mut looked = started;
@@ -1628,7 +1637,7 @@ impl PlaybackCache {
         loop {
             let word = heard.recv_timeout(tick);
             let now = Instant::now();
-            last = quiet_since(last, looked, now);
+            (last, started) = after_sleep(last, started, looked, now);
             looked = now;
             match word {
                 Ok(Heard::Chunk(n)) => {
@@ -4029,23 +4038,36 @@ ssize_t read(int fd, void *buf, size_t count) {
     }
 
     #[test]
-    fn a_sleep_during_the_check_is_not_a_hang() {
+    fn a_sleep_during_the_check_is_neither_a_hang_nor_an_answer() {
         let start = Instant::now();
+        let second = Duration::from_secs(1);
         assert_eq!(
-            quiet_since(start, start, start + TICK),
-            start,
-            "a look a tick later keeps the quiet time"
+            after_sleep(start, start, start, start + TICK),
+            (start, start),
+            "a look a tick later keeps both"
         );
-        let woke = start + SLEPT + Duration::from_secs(1);
+        // Slept: the quiet time starts over, and the budget doesn't count the sleep.
+        let woke = start + SLEPT + second;
         assert_eq!(
-            quiet_since(start, start, woke),
-            woke,
-            "after a sleep it starts over"
+            after_sleep(start, start, start, woke),
+            (woke, start + SLEPT + second),
+            "after a sleep the quiet time starts over and the budget's start moves on by the gap"
         );
+        // The last chunk at the start, the last look a second later, now just past `SLEPT` from the chunk: the gap
+        // between the two looks is under `SLEPT`, so nothing starts over (measured from the chunk, it would).
+        let now = start + SLEPT + Duration::from_millis(500);
         assert_eq!(
-            quiet_since(start, start + Duration::from_secs(1), start + SLEPT),
-            start,
-            "the gap is the one between two looks"
+            after_sleep(start, start, start + second, now),
+            (start, start),
+            "the gap is the one between two looks, never since the last chunk"
+        );
+        // A budget that started earlier moves on by the gap alone, wherever it began.
+        let looked = start + 3 * second;
+        let woke = looked + SLEPT + 2 * second;
+        assert_eq!(
+            after_sleep(start + second, start, looked, woke),
+            (woke, start + SLEPT + 2 * second),
+            "moved on by the gap, not to the wake"
         );
     }
 

@@ -49,8 +49,10 @@ After a stall, the app reads the file itself past where ffmpeg stopped, with a t
     `STALLED` with no check (the loop only notes that this is why it broke);
   - the message is about to be thrown away because an earlier copy is kept instead (`keep_earlier`): no check. If
     that needs more than a small condition, leave it and say so in the report.
-- **A computer's sleep during the check is not a hang.** A gap between two looks at the reader longer than `SLEPT`
-  restarts the quiet time, as the encode's own watch does.
+- **A computer's sleep during the check is not a hang, and not an answer either.** A gap between two looks at the
+  reader longer than `SLEPT` restarts the quiet time, as the encode's own watch does, and the budget doesn't count
+  the sleep: its start is moved on by the same gap. Otherwise, on Windows (whose clock counts a sleep), a sleep
+  longer than the budget would end the check as "keeps answering" with nothing read since the wake.
 - **The check: does the file keep answering past where ffmpeg stopped?**
   - Where to start: no byte position is known, only frames. Start at `size × reached ÷ total` (the file's size, the
     last frame reported, the frames expected); at 0 when the total isn't known. Bytes before that point were just
