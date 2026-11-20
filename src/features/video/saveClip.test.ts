@@ -145,7 +145,7 @@ describe('a frame’s clip saved as a file (2.8b)', () => {
     });
     tauri.invoke.mockResolvedValueOnce('/Exports/SC004_4A.mp4');
     expect(await saveClip('s1')).toBe(false);
-    expect(notices.said.at(-1)).toBe('This video’s LUT can’t be read, so its playback copy can’t be made.');
+    expect(notices.said.at(-1)).toBe('This video’s LUT can’t be read, so the clip can’t be made.');
     expect(tauri.invoke).toHaveBeenCalledTimes(2);
   });
 

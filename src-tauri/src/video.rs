@@ -278,6 +278,15 @@ const STILL_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) const TOO_SLOW: &str =
     "That video took too long to read. If it's on a network drive, copy it to this computer first.";
 const CANT_READ: &str = "That file can't be read as a video.";
+/// A LUT named by anything but a SHA-256, in the page's words for a still and a clip (`error.lutUnreadableStill`,
+/// `error.lutUnreadableClip`): it names the LUT and what was being made, never the video (Kevin, Nov 19).
+const STILL_LUT_UNREADABLE: &str = "This video’s LUT can’t be read, so the still can’t be made.";
+const CLIP_LUT_UNREADABLE: &str = "This video’s LUT can’t be read, so the clip can’t be made.";
+/// The LUT's file couldn't be written where ffmpeg reads it (playback.rs LutFile): said for the still or the clip.
+const STILL_LUT_UNWRITTEN: &str =
+    "The still couldn't be made: its LUT couldn't be written to this computer's temporary folder.";
+const CLIP_LUT_UNWRITTEN: &str =
+    "The clip couldn't be saved: its LUT couldn't be written to this computer's temporary folder.";
 
 /// Runs a sidecar to the end and returns what it wrote, or gives up after `timeout`. Its output is read while it runs,
 /// so a long answer can't fill the pipe and stall it.
@@ -858,13 +867,15 @@ pub fn still_graded(
         return Err("That video's frame rate can't be read.".into());
     }
     if lut.is_some_and(|lut| !crate::playback::is_lut_name(&lut.sha256)) {
-        return Err(CANT_READ.into());
+        return Err(STILL_LUT_UNREADABLE.into());
     }
     let facts = facts(path)?;
     let (early, at) = still_times(&facts, frame, fps_num, fps_den);
     // Its own folder for the one grab, gone after; ffmpeg runs there and names the file alone (playback.rs LutFile).
     let grade = match lut {
-        Some(lut) => Some(crate::playback::LutFile::write(lut)?),
+        Some(lut) => Some(
+            crate::playback::LutFile::write(lut).map_err(|_| STILL_LUT_UNWRITTEN.to_string())?,
+        ),
         None => None,
     };
     // The frame's own time, on the file's clock: the second seek and the trim before the tone map take the same one.
@@ -1152,7 +1163,7 @@ fn save_clip_with(
         return Err(CANT_READ.into());
     }
     if lut.is_some_and(|lut| !crate::playback::is_lut_name(&lut.sha256)) {
-        return Err(CANT_READ.into());
+        return Err(CLIP_LUT_UNREADABLE.into());
     }
     clip_stopped()?;
     let facts = facts(path)?;
@@ -1165,7 +1176,9 @@ fn save_clip_with(
     let frames = out_frame - in_frame + 1;
     let seconds = frames as f64 * f64::from(fps_den) / f64::from(fps_num);
     let grade = match lut {
-        Some(lut) => Some(crate::playback::LutFile::write(lut)?),
+        Some(lut) => {
+            Some(crate::playback::LutFile::write(lut).map_err(|_| CLIP_LUT_UNWRITTEN.to_string())?)
+        }
         None => None,
     };
     let filter = clip_filter(
@@ -2612,6 +2625,60 @@ mod tests {
                 "frame {frame}: grey {level}, expected {expected}"
             );
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Kevin, Nov 19: a LUT that can't be used names what was being made, the still or the clip, never a playback copy
+    /// or the video: a name that isn't a SHA-256, and a LUT file that can't be written (its folder's base not there).
+    #[test]
+    fn a_still_or_a_clip_whose_lut_cant_be_used_says_which() {
+        let dir = temp_dir("lut-words");
+        let take = make(
+            &dir,
+            "A001_C005.mov",
+            &[
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=0x404040:size=64x36:rate=25:duration=1",
+            ],
+            &["-c:v", "mpeg4", "-q:v", "3"],
+        );
+        let window = ClipWindow {
+            left: 0.0,
+            top: 0.0,
+            width: 1.0,
+            height: 1.0,
+        };
+        let odd = crate::playback::Lut {
+            sha256: "../x".to_owned(),
+            cube: "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n"
+                .to_owned(),
+        };
+        assert_eq!(
+            still_graded(&take, 0, 25, 1, Some(&odd)).unwrap_err(),
+            STILL_LUT_UNREADABLE
+        );
+        let dest = dir.join("SC004_4A.mp4");
+        assert_eq!(
+            light_clip(&take, (0, 10), window, Some(&odd), &dest).unwrap_err(),
+            CLIP_LUT_UNREADABLE
+        );
+        // Named rightly, but its folder can't be made: this thread's LUT folders go under one that isn't there.
+        let good = crate::playback::Lut {
+            sha256: "ab".repeat(32),
+            cube: odd.cube.clone(),
+        };
+        crate::playback::set_lut_base(Some(dir.join("not there")));
+        let still = still_graded(&take, 0, 25, 1, Some(&good));
+        let clip = light_clip(&take, (0, 10), window, Some(&good), &dest);
+        crate::playback::set_lut_base(None);
+        assert_eq!(still.unwrap_err(), STILL_LUT_UNWRITTEN);
+        assert_eq!(clip.unwrap_err(), CLIP_LUT_UNWRITTEN);
+        assert!(!dest.exists(), "no clip saved ungraded");
+        // With the temp folder back, both are made.
+        assert!(still_graded(&take, 0, 25, 1, Some(&good)).is_ok());
+        assert!(light_clip(&take, (0, 10), window, Some(&good), &dest).is_ok());
         let _ = fs::remove_dir_all(&dir);
     }
 
