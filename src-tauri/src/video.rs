@@ -176,7 +176,7 @@ fn frame_rate(stream: &Value) -> Option<(u32, u32)> {
 
 /// Bits per sample from a pixel format's name, when the stream doesn't say: the digits before a byte order
 /// (yuv420p10le: 10; p016le: 16; rgb48le and rgba64le: 16). A name without a byte order is 8 bits (nv12, yuv420p).
-fn bit_depth(pix_fmt: &str) -> u32 {
+pub(crate) fn bit_depth(pix_fmt: &str) -> u32 {
     let Some(name) = pix_fmt
         .strip_suffix("le")
         .or_else(|| pix_fmt.strip_suffix("be"))
@@ -275,7 +275,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 /// A still decodes from the keyframe before it: a long-GOP 8K frame can take a few seconds.
 const STILL_TIMEOUT: Duration = Duration::from_secs(60);
 
-const TOO_SLOW: &str =
+pub(crate) const TOO_SLOW: &str =
     "That video took too long to read. If it's on a network drive, copy it to this computer first.";
 const CANT_READ: &str = "That file can't be read as a video.";
 /// A LUT named by anything but a SHA-256, in the page's words for a still and a clip (`error.lutUnreadableStill`,
@@ -328,7 +328,8 @@ thread_local! {
 /// `run_heard`, stopped as soon as `stop` is set (a Cancel, the app quitting): `CLIP_CANCELLED`. `leftover`, a file
 /// the sidecar writes, is removed when it's stopped or given up on, once it has ended: Windows can't delete a file a
 /// process still has open, and on a Mac a sidecar told to stop as the app quits would otherwise finish it alone.
-fn run_stoppable(
+/// heic.rs runs its two sidecars through this too (6.27n), with its temp file as the leftover.
+pub(crate) fn run_stoppable(
     mut command: Command,
     timeout: Duration,
     errors: bool,

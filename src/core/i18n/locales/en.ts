@@ -1595,6 +1595,13 @@ export const en = {
   'error.notAVideo': 'That file can\'t be read as a video.',
   'error.videoToolMissing': 'Storiiboard\'s video reader couldn\'t start. Reinstalling Storiiboard puts it back.',
   'error.videoTooSlow': 'That video took too long to read. If it\'s on a network drive, copy it to this computer first.',
+  // src-tauri/src/heic.rs (6.27n): a HEIC turned into a PNG on Windows; the Mac answers error.heic
+  'error.heicTooBig': 'This HEIC photo is too large to read (over 64 MB). Convert it to JPEG first.',
+  'error.heicNotHeic': 'That file isn\'t an HEIC photo.',
+  'error.heicHdr': 'This is an HDR photo, which Storiiboard can\'t read on this computer yet. Export it as a JPEG first.',
+  'error.heicTooSlow': 'This HEIC photo took too long to read. Try again, or convert it to JPEG first.',
+  'error.heicUnread': 'This HEIC photo couldn\'t be read. Convert it to JPEG first.',
+  'error.heicProfileTooBig': 'This photo\'s colour profile is too large to keep, so its colours can\'t be shown as they are. Convert it to JPEG first.',
   // src-tauri/src/playback.rs
   'error.clipNotSaved': 'The clip couldn\'t be saved there.',
   'error.clipCancelled': 'Saving the clip was cancelled.',
