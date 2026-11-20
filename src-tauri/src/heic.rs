@@ -17,6 +17,7 @@
 //! The same box reader finds a HEIC's EXIF item for exif.rs (`exif_item`), on every system: no decode, no sidecar.
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -381,20 +382,22 @@ fn find_exif(bytes: &[u8]) -> Option<Option<Cow<'_, [u8]>>> {
     let (_, meta) = boxes(bytes).find(|(kind, _)| kind == b"meta")?;
     let (_, _, meta) = full_box(meta)?;
     let (mut iinf, mut pitm, mut iref, mut iloc) = (None, None, None, None);
+    // Every child is walked: a second of any of the four (which a valid file never has) would leave the answer to
+    // whichever came first, so an empty first `iinf` would say "no EXIF" of a photo whose second lists it.
     let mut children = boxes(meta);
     for (kind, body) in children.by_ref() {
-        match &kind {
-            b"iinf" => iinf = iinf.or(Some(body)),
-            b"pitm" => pitm = pitm.or(Some(body)),
-            b"iref" => iref = iref.or(Some(body)),
-            b"iloc" => iloc = iloc.or(Some(body)),
-            _ => {}
-        }
-        if iinf.is_some() && pitm.is_some() && iref.is_some() && iloc.is_some() {
-            break;
+        let slot = match &kind {
+            b"iinf" => &mut iinf,
+            b"pitm" => &mut pitm,
+            b"iref" => &mut iref,
+            b"iloc" => &mut iloc,
+            _ => continue,
+        };
+        if slot.replace(body).is_some() {
+            return None;
         }
     }
-    // `iref` is optional, so a broken box before the four are found could hide the reference that decides.
+    // `iref` is optional, so a broken box could hide the reference that decides.
     if children.broken {
         return None;
     }
@@ -405,10 +408,10 @@ fn find_exif(bytes: &[u8]) -> Option<Option<Cow<'_, [u8]>>> {
     let (version, _, pitm) = full_box(pitm?)?;
     let (primary, _) = item_id(pitm, 0, version)?;
     let references = match iref {
-        Some(iref) => descriptions(iref)?,
-        None => Vec::new(),
+        Some(iref) => descriptions(iref, primary)?,
+        None => Descriptions::default(),
     };
-    let (id, protected) = chosen(&items, &references, primary)?;
+    let (id, protected) = chosen(&items, &references)?;
     // A protected item's bytes are encrypted.
     if protected {
         return None;
@@ -430,7 +433,9 @@ fn find_exif(bytes: &[u8]) -> Option<Option<Cow<'_, [u8]>>> {
 
 /// The `Exif` items `iinf` lists (versions 0 and 1), each with whether it is protected; None when it can't be read.
 /// Entries of `infe` versions 0 and 1 have no item type, so none of them is an `Exif` item; versions 2 and 3 are read,
-/// and a later one, whose layout isn't known, isn't followed.
+/// and a later one, whose layout isn't known, isn't followed. Nor is a list whose count isn't its number of `infe`
+/// boxes, an id listed twice among versions 2 and 3 (a valid file never has either), or an `Exif` entry whose name
+/// isn't ended within it: each is a file cut or made to mislead.
 fn exif_items(iinf: &[u8]) -> Option<Vec<(u32, bool)>> {
     let (version, _, iinf) = full_box(iinf)?;
     let (count, at) = match version {
@@ -441,8 +446,13 @@ fn exif_items(iinf: &[u8]) -> Option<Vec<(u32, bool)>> {
     if count > MAX_ENTRIES {
         return None;
     }
+    let entries = all_boxes(iinf.get(at..)?)?;
+    if entries.iter().filter(|(kind, _)| kind == b"infe").count() != count {
+        return None;
+    }
+    let mut seen = HashSet::new();
     let mut items = Vec::new();
-    for (kind, infe) in all_boxes(iinf.get(at..)?)? {
+    for (kind, infe) in entries {
         if &kind != b"infe" {
             continue;
         }
@@ -453,60 +463,69 @@ fn exif_items(iinf: &[u8]) -> Option<Vec<(u32, bool)>> {
             3 => (be_u32(infe, 0)?, 4),
             _ => return None,
         };
+        if !seen.insert(id) {
+            return None;
+        }
         let protection = be_u16(infe, at)?;
         if infe.get(at + 2..at + 6)? == b"Exif" {
+            // The item's name, a string ended by a 0 byte.
+            if !infe.get(at + 6..)?.contains(&0) {
+                return None;
+            }
             items.push((id, protection != 0));
         }
     }
     Some(items)
 }
 
-/// Every `cdsc` reference in `iref`: the item that describes, and the items it describes.
-fn descriptions(iref: &[u8]) -> Option<Vec<(u32, Vec<u32>)>> {
+/// What `iref`'s `cdsc` references say, as sets of the items that describe: those that describe the primary item, and
+/// those that describe any.
+#[derive(Default)]
+struct Descriptions {
+    primary: HashSet<u32>,
+    any: HashSet<u32>,
+}
+
+/// `iref`'s `cdsc` references, in one pass. None when they can't be read, or when they hold more than `MAX_ENTRIES`
+/// ids in all (a bound on the time and the memory, whatever the boxes repeat).
+fn descriptions(iref: &[u8], primary: u32) -> Option<Descriptions> {
     let (version, _, iref) = full_box(iref)?;
-    let mut found = Vec::new();
+    let mut found = Descriptions::default();
+    let mut ids = 0usize;
     for (kind, reference) in all_boxes(iref)? {
         if &kind != b"cdsc" {
             continue;
         }
         let (from, mut at) = item_id(reference, 0, version)?;
         let count = usize::from(be_u16(reference, at)?);
-        if count > MAX_ENTRIES {
+        ids = ids.checked_add(count)?;
+        if ids > MAX_ENTRIES {
             return None;
         }
         at += 2;
-        let mut to = Vec::with_capacity(count);
         for _ in 0..count {
             let (id, next) = item_id(reference, at, version)?;
-            to.push(id);
+            if id == primary {
+                found.primary.insert(from);
+            }
             at = next;
         }
-        found.push((from, to));
+        found.any.insert(from);
     }
     Some(found)
 }
 
 /// Which `Exif` item is the photo's: the one a `cdsc` ties to the primary item; with none tied to it, the only one
 /// there is, unless a `cdsc` ties that one to another item. None when that doesn't settle it.
-fn chosen(
-    items: &[(u32, bool)],
-    references: &[(u32, Vec<u32>)],
-    primary: u32,
-) -> Option<(u32, bool)> {
-    // Whether a `cdsc` from `id` describes the primary item, or (`any`) any item.
-    let ties = |id: u32, any: bool| {
-        references
-            .iter()
-            .any(|(from, to)| *from == id && (any || to.contains(&primary)))
-    };
+fn chosen(items: &[(u32, bool)], references: &Descriptions) -> Option<(u32, bool)> {
     let tied: Vec<(u32, bool)> = items
         .iter()
         .copied()
-        .filter(|(id, _)| ties(*id, false))
+        .filter(|(id, _)| references.primary.contains(id))
         .collect();
     match (tied.as_slice(), items) {
         ([one], _) => Some(*one),
-        ([], [only]) if !ties(only.0, true) => Some(*only),
+        ([], [only]) if !references.any.contains(&only.0) => Some(*only),
         _ => None,
     }
 }
@@ -1617,6 +1636,8 @@ mod tests {
         sizes: [u8; 4],
         located: Vec<Located>,
         mdat: Vec<u8>,
+        /// A base offset written instead of where `mdat`'s body is, and the extents' offsets then left as they are.
+        base: Option<u64>,
     }
 
     /// A number in 0, 4 or 8 bytes, as `iloc` writes it.
@@ -1668,11 +1689,11 @@ mod tests {
                     body.extend(located.method.to_be_bytes());
                 }
                 body.extend(located.reference.to_be_bytes());
-                put_sized(&mut body, mdat_at, base_size);
+                put_sized(&mut body, self.base.unwrap_or(mdat_at), base_size);
                 body.extend((located.extents.len() as u16).to_be_bytes());
                 for (offset, length) in &located.extents {
                     body.extend(vec![0; usize::from(index_size)]);
-                    let offset = if base_size == 0 {
+                    let offset = if base_size == 0 && self.base.is_none() {
                         offset + mdat_at
                     } else {
                         *offset
@@ -1736,6 +1757,7 @@ mod tests {
                     extents: vec![(0, payload.len() as u64)],
                 }],
                 mdat: payload.to_vec(),
+                base: None,
             });
             tree
         }
@@ -2475,6 +2497,210 @@ mod tests {
         assert_eq!(plain.reason, Reason::Read);
         assert_eq!(plain.exif.taken_at.as_deref(), Some("2026-11-03T16:42:07"));
         assert_eq!(answer(&Tree::exif(&payload(&turned)).bytes()), plain);
+    }
+
+    /// The tree's file with `mdat` before `meta`, so a change to `meta`'s body (`change`) moves no item's bytes.
+    fn mdat_first(tree: &Tree, change: impl Fn(&mut Vec<u8>)) -> Vec<u8> {
+        let ftyp = bx(b"ftyp", b"heic\0\0\0\0mif1heic");
+        let mdat = bx(b"mdat", &tree.items.as_ref().unwrap().mdat);
+        let mut meta = tree.meta_with((ftyp.len() + 8) as u64);
+        change(&mut meta);
+        [ftyp, mdat, full(b"meta", 0, 0, &meta)].concat()
+    }
+
+    /// Where the `nth` box of type `kind` starts in `bytes`, found by its type.
+    fn box_at(bytes: &[u8], kind: &[u8; 4], nth: usize) -> usize {
+        let (at, _) = bytes
+            .windows(4)
+            .enumerate()
+            .filter(|(_, four)| *four == kind)
+            .nth(nth)
+            .unwrap();
+        at - 4
+    }
+
+    /// The last box of `path` (where boxes start, outermost first, each inside the one before) `cut` bytes shorter at
+    /// its end, and every box of `path` made as much shorter, so the sizes stay consistent.
+    fn shorten(bytes: &mut Vec<u8>, path: &[usize], cut: usize) {
+        let last = *path.last().unwrap();
+        let end = last + be_u32(bytes, last).unwrap() as usize;
+        for &at in path {
+            let size = be_u32(bytes, at).unwrap() as usize;
+            bytes[at..at + 4].copy_from_slice(&((size - cut) as u32).to_be_bytes());
+        }
+        bytes.drain(end - cut..end);
+    }
+
+    /// Two `Exif` items, 10 then 11, the second tied to the primary by `cdsc` and placed last in `iloc`: a cut that
+    /// drops a reference, an entry or an extent can't leave another answer that reads.
+    fn two_exif() -> Tree {
+        let first = payload(&tiff(&Fixture {
+            original: Some("2026:11:03 16:42:07"),
+            ..Default::default()
+        }));
+        let second = payload(&tiff(&Fixture {
+            original: Some("2026:11:04 07:15:00"),
+            ..Default::default()
+        }));
+        let mut tree = Tree::exif(&first);
+        let items = tree.items();
+        items.infe.push((11, *b"Exif", 0));
+        items.cdsc = vec![(11, vec![5])];
+        items.located.push(Located {
+            id: 11,
+            method: 0,
+            reference: 0,
+            extents: vec![(first.len() as u64, second.len() as u64)],
+        });
+        items.mdat.extend(&second);
+        tree
+    }
+
+    #[test]
+    fn a_cut_inside_any_box_the_exif_walk_reads_answers_heic() {
+        let tree = two_exif();
+        let whole = mdat_first(&tree, |_| {});
+        assert_eq!(
+            answer(&whole).exif.taken_at.as_deref(),
+            Some("2026-11-04T07:15:00")
+        );
+        // Each box as the path to it inside `meta`'s body: `infe` 3 is item 10's, 4 is item 11's.
+        type Path = fn(&[u8]) -> Vec<usize>;
+        let paths: [(&str, Path); 6] = [
+            ("iinf", |meta| vec![box_at(meta, b"iinf", 0)]),
+            ("infe 10", |meta| {
+                vec![box_at(meta, b"iinf", 0), box_at(meta, b"infe", 3)]
+            }),
+            ("infe 11", |meta| {
+                vec![box_at(meta, b"iinf", 0), box_at(meta, b"infe", 4)]
+            }),
+            ("iref", |meta| vec![box_at(meta, b"iref", 0)]),
+            ("cdsc", |meta| {
+                vec![box_at(meta, b"iref", 0), box_at(meta, b"cdsc", 0)]
+            }),
+            ("iloc", |meta| vec![box_at(meta, b"iloc", 0)]),
+        ];
+        let meta = tree.meta_with(0);
+        let mut cuts = 0;
+        for (what, path) in paths {
+            let target = *path(&meta).last().unwrap();
+            let body = be_u32(&meta, target).unwrap() as usize - 8;
+            for cut in 1..=body {
+                let file = mdat_first(&tree, |meta| shorten(meta, &path(meta), cut));
+                assert_eq!(file.len(), whole.len() - cut, "{what} by {cut}");
+                assert_eq!(exif_item(&file), ExifItem::NotFollowed, "{what} by {cut}");
+                assert_eq!(answer(&file).reason, Reason::Heic, "{what} by {cut}");
+                cuts += 1;
+            }
+        }
+        assert!(cuts > 100);
+    }
+
+    #[test]
+    fn a_base_offset_or_length_that_overflows_answers_heic() {
+        let whole = payload(&tiff(&scout()));
+        // A base offset of u64::MAX and an offset of 1, and the other way round.
+        for (base, offset) in [(u64::MAX, 1), (1, u64::MAX)] {
+            let mut tree = Tree::exif(&whole);
+            let items = tree.items();
+            items.sizes = [8, 8, 8, 0];
+            items.base = Some(base);
+            items.located[0].extents[0].0 = offset;
+            assert!(not_followed(&tree), "{base} + {offset}");
+        }
+        // A length of u64::MAX, alone and after an extent (the total).
+        let mut tree = Tree::exif(&whole);
+        let items = tree.items();
+        items.sizes = [8, 8, 0, 0];
+        items.located[0].extents[0].1 = u64::MAX;
+        assert!(not_followed(&tree));
+        let mut tree = Tree::exif(&whole);
+        let items = tree.items();
+        items.sizes = [8, 8, 0, 0];
+        items.located[0].extents = vec![(0, 4), (4, u64::MAX)];
+        assert!(not_followed(&tree));
+    }
+
+    #[test]
+    fn two_of_iinf_pitm_iref_or_iloc_in_meta_answer_heic() {
+        let tree = Tree::exif(&payload(&tiff(&scout())));
+        assert_eq!(answer(&mdat_first(&tree, |_| {})).reason, Reason::Read);
+        // An empty `iinf` before the one that lists the Exif item: not "no EXIF".
+        let empty = full(b"iinf", 0, 0, &[0, 0]);
+        let file = mdat_first(&tree, |meta| {
+            let at = box_at(meta, b"iinf", 0);
+            meta.splice(at..at, empty.clone());
+        });
+        assert_eq!(exif_item(&file), ExifItem::NotFollowed);
+        assert_eq!(answer(&file).reason, Reason::Heic);
+        // A second copy of each, right after the first or at the end of `meta`, once all four are found.
+        for kind in [b"iinf", b"pitm", b"iref", b"iloc"] {
+            for at_end in [false, true] {
+                let file = mdat_first(&tree, |meta| {
+                    let at = box_at(meta, kind, 0);
+                    let size = be_u32(meta, at).unwrap() as usize;
+                    let copy = meta[at..at + size].to_vec();
+                    let to = if at_end { meta.len() } else { at + size };
+                    meta.splice(to..to, copy);
+                });
+                let what = format!("{} {at_end}", String::from_utf8_lossy(kind));
+                assert_eq!(exif_item(&file), ExifItem::NotFollowed, "{what}");
+                assert_eq!(answer(&file).reason, Reason::Heic, "{what}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_crafted_tree_of_repeated_ids_and_references_answers_heic_at_once() {
+        let whole = payload(&tiff(&scout()));
+        // 4096 cdsc references from item 10, each of 4096 ids none of which is the primary item: about 34 MB.
+        let mut cdsc = id(0, 10);
+        cdsc.extend((MAX_ENTRIES as u16).to_be_bytes());
+        cdsc.extend(id(0, 9).repeat(MAX_ENTRIES));
+        let iref = full(b"iref", 0, 0, &bx(b"cdsc", &cdsc).repeat(MAX_ENTRIES));
+        let crafted = |infe: Vec<(u32, [u8; 4], u16)>| {
+            let mut tree = Tree::exif(&whole);
+            // No tiles, so the tree writes no `iref` of its own.
+            tree.tiles.clear();
+            let items = tree.items();
+            items.infe = infe;
+            items.cdsc.clear();
+            mdat_first(&tree, |meta| meta.extend(&iref))
+        };
+        // The review's: 4096 `infe` of type Exif, all item 10.
+        let repeated = crafted(vec![(10, *b"Exif", 0); MAX_ENTRIES]);
+        // Each id once, the references alone over the cap.
+        let unique = crafted(vec![(5, *b"hvc1", 0), (10, *b"Exif", 0)]);
+        for (what, file) in [("repeated", &repeated), ("unique", &unique)] {
+            assert!(file.len() > 32 << 20, "{what}");
+            let started = Instant::now();
+            assert_eq!(exif_item(file), ExifItem::NotFollowed, "{what}");
+            assert_eq!(answer(file).reason, Reason::Heic, "{what}");
+            let took = started.elapsed();
+            assert!(took < Duration::from_millis(200), "{what}: {took:?}");
+        }
+        // A repeated id in a small tree: not followed either.
+        let mut tree = Tree::exif(&whole);
+        tree.items().infe.push((10, *b"hvc1", 0));
+        assert!(not_followed(&tree));
+        let mut tree = Tree::exif(&whole);
+        tree.items().infe.insert(0, (10, *b"hvc1", 0));
+        assert!(not_followed(&tree));
+        // At the caps: 4096 entries in `iinf`, 4096 ids across the `cdsc` references, the tie among them: as before.
+        let mut tree = Tree::exif(&whole);
+        let items = tree.items();
+        let others = (MAX_ENTRIES - items.infe.len()) as u32;
+        items
+            .infe
+            .extend((100..100 + others).map(|id| (id, *b"hvc1", 0)));
+        items.cdsc = vec![
+            (10, vec![5]),
+            (20, (100..100 + MAX_ENTRIES as u32 - 1).collect()),
+        ];
+        assert_eq!(answer(&tree.bytes()), answer(&jpeg(&scout())));
+        // One id more across them: not followed.
+        tree.items().cdsc[1].1.push(9);
+        assert!(not_followed(&tree));
     }
 
     #[test]
