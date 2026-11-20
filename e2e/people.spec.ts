@@ -105,6 +105,17 @@ const slowEdits = (page: Page, ms: number, failFirst = false) =>
 
 const editsLanded = (page: Page) => page.evaluate(() => (window as unknown as { __editsLanded: number }).__editsLanded);
 
+/**
+ * Queues an edit that changes nothing and waits for it to land. The queue is serial, so every edit queued before it
+ * has landed by then, however slow the machine.
+ */
+const emptyEdit = (page: Page) =>
+  page.evaluate(async () => {
+    const url = '/src/app/projectStore.ts';
+    const { projectStore } = (await import(/* @vite-ignore */ url)) as typeof import('../src/app/projectStore');
+    await projectStore.getState().applyWith(() => ({ changes: [] }));
+  });
+
 const storedPeople = (page: Page) =>
   page.evaluate(async () => {
     const url = '/src/app/projectStore.ts';
@@ -188,10 +199,10 @@ test('with a slow save, the name field still has focus at once, keeps what was t
   await people.getByRole('button', { name: '+ New person' }).dblclick();
   await expect.poll(() => editsLanded(page)).toBe(3);
   await expect.poll(() => storedPeople(page)).toEqual(['', 'Sam Ortiz']);
-  // A second create from the double click would land one delay (and its write) after the first: once that has passed,
-  // nothing more has landed.
-  await page.waitForTimeout(1000);
-  expect(await editsLanded(page)).toBe(3);
+  // A second create from the double click would be queued before an edit made now, so it would land first: once this
+  // empty edit has landed (the fourth), nothing else has.
+  await emptyEdit(page);
+  expect(await editsLanded(page)).toBe(4);
   expect(await storedPeople(page)).toEqual(['', 'Sam Ortiz']);
   // One ⌘Z takes the new person back, the next the name: making a person is one step, naming them another.
   await people.getByRole('button', { name: '+ New person' }).focus();
@@ -221,14 +232,39 @@ test('when making the person fails, no one appears, nothing typed is saved and f
   expect(await noticesSaid(page)).toBe(said + 1);
 });
 
+test('when making the person fails with focus on their row in the list, focus goes back to + New person', async ({ page }) => {
+  const people = tile(page);
+  await people.getByRole('button', { name: '+ New person' }).waitFor();
+  // Long enough that the row has focus while the create waits, even on a busy machine.
+  await slowEdits(page, 2000, true);
+  expect(await clickNewPerson(page)).toEqual({ field: 'name', inEditor: true });
+  const standIn = await shownPersonId(page);
+  const row = people.locator(`[data-person-id="${standIn ?? ''}"]`);
+  await expect(row).toHaveText(/Unnamed person/);
+  await row.focus();
+  await expect(row).toBeFocused();
+  expect(await editsLanded(page), 'the create failed before the row had focus').toBe(0);
+  // The row goes with the stand-in: focus lands on + New person, not the page's body.
+  await expect.poll(() => editsLanded(page)).toBeGreaterThanOrEqual(1);
+  await expect(row).toHaveCount(0);
+  await expect(people.getByRole('button', { name: '+ New person' })).toBeFocused();
+  expect(await storedPeople(page)).toEqual([]);
+});
+
 test('Delete pressed on a person still being made whose create fails: nothing is said, moved or trashed', async ({ page }) => {
   const people = tile(page);
   const editor = people.locator('[data-person-editor]');
   await addAna(page);
   const ana = await shownPersonId(page);
-  await slowEdits(page, 500, true);
+  // Long enough that the press comes while the create waits, even on a busy machine.
+  await slowEdits(page, 2000, true);
   const said = await noticesSaid(page);
   expect(await clickNewPerson(page)).toEqual({ field: 'name', inEditor: true });
+  const standIn = await shownPersonId(page);
+  expect(standIn).not.toBe(ana);
+  // Pressed late, after the failure, Delete would act on Ana: the stand-in must still be the one shown.
+  expect(await editsLanded(page), 'the create failed before Delete was pressed').toBe(0);
+  expect(await shownPersonId(page), 'the stand-in is gone before Delete was pressed').toBe(standIn);
   await editor.getByRole('button', { name: 'Delete person' }).click();
   // The create, then the Delete queued behind it, which finds no one.
   await expect.poll(() => editsLanded(page)).toBe(2);
@@ -253,9 +289,14 @@ test('This is me pressed on a person still being made whose create fails: me is 
   const ana = await shownPersonId(page);
   await editor.getByRole('button', { name: 'This is me' }).click();
   await expect.poll(() => me(page)).toBe(ana);
-  await slowEdits(page, 500, true);
+  // Long enough that the press comes while the create waits, even on a busy machine.
+  await slowEdits(page, 2000, true);
   expect(await clickNewPerson(page)).toEqual({ field: 'name', inEditor: true });
   const standIn = await shownPersonId(page);
+  expect(standIn).not.toBe(ana);
+  // Pressed late, after the failure, This is me would turn Ana off: the stand-in must still be the one shown.
+  expect(await editsLanded(page), 'the create failed before This is me was pressed').toBe(0);
+  expect(await shownPersonId(page), 'the stand-in is gone before This is me was pressed').toBe(standIn);
   await editor.getByRole('button', { name: 'This is me' }).click();
   expect(await me(page)).toBe(standIn);
   await expect.poll(() => editsLanded(page)).toBe(1);

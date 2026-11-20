@@ -117,10 +117,11 @@ export function PeopleTile() {
                   // nothing of it is written; "me", if it was set to the stand-in, goes back to who it was.
                   if (meBefore.current?.id === id && projectSelfStore.getState()[projectId] === id) setProjectSelf(projectId, meBefore.current.was);
                   meBefore.current = null;
-                  // Back to the button only while focus is still the stand-in's (or nowhere): someone who has gone on
-                  // elsewhere in the app keeps their place.
+                  // Back to the button only while focus is still the stand-in's (its editor or its row in the list, which
+                  // both go with it) or nowhere: someone who has gone on elsewhere in the app keeps their place.
                   const active = document.activeElement;
-                  if (!active || active === document.body || active.closest(`[data-person-editor="${id}"]`)) newButton.current?.focus();
+                  const standIns = `[data-person-editor="${id}"], [data-person-id="${id}"]`;
+                  if (!active || active === document.body || active.closest(standIns)) newButton.current?.focus();
                   setPending(null);
                   // Away from the stand-in only if it is still the one chosen.
                   setChosen((now) => (now === id ? before : now));
