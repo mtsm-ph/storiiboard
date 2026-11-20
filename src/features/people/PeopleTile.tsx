@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useEffect, useId, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
-import { setProjectSelf, useProjectSelf } from '../../app/settings/projectRole';
+import { projectSelfStore, setProjectSelf, useProjectSelf } from '../../app/settings/projectRole';
 import { t, tn } from '../../core/i18n';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '../../core/model/department';
@@ -16,7 +17,7 @@ import { setCustomField } from '../storyboard/board';
 import { CustomFields } from '../storyboard/InspectorView';
 import { focusOf } from '../department/perspective';
 import { LinkedBoards } from '../moodboards/LinkedBoards';
-import { castCharacter, newPerson, personChange, personDepartment, personContactOnSheetChange, personFullViewChange, personRole, trashPerson } from './personEdits';
+import { castCharacter, newPerson, personChange, personDepartment, personContactOnSheetChange, personFullViewChange, pendingIn, personRole, trashPerson, withPendingPerson } from './personEdits';
 
 // The Cast & crew tile (3.5), in the Production workspace: everyone on the production, each with their departments
 // (several: a DP is camera and grip and electric), one main role, a title for the call sheet, and their phone and email.
@@ -46,6 +47,12 @@ export function PeopleTile() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const [chosen, setChosen] = useState<string | null>(null);
+  // The person "+ New person" is making, shown while its save is on its way (withPendingPerson), and only in the
+  // project it's being made in (pendingIn).
+  const [pending, setPending] = useState<{ id: string; project: NonNullable<typeof project> } | null>(null);
+  // Who "me" was before This is me was pressed on that stand-in, so a create that fails gives it back (a setting on
+  // this computer must never name a person who was never made).
+  const meBefore = useRef<{ id: string; was: string | null } | null>(null);
   // Who you are here (3.5c): on this computer only, never in the file.
   const self = useProjectSelf(project?.projectId);
   const listId = useId();
@@ -73,7 +80,8 @@ export function PeopleTile() {
   useScrollLane(list);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('people.noProject')}</p>;
   const projectId = project.projectId;
-  const all = projectPeople(records, projectId);
+  const pendingId = pendingIn(pending, project);
+  const all = withPendingPerson(projectPeople(records, projectId), records, projectId, pendingId);
   const selected = all.find((p) => p.record.id === chosen) ?? all[0] ?? null;
   const wide = width >= SIDE_BY_SIDE;
 
@@ -90,11 +98,36 @@ export function PeopleTile() {
               if (making.current) return;
               making.current = true;
               const id = crypto.randomUUID();
+              const before = chosen;
+              // The new person's editor is drawn and its name field focused before this handler returns, ahead of the
+              // save: a key typed straight after the click went to this button while focus waited on it (Kevin, Nov
+              // 20, a WebKit run that saved "Sam Ortiz" as "am Ortiz"). The record arriving later has the same id and
+              // an empty name, so the editor and the field are kept as they are, with what was typed. A field left
+              // before the save lands is an edit queued after the create, so it finds the record.
+              flushSync(() => {
+                setPending({ id, project });
+                setChosen(id);
+              });
+              meBefore.current = null;
+              nameField.current?.focus();
               void edit((now) => [newPerson(now, projectId, id)])
                 .then((made) => {
-                  if (!made) return;
-                  setChosen(id);
-                  requestAnimationFrame(() => nameField.current?.focus());
+                  if (made) {
+                    setPending(null);
+                    return;
+                  }
+                  // Not made (the store has said why). A name typed into it meanwhile is left as an edit of no one, so
+                  // nothing of it is written; "me", if it was set to the stand-in, goes back to who it was.
+                  if (meBefore.current?.id === id && projectSelfStore.getState()[projectId] === id) setProjectSelf(projectId, meBefore.current.was);
+                  meBefore.current = null;
+                  // Back to the button only while focus is still the stand-in's (its editor or its row in the list, which
+                  // both go with it) or nowhere: someone who has gone on elsewhere in the app keeps their place.
+                  const active = document.activeElement;
+                  const standIns = `[data-person-editor="${id}"], [data-person-id="${id}"]`;
+                  if (!active || active === document.body || active.closest(standIns)) newButton.current?.focus();
+                  setPending(null);
+                  // Away from the stand-in only if it is still the one chosen.
+                  setChosen((now) => (now === id ? before : now));
                 })
                 .finally(() => {
                   making.current = false;
@@ -162,9 +195,14 @@ export function PeopleTile() {
               .applyWith((now) => {
                 const character = now[characterId];
                 const had = character ? castOf(now, character) : null;
+                const changes = castCharacter(now, characterId, on ? me : null, on ? undefined : me);
+                // Only a part that really moved: pressed on a person still being made whose create failed, the edit
+                // finds no one and changes nothing, and the store still resolves it as done.
                 movedFrom =
-                  on && character && had && had.id !== me ? { character: characterName(character), name: (typeof had.props.name === 'string' && had.props.name.trim()) || t('people.unnamed') } : null;
-                return { changes: castCharacter(now, characterId, on ? me : null, on ? undefined : me) };
+                  changes.length > 0 && on && character && had && had.id !== me
+                    ? { character: characterName(character), name: (typeof had.props.name === 'string' && had.props.name.trim()) || t('people.unnamed') }
+                    : null;
+                return { changes };
               })
               .then((done) => {
                 // A part taken from someone else is said, since nothing on screen shows them losing it; an undo clears it.
@@ -174,6 +212,8 @@ export function PeopleTile() {
           fields={selected.fields}
           isMe={selected.record.id === self}
           onMe={(me) => {
+            // On the stand-in, who "me" was is kept the first time, for a create that fails.
+            if (selected.record.id === pendingId && meBefore.current?.id !== pendingId) meBefore.current = { id: pendingId, was: self };
             setProjectSelf(projectId, me ? selected.record.id : null);
           }}
           nameField={nameField}
@@ -198,15 +238,20 @@ export function PeopleTile() {
             const at = all.findIndex((p) => p.record.id === id);
             // Named as the edit finds them, so a name typed and not yet left is the one the notice says.
             let name = '';
+            // Whether anyone went: pressed on a person still being made whose create failed, the edit finds no one and
+            // changes nothing, and the store still resolves it as done, so nothing is said or moved then.
+            let trashed = false;
             void projectStore
               .getState()
               .applyWith((now) => {
                 const person = now[id];
                 name = (person && typeof person.props.name === 'string' && person.props.name.trim()) || t('people.unnamed');
-                return { changes: trashPerson(now, id) };
+                const changes = trashPerson(now, id);
+                trashed = changes.length > 0;
+                return { changes };
               })
               .then((done) => {
-                if (!done) return;
+                if (!done || !trashed) return;
                 // A note about this step: an undo clears it.
                 showInfo(t('people.trashed', { name }), { step: true });
                 // The one after takes its place, else the one before; New person when it was the last.
@@ -288,7 +333,7 @@ function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, o
     );
   };
   return (
-    <section ref={editor} aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-person-editor="">
+    <section ref={editor} aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-person-editor={id}>
       <h3 id={headingId} className="sb-label">
         {fields.name || t('people.unnamed')}
       </h3>
