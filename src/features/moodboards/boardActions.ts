@@ -10,7 +10,7 @@ import type { SbdRecord } from '../../core/model/record';
 import { DEFAULT_VIEWPORT } from '../../ui/canvas/viewport';
 import type { ConnectDrop, Geometry, GeometryChange, PlaceTool, Point, ReorderMode, Side } from '../../ui/canvas/types';
 import { prepare, reason, toAdded, type AddedFile } from '../storyboard/addPictures';
-import { picturesBusy } from '../storyboard/picturesBusy';
+import { prepareEach } from '../storyboard/picturesBusy';
 import type { PreparedFile } from '../video/linkVideos';
 import { makeCopy } from '../video/playbackCopies';
 import { playCard } from '../video/playerSource';
@@ -420,20 +420,17 @@ const viewCentre = (boardId: string): Point => {
 export async function addBoardFiles(boardId: string, added: readonly AddedFile[], at: Point | null, centred = at === null): Promise<void> {
   const { project } = projectStore.getState();
   if (!project || added.length === 0) return;
-  picturesBusy.setState((s) => ({ count: s.count + added.length }));
   const prepared: PreparedFile[] = [];
   const problems: { name: string; reason: string }[] = [];
-  try {
-    for (const file of added) {
-      try {
-        prepared.push(await prepare(file, project.file.nativeHandle));
-      } catch (error) {
-        problems.push({ name: file.file.name, reason: reason(error) });
-      }
-    }
-  } finally {
-    picturesBusy.setState((s) => ({ count: s.count - added.length }));
-  }
+  await prepareEach(
+    added,
+    async (file) => {
+      prepared.push(await prepare(file, project.file.nativeHandle));
+    },
+    (file, error) => {
+      problems.push({ name: file.file.name, reason: reason(error) });
+    },
+  );
   // Another project may have opened while they were prepared; they belong to the one they were dropped on.
   if (prepared.length > 0 && projectStore.getState().project === project) {
     let placed: PlacedBoardFiles | null = null;

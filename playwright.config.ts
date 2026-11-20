@@ -11,6 +11,9 @@ const localReporters: ReporterDescription[] = [['list']];
 // WebDriver. WebKit is the closest stand-in for the Mac shell, Chromium for WebView2.
 export default defineConfig({
   testDir: 'e2e',
+  // The end-to-end specs are e2e/*.spec.ts. Any *.test.ts there is Vitest's (vite.config.ts's include): a unit test of
+  // what the specs compute, with no browser.
+  testIgnore: '**/*.test.ts',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   // At most 4 workers locally (Kevin, Nov 17: 8 left this PC too busy to run his other projects beside the tests;

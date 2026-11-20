@@ -1466,6 +1466,8 @@ export const en = {
   // src/features/storyboard/addPictures.ts
   'pictures.targetGone': 'The frame or scene those pictures were for isn’t on the board any more.',
   'pictures.someNotAdded': '{failed} of {total} files weren’t added. {name}: {reason}',
+  // src/features/storyboard/picturesBusy.ts
+  'pictures.reading': 'Reading {done} of {total}…',
   // src/features/storyboard/board.ts
   'board.relettered': '{from} is now {to}',
   'board.lockNotice': 'Locked {scene}. To keep slate numbers unique, {list}.',
@@ -3614,6 +3616,8 @@ export const en = {
   'layers.lockOf': 'Lock the {layer} layer',
   'layers.solo': 'Solo',
   'layers.soloOf': 'Solo the {layer} layer: it shown, the others dimmed and locked',
+  'layers.soloTitle': 'Solo the {layer} layer: it shown, the others dimmed and locked. On the plan, press {key}.',
+  'layers.showAllTitle': 'Show every layer, none locked. On the plan, press {key}.',
   'layers.lockedBySolo': 'Locked while {layer} is solo',
   'layers.items.one': '{count} item',
   'layers.items.other': '{count} items',

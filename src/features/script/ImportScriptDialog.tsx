@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocale } from '../../ui/useLocale';
+import { useScrollLane } from '../../ui/scrollLane';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
@@ -39,6 +40,8 @@ const LEFT_OUT: Readonly<Record<Exclude<PlannedStatus, 'new'>, string>> = labels
 function ImportScriptDialog({ pending, projectId }: { pending: PendingImport; projectId: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const table = useRef<HTMLDivElement>(null);
+  useScrollLane(table);
   const records = useProject((s) => s.records);
   const [importing, setImporting] = useState(false);
   const plan = useMemo(() => planImport(records, projectId, pending.script), [records, projectId, pending.script]);
@@ -100,7 +103,7 @@ function ImportScriptDialog({ pending, projectId }: { pending: PendingImport; pr
         </h2>
         <p className="text-[13px]">{counts.join(' · ')}</p>
         {fresh.length === 0 && <p className="text-[13px]">{t('importScriptDialog.everySceneInThisScript')}</p>}
-        <div className="min-h-0 overflow-auto border border-border">
+        <div ref={table} className="min-h-0 overflow-auto border border-border">
           <table className="w-full border-collapse text-left text-[13px]">
             <caption className="sr-only">{t('importScriptDialog.scenesInTheScript')}</caption>
             <thead>

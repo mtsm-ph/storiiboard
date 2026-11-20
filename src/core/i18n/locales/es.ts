@@ -1468,6 +1468,8 @@ export const es: Messages = {
   // src/features/storyboard/addPictures.ts
   'pictures.targetGone': 'El cuadro o la escena para los que eran esas imágenes ya no está en el storyboard.',
   'pictures.someNotAdded': 'Archivos no agregados: {failed} de {total}. {name}: {reason}',
+  // src/features/storyboard/picturesBusy.ts
+  'pictures.reading': 'Leyendo {done} de {total}…',
   // src/features/storyboard/board.ts
   'board.relettered': '{from} ahora es {to}',
   'board.lockNotice': 'Se bloqueó {scene}. Para que los números de claqueta no se repitan, {list}.',
@@ -3612,6 +3614,8 @@ export const es: Messages = {
   'layers.lockOf': 'Bloquear la capa {layer}',
   'layers.solo': 'Solo',
   'layers.soloOf': 'Solo la capa {layer}: visible, las demás atenuadas y bloqueadas',
+  'layers.soloTitle': 'Solo la capa {layer}: visible, las demás atenuadas y bloqueadas. En el plano, pulsa {key}.',
+  'layers.showAllTitle': 'Mostrar todas las capas, ninguna bloqueada. En el plano, pulsa {key}.',
   'layers.lockedBySolo': 'Bloqueada mientras {layer} está en solo',
   'layers.items.one': '{count} elemento',
   'layers.items.other': '{count} elementos',

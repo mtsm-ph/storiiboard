@@ -14,6 +14,7 @@ import { fileStem } from '../../core/storage/paths';
 import { clearNotice, showInfo, showNotice } from '../notice';
 import { createProjectFile, openProjectFile, reopenProjectFile, type OpenFileOptions } from '../openFiles';
 import { openVersionCopy } from '../openVersion';
+import { whileOpeningProject } from '../openingProject';
 import { whileOpening } from '../openingVersion';
 import { projectStore } from '../projectStore';
 import { openOnboarding } from '../theme/onboarding';
@@ -56,18 +57,25 @@ export async function reopenChangedProject(): Promise<void> {
   if (!path || reopening) return;
   reopening = true;
   try {
-    if (!(await reopenProjectFile(path, files))) {
-      // Not opened (Cancel at "open on another computer"): the one open is on a replaced file and can't be saved to,
-      // so it closes rather than refuse every edit without a word.
-      await projectStore.getState().close();
-      showNotice(t('open.changedNotReopened'));
-      return;
-    }
-    showNotice(t('open.changedReopened'));
-  } catch (error) {
-    // The open project is on a file that's been replaced, so it can't be saved to: it closes, and the notice says why.
-    await projectStore.getState().close();
-    showNotice(error);
+    // The close after a failed reopen counts as opening too: the sidebar shrinks as the project goes, so its sections
+    // stay disabled until it has (src/app/openingProject.ts), with no gap between the reopen's end and the close.
+    await whileOpeningProject(async () => {
+      try {
+        if (!(await reopenProjectFile(path, files))) {
+          // Not opened (Cancel at "open on another computer"): the one open is on a replaced file and can't be saved
+          // to, so it closes rather than refuse every edit without a word.
+          await projectStore.getState().close();
+          showNotice(t('open.changedNotReopened'));
+          return;
+        }
+        showNotice(t('open.changedReopened'));
+      } catch (error) {
+        // The open project is on a file that's been replaced, so it can't be saved to: it closes, and the notice says
+        // why.
+        await projectStore.getState().close();
+        showNotice(error);
+      }
+    });
   } finally {
     reopening = false;
     await recentStore.getState().refresh();
