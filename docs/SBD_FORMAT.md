@@ -859,7 +859,7 @@ unreadable value reads as not set, as every prop does.
     `media_id`: its picture, a `media` record of `kind` `image` under the underlay, stored as a board's pictures are
     (the pipeline's picture of at most 2560 px and its thumbnail in `media_files`, `source_path` pointing at the
     original, never the original embedded). A `media_id` naming no live record reads as a missing picture (drawn
-    as a board's missing picture is, "This picture was deleted for good."). `scaled` (6.9): `true` once "Set scale" has set it to scale (absent
+    as a board's missing picture is, "This picture is no longer in the project."). `scaled` (6.9): `true` once "Set scale" has set it to scale (absent
     before), so the plan says "Not to scale yet" until then; `scale_m`: the distance typed then, metres, kept for
     History's words. Set scale scales the box about the first of the two points clicked so they are the typed
     distance apart: the first point stays where it was on the plan and on the picture, the picture keeps its shape
