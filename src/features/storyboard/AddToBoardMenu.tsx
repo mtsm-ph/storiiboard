@@ -7,6 +7,7 @@ import { frameSetup, joinSetup, leaveSetup, newSetupFromFrames, sceneSetups, set
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
 import { keepBrowserMenuOut } from '../../ui/menuKey';
+import { useScrollLane } from '../../ui/scrollLane';
 import { toHolder, usePressInside } from '../../ui/pressInside';
 import { rovingIndex } from '../../ui/roving';
 import { boardsOf, boardTitle } from '../moodboards/boards';
@@ -49,6 +50,7 @@ export function AddToBoardMenu({ ask, onClose }: { ask: BoardMenuAsk; onClose: (
   const projectId = useProject((s) => s.project?.projectId ?? null);
   const [view, setView] = useState<View>('root');
   const panel = useRef<HTMLDivElement>(null);
+  useScrollLane(panel);
   // A press inside the menu may send focus to what holds it; nothing else may (6.19b's review).
   const pressing = usePressInside(panel, true, () => panel.current?.querySelector<HTMLElement>('button, [data-menu-message]'));
   const boards = projectId ? boardsOf(records, projectId) : [];

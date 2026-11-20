@@ -1468,6 +1468,8 @@ export const es: Messages = {
   // src/features/storyboard/addPictures.ts
   'pictures.targetGone': 'El cuadro o la escena para los que eran esas imágenes ya no está en el storyboard.',
   'pictures.someNotAdded': 'Archivos no agregados: {failed} de {total}. {name}: {reason}',
+  // src/features/storyboard/picturesBusy.ts
+  'pictures.reading': 'Leyendo {done} de {total}…',
   // src/features/storyboard/board.ts
   'board.relettered': '{from} ahora es {to}',
   'board.lockNotice': 'Se bloqueó {scene}. Para que los números de claqueta no se repitan, {list}.',
@@ -1599,6 +1601,7 @@ export const es: Messages = {
   'error.videoTooSlow': 'Ese video tardó demasiado en leerse. Si está en una unidad de red, cópialo primero a esta computadora.',
   // src-tauri/src/heic.rs
   'error.heicTooBig': 'Esta foto HEIC es demasiado grande para leerla (más de 64 MB). Conviértela primero a JPEG.',
+  'error.heicTooManyPixels': 'Esta foto HEIC es demasiado grande para leerla (más de 120 megapíxeles). Conviértela primero a JPEG.',
   'error.heicNotHeic': 'Ese archivo no es una foto HEIC.',
   'error.heicHdr': 'Esta es una foto HDR, que Storiiboard todavía no puede leer en esta computadora. Expórtala primero como JPEG.',
   'error.heicTooSlow': 'Esta foto HEIC tardó demasiado en leerse. Vuelve a intentarlo, o conviértela primero a JPEG.',
@@ -3611,6 +3614,8 @@ export const es: Messages = {
   'layers.lockOf': 'Bloquear la capa {layer}',
   'layers.solo': 'Solo',
   'layers.soloOf': 'Solo la capa {layer}: visible, las demás atenuadas y bloqueadas',
+  'layers.soloTitle': 'Solo la capa {layer}: visible, las demás atenuadas y bloqueadas. En el plano, pulsa {key}.',
+  'layers.showAllTitle': 'Mostrar todas las capas, ninguna bloqueada. En el plano, pulsa {key}.',
   'layers.lockedBySolo': 'Bloqueada mientras {layer} está en solo',
   'layers.items.one': '{count} elemento',
   'layers.items.other': '{count} elementos',

@@ -5,6 +5,7 @@ import { canOpenFiles, isTauriApp } from '../fileAccess';
 import { reopenChangedProject, setProjectState, syncRecentState } from '../projects/actions';
 import { ProjectsScreen } from '../projects/ProjectsScreen';
 import { noteIfSynced } from '../projects/synced';
+import { isOpeningProject } from '../openingProject';
 import { projectStore, useProject } from '../projectStore';
 import { OnboardingHost } from '../theme/OnboardingDialog';
 import { StatusBar } from './StatusBar';
@@ -136,7 +137,8 @@ export function AppShell() {
       const target = workspaceForShortcut(event);
       if (!target) return;
       event.preventDefault();
-      if (target.id === workspaceId) return;
+      // As the sections are disabled while a project opens, their keys do nothing then either.
+      if (target.id === workspaceId || isOpeningProject()) return;
       // The old workspace's tiles unmount on a switch: focus inside them would drop to <body>, and focus on the
       // old section would be left behind. Either way it moves to the new section, where a click would have put it.
       const focused = document.activeElement;

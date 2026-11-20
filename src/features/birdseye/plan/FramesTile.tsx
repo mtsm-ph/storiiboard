@@ -1,9 +1,10 @@
-import { memo, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import { useProject } from '../../../app/projectStore';
 import { t } from '../../../core/i18n';
 import type { SbdRecord } from '../../../core/model/record';
 import { cx } from '../../../ui/cx';
 import { Select } from '../../../ui/fields';
+import { useScrollLane } from '../../../ui/scrollLane';
 import { showShot } from '../../moodboards/liveActions';
 import { FrameImage } from '../../storyboard/FrameImage';
 import { ProjectPictures } from '../../storyboard/ProjectPictures';
@@ -64,8 +65,10 @@ const FrameList = memo(function FrameList({ reading, selected, planKey: key }: {
   useLocale();
   const { name, aspect, cameras, rows } = reading;
   const titles = new Map(cameras.map((c) => [c.id, c.title]));
+  const scroller = useRef<HTMLElement>(null);
+  useScrollLane(scroller);
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2" data-frames-tile="" data-frames-state="ready" aria-label={t('frames.listOf', { setup: name })}>
+    <section ref={scroller} className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2" data-frames-tile="" data-frames-state="ready" aria-label={t('frames.listOf', { setup: name })}>
       {cameras.length === 0 && <p className="text-[12px] text-text-muted" data-frames-no-cameras="">{t('frames.noCameras')}</p>}
       <ul className="flex flex-wrap gap-2">
         {rows.map((shot) => {
