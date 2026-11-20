@@ -640,7 +640,9 @@ test('no scene or board row can be chosen while another project opens in place, 
   // Enter where the board's row had focus chooses nothing.
   await page.keyboard.press('Enter');
   // A press on the board's row, released once Open Water is in: its rows are gone by then, so the release lands
-  // elsewhere. Neither chooses anything.
+  // elsewhere. Neither chooses anything. The release lands in the list's empty space even without the disabled rows,
+  // so this step alone would pass on round 1's code too: the toBeDisabled checks above and the Enter are what fail
+  // there.
   const box = await boardRow.boundingBox();
   if (!box) throw new Error('The board row has no box');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -672,7 +674,7 @@ test('no scene or board row can be chosen while another project opens in place, 
   await expect(sectionButton(page, 'Moodboard')).toHaveAttribute('aria-current', 'page');
 });
 
-test('focus on a sidebar row while a sync reopen runs comes back to that row once it is open', async ({ page }) => {
+test('focus on a sidebar row while a sync reopen runs comes back to that row once it is open', async ({ page, browserName }) => {
   await newProject(page, 'Bey County');
   await sidebar(page).getByRole('button', { name: '+ Add Scene' }).click();
   const scene = scenes(page);
@@ -685,7 +687,10 @@ test('focus on a sidebar row while a sync reopen runs comes back to that row onc
   await openAsked(page);
   await expect(scene).toBeDisabled();
   for (const name of SECTIONS) await expect(sectionButton(page, name)).toBeDisabled();
-  await expect(scene).not.toBeFocused();
+  // Chromium drops focus from a button the moment it is disabled, so there the focus at the end is the restore's
+  // doing. WebKit may keep focus on the disabled row, and then focus never left it: what matters in both engines is
+  // that the row has focus once the open ends, so only Chromium is held to having lost it meanwhile.
+  if (browserName === 'chromium') await expect(scene).not.toBeFocused();
 
   await releaseOpen(page);
   await expect(page.getByText('so Storiiboard opened the newest version')).toBeVisible();
