@@ -25,6 +25,10 @@ export async function readPdfText(bytes: ArrayBuffer, name: string): Promise<Pdf
     disableFontFace: true,
     enableXfa: false,
     useSystemFonts: false,
+    // No WebAssembly: pdf.js 5.7 compiles a PDF's PostScript functions with `new WebAssembly.Module`, which the
+    // workers' policy (src-tauri/worker-csp.txt) refuses. pdf.js would fall back to its JS, but the refusal is still a
+    // violation, so it's never tried.
+    useWasm: false,
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {

@@ -51,6 +51,9 @@
   its bundle carries. A job red only because of GitHub's machine is rerun, never waved through, and the report says
   so; red twice for the same cause goes to Kevin.
 - The end-to-end tests run under the installed app's content security policy (6.13): a violation fails the test.
+  Every worker runs under its own, stricter policy (src-tauri/worker-csp.txt, 6.27i: no network, no eval), which the
+  app sends on every JavaScript response (src-tauri/src/worker_csp.rs) and the test server likewise; Tauri puts the
+  page's policy only on .html, and a worker never inherits it.
   src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
   commands are tested in Rust through tauri's `test` feature (6.16). No HTML5 drag and drop anywhere in the app
   (lint and src/app/noHtmlDrag.test.ts, 6.15).

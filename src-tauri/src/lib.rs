@@ -29,6 +29,7 @@ mod tiles;
 mod timezone;
 mod video;
 mod weather;
+mod worker_csp;
 
 /// The commands the page may call, the plugins they use and the state they share. run() builds the app on it, and the
 /// command tests (command_tests.rs) build Tauri's mock runtime on it, so a command missing here is missing from both.
@@ -137,6 +138,27 @@ pub(crate) fn manage_at_start<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     app.manage(playback::PlaybackCache::load(&data_dir, &cache_dir));
 }
 
+/// The main window, from its entry in tauri.conf.json (every setting as written there: hidden at start, its size and
+/// background), plus the worker policy on the app's scripts (worker_csp.rs). The config marks it `"create": false`
+/// because Tauri builds a config window with no way to add `on_web_resource_request`, so setup builds it here.
+pub(crate) fn main_window<R: tauri::Runtime, M: Manager<R>>(
+    manager: &M,
+) -> tauri::Result<tauri::WebviewWindowBuilder<'_, R, M>> {
+    let config = manager
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label == "main")
+        .cloned()
+        .ok_or_else(|| tauri::Error::WindowNotFound)?;
+    Ok(
+        tauri::WebviewWindowBuilder::from_config(manager, &config)?.on_web_resource_request(
+            |request, response| worker_csp::add_worker_policy(&request, response),
+        ),
+    )
+}
+
 /// The app's context (tauri.conf.json, capabilities, icons, assets), for run() and the command tests alike. The macro
 /// is expanded here and nowhere else: on a Mac each expansion embeds the Info.plist under one fixed symbol
 /// (`_EMBED_INFO_PLIST`), so a second one in the crate fails to compile the tests there (6.16's checkpoint).
@@ -207,6 +229,17 @@ pub fn run() {
         // Safety net: macOS reports no event for a page that fails to load (for example `cargo run` with the dev
         // server stopped), so a window still hidden after a few seconds is shown anyway.
         .setup(|app| {
+            // The main window, built here rather than from the config (main_window, above), and first, as Tauri built
+            // a config window before setup: everything below that looks up "main" (opened::queue brings it to the
+            // front on a double-click launch) finds it. The drag-drop event and the show on load below reach it as
+            // they reach every window.
+            let window = main_window(app.handle())?.build()?;
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(3));
+                if !window.is_visible().unwrap_or(false) {
+                    let _ = window.show();
+                }
+            });
             manage_at_start(app.handle());
             // Copies cut off by a crash or a quit, on a thread of its own: a drive slow to wake (or a share that
             // doesn't answer) never holds up the window, and it waits its turn behind a copy started meanwhile.
@@ -221,14 +254,6 @@ pub fn run() {
                 app.handle(),
                 opened::sbd_paths(std::env::args().skip(1), &cwd),
             );
-            if let Some(window) = app.get_webview_window("main") {
-                thread::spawn(move || {
-                    thread::sleep(Duration::from_secs(3));
-                    if !window.is_visible().unwrap_or(false) {
-                        let _ = window.show();
-                    }
-                });
-            }
             Ok(())
         })
         // The window starts hidden (tauri.conf.json) and appears once the page has loaded, after theme-boot.js has
