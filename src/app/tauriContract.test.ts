@@ -253,6 +253,9 @@ const UNREADABLE: Record<string, Record<string, string>> = {
   'src/app/photoExif.ts': {
     photo_exif: 'a photo’s bytes go as the raw request body (6.27), which photo_exif reads through tauri::ipc::Request',
   },
+  'src/app/heicPicture.ts': {
+    heic_picture: 'a HEIC photo’s bytes go as the raw request body (6.27n), which heic_picture reads through tauri::ipc::Request',
+  },
 };
 
 /** Registered commands the page never calls, each with why (called only from Rust, or kept on purpose). None today. */
