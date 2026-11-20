@@ -1,11 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
+import { setHeicDecoder } from '../core/media/heic';
+import { isTauriApp } from './fileAccess';
 
 // A HEIC photo turned into a PNG by Rust (6.27n, src-tauri/src/heic.rs), for Windows, whose webview can't decode HEIC:
 // the photo's bytes go as the raw request body (as photoExif.ts sends its own), and the PNG's bytes come back, fitted
 // inside 2560 px and tagged with the file's own colour. The page then draws it as any other picture. On the Mac, Rust
 // answers with the page's own HEIC line (error.heic): WebKit reads HEIC itself.
 //
-// Nothing calls this yet: part 2 of 6.27n wires it into the picture import as its fallback.
+// The picture import asks for it only after the webview's own decode failed (src/core/media/image.ts), through the
+// decoder installHeicDecoder hands to core at start-up (src/main.tsx).
 
 /**
  * The PNG's bytes for a HEIC photo. A refusal (too large, not a HEIC, an HDR photo, too slow, unreadable, a colour
@@ -19,4 +22,9 @@ export async function heicPicture(photo: Blob): Promise<Uint8Array> {
   } catch (error) {
     throw error instanceof Error ? error : new Error(String(error));
   }
+}
+
+/** Hands heicPicture to the picture import, only in the desktop app: a browser build has no Rust to ask. */
+export function installHeicDecoder(desktop: boolean = isTauriApp): void {
+  if (desktop) setHeicDecoder(heicPicture);
 }

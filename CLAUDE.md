@@ -33,6 +33,14 @@
 - State: Zustand. Every canvas: react-konva.
 - Project file: SQLite through Rust commands (rusqlite) in src-tauri; SQL and schema live in src/core/storage.
 - Video: ffmpeg sidecar, LGPL build, for proxies, stills and trims.
+- HEIC photos on Windows (6.27n, Kevin, Nov 19 and 20): WebView2 can't decode a HEIC, so when the page's own decode
+  fails and the file looks like one (its type, its name or the HEIF brand in its first bytes), the page asks Rust
+  (`heic_picture`, src-tauri/src/heic.rs, through src/core/media/image.ts and src/app/heicPicture.ts). ffmpeg decodes
+  it, upright, fitted inside 2560 px, as a PNG tagged with the file's own colour: its ICC profile carried (at most
+  64 KiB, else the photo is refused), else its four-number tag as cICP, else sRGB. The page then stores from it what
+  a Mac stores. 64 MiB in at most, 10 s, two decodes at a time, an HDR photo refused with a line. The Mac changes
+  nothing: WebKit reads HEIC itself. While two or more files are being added the status line counts them ("Reading
+  3 of 30…").
 - Network (Kevin, Nov 9): one HTTP client for every need, reqwest with rustls (ring, as Tauri's updater uses it), only
   in src-tauri/src/net.rs.
 - PDFs: pdf-lib; QR codes: qrcode-generator. Sun times: SunCalc. A place's time zone: tzf-rs in Rust,
