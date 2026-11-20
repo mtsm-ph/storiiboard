@@ -177,8 +177,24 @@ struct Picture {
     transfer: Option<String>,
 }
 
-/// Reads ffprobe's JSON (`-show_streams -show_stream_groups`): the picture is the tile grid marked default, else the
-/// first tile grid, else the first video stream not marked `dependent` (a tile). An HDR transfer is refused.
+/// Whether a JSON object's `side_data_list` names an ICC profile.
+fn lists_profile(value: &Value) -> bool {
+    value["side_data_list"].as_array().is_some_and(|list| {
+        list.iter()
+            .any(|data| data["side_data_type"] == "ICC Profile")
+    })
+}
+
+/// A grid's size, from its first component: what decides among several grids when none is marked default.
+fn grid_area(group: &Value) -> u64 {
+    let component = &group["components"][0];
+    component["width"].as_u64().unwrap_or(0) * component["height"].as_u64().unwrap_or(0)
+}
+
+/// Reads ffprobe's JSON (`probe_command`'s entries): the picture is the tile grid marked default, else the largest
+/// tile grid (the first among equals: a phone's gain map is a grid too), else a video stream marked default and not
+/// `dependent` (a tile), else the first not `dependent` (a thumbnail may come first). An HDR transfer is refused, and
+/// so is a profile the grid lists but its first stream doesn't carry: never guessed.
 fn read_picture(json: &Value) -> Result<Picture, &'static str> {
     let streams = json["streams"]
         .as_array()
@@ -200,22 +216,45 @@ fn read_picture(json: &Value) -> Result<Picture, &'static str> {
     };
     let grid = grids()
         .find(|(_, group)| group["disposition"]["default"] == 1)
-        .or_else(|| grids().next());
-    let (source, first) = match grid {
+        .or_else(|| {
+            // The largest; `max_by_key` would keep the last among equals.
+            grids().fold(
+                None,
+                |best: Option<(usize, &Value)>, (n, group)| match best {
+                    Some((_, kept)) if grid_area(kept) >= grid_area(group) => best,
+                    _ => Some((n, group)),
+                },
+            )
+        });
+    let (source, first, grid_profile) = match grid {
         Some((n, group)) => {
             let index = &group["streams"][0]["index"];
             let first = videos
                 .iter()
                 .position(|stream| !index.is_null() && stream["index"] == *index)
                 .ok_or(UNREAD)?;
-            (Source::Grid(n), first)
+            // A profile on the group, its components or any of its tiles.
+            let components = group["components"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            let tiles = group["streams"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            let listed = lists_profile(group)
+                || components.iter().any(lists_profile)
+                || tiles.iter().any(lists_profile);
+            (Source::Grid(n), first, listed)
         }
         None => {
+            let shown = |stream: &&Value| stream["disposition"]["dependent"] != 1;
             let first = videos
                 .iter()
-                .position(|stream| stream["disposition"]["dependent"] != 1)
+                .position(|stream| shown(stream) && stream["disposition"]["default"] == 1)
+                .or_else(|| videos.iter().position(shown))
                 .ok_or(UNREAD)?;
-            (Source::Stream(first), first)
+            (Source::Stream(first), first, false)
         }
     };
     let stream = videos[first];
@@ -230,10 +269,11 @@ fn read_picture(json: &Value) -> Result<Picture, &'static str> {
         .and_then(|bits| bits.parse().ok())
         .filter(|&bits: &u32| bits > 0)
         .unwrap_or_else(|| video::bit_depth(stream["pix_fmt"].as_str().unwrap_or("")));
-    let profile = stream["side_data_list"].as_array().is_some_and(|list| {
-        list.iter()
-            .any(|data| data["side_data_type"] == "ICC Profile")
-    });
+    let profile = lists_profile(stream);
+    // Listed for the grid but not on the stream whose PNG carries it: refused, never shown in another colour.
+    if grid_profile && !profile {
+        return Err(UNREAD);
+    }
     Ok(Picture {
         source,
         first,
@@ -421,8 +461,18 @@ fn profile_chunk(png: &[u8]) -> Result<Vec<u8>, &'static str> {
 
 // ---- The sidecars -----------------------------------------------------------------------------------------------------
 
-/// ffprobe's streams and stream groups, as compact JSON. The path is one argument of the list, and only local files
-/// may be opened.
+/// What ffprobe is asked for: exactly the fields `read_picture` reads, by the section names this ffprobe lists
+/// (`ffprobe -sections`), and no tags, so a crafted name or comment can't make the answer large before the cap is
+/// looked at. Its streams' side data is named the same way inside a group's streams. This ffprobe has no side data
+/// section on a group or a component, so a profile there can't be listed by it; the reader still looks there.
+const PROBE_ENTRIES: &str =
+    "stream=index,codec_type,pix_fmt,bits_per_raw_sample,color_primaries,color_transfer\
+    :stream_disposition=default,dependent:stream_side_data=side_data_type\
+    :stream_group=index,type:stream_group_disposition=default:stream_group_stream=index\
+    :stream_group_component=width,height";
+
+/// ffprobe's answer about the file, as compact JSON. The path is one argument of the list, and only local files may
+/// be opened.
 fn probe_command(file: &Path) -> Command {
     let mut command = video::command("ffprobe");
     command
@@ -430,8 +480,8 @@ fn probe_command(file: &Path) -> Command {
         .args([
             "-print_format",
             "json=compact=1",
-            "-show_streams",
-            "-show_stream_groups",
+            "-show_entries",
+            PROBE_ENTRIES,
             "-i",
         ])
         .arg(file);
@@ -494,8 +544,15 @@ fn profile_command(file: &Path, picture: &Picture) -> Command {
     command
 }
 
+/// video.rs's runner's words for a sidecar that can't be started (they say to reinstall), kept as they are. The runner
+/// writes them inline, so they are matched here by their text; `a_sidecar_that_cant_start_keeps_the_runners_words`
+/// fails if the two drift apart.
+const READER_MISSING: &str =
+    "Storiiboard's video reader couldn't start. Reinstalling Storiiboard puts it back.";
+
 /// One sidecar run in what's left of the call's time, through video.rs's runner (its error output never read): what
-/// it wrote, at most `cap` bytes. Killed at the deadline, it removes `file` once it has ended.
+/// it wrote, at most `cap` bytes. Killed at the deadline, it removes `file` once it has ended. With no time left, none
+/// is started.
 fn run(
     command: Command,
     deadline: Instant,
@@ -503,11 +560,43 @@ fn run(
     cap: usize,
 ) -> Result<Vec<u8>, &'static str> {
     let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return Err(TOO_SLOW);
+    }
     match video::run_stoppable(command, left, false, None, Some(file)) {
         Ok((status, out, _)) if status.success() && !out.is_empty() && out.len() <= cap => Ok(out),
         Ok(_) => Err(UNREAD),
         Err(said) if said == video::TOO_SLOW => Err(TOO_SLOW),
+        Err(said) if said == READER_MISSING => Err(READER_MISSING),
         Err(_) => Err(UNREAD),
+    }
+}
+
+/// How old a temp file of ours must be to count as left by a crash: a decode lasts seconds.
+const LEFT_BEHIND: Duration = Duration::from_secs(10 * 60);
+
+/// Removes our temp files in `folder` older than 10 minutes, left by a crash or a power cut: they are a person's
+/// photos, EXIF and all. Only `heic-*.heic`; every error is ignored (the call goes on either way).
+fn sweep(folder: &Path) {
+    let Ok(entries) = fs::read_dir(folder) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let ours = name
+            .to_str()
+            .is_some_and(|name| name.starts_with("heic-") && name.ends_with(".heic"));
+        let old = entry
+            .metadata()
+            .ok()
+            .filter(std::fs::Metadata::is_file)
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age > LEFT_BEHIND);
+        if ours && old {
+            let _ = fs::remove_file(entry.path());
+        }
     }
 }
 
@@ -520,6 +609,7 @@ fn decode_within(
     decode: &dyn Fn(&Path, &Picture) -> Command,
 ) -> Result<Vec<u8>, &'static str> {
     let deadline = Instant::now() + limit;
+    sweep(folder);
     let temp = TempPicture::write(folder, bytes)?;
     let said = run(probe_command(&temp.path), deadline, &temp.path, MAX_PROBE)?;
     let json: Value = serde_json::from_slice(&said).map_err(|_| UNREAD)?;
@@ -579,7 +669,7 @@ mod tests {
     use super::*;
 
     use serde_json::json;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier};
 
     fn temp_dir(tag: &str) -> PathBuf {
@@ -737,6 +827,67 @@ mod tests {
             ),
             Err(UNREAD)
         );
+    }
+
+    /// A grid of `width` × `height`, none marked default, its tiles from `first`.
+    fn sized_grid(width: u64, height: u64, first: u64) -> Value {
+        let mut group = grid(0, first);
+        group["components"][0]["width"] = json!(width);
+        group["components"][0]["height"] = json!(height);
+        group
+    }
+
+    #[test]
+    fn with_no_default_takes_the_largest_grid_and_a_default_stream_before_the_first() {
+        let tiles = json!([
+            stream(0, 1, json!({})),
+            stream(1, 1, json!({})),
+            stream(2, 1, json!({})),
+            stream(3, 1, json!({})),
+            stream(4, 1, json!({})),
+            stream(5, 1, json!({})),
+        ]);
+        // A small gain map's grid first, then the picture's: the largest wins.
+        let json = json!({ "streams": tiles, "stream_groups": [sized_grid(512, 384, 0), sized_grid(4032, 3024, 2)] });
+        assert_eq!(read_picture(&json).unwrap().source, Source::Grid(1));
+        assert_eq!(read_picture(&json).unwrap().first, 2);
+        // Two of the same size: the first among equals.
+        let json = json!({ "streams": tiles, "stream_groups": [
+            sized_grid(512, 384, 0), sized_grid(1024, 768, 2), sized_grid(1024, 768, 4),
+        ] });
+        assert_eq!(read_picture(&json).unwrap().source, Source::Grid(1));
+        // No grid: a thumbnail first, the picture marked default after it.
+        let mut picture = stream(1, 0, json!({ "width": 4032, "height": 3024 }));
+        picture["disposition"]["default"] = json!(1);
+        let json =
+            json!({ "streams": [stream(0, 0, json!({ "width": 320, "height": 240 })), picture] });
+        assert_eq!(read_picture(&json).unwrap().source, Source::Stream(1));
+        // A tile marked default is still a tile.
+        let mut tile = stream(1, 1, json!({}));
+        tile["disposition"]["default"] = json!(1);
+        let json = json!({ "streams": [stream(0, 0, json!({})), tile] });
+        assert_eq!(read_picture(&json).unwrap().source, Source::Stream(0));
+    }
+
+    #[test]
+    fn refuses_a_profile_the_grid_lists_but_its_first_stream_doesnt_carry() {
+        let streams = json!([stream(0, 1, json!({})), stream(1, 1, json!({}))]);
+        // On the group, on a component, on another of its tiles.
+        let mut on_group = grid(1, 0);
+        on_group["side_data_list"] = icc()["side_data_list"].clone();
+        let mut on_component = grid(1, 0);
+        on_component["components"][0]["side_data_list"] = icc()["side_data_list"].clone();
+        let mut on_a_tile = grid(1, 0);
+        on_a_tile["streams"][1]["side_data_list"] = icc()["side_data_list"].clone();
+        for group in [on_group, on_component, on_a_tile] {
+            let json = json!({ "streams": streams, "stream_groups": [group] });
+            assert_eq!(read_picture(&json), Err(UNREAD), "{json}");
+        }
+        // Listed on the group and carried by its first stream: read.
+        let mut both = grid(1, 0);
+        both["side_data_list"] = icc()["side_data_list"].clone();
+        let json = json!({ "streams": [stream(0, 1, icc()), stream(1, 1, icc())], "stream_groups": [both] });
+        assert!(read_picture(&json).unwrap().profile);
     }
 
     #[test]
@@ -1103,9 +1254,22 @@ mod tests {
         assert_eq!(kinds(&committed).last().map(String::as_str), Some("IEND"));
         assert_eq!(size(&committed), size(&answer));
         assert_eq!(tag_of(&committed), tag_of(&answer));
+        // Within a level: ffmpeg's colour conversion takes fast code chosen by the processor (Intel, Apple silicon),
+        // and those may differ by one.
+        let (theirs, ours) = (
+            pixels(&dir, "committed.png", &committed),
+            pixels(&dir, "answer.png", &answer),
+        );
+        assert_eq!(theirs.len(), ours.len());
+        let worst = theirs
+            .iter()
+            .zip(&ours)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap_or(0);
         assert!(
-            pixels(&dir, "committed.png", &committed) == pixels(&dir, "answer.png", &answer),
-            "the committed PNG's pixels are today's answer's"
+            worst <= 1,
+            "the committed PNG's pixels are today's answer's, within a level: {worst} apart"
         );
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1150,21 +1314,38 @@ mod tests {
     }
 
     #[test]
-    fn lets_no_more_than_two_in_at_once() {
+    fn lets_no_more_than_two_in_at_once_and_two_do_get_in() {
         let gate = Arc::new(Gate::new(2));
         let inside = Arc::new(AtomicUsize::new(0));
         let most = Arc::new(AtomicUsize::new(0));
+        let two_seen = Arc::new(AtomicBool::new(false));
         let start = Arc::new(Barrier::new(3));
         let calls: Vec<_> = (0..3)
             .map(|_| {
-                let (gate, inside, most, start) =
-                    (gate.clone(), inside.clone(), most.clone(), start.clone());
+                let (gate, inside, most, two_seen, start) = (
+                    gate.clone(),
+                    inside.clone(),
+                    most.clone(),
+                    two_seen.clone(),
+                    start.clone(),
+                );
                 std::thread::spawn(move || {
                     start.wait();
                     let _turn = gate.enter();
                     let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
                     most.fetch_max(now, Ordering::SeqCst);
-                    std::thread::sleep(Duration::from_millis(200));
+                    // Each stays in until a second is in with it (or 10 s pass), so "two at once" never hangs on
+                    // how fast the machine is; the third finds it already seen.
+                    let waited = Instant::now();
+                    while !two_seen.load(Ordering::SeqCst)
+                        && waited.elapsed() < Duration::from_secs(10)
+                    {
+                        if inside.load(Ordering::SeqCst) >= 2 {
+                            two_seen.store(true, Ordering::SeqCst);
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
                     inside.fetch_sub(1, Ordering::SeqCst);
                 })
             })
@@ -1172,11 +1353,164 @@ mod tests {
         for call in calls {
             call.join().unwrap();
         }
-        assert_eq!(
-            most.load(Ordering::SeqCst),
-            2,
-            "two in at once, never three"
-        );
+        assert!(most.load(Ordering::SeqCst) <= 2, "never three at once");
+        assert!(two_seen.load(Ordering::SeqCst), "two did get in at once");
         assert_eq!(*gate.inside.lock().unwrap(), 0, "every turn given back");
+    }
+
+    #[test]
+    fn picture_waits_its_turn_at_the_gate_but_a_refusal_never_does() {
+        // Both turns taken here (another test's call may hold one a moment first): the photo waits.
+        let first = GATE.enter();
+        let second = GATE.enter();
+        let dir = temp_dir("gate");
+        let folder = dir.join("cache");
+        let (done, heard) = std::sync::mpsc::channel();
+        let waiting = std::thread::spawn({
+            let folder = folder.clone();
+            move || {
+                let _ = done.send(picture(&proof(), &folder));
+            }
+        });
+        assert!(
+            heard.recv_timeout(Duration::from_millis(500)).is_err(),
+            "decoded with both turns taken"
+        );
+        // A file that isn't a HEIF is refused before the gate.
+        assert_eq!(picture(&[0, 0, 0], &folder), Err(NOT_HEIC));
+        drop(first);
+        let answer = heard
+            .recv_timeout(Duration::from_secs(30))
+            .expect("decoded once a turn was free");
+        assert!(answer.is_ok());
+        drop(second);
+        waiting.join().unwrap();
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sweeps_its_own_temp_files_left_over_10_minutes_ago_and_nothing_else() {
+        let dir = temp_dir("sweep");
+        let planted = |name: &str, age: Duration| {
+            let path = dir.join(name);
+            let file = fs::File::create(&path).unwrap();
+            file.set_modified(std::time::SystemTime::now() - age)
+                .unwrap();
+            path
+        };
+        let old = planted("heic-0123456789abcdef.heic", Duration::from_secs(11 * 60));
+        let fresh = planted("heic-fedcba9876543210.heic", Duration::from_secs(60));
+        let not_ours = planted("tile-16-20-30.png", Duration::from_secs(60 * 60));
+        assert!(picture(&proof(), &dir).is_ok());
+        assert!(!old.exists(), "an old one of ours goes");
+        assert!(
+            fresh.exists(),
+            "a fresh one may be another call's: it stays"
+        );
+        assert!(not_ours.exists(), "only ours");
+        // A folder that isn't there yet: nothing to sweep, and no error.
+        sweep(&dir.join("not-there"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn starts_no_run_with_no_time_left() {
+        let dir = temp_dir("no-time");
+        let file = dir.join("photo.heic");
+        // A program that isn't there: started, it would say it couldn't start.
+        let missing = || Command::new(dir.join("no-such-sidecar"));
+        assert_eq!(
+            run(missing(), Instant::now(), &file, MAX_PROBE),
+            Err(TOO_SLOW)
+        );
+        assert_eq!(
+            run(
+                missing(),
+                Instant::now() + Duration::from_secs(5),
+                &file,
+                MAX_PROBE
+            ),
+            Err(READER_MISSING)
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sidecar_that_cant_start_keeps_the_runners_words() {
+        // The runner's own words for it, read from the runner itself, are the ones heic.rs passes on.
+        let dir = temp_dir("missing");
+        let said = video::run_stoppable(
+            Command::new(dir.join("no-such-sidecar")),
+            Duration::from_secs(5),
+            false,
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(said, READER_MISSING);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn asks_ffprobe_by_names_it_knows_and_reads_them_back() {
+        // ffprobe leaves out a name it doesn't know without a word, so each is read back from a file that has it: a
+        // 10-bit clip tagged Display P3, made here by the sidecar.
+        let dir = temp_dir("entries");
+        let clip = dir.join("tagged.mkv");
+        let status = video::command("ffmpeg")
+            .args(["-hide_banner", "-v", "error", "-y", "-f", "lavfi"])
+            .args(["-i", "color=c=red:size=64x64:duration=0.1"])
+            .args([
+                "-vf",
+                "setparams=color_primaries=smpte432:color_trc=iec61966-2-1:colorspace=bt709",
+                "-pix_fmt",
+                "yuv420p10le",
+                "-c:v",
+                "ffv1",
+            ])
+            .arg(&clip)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let said = probe_command(&clip).output().unwrap();
+        assert!(said.status.success());
+        let json: Value = serde_json::from_slice(&said.stdout).unwrap();
+        let picture = read_picture(&json).unwrap();
+        assert_eq!(picture.source, Source::Stream(0));
+        assert!(picture.deep);
+        assert_eq!(picture.primaries.as_deref(), Some("smpte432"));
+        assert_eq!(picture.transfer.as_deref(), Some("iec61966-2-1"));
+        let stream = &json["streams"][0];
+        assert_eq!(stream["bits_per_raw_sample"], "10");
+        assert_eq!(stream["disposition"]["dependent"], 0);
+        // Only what was asked for: no tags, no codec name.
+        assert!(stream.get("tags").is_none() && stream.get("codec_name").is_none());
+        // The proof: its grid, its tiles' profile, and nothing else of the file's.
+        let heic = dir.join("proof.heic");
+        fs::write(&heic, proof()).unwrap();
+        let said = probe_command(&heic).output().unwrap();
+        assert!(said.status.success());
+        let json: Value = serde_json::from_slice(&said.stdout).unwrap();
+        let group = &json["stream_groups"][0];
+        assert_eq!(group["type"], "Tile Grid");
+        assert_eq!(group["disposition"]["default"], 1);
+        assert_eq!(group["components"][0]["width"], 1024);
+        assert_eq!(group["components"][0]["height"], 768);
+        assert_eq!(group["streams"][0]["index"], 0);
+        assert_eq!(json["streams"][0]["disposition"]["dependent"], 1);
+        assert_eq!(json["streams"][0]["pix_fmt"], "yuvj420p");
+        assert_eq!(
+            read_picture(&json).unwrap(),
+            Picture {
+                source: Source::Grid(0),
+                first: 0,
+                deep: false,
+                profile: true,
+                primaries: None,
+                transfer: None,
+            }
+        );
+        assert!(!String::from_utf8_lossy(&said.stdout).contains("tags"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }
