@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { barsOverlay, laneAttribute, nextLane, NO_LANE, type LaneMeasure, type LaneState } from './scrollLane';
+import { barsOverlay, laneAttribute, nextLane, NO_LANE, SCROLLBARS_ATTRIBUTE, writeReading, type LaneMeasure, type LaneState } from './scrollLane';
 
 const measure = (over: Partial<LaneMeasure> = {}): LaneMeasure => ({ overlay: true, overflowX: false, overflowY: false, box: '300x400', ...over });
 
@@ -20,6 +20,44 @@ describe('barsOverlay', () => {
 
   it('says nothing for a box with no width (no layout)', () => {
     expect(barsOverlay(0, 0)).toBe(false);
+  });
+});
+
+describe('writeReading', () => {
+  /** A root that counts its writes. */
+  function fakeRoot() {
+    const attributes = new Map<string, string>();
+    const root = {
+      writes: 0,
+      getAttribute: (name: string) => attributes.get(name) ?? null,
+      setAttribute: (name: string, value: string) => {
+        root.writes += 1;
+        attributes.set(name, value);
+      },
+      removeAttribute: (name: string) => {
+        root.writes += 1;
+        attributes.delete(name);
+      },
+    };
+    return root;
+  }
+
+  it('writes the attribute when the answer changes, and nothing for a second reading with the same answer', () => {
+    const root = fakeRoot();
+    expect(writeReading(root, true)).toBe(true);
+    expect(root.getAttribute(SCROLLBARS_ATTRIBUTE)).toBe('overlay');
+    expect(writeReading(root, true)).toBe(false);
+    expect(root.writes).toBe(1);
+    expect(writeReading(root, false)).toBe(true);
+    expect(root.getAttribute(SCROLLBARS_ATTRIBUTE)).toBeNull();
+    expect(writeReading(root, false)).toBe(false);
+    expect(root.writes).toBe(2);
+  });
+
+  it('writes nothing for classic bars on a root that has no attribute', () => {
+    const root = fakeRoot();
+    expect(writeReading(root, false)).toBe(false);
+    expect(root.writes).toBe(0);
   });
 });
 
@@ -72,6 +110,19 @@ describe('nextLane', () => {
     const state = run(measure({ overflowY: true }), measure({ overflowY: false }), measure({ overflowY: true, box: '320x400' }));
     expect(laneAttribute(state)).toBe('y');
     expect(laneAttribute(nextLane(state, measure({ overflowY: false, box: '320x400' })))).toBeNull();
+  });
+
+  it('holds only an overflow on the very next measure after the drop: on, off, off, on is an ordinary lane', () => {
+    const state = run(measure({ overflowY: true }), measure(), measure(), measure({ overflowY: true }));
+    expect(laneAttribute(state)).toBe('y');
+    // Not held: a later fit drops it again, at the same box.
+    expect(laneAttribute(nextLane(state, measure()))).toBeNull();
+  });
+
+  it('holds the lane when the overflow comes back at once after the drop, at the same box', () => {
+    const state = run(measure({ overflowY: true }), measure(), measure({ overflowY: true }));
+    expect(state.y.heldAt).toBe('300x400');
+    expect(laneAttribute(nextLane(state, measure()))).toBe('y');
   });
 
   it('holds each axis on its own', () => {

@@ -31,12 +31,24 @@ function measureBars(): boolean {
   return overlay;
 }
 
+type RootAttributes = Pick<Element, 'getAttribute' | 'setAttribute' | 'removeAttribute'>;
+
+/**
+ * Puts a reading on the root, only when it differs from what is there: a write of the same value would still wake every
+ * scroller's hook through the root's observer, on each event of a window drag. Returns whether it wrote.
+ */
+export function writeReading(root: RootAttributes, overlay: boolean): boolean {
+  const now = root.getAttribute(SCROLLBARS_ATTRIBUTE) === 'overlay';
+  if (now === overlay) return false;
+  if (overlay) root.setAttribute(SCROLLBARS_ATTRIBUTE, 'overlay');
+  else root.removeAttribute(SCROLLBARS_ATTRIBUTE);
+  return true;
+}
+
 /** Measures now and on every focus and resize of the window; returns the stop. Started once, by the app's root. */
 export function startScrollbarProbe(): () => void {
   const apply = () => {
-    const root = document.documentElement;
-    if (measureBars()) root.setAttribute(SCROLLBARS_ATTRIBUTE, 'overlay');
-    else root.removeAttribute(SCROLLBARS_ATTRIBUTE);
+    writeReading(document.documentElement, measureBars());
   };
   apply();
   window.addEventListener('focus', apply);
@@ -77,7 +89,7 @@ export interface AxisLane {
   on: boolean;
   /** Held on until the scroller's box is no longer this one (the stay-on rule). */
   heldAt: string | null;
-  /** The box the lane was last taken off at. */
+  /** The box the lane was taken off at by the measure before this one; null after any other measure. */
   droppedAt: string | null;
 }
 
@@ -105,7 +117,9 @@ export const NO_LANE: LaneState = { x: OFF, y: OFF };
 function nextAxis(prev: AxisLane, overflow: boolean, box: string): AxisLane {
   if (prev.heldAt === box) return { on: true, heldAt: box, droppedAt: null };
   if (overflow) return { on: true, heldAt: prev.droppedAt === box ? box : null, droppedAt: null };
-  return { on: false, heldAt: null, droppedAt: prev.on || prev.droppedAt === box ? box : null };
+  // The drop is remembered for the very next measure only: an overflow then is the lane's own flicker; any later one is
+  // the content's, and is let go again as soon as the content fits.
+  return { on: false, heldAt: null, droppedAt: prev.on ? box : null };
 }
 
 /** The rule: a lane on each axis the scroller overflows, only while bars overlay. Pure, so it is tested alone. */
