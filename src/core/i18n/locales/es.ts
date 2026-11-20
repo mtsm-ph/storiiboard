@@ -1597,6 +1597,13 @@ export const es: Messages = {
   'error.notAVideo': 'Ese archivo no se puede leer como video.',
   'error.videoToolMissing': 'El lector de video de Storiiboard no pudo iniciarse. Reinstalar Storiiboard lo restablece.',
   'error.videoTooSlow': 'Ese video tardó demasiado en leerse. Si está en una unidad de red, cópialo primero a esta computadora.',
+  // src-tauri/src/heic.rs
+  'error.heicTooBig': 'Esta foto HEIC es demasiado grande para leerla (más de 64 MB). Conviértela primero a JPEG.',
+  'error.heicNotHeic': 'Ese archivo no es una foto HEIC.',
+  'error.heicHdr': 'Esta es una foto HDR, que Storiiboard todavía no puede leer en esta computadora. Expórtala primero como JPEG.',
+  'error.heicTooSlow': 'Esta foto HEIC tardó demasiado en leerse. Vuelve a intentarlo, o conviértela primero a JPEG.',
+  'error.heicUnread': 'No se pudo leer esta foto HEIC. Conviértela primero a JPEG.',
+  'error.heicProfileTooBig': 'El perfil de color de esta foto es demasiado grande para guardarlo, así que sus colores no se pueden mostrar tal como son. Conviértela primero a JPEG.',
   // src-tauri/src/playback.rs
   'error.clipNotSaved': 'No se pudo guardar el clip ahí.',
   'error.clipCancelled': 'Se canceló el guardado del clip.',
@@ -2467,7 +2474,7 @@ export const es: Messages = {
   'history.aLinkCard': 'una tarjeta de enlace',
   'moodboard.picture': 'Imagen',
   'moodboard.chooseVideo': 'Elegir video',
-  'moodboard.pictureGone': 'Esta imagen se eliminó para siempre.',
+  'moodboard.pictureGone': 'Esta imagen ya no está en el proyecto.',
   'moodboard.boardGone': 'Ese tablero está en la Papelera, así que no se añadieron los archivos.',
   'moodboard.original': 'Original',
   'moodboard.pastedPicture': 'Pegada, sin archivo original',
@@ -2504,7 +2511,7 @@ export const es: Messages = {
   'moodboard.announce.link': 'Enlace: {name}',
   'player.cardGone': 'Esta tarjeta de video ya no está en su tablero, o su video no existe.',
   'moodboard.pasteElsewhere': 'Las imágenes y tarjetas de video se pegan dentro de su propio proyecto; suelta el archivo de nuevo aquí.',
-  'moodboard.pasteGone': 'No se pegó una imagen o tarjeta de video: su imagen se eliminó para siempre.',
+  'moodboard.pasteGone': 'No se pegó una imagen o tarjeta de video: su imagen ya no está en el proyecto.',
   'moodboard.pasteNothing': 'Solo se pueden pegar en un tablero imágenes, archivos de video y direcciones web.',
   // 5.2: conectores (src/features/moodboards, src/ui/canvas)
   'canvas.tool.connector': 'Conector',
@@ -3659,7 +3666,7 @@ export const es: Messages = {
   'selection.underlayNote': 'X e Y son su centro. Su ancho y su fondo se siguen el uno al otro, así la imagen conserva su forma.',
   // 6.9 review: pastes, files that aren't pictures, several pictures, the lock said, and Set scale's clicks
   'plan.pasteElsewhere': 'Cópialo de nuevo: lo que se copió en una planta solo se pega en el proyecto tal como estaba abierto entonces.',
-  'plan.underlay.pasteGone': 'No se pegó una imagen de fondo: su imagen se eliminó para siempre.',
+  'plan.underlay.pasteGone': 'No se pegó una imagen de fondo: su imagen ya no está en el proyecto.',
   'plan.underlay.notPicture': 'Solo una imagen puede ser imagen de fondo.',
   'plan.underlay.oneAtATime.one': 'Se agregó 1 de {count}: una imagen de fondo es una sola imagen a la vez.',
   'plan.underlay.oneAtATime.other': 'Se agregó 1 de {count}: una imagen de fondo es una sola imagen a la vez.',
