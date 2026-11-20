@@ -14,9 +14,10 @@ import { Button } from '../../ui/Button';
 import { TextField, Toggle } from '../../ui/fields';
 import { useSelection } from '../storyboard/selection';
 import { ItemHistory } from './ItemHistory';
+import { LineText } from './LineText';
 import { putBackProblem, putBackStep } from './putBack';
 import { loadSteps, moreItemLog, PAGE, readItemLog, restoreNotice, type ItemLog, type Steps } from './steps';
-import { lineText, namedById, who, type FieldChange, type Line } from './summary';
+import { lineText, namedById, who, type FieldChange } from './summary';
 import { nameThisPoint, removeNamedVersion } from './versionWrites';
 import { createWriteGate } from './writeGate';
 import { t, type MessageKey } from '../../core/i18n';
@@ -29,22 +30,8 @@ import { usePlanUnit } from '../../app/planUnits';
 // Filtered to the selected item (a frame, else a note, else the active scene), every change to it, field by field,
 // with its old value to put back. A restore and an old value are each a new op group, so ⌘Z takes them back.
 
-/** A step's line, its technical values in mono. Notifications (3.10) shows the same lines. */
-export function LineText({ line }: { line: Line }) {
-  return (
-    <>
-      {line.map((part, i) =>
-        typeof part === 'string' ? (
-          part
-        ) : (
-          <span key={i} className="font-mono">
-            {part.mono}
-          </span>
-        ),
-      )}
-    </>
-  );
-}
+// A step's line, its technical values in mono: kept in LineText.tsx, so the top bar's Undo and Redo draw it too.
+export { LineText };
 
 /**
  * Says a Restore to here is running: on a long project it rewrites thousands of records, which takes seconds. Or that

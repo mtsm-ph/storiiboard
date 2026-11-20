@@ -3,6 +3,7 @@ import type { SbdRecord } from '../../core/model/record';
 import { childrenBefore, childrenInLog, lastOpSeq, log, logOf, opsOfGroups, undoTops, opsOfRecords, opsSince, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
 import { listVersions, type NamedVersion } from '../../core/storage/versions';
+import { mediaFields } from '../../core/media/store';
 import { byStep, describeGroup, lineText, moveTarget, peopleDiff, scheduledScene, stepScene, type Line } from './summary';
 import { t } from '../../core/i18n';
 
@@ -59,10 +60,26 @@ export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUni
  * Each step's line, by group id, for these groups (oldest first, with every step one of them names): the one wording
  * History, Notifications and the top bar's Undo and Redo all read.
  */
-async function describeSteps(file: ProjectFile, groups: readonly OpGroup[], unit?: PlanUnit): Promise<{ titles: Map<string, Line>; byGroup: Map<string, LoggedOp[]> }> {
+async function describeSteps(
+  file: ProjectFile,
+  groups: readonly OpGroup[],
+  unit?: PlanUnit,
+  { everyOp = true }: { everyOp?: boolean } = {},
+): Promise<{ titles: Map<string, Line>; byGroup: Map<string, LoggedOp[]> }> {
   const kinds = new Map(groups.map((g) => [g.id, g.kind]));
-  const [ops, stored] = await Promise.all([opsOfGroups(file, [...kinds.keys()]), storedPictures(file)]);
+  // Only an edit's and an Empty Trash's lines read their own ops; History reads every group's too, for the records each
+  // step wrote (Notifications filters by them). An undo, redo or restore is named by the step it points at, and a
+  // Restore to here can hold about 125k ops (#241).
+  const read = everyOp ? [...kinds.keys()] : [...kinds].filter(([, kind]) => kind === 'edit' || kind === 'empty_trash').map(([id]) => id);
+  const ops = await opsOfGroups(file, read);
   const byGroup = byStep(ops);
+  // Only the pictures the edits' own records name: whether each is still stored is all their lines ask (1.21).
+  const pictures = ops.flatMap((op) => {
+    const media = op.groupKind === 'edit' ? (op.after ?? op.before) : null;
+    const sha = media?.type === 'media' ? mediaFields(media.props)?.sha256 : undefined;
+    return sha === undefined ? [] : [sha];
+  });
+  const stored = await storedPictures(file, pictures);
   // Only an edit's line names its own records; undo, redo and restore name the step they point at.
   const around = await namedRecords(file, new Map([...byGroup].filter(([id]) => kinds.get(id) === 'edit')));
   // Oldest first, so the step an undo, redo or restore names already has its line.
@@ -92,7 +109,7 @@ export async function undoRedoLines(file: ProjectFile, unit?: PlanUnit): Promise
     for (const group of read) found.set(group.id, group);
     pending = [...new Set(read.flatMap((g) => [g.targetGroupId, g.restoreTo]))].filter((id): id is string => id !== null && !found.has(id));
   }
-  const { titles } = await describeSteps(file, [...found.values()].sort((a, b) => a.seq - b.seq), unit);
+  const { titles } = await describeSteps(file, [...found.values()].sort((a, b) => a.seq - b.seq), unit, { everyOp: false });
   const line = (id: string | null): Line | null => (id === null ? null : (titles.get(id) ?? [t('history.aStep')]));
   return { undo: line(undoTop), redo: line(redoTop) };
 }

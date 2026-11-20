@@ -114,3 +114,73 @@ test('not shown with no project open, shown once one is', async ({ page }) => {
   await expect(undoButton(page)).toHaveCount(1);
   await expect(redoButton(page)).toHaveCount(1);
 });
+
+test('Enter and Space take the step named once, and with nothing to take do nothing', async ({ page }) => {
+  await twoEdits(page);
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
+  await expect(steps(page)).toHaveCount(2);
+  await undoButton(page).focus();
+  await page.keyboard.press('Enter');
+  await expect(frames(page)).toHaveCount(0);
+  await expect(steps(page)).toHaveCount(3);
+  await expect(steps(page).first()).toContainText('Undid: Added frame 1A');
+  await redoButton(page).focus();
+  await page.keyboard.press('Space');
+  await expect(frames(page)).toHaveCount(1);
+  await expect(steps(page)).toHaveCount(4);
+  await expect(steps(page).first()).toContainText('Redid: Added frame 1A');
+  // Nothing to redo now: Enter and Space on it add no step.
+  await expect(redoButton(page)).toHaveAttribute('aria-label', 'Nothing to redo');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Space');
+  await expect(undoButton(page)).toHaveAttribute('aria-label', 'Undo: Added frame 1A');
+  await expect(steps(page)).toHaveCount(4);
+  await expect(frames(page)).toHaveCount(1);
+});
+
+test('a press while typing in a field commits the typing first, then takes it back; Redo then has nothing to take', async ({ page }) => {
+  await twoEdits(page);
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
+  await frames(page).first().click();
+  const area = tile(page, 'Frame inspector').getByLabel('Action');
+  await area.fill('Mary wipes the counter.');
+  await expect(area).toBeFocused();
+  // Never left the field: the press itself commits it, in every engine.
+  await undoButton(page).click();
+  await expect(area).toHaveValue('');
+  // History's two newest lines: the typing, then "Undid: " the typing.
+  await expect(steps(page).nth(1)).toContainText('1A: action');
+  await expect(steps(page).nth(1)).not.toContainText('Undid');
+  await expect(steps(page).first()).toContainText('Undid: 1A: action');
+  await expect(redoButton(page)).not.toHaveAttribute('aria-disabled', 'true');
+
+  await area.click();
+  await area.fill('Push in on the cup.');
+  await redoButton(page).click();
+  await expect(area).toHaveValue('Push in on the cup.');
+  await expect(redoButton(page)).toHaveAttribute('aria-label', 'Nothing to redo');
+  await expect(steps(page).first()).not.toContainText('Redid');
+  await expect(steps(page).first()).toContainText('action');
+});
+
+test('the tip shows on keyboard focus, draws the numbers and keys in mono, and Escape hides a hovered tip', async ({ page }) => {
+  await twoEdits(page);
+  const mac = await onMac(page);
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).focus();
+  await page.keyboard.press('Tab');
+  await expect(undoButton(page)).toBeFocused();
+  const tip = page.locator('[data-step-tip="undo"]');
+  await expect(tip).toHaveText(`Undo: Added frame 1A · ${mac ? '⌘Z' : 'Ctrl+Z'}`);
+  await expect(tip.locator('.font-mono')).toHaveText(['1A', mac ? '⌘Z' : 'Ctrl+Z']);
+  // The name people hear stays plain text.
+  await expect(undoButton(page)).toHaveAttribute('aria-label', 'Undo: Added frame 1A');
+  await page.keyboard.press('Escape');
+  await expect(tip).toHaveCount(0);
+
+  // Opened by hover with the focus elsewhere: Escape still puts it away.
+  await board(page).click({ position: { x: 5, y: 5 } });
+  await redoButton(page).hover();
+  await expect(page.locator('[data-step-tip="redo"]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-step-tip="redo"]')).toHaveCount(0);
+});

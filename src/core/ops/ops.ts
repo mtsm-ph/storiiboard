@@ -1055,9 +1055,15 @@ export async function childrenBefore(file: ProjectFile, asks: readonly { parentI
   return out;
 }
 
-/** The picture files still stored: a step whose picture isn't among them shows "picture removed" (1.21). */
-export async function storedPictures(file: ProjectFile): Promise<Set<string>> {
-  return new Set((await file.query('SELECT sha256 FROM media_files')).map((row) => String(row.sha256)));
+/**
+ * The picture files still stored: a step whose picture isn't among them shows "picture removed" (1.21). Given `of`,
+ * only those of them (none asked: no query), so a read of a few steps doesn't list every picture in the file.
+ */
+export async function storedPictures(file: ProjectFile, of?: readonly string[]): Promise<Set<string>> {
+  if (of === undefined) return new Set((await file.query('SELECT sha256 FROM media_files')).map((row) => String(row.sha256)));
+  if (of.length === 0) return new Set();
+  const rows = await file.query('SELECT sha256 FROM media_files WHERE sha256 IN (SELECT value FROM json_each(?))', [JSON.stringify([...new Set(of)])]);
+  return new Set(rows.map((row) => String(row.sha256)));
 }
 
 /**

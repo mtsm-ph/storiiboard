@@ -26,8 +26,12 @@ export function stepButtonName(which: 'undo' | 'redo', step: string | null, mac:
       : step === null
         ? t('topBar.nothingToRedo')
         : t('topBar.redoStep', { step });
-  const shown =
-    which === 'undo' ? t(mac ? 'topBar.undoKeysMac' : 'topBar.undoKeys') : t(mac ? 'topBar.redoKeysMac' : 'topBar.redoKeys');
+  const shown = stepKeys(which, mac);
   const keys = which === 'undo' ? (mac ? 'Meta+Z' : 'Control+Z') : mac ? 'Meta+Shift+Z' : 'Control+Y Control+Shift+Z';
   return { label, tip: t('topBar.withKeys', { name: label, keys: shown }), keys, enabled: step !== null };
+}
+
+/** The keys that do what the button does, as its tip shows them: "⌘Z" on a Mac, "Ctrl+Z" elsewhere. */
+export function stepKeys(which: 'undo' | 'redo', mac: boolean): string {
+  return which === 'undo' ? t(mac ? 'topBar.undoKeysMac' : 'topBar.undoKeys') : t(mac ? 'topBar.redoKeysMac' : 'topBar.redoKeys');
 }
