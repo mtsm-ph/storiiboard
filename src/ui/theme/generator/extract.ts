@@ -1,5 +1,5 @@
 import { accentCandidates } from './generate';
-import { samplePixels } from './sample';
+import { samplePixels, stageOf } from './sample';
 import { t } from '../../../core/i18n';
 
 // Reading an image's accents (1.14): decoded and shrunk to about 96px, then clustered (generate.ts). It runs in a Web
@@ -30,11 +30,18 @@ export function askWorkerAlone(image: Blob): Promise<string[] | null> {
       clearTimeout(timer);
       worker.terminate();
     };
-    worker.onmessage = (event: MessageEvent<{ accents?: string[]; error?: string }>) => {
+    worker.onmessage = (event: MessageEvent<{ accents?: string[]; error?: string; stage?: unknown }>) => {
       done();
       // The worker read the file and couldn't: the page would fail the same way, so that's the answer.
-      if (event.data.accents) resolve(event.data.accents);
-      else reject(new Error(event.data.error ?? t('error.imageColoursUnread')));
+      if (event.data.accents) {
+        resolve(event.data.accents);
+        return;
+      }
+      const failure = new Error(event.data.error ?? t('error.imageColoursUnread'));
+      // Where in the worker it failed (6.27q), for the launch check's line: beside the message, never in it.
+      const stage = stageOf(event.data);
+      if (stage) Object.assign(failure, { stage });
+      reject(failure);
     };
     worker.onerror = () => {
       done();
