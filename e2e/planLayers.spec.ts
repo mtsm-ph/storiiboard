@@ -411,7 +411,10 @@ test('in Spanish at 1280 × 720 no layer’s name is cut off', async ({ page }) 
   const capas = page.getByRole('region', { name: 'Capas', exact: true });
   await expect(capas).toBeVisible();
   await expect(capas.locator('[data-layer="set-art"] [data-layer-name]')).toHaveText('Escenografía y arte');
-  for (const r of await rowLayout(page)) expect(r, r.layer).toMatchObject({ whole: true, nameFirst: true, inTile: true });
+  // The Spanish tile, by its Spanish name: read in English ("Layers") it would find no rows and check none.
+  const rows = await rowLayout(page, capas);
+  expect(rows).toHaveLength(8);
+  for (const r of rows) expect(r, r.layer).toMatchObject({ whole: true, nameFirst: true, inTile: true });
 });
 
 test('the start follows “This is me” until a layer is first changed, and the settings keep nothing till then', async ({ page }) => {
