@@ -7,6 +7,7 @@ import { loadSettings } from './core/storage/settings';
 import { installTabWrap } from './ui/tabWrap';
 import { installClickFocus } from './ui/clickFocus';
 import { fileMode } from './app/fileAccess';
+import { installHeicDecoder } from './app/heicPicture';
 
 // The person's language before the first render, so nothing draws in English first.
 setLocale(loadSettings().language);
@@ -16,6 +17,8 @@ setLocale(loadSettings().language);
 if (fileMode !== 'none') installTabWrap();
 // A clicked button takes focus in every engine, as Chromium gives it: WebKit (the Mac app) gives it none.
 if (fileMode !== 'none') installClickFocus();
+// A HEIC the webview can't read goes to Rust (6.27n): in the desktop app only, before any picture can be added.
+installHeicDecoder();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html is missing #root');
