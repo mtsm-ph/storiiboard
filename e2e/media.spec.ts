@@ -181,3 +181,179 @@ test("a file that isn't a picture says what to do", async ({ page }) => {
   await expect(prepare(page, 'notes.txt', 'text/plain', notes)).rejects.toThrow('JPEG, PNG and WebP work.');
   await expect(prepare(page, 'IMG_0001.HEIC', '', notes)).rejects.toThrow('Convert it to JPEG first.');
 });
+
+// HEIC on Windows (6.27n): Rust turns a HEIC into a PNG tagged with the file's own colour (src-tauri/src/heic.rs), and
+// the page stores that PNG as any picture. The proof is our own drawing (src-tauri/testdata/heic): P3's pure red, green
+// and blue, outside sRGB, which must come out of the store unclipped, read back in a Display P3 canvas.
+
+interface Region {
+  name: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  drawn: [number, number, number];
+}
+
+const heicFixture = (name: string) => readFileSync(new URL(`../src-tauri/testdata/heic/${name}`, import.meta.url));
+const proofRegions = () => (JSON.parse(heicFixture('heic-proof-regions.json').toString('utf8')) as { regions: Region[] }).regions;
+
+/** Runs prepareImage on a file in the page and reads the stored picture's mean colour in each region, in Display P3. */
+async function prepareRegions(page: Page, name: string, type: string, data: number[], regions: Region[]) {
+  return page.evaluate(
+    async ({ name, type, data, regions }) => {
+      const url = '/src/core/media/image.ts';
+      const { prepareImage } = (await import(/* @vite-ignore */ url)) as typeof import('../src/core/media/image');
+      const { original } = await prepareImage(new File([new Uint8Array(data)], name, { type }));
+      const bitmap = await createImageBitmap(new Blob([original.bytes as Uint8Array<ArrayBuffer>], { type: original.mime }));
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext('2d', { colorSpace: 'display-p3' });
+      if (!ctx) throw new Error('no 2d context');
+      ctx.drawImage(bitmap, 0, 0);
+      const means = regions.map(({ x, y, w, h }) => {
+        const { data: pixels } = ctx.getImageData(x, y, w, h, { colorSpace: 'display-p3' });
+        const sum = [0, 0, 0];
+        for (let i = 0; i < pixels.length; i += 4) for (let c = 0; c < 3; c += 1) sum[c] = (sum[c] ?? 0) + (pixels[i + c] ?? 0);
+        return sum.map((s) => s / (w * h));
+      });
+      return { colorSpace: original.colorSpace, width: original.width, height: original.height, means };
+    },
+    { name, type, data, regions },
+  );
+}
+
+/** Every region within 3 levels of the drawing. */
+function expectDrawn(means: number[][], regions: Region[]) {
+  regions.forEach((region, i) => {
+    const mean = means[i] ?? [];
+    expect(distance(mean as unknown as Rgba, region.drawn), `${region.name} reads ${mean.map((v) => v.toFixed(1)).join(', ')}`).toBeLessThanOrEqual(3);
+  });
+}
+
+// CRC-32 for a rebuilt PNG chunk, by hand (as heic.rs and scripts/heicFixtures.ts do): no tool beyond the test.
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+function crc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (const byte of bytes) c = (CRC_TABLE[(c ^ byte) & 0xff] ?? 0) ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/** The PNG with its iCCP chunk swapped for a cICP chunk of the four numbers: the same pixels, another colour tag. */
+function withCicp(png: Buffer, cicp: [number, number, number, number]): number[] {
+  const out: Buffer[] = [png.subarray(0, 8)];
+  let swapped = false;
+  for (let at = 8; at < png.length; ) {
+    const length = png.readUInt32BE(at);
+    const kind = png.toString('latin1', at + 4, at + 8);
+    if (kind === 'iCCP') {
+      const body = Buffer.from([...Buffer.from('cICP', 'latin1'), ...cicp]);
+      const chunk = Buffer.alloc(4 + body.length + 4);
+      chunk.writeUInt32BE(4, 0);
+      body.copy(chunk, 4);
+      chunk.writeUInt32BE(crc32(body), 4 + body.length);
+      out.push(chunk);
+      swapped = true;
+    } else out.push(png.subarray(at, at + 12 + length));
+    at += 12 + length;
+  }
+  expect(swapped, 'the PNG Rust gave carries an iCCP chunk').toBe(true);
+  return [...Buffer.concat(out)];
+}
+
+test.describe('a HEIC turned into a PNG by Rust, in WebView2’s engine', () => {
+  test.skip(({ browserName }) => browserName !== 'chromium', 'The Windows path: Chromium, WebView2’s engine');
+
+  test('is stored tagged Display P3 with the drawing’s colours, P3’s pure red unclipped', async ({ page }) => {
+    const regions = proofRegions();
+    const result = await prepareRegions(page, 'IMG_0001.png', 'image/png', [...heicFixture('heic-proof.from-rust.png')], regions);
+    expect([result.colorSpace, result.width, result.height]).toEqual(['display-p3', 1024, 768]);
+    expectDrawn(result.means, regions);
+  });
+
+  test('reads the same with a cICP of 12/13/0/1 (Display P3) in place of the profile', async ({ page }) => {
+    const regions = proofRegions();
+    const data = withCicp(heicFixture('heic-proof.from-rust.png'), [12, 13, 0, 1]);
+    const result = await prepareRegions(page, 'IMG_0002.png', 'image/png', data, regions);
+    expect(result.colorSpace).toBe('display-p3');
+    expectDrawn(result.means, regions);
+  });
+
+  test('the control: the same pixels tagged sRGB (cICP 1/13/0/1) read P3 red as sRGB red, so the tag keeps the colour', async ({ page }) => {
+    const regions = proofRegions().filter((region) => region.name === 'p3-red');
+    const data = withCicp(heicFixture('heic-proof.from-rust.png'), [1, 13, 0, 1]);
+    const result = await prepareRegions(page, 'IMG_0003.png', 'image/png', data, regions);
+    expect(regions).toHaveLength(1);
+    expect(distance(result.means[0] as unknown as Rgba, [234, 51, 35]), `p3-red reads ${String(result.means[0])}`).toBeLessThanOrEqual(3);
+  });
+});
+
+// The fallback itself, in a real engine: Chromium can't decode the HEIC, so the page reads its brand and asks the
+// decoder the desktop app hands over. Here the decoder stands in for Rust with the PNG Rust gave for this very file.
+test.describe('a HEIC Chromium can’t decode, through the desktop app’s decoder', () => {
+  test.skip(({ browserName }) => browserName !== 'chromium', 'The Windows path: Chromium, WebView2’s engine');
+
+  test('is asked for once per file, and its PNG is stored with the drawing’s colours', async ({ page }) => {
+    const regions = proofRegions();
+    const heic = [...heicFixture('heic-proof.heic')];
+    const png = [...heicFixture('heic-proof.from-rust.png')];
+    const result = await page.evaluate(
+      async ({ heic, png, regions }) => {
+        const heicUrl = '/src/core/media/heic.ts';
+        const imageUrl = '/src/core/media/image.ts';
+        const { setHeicDecoder } = (await import(/* @vite-ignore */ heicUrl)) as typeof import('../src/core/media/heic');
+        const { prepareImage } = (await import(/* @vite-ignore */ imageUrl)) as typeof import('../src/core/media/image');
+        const asked: number[] = [];
+        setHeicDecoder((photo) => {
+          asked.push(photo.size);
+          return Promise.resolve(new Uint8Array(png));
+        });
+        // Chromium's own decode of the HEIC fails for real: what the fallback starts from.
+        const own = await createImageBitmap(new Blob([new Uint8Array(heic)])).then(
+          () => 'decoded',
+          () => 'refused',
+        );
+        const read = async (name: string) => {
+          const before = asked.length;
+          const { original } = await prepareImage(new File([new Uint8Array(heic)], name, { type: '' }));
+          const bitmap = await createImageBitmap(new Blob([original.bytes as Uint8Array<ArrayBuffer>], { type: original.mime }));
+          const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+          const ctx = canvas.getContext('2d', { colorSpace: 'display-p3' });
+          if (!ctx) throw new Error('no 2d context');
+          ctx.drawImage(bitmap, 0, 0);
+          const means = regions.map(({ x, y, w, h }) => {
+            const { data: pixels } = ctx.getImageData(x, y, w, h, { colorSpace: 'display-p3' });
+            const sum = [0, 0, 0];
+            for (let i = 0; i < pixels.length; i += 4) for (let c = 0; c < 3; c += 1) sum[c] = (sum[c] ?? 0) + (pixels[i + c] ?? 0);
+            return sum.map((s) => s / (w * h));
+          });
+          return { asked: asked.slice(before), colorSpace: original.colorSpace, width: original.width, height: original.height, means };
+        };
+        // By its name, then by its brand alone (no type, no extension).
+        return { own, byName: await read('IMG_0005.HEIC'), byBrand: await read('IMG_0005') };
+      },
+      { heic, png, regions },
+    );
+    expect(result.own).toBe('refused');
+    for (const stored of [result.byName, result.byBrand]) {
+      expect(stored.asked, 'the decoder is asked once, with the whole file').toEqual([heic.length]);
+      expect([stored.colorSpace, stored.width, stored.height]).toEqual(['display-p3', 1024, 768]);
+      expectDrawn(stored.means, regions);
+    }
+  });
+});
+
+// The Mac reads the HEIC itself (WebKit), and must store what it always has: run on GitHub's Mac at a checkpoint.
+test.describe('a HEIC read by WebKit on a Mac', () => {
+  test.skip(({ browserName }) => browserName !== 'webkit' || process.platform !== 'darwin', 'WebKit on a Mac only: it reads HEIC itself');
+
+  test('is stored with the drawing’s colours, P3’s pure red unclipped', async ({ page }) => {
+    const regions = proofRegions();
+    const result = await prepareRegions(page, 'IMG_0004.HEIC', 'image/heic', [...heicFixture('heic-proof.heic')], regions);
+    expect([result.colorSpace, result.width, result.height]).toEqual(['display-p3', 1024, 768]);
+    expectDrawn(result.means, regions);
+  });
+});

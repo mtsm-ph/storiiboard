@@ -8,6 +8,8 @@ interface SceneListProps {
   activeSceneId: string | null;
   /** False with no project open: there's nowhere to add a scene. */
   canAdd: boolean;
+  /** While a project opens (src/app/openingProject.ts): every row, "+ Add Scene" too, is disabled. */
+  disabled?: boolean;
   onSelect: (id: string) => void;
   onAdd: () => void;
   /** Delete scene (polish 5), from the keyboard: Delete on a scene sends it and its frames to the Trash. */
@@ -15,7 +17,7 @@ interface SceneListProps {
 }
 
 /** Storyboard's scenes inline in the sidebar, "SC 04  Scene Name", then "+ Add Scene" (DESIGN.md, Navigation). */
-export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd, onDelete }: SceneListProps) {
+export function SceneList({ scenes, activeSceneId, canAdd, disabled = false, onSelect, onAdd, onDelete }: SceneListProps) {
   return (
     <ul aria-label={t('sceneList.scenes')} className="pb-1">
       {scenes.map((scene) => {
@@ -38,10 +40,11 @@ export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd, onDe
               }}
               aria-current={current ? 'true' : undefined}
               tabIndex={-1}
+              disabled={disabled}
               onClick={() => {
                 onSelect(scene.id);
               }}
-              className="flex h-7 w-full items-center gap-2 px-4 text-left text-[12px] hover:bg-surface-raised focus-visible:-outline-offset-4"
+              className="flex h-7 w-full items-center gap-2 px-4 text-left text-[12px] enabled:hover:bg-surface-raised focus-visible:-outline-offset-4"
             >
               {/* The active scene's marker is orange; its bold name is the second cue. */}
               <span aria-hidden="true" className={cx('size-1.5 shrink-0', current ? 'bg-accent' : 'border border-text')} />
@@ -57,7 +60,7 @@ export function SceneList({ scenes, activeSceneId, canAdd, onSelect, onAdd, onDe
           data-nav-item=""
           onKeyDown={onNavKeyDown}
           tabIndex={-1}
-          disabled={!canAdd}
+          disabled={!canAdd || disabled}
           onClick={onAdd}
           className="sb-label flex h-7 w-full items-center pl-[30px] text-left enabled:hover:bg-surface-raised disabled:text-text-muted focus-visible:-outline-offset-4"
         >

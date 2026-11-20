@@ -1466,6 +1466,8 @@ export const en = {
   // src/features/storyboard/addPictures.ts
   'pictures.targetGone': 'The frame or scene those pictures were for isn’t on the board any more.',
   'pictures.someNotAdded': '{failed} of {total} files weren’t added. {name}: {reason}',
+  // src/features/storyboard/picturesBusy.ts
+  'pictures.reading': 'Reading {done} of {total}…',
   // src/features/storyboard/board.ts
   'board.relettered': '{from} is now {to}',
   'board.lockNotice': 'Locked {scene}. To keep slate numbers unique, {list}.',
