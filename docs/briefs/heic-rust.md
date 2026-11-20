@@ -227,3 +227,27 @@ Where these differ from what is written above, these are the newer ones.
 - The real fixture still decodes exactly as before (its profile sits on its tiles).
 - A profile on another tile, found through the top-level streams.
 - The sweep leaves `heic-.heic`, `heic-abc.heic` and a name with upper-case hex alone, old as they may be.
+
+## After the box reader's review (Nov 20): the last changes
+
+Where these differ from what is written above, these are the newer ones.
+
+1. **The grid's own four numbers are used, not refused.** The third rule above ("an `nclx` on the grid with no `colr`
+   on its first tile: refused") would refuse an ordinary photo whose tiles say their colour only inside the video
+   stream, which some phones may write. The grid's `nclx` is the picture's own description, so use it: when no ICC
+   profile is carried, the tag is a cICP from the **grid's** primaries and transfer if the grid has an `nclx`
+   (through the same table: a number the table doesn't hold gives sRGB, as a name does), else from the first tile's
+   stream as today, else sRGB. The order is now: an ICC profile carried; else the grid's four numbers; else the
+   stream's; else sRGB. The HDR refusal by the grid's transfer (16 or 18) stays, and so does the refusal of an ICC
+   profile on the grid that the first tile lacks.
+2. **The reader needs only the boxes it reads.** Today the whole top level and the whole of `meta` must parse, so
+   four stray bytes after `mdat` switch the check off, on exactly the files it exists for. Walk the top level only
+   until `meta` is found, and `meta`'s children only for `pitm`, `iref` and `iprp`; a broken box after the ones
+   needed changes nothing. A broken box before one that is needed still means "can't follow".
+3. **The box check runs once, in the blocking part,** not on the command's own thread: a crafted 64 MiB file of tiny
+   boxes takes a moment to walk.
+4. **Tests for what the review found untested:** an `rICC` profile; an association with index 0; two `ipma` boxes;
+   a `dimg` from another item before the primary's; a size of 0 on a box that isn't last; a child that claims to run
+   past its parent; an `nclx` of exactly 10 and exactly 11 bytes; a grid with both a profile and an `nclx` over a
+   tile with only one of them (each way); stray bytes after `mdat` (the check still works); and the new tag order:
+   the grid's numbers win over the stream's, and a number the table doesn't hold is sRGB.

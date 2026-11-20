@@ -64,8 +64,8 @@ fn refusal_on(os: &str) -> Option<&'static str> {
     (os == "macos").then_some(ON_THE_MAC)
 }
 
-/// Refused before anything is written or run: too large, not a HEIF, or a grid whose colour its own boxes describe
-/// in a way its first tile doesn't carry (`grid_refusal`).
+/// The cheap refusals, before anything is written or run: too large, or not a HEIF. The grid's own boxes are read
+/// later, once, in the blocking part (`grid_check` in `decode_within`).
 fn refuse(bytes: &[u8]) -> Result<(), &'static str> {
     if bytes.len() > MAX_INPUT {
         return Err(TOO_BIG);
@@ -73,7 +73,7 @@ fn refuse(bytes: &[u8]) -> Result<(), &'static str> {
     if !crate::exif::is_heif(bytes) {
         return Err(NOT_HEIC);
     }
-    grid_refusal(bytes).map_or(Ok(()), Err)
+    Ok(())
 }
 
 // ---- The HEIF's own boxes (ISO/IEC 14496-12 and 23008-12) -----------------------------------------------------------
@@ -82,7 +82,8 @@ fn refuse(bytes: &[u8]) -> Result<(), &'static str> {
 // grid alone describes would go unseen. This reads the boxes for that one question: the primary item, its tiles
 // (`dimg`), and the `colr` properties of the primary item and its first tile. It reads a person's file: every length
 // is checked before a slice, nothing panics, no list is followed past `MAX_ENTRIES`, and a file whose boxes can't be
-// followed adds no refusal (ffmpeg stays the judge of whether it decodes).
+// followed adds no refusal and no numbers (ffmpeg stays the judge of whether it decodes). What it finds is either a
+// refusal or the grid's own four numbers for the tag (`grid_check`).
 
 /// The most entries of any list followed: boxes in a container, references, associations, `ipma` entries.
 const MAX_ENTRIES: usize = 4096;
@@ -189,24 +190,20 @@ fn item_id(bytes: &[u8], at: usize, version: u8) -> Option<(u32, usize)> {
     }
 }
 
-/// What an item's `colr` properties say: an ICC profile (`prof` or `rICC`), four numbers (`nclx`), and whether those
-/// name an HDR transfer.
+/// What an item's `colr` properties say: an ICC profile (`prof` or `rICC`), the first `nclx`'s primaries and transfer
+/// (H.273 numbers), and whether any `nclx` names an HDR transfer.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct ItemColour {
     icc: bool,
-    nclx: bool,
+    nclx: Option<(u16, u16)>,
     hdr: bool,
 }
 
 impl ItemColour {
-    fn any(self) -> bool {
-        self.icc || self.nclx
-    }
-
     fn with(self, other: Self) -> Self {
         Self {
             icc: self.icc || other.icc,
-            nclx: self.nclx || other.nclx,
+            nclx: self.nclx.or(other.nclx),
             hdr: self.hdr || other.hdr,
         }
     }
@@ -222,9 +219,9 @@ fn colr(body: &[u8]) -> Option<ItemColour> {
         b"nclx" => {
             // Primaries, transfer and matrix as 16-bit numbers, then the byte whose top bit is the range.
             body.get(10)?;
-            let transfer = be_u16(body, 6)?;
+            let (primaries, transfer) = (be_u16(body, 4)?, be_u16(body, 6)?);
             Some(ItemColour {
-                nclx: true,
+                nclx: Some((primaries, transfer)),
                 hdr: HDR_TRANSFERS.contains(&transfer),
                 ..ItemColour::default()
             })
@@ -235,24 +232,29 @@ fn colr(body: &[u8]) -> Option<ItemColour> {
 }
 
 /// The primary item's colour and its first tile's, when the primary item has tiles; None for a single picture or a
-/// file whose boxes can't be followed.
+/// file whose boxes can't be followed. Only the boxes needed are walked: the top level until `meta`, and `meta`'s
+/// children until `pitm`, `iref` and `iprp` are found, so a broken box after them (stray bytes after `mdat`) changes
+/// nothing, while one before them ends the walk.
 fn grid_colours(bytes: &[u8]) -> Option<(ItemColour, ItemColour)> {
-    let (_, meta) = all_boxes(bytes)?
-        .into_iter()
-        .find(|(kind, _)| kind == b"meta")?;
+    let (_, meta) = boxes(bytes).find(|(kind, _)| kind == b"meta")?;
     let (_, _, meta) = full_box(meta)?;
-    let children = all_boxes(meta)?;
-    let child = |name: &[u8; 4]| {
-        children
-            .iter()
-            .find(|(kind, _)| kind == name)
-            .map(|(_, body)| *body)
-    };
+    let (mut pitm, mut iref, mut iprp) = (None, None, None);
+    for (kind, body) in boxes(meta) {
+        match &kind {
+            b"pitm" => pitm = pitm.or(Some(body)),
+            b"iref" => iref = iref.or(Some(body)),
+            b"iprp" => iprp = iprp.or(Some(body)),
+            _ => {}
+        }
+        if pitm.is_some() && iref.is_some() && iprp.is_some() {
+            break;
+        }
+    }
     // The primary item.
-    let (version, _, pitm) = full_box(child(b"pitm")?)?;
+    let (version, _, pitm) = full_box(pitm?)?;
     let (primary, _) = item_id(pitm, 0, version)?;
     // Its first tile: the first to-item of its first `dimg` reference.
-    let (version, _, iref) = full_box(child(b"iref")?)?;
+    let (version, _, iref) = full_box(iref?)?;
     let mut first_tile = None;
     for (kind, reference) in all_boxes(iref)? {
         if &kind != b"dimg" {
@@ -270,7 +272,7 @@ fn grid_colours(bytes: &[u8]) -> Option<(ItemColour, ItemColour)> {
     }
     let first_tile = first_tile?;
     // The properties, counted from 1, and which item has which.
-    let iprp = all_boxes(child(b"iprp")?)?;
+    let iprp = all_boxes(iprp?)?;
     let (_, ipco) = iprp.iter().find(|(kind, _)| kind == b"ipco")?;
     let properties = all_boxes(ipco)?
         .into_iter()
@@ -320,18 +322,21 @@ fn grid_colours(bytes: &[u8]) -> Option<(ItemColour, ItemColour)> {
     Some((colours[0], colours[1]))
 }
 
-/// The refusals a grid's own boxes call for (Kevin, Nov 20: never shown in the wrong colour): an HDR transfer on the
-/// grid, whatever its tiles say; a profile on the grid its first tile lacks; four numbers on the grid and no colour on
-/// its first tile. None for anything else, a file whose boxes can't be followed included.
-fn grid_refusal(bytes: &[u8]) -> Option<&'static str> {
-    let (grid, tile) = grid_colours(bytes)?;
+/// What a grid's own boxes call for (Kevin, Nov 20: never shown in the wrong colour): refused for an HDR transfer on
+/// the grid, whatever its tiles say, and for a profile on the grid its first tile lacks (no PNG of the tile can carry
+/// it); else the grid's own primaries and transfer when it has an `nclx`, the picture's own description, which the tag
+/// takes over the stream's. Nothing for a single picture or a file whose boxes can't be followed.
+fn grid_check(bytes: &[u8]) -> Result<Option<(u16, u16)>, &'static str> {
+    let Some((grid, tile)) = grid_colours(bytes) else {
+        return Ok(None);
+    };
     if grid.hdr {
-        return Some(HDR);
+        return Err(HDR);
     }
-    if (grid.icc && !tile.icc) || (grid.nclx && !tile.any()) {
-        return Some(UNREAD);
+    if grid.icc && !tile.icc {
+        return Err(UNREAD);
     }
-    None
+    Ok(grid.nclx)
 }
 
 /// At most `most` callers inside at once; the next waits its turn (std only, no crate).
@@ -604,11 +609,25 @@ enum Tag {
     Cicp([u8; 4]),
 }
 
-/// A profile in the file wins; else the file's own four-number tag; else sRGB. A name that is missing, "unknown",
-/// "unspecified" or not in the tables reads as sRGB, for either number.
-fn tag_for(picture: &Picture) -> Tag {
+/// A profile carried wins; else the grid's own four numbers (`grid`, H.273 numbers from its `nclx`); else the stream's
+/// four-number tag; else sRGB. A name that is missing, "unknown", "unspecified" or not in the tables, or a number they
+/// don't hold, reads as sRGB, for either number.
+fn tag_for(picture: &Picture, grid: Option<(u16, u16)>) -> Tag {
     if picture.profile {
         return Tag::Profile;
+    }
+    if let Some((primaries, transfer)) = grid {
+        // Through the same tables as the names: only a number they hold is written.
+        let held = |table: &[(&str, u8)], number: u16| {
+            table
+                .iter()
+                .find(|&&(_, code)| u16::from(code) == number)
+                .map(|&(_, code)| code)
+        };
+        return match (held(&PRIMARIES, primaries), held(&TRANSFERS, transfer)) {
+            (Some(primaries), Some(transfer)) => Tag::Cicp([primaries, transfer, 0, 1]),
+            _ => Tag::Cicp(SRGB),
+        };
     }
     let code = |table: &[(&str, u8)], name: &Option<String>| {
         let name = name.as_deref()?;
@@ -897,13 +916,15 @@ fn decode_within(
     decode: &dyn Fn(&Path, &Picture) -> Command,
 ) -> Result<Vec<u8>, &'static str> {
     let deadline = Instant::now() + limit;
+    // The grid's own boxes, once, here off the command's thread; refused before the photo is written anywhere.
+    let grid = grid_check(bytes)?;
     sweep(folder);
     let temp = TempPicture::write(folder, bytes)?;
     let said = run(probe_command(&temp.path), deadline, &temp.path, MAX_PROBE)?;
     let json: Value = serde_json::from_slice(&said).map_err(|_| UNREAD)?;
     let picture = read_picture(&json)?;
     // The profile first: a photo refused for it never waits for its decode.
-    let tag = match tag_for(&picture) {
+    let tag = match tag_for(&picture, grid) {
         Tag::Profile => profile_chunk(&run(
             profile_command(&temp.path, &picture),
             deadline,
@@ -1276,6 +1297,15 @@ mod tests {
         bx(b"colr", b"prof\0\0\x02\x30profile bytes")
     }
 
+    fn ricc() -> Vec<u8> {
+        bx(b"colr", b"rICC\0\0\x02\x30restricted profile")
+    }
+
+    /// The box check's refusal alone, for the tests that ask only whether one is added.
+    fn grid_refusal(bytes: &[u8]) -> Option<&'static str> {
+        grid_check(bytes).err()
+    }
+
     fn nclx(primaries: u16, transfer: u16) -> Vec<u8> {
         let mut body = b"nclx".to_vec();
         for n in [primaries, transfer, 0] {
@@ -1294,6 +1324,10 @@ mod tests {
         properties: Vec<Vec<u8>>,
         /// Which item has which properties, counted from 1.
         has: Vec<(u32, Vec<u16>)>,
+        /// A second `ipma` box, written after the first when not empty.
+        second_ipma: Vec<(u32, Vec<u16>)>,
+        /// Another item's `dimg` before the primary's.
+        other_dimg_first: bool,
     }
 
     impl Tree {
@@ -1317,6 +1351,8 @@ mod tests {
                 tiles: vec![1, 2],
                 properties,
                 has,
+                second_ipma: Vec::new(),
+                other_dimg_first: false,
             }
         }
 
@@ -1334,28 +1370,38 @@ mod tests {
                 let mut thmb = id(iref, 9);
                 thmb.extend(1u16.to_be_bytes());
                 thmb.extend(id(iref, self.primary));
-                meta.extend(full(
-                    b"iref",
-                    iref,
-                    0,
-                    &[bx(b"thmb", &thmb), bx(b"dimg", &dimg)].concat(),
-                ));
+                let mut references = bx(b"thmb", &thmb);
+                if self.other_dimg_first {
+                    // Item 7's grid (a gain map's, say) of tile 2, before the primary's.
+                    let mut other = id(iref, 7);
+                    other.extend(1u16.to_be_bytes());
+                    other.extend(id(iref, 2));
+                    references.extend(bx(b"dimg", &other));
+                }
+                references.extend(bx(b"dimg", &dimg));
+                meta.extend(full(b"iref", iref, 0, &references));
             }
             let ipco = bx(b"ipco", &self.properties.concat());
-            let mut entries = (self.has.len() as u32).to_be_bytes().to_vec();
-            for (item, indexes) in &self.has {
-                entries.extend(id(ipma, *item));
-                entries.push(indexes.len() as u8);
-                for index in indexes {
-                    if self.wide {
-                        entries.extend((0x8000 | index).to_be_bytes());
-                    } else {
-                        entries.push(0x80 | *index as u8);
+            let ipma_box = |has: &[(u32, Vec<u16>)]| {
+                let mut entries = (has.len() as u32).to_be_bytes().to_vec();
+                for (item, indexes) in has {
+                    entries.extend(id(ipma, *item));
+                    entries.push(indexes.len() as u8);
+                    for index in indexes {
+                        if self.wide {
+                            entries.extend((0x8000 | index).to_be_bytes());
+                        } else {
+                            entries.push(0x80 | *index as u8);
+                        }
                     }
                 }
+                full(b"ipma", ipma, u32::from(self.wide), &entries)
+            };
+            let mut iprp = [ipco, ipma_box(&self.has)].concat();
+            if !self.second_ipma.is_empty() {
+                iprp.extend(ipma_box(&self.second_ipma));
             }
-            let ipma = full(b"ipma", ipma, u32::from(self.wide), &entries);
-            meta.extend(bx(b"iprp", &[ipco, ipma].concat()));
+            meta.extend(bx(b"iprp", &iprp));
             meta
         }
 
@@ -1367,51 +1413,157 @@ mod tests {
     }
 
     #[test]
-    fn the_grids_own_colour_refuses_what_its_first_tile_doesnt_carry() {
-        let refusal = |tree: &Tree| grid_refusal(&tree.bytes());
-        // A profile on the grid its first tile lacks: refused, here and before anything is written or run.
-        let lacking = Tree::grid(&[prof()], &[]);
-        assert_eq!(refusal(&lacking), Some(UNREAD));
-        assert_eq!(refuse(&lacking.bytes()), Err(UNREAD));
-        assert_eq!(
-            refusal(&Tree::grid(&[prof()], &[nclx(12, 13)])),
-            Some(UNREAD)
-        );
-        // Both carry one: fine.
-        assert_eq!(refusal(&Tree::grid(&[prof()], &[prof()])), None);
-        assert_eq!(refuse(&Tree::grid(&[prof()], &[prof()]).bytes()), Ok(()));
+    fn the_grids_own_colour_is_refused_or_used_never_ignored() {
+        let check = |tree: &Tree| grid_check(&tree.bytes());
+        // A profile on the grid its first tile lacks: refused, also when the tile has four numbers.
+        assert_eq!(check(&Tree::grid(&[prof()], &[])), Err(UNREAD));
+        assert_eq!(check(&Tree::grid(&[prof()], &[nclx(12, 13)])), Err(UNREAD));
+        // An `rICC` profile is a profile too.
+        assert_eq!(check(&Tree::grid(&[ricc()], &[])), Err(UNREAD));
+        assert_eq!(check(&Tree::grid(&[ricc()], &[prof()])), Ok(None));
+        // Both carry one: fine, and the profile is what's carried.
+        assert_eq!(check(&Tree::grid(&[prof()], &[prof()])), Ok(None));
         // PQ or HLG on the grid: the HDR words, whatever the tiles say.
         for transfer in [16, 18] {
             assert_eq!(
-                refusal(&Tree::grid(&[nclx(9, transfer)], &[prof()])),
-                Some(HDR)
-            );
-            assert_eq!(
-                refusal(&Tree::grid(&[nclx(9, transfer)], &[nclx(9, transfer)])),
-                Some(HDR)
-            );
-            assert_eq!(
-                refuse(&Tree::grid(&[nclx(9, transfer)], &[]).bytes()),
+                check(&Tree::grid(&[nclx(9, transfer)], &[prof()])),
                 Err(HDR)
             );
+            assert_eq!(
+                check(&Tree::grid(&[nclx(9, transfer)], &[nclx(9, 1)])),
+                Err(HDR)
+            );
+            assert_eq!(check(&Tree::grid(&[nclx(9, transfer)], &[])), Err(HDR));
         }
-        // Four numbers on the grid and no colour on the tile: refused; any colour on the tile: fine.
-        assert_eq!(refusal(&Tree::grid(&[nclx(12, 13)], &[])), Some(UNREAD));
-        assert_eq!(refusal(&Tree::grid(&[nclx(12, 13)], &[nclx(12, 13)])), None);
-        assert_eq!(refusal(&Tree::grid(&[nclx(12, 13)], &[prof()])), None);
-        // Nothing on the grid: as today, whatever the tile says.
-        assert_eq!(refusal(&Tree::grid(&[], &[])), None);
-        assert_eq!(refusal(&Tree::grid(&[], &[nclx(9, 16)])), None);
+        // Four numbers on the grid: used, whatever the tile has (some phones say it only inside the video stream).
+        assert_eq!(check(&Tree::grid(&[nclx(12, 13)], &[])), Ok(Some((12, 13))));
+        assert_eq!(
+            check(&Tree::grid(&[nclx(12, 13)], &[nclx(1, 1)])),
+            Ok(Some((12, 13)))
+        );
+        assert_eq!(
+            check(&Tree::grid(&[nclx(12, 13)], &[prof()])),
+            Ok(Some((12, 13)))
+        );
+        // A profile and four numbers on the grid, over a tile with only one of them, each way.
+        assert_eq!(
+            check(&Tree::grid(&[prof(), nclx(12, 13)], &[prof()])),
+            Ok(Some((12, 13)))
+        );
+        assert_eq!(
+            check(&Tree::grid(&[nclx(12, 13), prof()], &[nclx(12, 13)])),
+            Err(UNREAD)
+        );
+        // Nothing on the grid: as before, whatever the tile says.
+        assert_eq!(check(&Tree::grid(&[], &[])), Ok(None));
+        assert_eq!(check(&Tree::grid(&[], &[nclx(9, 16)])), Ok(None));
         // The colour the second tile carries isn't the first's.
         let mut second = Tree::grid(&[prof()], &[]);
         second.properties.push(prof());
         second.has[2].1.push(second.properties.len() as u16);
-        assert_eq!(refusal(&second), Some(UNREAD));
-        // A single picture, no tiles: nothing added, even PQ (ffprobe sees its stream's own).
+        assert_eq!(check(&second), Err(UNREAD));
+        // A single picture, no tiles: nothing found, even PQ (ffprobe sees its stream's own).
         let mut single = Tree::grid(&[nclx(9, 16)], &[]);
         single.tiles.clear();
         assert_eq!(grid_colours(&single.bytes()), None);
-        assert_eq!(refusal(&single), None);
+        assert_eq!(check(&single), Ok(None));
+    }
+
+    #[test]
+    fn a_grid_refused_by_its_boxes_is_never_written_and_the_cheap_check_doesnt_read_them() {
+        let dir = temp_dir("boxes");
+        let folder = dir.join("cache");
+        // Not on the command's own thread: `refuse` is only the size and the brand.
+        let lacking = Tree::grid(&[prof()], &[]).bytes();
+        assert_eq!(refuse(&lacking), Ok(()));
+        let hdr = Tree::grid(&[nclx(9, 16)], &[]).bytes();
+        assert_eq!(refuse(&hdr), Ok(()));
+        // In the blocking part, before the photo is written anywhere.
+        assert_eq!(picture(&lacking, &folder), Err(UNREAD));
+        assert_eq!(picture(&hdr, &folder), Err(HDR));
+        assert!(!folder.exists(), "nothing written");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reads_index_0_two_ipma_boxes_and_a_dimg_from_another_item_first() {
+        // An association with index 0 is none.
+        let mut tree = Tree::grid(&[prof()], &[]);
+        tree.has[1].1.push(0);
+        assert_eq!(grid_check(&tree.bytes()), Err(UNREAD));
+        // Two ipma boxes: the tile's colour in the second.
+        let mut tree = Tree::grid(&[prof()], &[]);
+        tree.properties.push(prof());
+        tree.second_ipma = vec![(1, vec![tree.properties.len() as u16])];
+        assert_eq!(grid_check(&tree.bytes()), Ok(None));
+        tree.second_ipma.clear();
+        assert_eq!(grid_check(&tree.bytes()), Err(UNREAD));
+        // A dimg from another item (a gain map's grid) before the primary's: its tiles aren't the picture's.
+        // Item 7's first tile is 2, which carries no profile: read as the first tile, it would refuse.
+        let mut tree = Tree::grid(&[prof()], &[prof()]);
+        tree.other_dimg_first = true;
+        assert_eq!(grid_check(&tree.bytes()), Ok(None));
+        // An nclx of exactly 10 bytes lacks its range byte: not followed; 11 is whole.
+        let ten = bx(b"colr", b"nclx\0\x0c\0\x0d\0\0");
+        assert_eq!(grid_check(&Tree::grid(&[ten], &[]).bytes()), Ok(None));
+        let eleven = bx(b"colr", b"nclx\0\x0c\0\x0d\0\0\x80");
+        assert_eq!(
+            grid_check(&Tree::grid(&[eleven], &[]).bytes()),
+            Ok(Some((12, 13)))
+        );
+    }
+
+    #[test]
+    fn needs_only_the_boxes_it_reads() {
+        let tree = Tree::grid(&[prof()], &[]);
+        let meta = full(b"meta", 0, 0, &tree.meta_body());
+        let ftyp = bx(b"ftyp", b"heic\0\0\0\0mif1heic");
+        let mdat = bx(b"mdat", &[0; 32]);
+        // Stray bytes after mdat, a broken box after the three it reads in meta: still read.
+        let file = [ftyp.clone(), meta.clone(), mdat.clone(), vec![0, 0, 0, 3]].concat();
+        assert_eq!(grid_check(&file), Err(UNREAD));
+        let mut broken_after = tree.meta_body();
+        broken_after.extend([0, 0, 0, 5, b'f', b'r']);
+        let file = [
+            ftyp.clone(),
+            full(b"meta", 0, 0, &broken_after),
+            mdat.clone(),
+        ]
+        .concat();
+        assert_eq!(grid_check(&file), Err(UNREAD));
+        // A broken box before meta, or before one it needs: can't follow.
+        let file = [
+            ftyp.clone(),
+            vec![0, 0, 0, 3, b'f', b'r', b'e', b'e'],
+            meta.clone(),
+        ]
+        .concat();
+        assert_eq!(grid_check(&file), Ok(None));
+        let mut broken_before = vec![0, 0, 0, 5, b'f', b'r', b'e', b'e'];
+        broken_before.extend(tree.meta_body());
+        let file = [ftyp.clone(), full(b"meta", 0, 0, &broken_before)].concat();
+        assert_eq!(grid_check(&file), Ok(None));
+        // A size of 0 on a box that isn't last runs to its container's end, over what follows.
+        let file = [ftyp.clone(), bx(b"free", &[]), meta.clone()].concat();
+        assert_eq!(grid_check(&file), Err(UNREAD));
+        let mut zero = bx(b"free", &[]);
+        zero[..4].copy_from_slice(&0u32.to_be_bytes());
+        assert_eq!(
+            grid_check(&[ftyp.clone(), zero.clone(), meta.clone()].concat()),
+            Ok(None)
+        );
+        let mut zero_in_meta = zero.clone();
+        zero_in_meta.extend(tree.meta_body());
+        assert_eq!(
+            grid_check(&[ftyp.clone(), full(b"meta", 0, 0, &zero_in_meta)].concat()),
+            Ok(None)
+        );
+        // A child that claims to run past its parent (pitm's size past meta's end, with mdat's bytes after it in the
+        // file): an end, never a read past it.
+        let mut past = meta.clone();
+        let pitm = past.windows(4).position(|w| w == b"pitm").unwrap() - 4;
+        past[pitm..pitm + 4].copy_from_slice(&(meta.len() as u32).to_be_bytes());
+        assert_eq!(grid_check(&[ftyp, past, mdat].concat()), Ok(None));
     }
 
     #[test]
@@ -1527,6 +1679,7 @@ mod tests {
         };
         assert_eq!(colours, (icc, icc));
         assert_eq!(grid_refusal(&proof()), None);
+        assert_eq!(grid_check(&proof()), Ok(None));
         assert_eq!(refuse(&proof()), Ok(()));
     }
 
@@ -1546,21 +1699,30 @@ mod tests {
     #[test]
     fn a_profile_wins_else_the_four_numbers_else_srgb() {
         assert_eq!(
-            tag_for(&picture_with(Some("smpte432"), Some("iec61966-2-1"), true)),
+            tag_for(
+                &picture_with(Some("smpte432"), Some("iec61966-2-1"), true),
+                None
+            ),
             Tag::Profile
         );
-        assert_eq!(tag_for(&picture_with(None, None, true)), Tag::Profile);
+        assert_eq!(tag_for(&picture_with(None, None, true), None), Tag::Profile);
         // An iPhone's: Display P3.
         assert_eq!(
-            tag_for(&picture_with(Some("smpte432"), Some("iec61966-2-1"), false)),
+            tag_for(
+                &picture_with(Some("smpte432"), Some("iec61966-2-1"), false),
+                None
+            ),
             Tag::Cicp([12, 13, 0, 1])
         );
         assert_eq!(
-            tag_for(&picture_with(Some("bt709"), Some("bt709"), false)),
+            tag_for(&picture_with(Some("bt709"), Some("bt709"), false), None),
             Tag::Cicp([1, 1, 0, 1])
         );
         assert_eq!(
-            tag_for(&picture_with(Some("bt2020"), Some("bt2020-10"), false)),
+            tag_for(
+                &picture_with(Some("bt2020"), Some("bt2020-10"), false),
+                None
+            ),
             Tag::Cicp([9, 14, 0, 1])
         );
         for (primaries, transfer) in [
@@ -1573,7 +1735,7 @@ mod tests {
             (Some("bt709"), Some("log100")),
         ] {
             assert_eq!(
-                tag_for(&picture_with(primaries, transfer, false)),
+                tag_for(&picture_with(primaries, transfer, false), None),
                 Tag::Cicp(SRGB),
                 "{primaries:?} {transfer:?}"
             );
@@ -1581,9 +1743,42 @@ mod tests {
         // Read from ffprobe's names on the picture's stream.
         let json = json!({ "streams": [stream(0, 0, json!({ "color_primaries": "smpte432", "color_transfer": "iec61966-2-1" }))] });
         assert_eq!(
-            tag_for(&read_picture(&json).unwrap()),
+            tag_for(&read_picture(&json).unwrap(), None),
             Tag::Cicp([12, 13, 0, 1])
         );
+    }
+
+    #[test]
+    fn the_grids_four_numbers_win_over_the_streams_and_a_carried_profile_over_both() {
+        let stream_says = picture_with(Some("bt709"), Some("bt709"), false);
+        // The grid's own numbers, over the stream's.
+        assert_eq!(
+            tag_for(&stream_says, Some((12, 13))),
+            Tag::Cicp([12, 13, 0, 1])
+        );
+        assert_eq!(
+            tag_for(&stream_says, Some((9, 14))),
+            Tag::Cicp([9, 14, 0, 1])
+        );
+        assert_eq!(
+            tag_for(&picture_with(None, None, false), Some((1, 1))),
+            Tag::Cicp([1, 1, 0, 1])
+        );
+        // A number the table doesn't hold, either one: sRGB, never the stream's instead.
+        for (primaries, transfer) in [(2, 13), (12, 2), (0, 0), (22, 13), (12, 17), (12, 16)] {
+            assert_eq!(
+                tag_for(&stream_says, Some((primaries, transfer))),
+                Tag::Cicp(SRGB),
+                "{primaries}/{transfer}"
+            );
+        }
+        // A profile carried wins over the grid's numbers.
+        assert_eq!(
+            tag_for(&picture_with(None, None, true), Some((12, 13))),
+            Tag::Profile
+        );
+        // No grid numbers: the stream's, as before.
+        assert_eq!(tag_for(&stream_says, None), Tag::Cicp([1, 1, 0, 1]));
     }
 
     // ---- The PNG ---------------------------------------------------------------------------------------------------
