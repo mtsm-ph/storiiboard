@@ -73,6 +73,11 @@ What only Kevin can do or answer, one line each, with what it unblocks. Nothing 
   - The Mac test in #218 (Apple's decode against ffmpeg's, within 3 levels) has never run.
   Unblocks: nothing; each can change after the merge.
 - **An HDR HEIF from Kevin's camera** in private/samples, when he can. Unblocks: HDR HEIF beyond a refusal.
+- **The work list after the night's five items: nothing on it could start, and one item needs a word.** OSV-Scanner
+  2.7.1 is dated Nov 23; the bigger screenshot milestones are Kevin's by his Nov 20 note. One of the items kept in
+  `private/NOV20_START.md` ("Still on the list from before") could be built now, but it sits outside the current
+  phase: the question is in the Nov 20 morning report and at the end of `private/NOV20_NIGHT.md`. Unblocks: the
+  next thing to build while the open PRs wait for a checkpoint.
 - **Three things to delete** (deleting is Kevin's; no work waits on any):
   - The Nov 19 session's scratch folder: it still holds a decoded copy of one of Kevin's HEICs and two error logs,
     one with its file name. Kevin, Nov 20: "Leave the old scratch folder to me." Closes the Nov 19 slip.
@@ -424,7 +429,7 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20, after the overnight run; written at 05:40 EST)
+### Next session: start here (Nov 20, after the overnight run; written at 05:30 EST)
 
 Kevin's overnight note (Nov 20) is word for word in `private/NOV20_NIGHT.md` on his PC. The night's three checkpoints
 are spent (nov20-a, -b, -c); `checkpoint/baselines-nov20` was not run, because nothing mergeable needed it.
@@ -456,7 +461,7 @@ all eight steps.
        Mac (then choosing a project's key image fails in the Mac app: there is no fallback when the worker itself
        reports an error). No run can tell yet. #223 makes the next one say which call failed and what the page gets
        from the same picture.
-       - **The check's own 16 × 16 picture is not the cause** (read at 05:40 EST, in #223's comments). It is a
+       - **The check's own 16 × 16 picture is not the cause** (read at 05:25 EST, in #223's comments). It is a
          valid PNG by a strict read (every CRC, the zlib stream, every pixel), and in WebKit's source a picture that
          can't be decoded fails with words of its own ("Cannot decode the data in the argument to
          createImageBitmap"). The bare "invalid state" words are what `getImageData` gives when a canvas's pixels
