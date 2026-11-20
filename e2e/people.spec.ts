@@ -115,6 +115,45 @@ const storedPeople = (page: Page) =>
       .sort();
   });
 
+const trashedPeople = (page: Page) =>
+  page.evaluate(async () => {
+    const url = '/src/app/projectStore.ts';
+    const { projectStore } = (await import(/* @vite-ignore */ url)) as typeof import('../src/app/projectStore');
+    return Object.values(projectStore.getState().records).filter((r) => r.type === 'person' && r.trashedAt !== null).length;
+  });
+
+/** How many notices the app has said so far (each one counts, the same words again too). */
+const noticesSaid = (page: Page) =>
+  page.evaluate(async () => {
+    const url = '/src/app/notice.ts';
+    const { noticeStore } = (await import(/* @vite-ignore */ url)) as typeof import('../src/app/notice');
+    return noticeStore.getState().seq;
+  });
+
+/** Who "me" is on the open project (This is me, a setting on this computer), by id; null for no one. */
+const me = (page: Page) =>
+  page.evaluate(async () => {
+    const storeUrl = '/src/app/projectStore.ts';
+    const roleUrl = '/src/app/settings/projectRole.ts';
+    const { projectStore } = (await import(/* @vite-ignore */ storeUrl)) as typeof import('../src/app/projectStore');
+    const { projectSelfStore } = (await import(/* @vite-ignore */ roleUrl)) as typeof import('../src/app/settings/projectRole');
+    const projectId = projectStore.getState().project?.projectId ?? '';
+    return projectSelfStore.getState()[projectId] ?? null;
+  });
+
+/** The id of the person the editor shows. */
+const shownPersonId = (page: Page) => tile(page).locator('[data-person-editor]').getAttribute('data-person-editor');
+
+/** Makes a person named Ana, before edits are slowed, and waits until she's written. */
+const addAna = async (page: Page) => {
+  const people = tile(page);
+  await people.getByRole('button', { name: '+ New person' }).click();
+  await expect(people.locator('[data-person-editor]').getByRole('textbox', { name: 'Name' })).toBeFocused();
+  await page.keyboard.type('Ana');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => storedPeople(page)).toEqual(['Ana']);
+};
+
 test('the name field has focus as the + New person click is handled; a name typed at once keeps its first letter', async ({ page }) => {
   const people = tile(page);
   const editor = people.locator('[data-person-editor]');
@@ -149,6 +188,11 @@ test('with a slow save, the name field still has focus at once, keeps what was t
   await people.getByRole('button', { name: '+ New person' }).dblclick();
   await expect.poll(() => editsLanded(page)).toBe(3);
   await expect.poll(() => storedPeople(page)).toEqual(['', 'Sam Ortiz']);
+  // A second create from the double click would land one delay (and its write) after the first: once that has passed,
+  // nothing more has landed.
+  await page.waitForTimeout(1000);
+  expect(await editsLanded(page)).toBe(3);
+  expect(await storedPeople(page)).toEqual(['', 'Sam Ortiz']);
   // One ⌘Z takes the new person back, the next the name: making a person is one step, naming them another.
   await people.getByRole('button', { name: '+ New person' }).focus();
   await page.keyboard.press(await undoKey(page));
@@ -161,8 +205,10 @@ test('when making the person fails, no one appears, nothing typed is saved and f
   const people = tile(page);
   await people.getByRole('button', { name: '+ New person' }).waitFor();
   await slowEdits(page, 500, true);
+  const said = await noticesSaid(page);
   expect(await clickNewPerson(page)).toEqual({ field: 'name', inEditor: true });
-  await page.keyboard.type('Sam Ortiz');
+  // No space in it: a key typed as focus lands on the button can't press it.
+  await page.keyboard.type('Sam');
   await expect.poll(() => editsLanded(page)).toBeGreaterThanOrEqual(1);
   await expect(people.getByRole('button', { name: '+ New person' })).toBeFocused();
   await expect(people.getByText('No one yet.', { exact: false })).toBeVisible();
@@ -170,4 +216,72 @@ test('when making the person fails, no one appears, nothing typed is saved and f
   // The name left with the field is an edit of no one: once it has had its turn, nothing was written.
   await expect.poll(() => editsLanded(page)).toBe(2);
   expect(await storedPeople(page)).toEqual([]);
+  // The app says the failure in words, once: the name field's blur adds no second notice.
+  await expect(page.locator('[data-notice]')).toHaveText(/That item no longer exists\./);
+  expect(await noticesSaid(page)).toBe(said + 1);
+});
+
+test('Delete pressed on a person still being made whose create fails: nothing is said, moved or trashed', async ({ page }) => {
+  const people = tile(page);
+  const editor = people.locator('[data-person-editor]');
+  await addAna(page);
+  const ana = await shownPersonId(page);
+  await slowEdits(page, 500, true);
+  const said = await noticesSaid(page);
+  expect(await clickNewPerson(page)).toEqual({ field: 'name', inEditor: true });
+  await editor.getByRole('button', { name: 'Delete person' }).click();
+  // The create, then the Delete queued behind it, which finds no one.
+  await expect.poll(() => editsLanded(page)).toBe(2);
+  // The failure's own path only: focus back on + New person, Ana chosen again as before, the failure's notice.
+  await expect(people.getByRole('button', { name: '+ New person' })).toBeFocused();
+  await expect.poll(() => shownPersonId(page)).toBe(ana);
+  await expect(editor.getByRole('textbox', { name: 'Name' })).toHaveValue('Ana');
+  // A frame after the Delete resolved, where its focus move would have been.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(people.getByRole('button', { name: '+ New person' })).toBeFocused();
+  await expect(page.locator('[data-notice]')).toHaveText(/That item no longer exists\./);
+  await expect(page.getByText('Moved Unnamed person to the Trash.')).toHaveCount(0);
+  expect(await noticesSaid(page)).toBe(said + 1);
+  expect(await storedPeople(page)).toEqual(['Ana']);
+  expect(await trashedPeople(page)).toBe(0);
+});
+
+test('This is me pressed on a person still being made whose create fails: me is who it was before', async ({ page }) => {
+  const people = tile(page);
+  const editor = people.locator('[data-person-editor]');
+  await addAna(page);
+  const ana = await shownPersonId(page);
+  await editor.getByRole('button', { name: 'This is me' }).click();
+  await expect.poll(() => me(page)).toBe(ana);
+  await slowEdits(page, 500, true);
+  expect(await clickNewPerson(page)).toEqual({ field: 'name', inEditor: true });
+  const standIn = await shownPersonId(page);
+  await editor.getByRole('button', { name: 'This is me' }).click();
+  expect(await me(page)).toBe(standIn);
+  await expect.poll(() => editsLanded(page)).toBe(1);
+  await expect(people.getByRole('button', { name: '+ New person' })).toBeFocused();
+  await expect.poll(() => me(page)).toBe(ana);
+  await expect(editor.getByRole('button', { name: 'This is me' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('with a slow save, Delete pressed on a person still being made: they are made, then trashed, two steps', async ({ page }) => {
+  const people = tile(page);
+  const editor = people.locator('[data-person-editor]');
+  await people.getByRole('button', { name: '+ New person' }).waitFor();
+  await slowEdits(page, 500);
+  expect(await clickNewPerson(page)).toEqual({ field: 'name', inEditor: true });
+  await editor.getByRole('button', { name: 'Delete person' }).click();
+  await expect.poll(() => editsLanded(page)).toBe(2);
+  // As for any person: the notice, the last one gone so focus on + New person, and them in the Trash.
+  await expect(page.getByText('Moved Unnamed person to the Trash.')).toBeVisible();
+  await expect(people.getByText('No one yet.', { exact: false })).toBeVisible();
+  await expect(people.getByRole('button', { name: '+ New person' })).toBeFocused();
+  expect(await storedPeople(page)).toEqual([]);
+  expect(await trashedPeople(page)).toBe(1);
+  // Two steps: one ⌘Z brings them back from the Trash, the next takes back making them.
+  await page.keyboard.press(await undoKey(page));
+  await expect.poll(() => storedPeople(page)).toEqual(['']);
+  await page.keyboard.press(await undoKey(page));
+  await expect.poll(() => storedPeople(page)).toEqual([]);
+  await expect.poll(() => trashedPeople(page)).toBe(0);
 });

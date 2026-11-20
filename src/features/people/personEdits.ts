@@ -45,6 +45,15 @@ export function withPendingPerson(
   return [...people, { record: shown, fields: personFields(props) }];
 }
 
+/**
+ * The id of the person being made, when it's being made in the project open now (`open`, the store's project): a
+ * project switched to while a create is on its way never shows the other one's stand-in. Compared by the open project
+ * itself, as the store drops an edit, so a copy of the same project (an opened backup) isn't taken for it.
+ */
+export function pendingIn<P>(pending: { id: string; project: P } | null, open: P | null): string | null {
+  return pending !== null && open !== null && pending.project === open ? pending.id : null;
+}
+
 /** One text field of a person; nothing when it's already that, or they're gone. */
 export function personChange(records: Records, id: string, prop: string, value: string): Change[] {
   const person = live(records, id);

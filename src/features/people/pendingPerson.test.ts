@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { personFields, projectPeople } from '../../core/model/person';
 import type { Props, SbdRecord } from '../../core/model/record';
-import { newPerson, withPendingPerson } from './personEdits';
+import { newPerson, pendingIn, withPendingPerson } from './personEdits';
 
 // The person "+ New person" is making, listed while its save is on its way so its name field has focus at once (Kevin,
 // Nov 20), and left out once the record with its id is there.
@@ -49,5 +49,26 @@ describe('withPendingPerson', () => {
     const people = projectPeople(records, 'p');
     withPendingPerson(people, records, 'p', 'new');
     expect(people).toEqual([]);
+  });
+});
+
+describe('pendingIn', () => {
+  // Projects as the store holds them: one object per opening, so a copy of the same project is another one.
+  const first = { name: 'Bey County' };
+  const second = { name: 'Harbour Lights' };
+  const reopened = { name: 'Bey County' };
+
+  it('gives the id being made in the project open now', () => {
+    expect(pendingIn({ id: 'new', project: first }, first)).toBe('new');
+  });
+
+  it('gives none in a project switched to while the create is on its way, even another opening of the same one', () => {
+    expect(pendingIn({ id: 'new', project: first }, second)).toBeNull();
+    expect(pendingIn({ id: 'new', project: first }, reopened)).toBeNull();
+  });
+
+  it('gives none when nothing is being made, or no project is open', () => {
+    expect(pendingIn(null, first)).toBeNull();
+    expect(pendingIn({ id: 'new', project: first }, null)).toBeNull();
   });
 });
