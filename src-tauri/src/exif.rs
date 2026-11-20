@@ -99,7 +99,7 @@ const MAX_BRANDS: usize = 64;
 /// Whether the bytes start with a file type box (`ftyp`) that names a HEIF brand, as its major brand or a compatible
 /// one, and no AVIF brand. Only the first box is read, and only as far as it says it reaches (to the end for a size of
 /// 0); a box with a 64-bit size (1) is not one a HEIC writes, and reads as no HEIF.
-fn is_heif(bytes: &[u8]) -> bool {
+pub(crate) fn is_heif(bytes: &[u8]) -> bool {
     if bytes.get(4..8) != Some(b"ftyp".as_slice()) {
         return false;
     }

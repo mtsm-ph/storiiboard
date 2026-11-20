@@ -50,6 +50,11 @@
   if timeouts still show, the default, never a longer timeout), and the Mac and Windows installers, each listing what
   its bundle carries. A job red only because of GitHub's machine is rerun, never waved through, and the report says
   so; red twice for the same cause goes to Kevin.
+- Merging on a checkpoint (Kevin, Nov 20): a green job is green, retries and all. A flaky test holds a merge only when
+  that checkpoint's own PRs added or changed it, or changed the code it tests; every flaky test is named in the
+  report, and one that has been flaky in two checkpoints is fixed before the next. One stack's red doesn't hold
+  another: when a checkpoint is red in one job and a PR in it can't have caused that (it touches nothing the failing
+  step runs), that PR merges, and the report says why.
 - The end-to-end tests run under the installed app's content security policy (6.13): a violation fails the test.
   src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
   commands are tested in Rust through tauri's `test` feature (6.16). No HTML5 drag and drop anywhere in the app
