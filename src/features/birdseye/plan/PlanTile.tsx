@@ -552,7 +552,18 @@ export function layerKeyFor(event: { code: string; key?: string; shiftKey?: bool
   const digit = found?.[2];
   if (digit === undefined) return null;
   if (found?.[1] === 'Numpad' && event.key !== digit) return null;
-  return digit === '0' ? 'all' : (LAYER_ORDER[Number(digit) - 1] ?? null);
+  return digit === SHOW_ALL_KEY ? 'all' : (LAYER_ORDER[Number(digit) - 1] ?? null);
+}
+
+/** The key that shows every layer on the plan (6.8), read by `layerKeyFor` and said in Show all's title. */
+export const SHOW_ALL_KEY = '0';
+
+/**
+ * The key that solos a layer on the plan: its place in the order `layerKeyFor` reads, so the Layers tile's titles can
+ * never say a key the plan doesn't handle.
+ */
+export function layerKeyOf(layer: PlanLayer): string {
+  return String(LAYER_ORDER.indexOf(layer) + 1);
 }
 
 /** The two points Set scale's clicks left (6.9, metres), for its question, with the underlay and the project they were made in. */
