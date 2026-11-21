@@ -1,15 +1,17 @@
 import { cx } from '../../../ui/cx';
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { ComingItem, Menu, menuItemClass } from '../../../ui/Menu';
 import { canOpenFiles } from '../../fileAccess';
 import { newProject, openRecent, recentStore } from '../../projects/actions';
 import { useRecent } from '../../projects/recentStore';
+import { useOpeningProject } from '../../openingProject';
 import { useProject } from '../../projectStore';
 import { isUnsaved, layoutsOf, useLayouts } from '../docking/layoutStore';
 import { departmentWorkspaceId, sectionId, workspaceById, type Workspace, type WorkspaceId } from '../workspaces';
 import { closeDepartmentWorkspace, useWorkspaceState } from '../workspaceStore';
 import type { Department } from '../../../core/model/department';
 import { onNavKeyDown } from './navKeys';
+import { useFocusBackAfterOpening } from './openingFocus';
 import { BoardList } from './BoardList';
 import { SceneList } from './SceneList';
 import { sceneEntries, sidebarSceneChanges } from './scenes';
@@ -20,6 +22,7 @@ import { moodboardStore, useMoodboard } from '../../../features/moodboards/moodb
 import { HIDE_SIDEBAR_ID, sidebarShortcut } from './sidebarToggle';
 import { IconButton } from '../../../ui/Button';
 import { SidebarGlyph } from '../../../ui/glyphs';
+import { useScrollLane } from '../../../ui/scrollLane';
 import { isMac } from '../undoShortcuts';
 import { GearButton, ProfileButton, WebVersionItem } from './SidebarFoot';
 import { t } from '../../../core/i18n';
@@ -66,6 +69,12 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
   const departmentsHeading = useId();
   const customs = useWorkspaceState((s) => s.customs);
   const customsHeading = useId();
+  // While a project opens, no workspace can be chosen (src/app/openingProject.ts): the list is about to move.
+  const opening = useOpeningProject();
+  const nav = useRef<HTMLElement>(null);
+  useFocusBackAfterOpening(nav, opening, sectionId(activeId));
+  const sections = useRef<HTMLUListElement>(null);
+  useScrollLane(sections);
 
   // Re-read Recent whenever the open project changes, however it was opened.
   useEffect(() => {
@@ -96,7 +105,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
 
   return (
     // The sidebar keeps paper outlines in dark, like the top bar: together they're the guiding board.
-    <nav data-sidebar="" aria-label={t('sidebar.sections')} className="flex w-sidebar shrink-0 flex-col border-r border-border-top">
+    <nav ref={nav} data-sidebar="" aria-label={t('sidebar.sections')} className="flex w-sidebar shrink-0 flex-col border-r border-border-top">
       <div className="h-11 shrink-0 border-b border-border-top">
         <Menu
           label={
@@ -165,7 +174,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
           }
         </Menu>
       </div>
-      <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <ul ref={sections} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {workspaces.map((workspace, i) => {
           const active = workspace.id === activeId;
           return (
@@ -178,6 +187,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                 aria-current={active ? 'page' : undefined}
                 aria-keyshortcuts={`Alt+${String(i + 1)}`}
                 tabIndex={active ? 0 : -1}
+                disabled={opening}
                 onClick={() => {
                   onSelect(workspace.id);
                 }}
@@ -189,8 +199,8 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                   active
                     ? 'bg-accent font-bold text-accent-contrast focus-visible:outline-accent-contrast'
                     : workspace.phase === null
-                      ? 'text-text hover:bg-surface-raised'
-                      : 'text-text-muted hover:bg-surface-raised hover:text-text',
+                      ? 'text-text enabled:hover:bg-surface-raised'
+                      : 'text-text-muted enabled:hover:bg-surface-raised enabled:hover:text-text',
                 )}
               >
                 {workspace.label}
@@ -205,6 +215,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                   scenes={scenes}
                   activeSceneId={activeSceneId}
                   canAdd={project !== null}
+                  disabled={opening}
                   onSelect={(id) => {
                     onSelectScene(id);
                     onSelect('storyboard');
@@ -223,6 +234,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                   boards={boards}
                   openBoardId={openBoardId}
                   canAdd={project !== null}
+                  disabled={opening}
                   onSelect={(id) => {
                     moodboardStore.getState().openBoard(id);
                     onSelect('moodboard');
@@ -262,6 +274,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                       aria-keyshortcuts="Delete Backspace"
                       aria-describedby={`${departmentsHeading}-close`}
                       tabIndex={active ? 0 : -1}
+                      disabled={opening}
                       onKeyDown={(event) => {
                         if (event.key === 'Delete' || event.key === 'Backspace') {
                           event.preventDefault();
@@ -275,7 +288,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                       }}
                       className={cx(
                         'sb-label flex h-9 w-full items-center gap-1.5 px-4 text-left focus-visible:-outline-offset-4',
-                        active ? 'bg-accent font-bold text-accent-contrast focus-visible:outline-accent-contrast' : 'text-text hover:bg-surface-raised',
+                        active ? 'bg-accent font-bold text-accent-contrast focus-visible:outline-accent-contrast' : 'text-text enabled:hover:bg-surface-raised',
                       )}
                     >
                       {workspace.label}
@@ -311,13 +324,14 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
                       data-custom-workspace={custom.id}
                       aria-current={active ? 'page' : undefined}
                       tabIndex={active ? 0 : -1}
+                      disabled={opening}
                       onKeyDown={onNavKeyDown}
                       onClick={() => {
                         onSelect(custom.id);
                       }}
                       className={cx(
                         'sb-label flex h-9 w-full items-center gap-1.5 px-4 text-left focus-visible:-outline-offset-4',
-                        active ? 'bg-accent font-bold text-accent-contrast focus-visible:outline-accent-contrast' : 'text-text hover:bg-surface-raised',
+                        active ? 'bg-accent font-bold text-accent-contrast focus-visible:outline-accent-contrast' : 'text-text enabled:hover:bg-surface-raised',
                       )}
                     >
                       <span className="truncate">{custom.name}</span>

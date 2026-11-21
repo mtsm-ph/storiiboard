@@ -22,6 +22,7 @@ import { aspectRatioValue, projectStoryboard, sceneFields, sceneLabel, shotField
 import type { Change } from '../../core/ops/ops';
 import { cx } from '../../ui/cx';
 import { EditableTitle } from '../../ui/EditableTitle';
+import { useScrollLane } from '../../ui/scrollLane';
 import { Trans } from '../../ui/Trans';
 import { useSetupDrag } from './useSetupDrag';
 import { showPlan, useShownPlan } from './plan/shownPlan';
@@ -58,6 +59,10 @@ export function SetupsTile() {
   const { drag, handleProps } = useSetupDrag((id, to) => {
     void edit((now) => moveSetup(now, id, to));
   });
+  const list = useRef<HTMLDivElement>(null);
+  const framesPanel = useRef<HTMLDivElement>(null);
+  useScrollLane(list);
+  useScrollLane(framesPanel);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('setups.noProject')}</p>;
   const projectId = project.projectId;
   const scenes = scenesOf(records, projectId);
@@ -71,7 +76,7 @@ export function SetupsTile() {
   return (
     <ProjectPictures>
       <div className="flex min-h-0 flex-1 flex-col" data-setups-tile="">
-        <div aria-label={t('setups.list')} role="group" className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={list} aria-label={t('setups.list')} role="group" className="min-h-0 flex-1 overflow-y-auto">
           {scenes.map((scene) => {
             const fields = sceneFields(scene.props);
             const sceneName = sceneLabel(fields.number);
@@ -146,7 +151,7 @@ export function SetupsTile() {
             );
           })}
         </div>
-        <div className="flex max-h-[55%] shrink-0 flex-col overflow-y-auto border-t-[1.5px] border-text">
+        <div ref={framesPanel} className="flex max-h-[55%] shrink-0 flex-col overflow-y-auto border-t-[1.5px] border-text">
           {selected && pickedScene ? (
             <SetupFrames records={records} projectId={projectId} setup={selected} scene={pickedScene} />
           ) : (

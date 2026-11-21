@@ -1,8 +1,9 @@
-import { useEffect, useId, useState, type KeyboardEvent, type Ref, type SyntheticEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type Ref, type SyntheticEvent } from 'react';
 import { DEFAULT_CROP, type Crop } from '../../core/media/crop';
 import { localizeError, t, tn } from '../../core/i18n';
 import { frameTimecode, type Rational } from '../../core/media/timecode';
 import { Button } from '../../ui/Button';
+import { useScrollLane } from '../../ui/scrollLane';
 import { BarGauge } from '../../ui/fields';
 import { FrameWindow, FramingControls, useFraming, type Framing } from './FrameWindow';
 
@@ -130,6 +131,8 @@ function playerKeys(event: KeyboardEvent, props: PlayerViewProps): void {
 export function PlayerView(props: PlayerViewProps) {
   const { status, video, frame, playing } = props;
   const helpId = useId();
+  const scroller = useRef<HTMLDivElement>(null);
+  useScrollLane(scroller);
   const frameHintId = useId();
   const noop = () => Promise.resolve(false);
   const framing = useFraming({
@@ -151,6 +154,7 @@ export function PlayerView(props: PlayerViewProps) {
       role="group"
       aria-label={t('tile.player.title')}
       aria-describedby={status.kind === 'ready' ? helpId : undefined}
+      ref={scroller}
       data-player=""
       className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-3"
       onKeyDown={(event) => {

@@ -7,21 +7,21 @@ import { skipOnboarding } from './onboarding';
 // tokens are set on <html> the way it will set them.
 
 /** One accent per family, plus the hard cases: no image (the kit), grey and neon. */
-const FIXTURES: (string | null)[] = [
-  null, // Paper, the kit
-  '#C2185B', // Rose
-  '#B5472B', // Clay
-  '#C98A1B', // Ochre
-  '#B79A55', // Sand
-  '#7F8F1F', // Olive
-  '#2E8B57', // Sage
-  '#0F8C8C', // Teal
-  '#2E6A8A', // Slate, by its hue
-  '#1E6BD6', // Navy
-  '#7A3FB5', // Violet
-  '#9C2F7A', // Plum
-  '#8C8F94', // grey: Slate, by the grey rule
-  '#39FF14', // neon
+const FIXTURES: { name: string; accent: string | null }[] = [
+  { name: 'Paper', accent: null }, // the kit
+  { name: 'Rose', accent: '#C2185B' },
+  { name: 'Clay', accent: '#B5472B' },
+  { name: 'Ochre', accent: '#C98A1B' },
+  { name: 'Sand', accent: '#B79A55' },
+  { name: 'Olive', accent: '#7F8F1F' },
+  { name: 'Sage', accent: '#2E8B57' },
+  { name: 'Teal', accent: '#0F8C8C' },
+  { name: 'Slate', accent: '#2E6A8A' }, // by its hue
+  { name: 'Navy', accent: '#1E6BD6' },
+  { name: 'Violet', accent: '#7A3FB5' },
+  { name: 'Plum', accent: '#9C2F7A' },
+  { name: 'grey', accent: '#8C8F94' }, // Slate, by the grey rule
+  { name: 'neon', accent: '#39FF14' },
 ];
 
 test.beforeEach(async ({ page }) => {
@@ -145,11 +145,11 @@ test('reads a logo’s accent on the page when the worker reports an error and t
   expect(accents[0]).toMatch(/^#[C-F][0-9A-F]/);
 });
 
-test('every family’s theme passes axe on the board, light and dark', async ({ page }) => {
-  test.setTimeout(120_000);
-  await page.evaluate(() => document.fonts.ready.then(() => true));
-  const failures: { accent: string | null; mode: string; family: string; rules: string[] }[] = [];
-  for (const accent of FIXTURES) {
+// One test per accent, so each runs well inside the ordinary limit (Kevin, Nov 20).
+for (const { name, accent } of FIXTURES) {
+  test(`the ${name} theme passes axe on the board, light and dark`, async ({ page }) => {
+    await page.evaluate(() => document.fonts.ready.then(() => true));
+    const failures: { accent: string | null; mode: string; family: string; rules: string[] }[] = [];
     for (const mode of ['light', 'dark'] as const) {
       const family = await applyTheme(page, accent, mode);
       const { violations } = await new AxeBuilder({ page })
@@ -159,6 +159,6 @@ test('every family’s theme passes axe on the board, light and dark', async ({ 
         failures.push({ accent, mode, family, rules: violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`) });
       }
     }
-  }
-  expect(failures).toEqual([]);
-});
+    expect(failures).toEqual([]);
+  });
+}

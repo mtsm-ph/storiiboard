@@ -14,6 +14,8 @@ interface BoardListProps {
   openBoardId: string | null;
   /** False with no project open: there's nowhere to add a board. */
   canAdd: boolean;
+  /** While a project opens (src/app/openingProject.ts): every row, "+ Add Board" too, is disabled. */
+  disabled?: boolean;
   onSelect: (id: string) => void;
   /** "+ Add Board" opens the picker. */
   onAdd: () => void;
@@ -22,7 +24,7 @@ interface BoardListProps {
 }
 
 /** The Moodboard's boards inline in the sidebar, as the Storyboard lists its scenes, then "+ Add Board". */
-export function BoardList({ boards, openBoardId, canAdd, onSelect, onAdd, onDelete }: BoardListProps) {
+export function BoardList({ boards, openBoardId, canAdd, disabled = false, onSelect, onAdd, onDelete }: BoardListProps) {
   return (
     <ul aria-label={t('boardList.boards')} className="pb-1">
       {boards.map((board) => {
@@ -45,10 +47,11 @@ export function BoardList({ boards, openBoardId, canAdd, onSelect, onAdd, onDele
               }}
               aria-current={current ? 'true' : undefined}
               tabIndex={-1}
+              disabled={disabled}
               onClick={() => {
                 onSelect(board.id);
               }}
-              className="flex h-7 w-full items-center gap-2 px-4 text-left text-[12px] hover:bg-surface-raised focus-visible:-outline-offset-4"
+              className="flex h-7 w-full items-center gap-2 px-4 text-left text-[12px] enabled:hover:bg-surface-raised focus-visible:-outline-offset-4"
             >
               {/* The open board's marker is orange; its bold name is the second cue. */}
               <span aria-hidden="true" className={cx('size-1.5 shrink-0', current ? 'bg-accent' : 'border border-text')} />
@@ -66,7 +69,7 @@ export function BoardList({ boards, openBoardId, canAdd, onSelect, onAdd, onDele
           data-nav-item=""
           onKeyDown={onNavKeyDown}
           tabIndex={-1}
-          disabled={!canAdd}
+          disabled={!canAdd || disabled}
           onClick={onAdd}
           className="sb-label flex h-7 w-full items-center pl-[30px] text-left enabled:hover:bg-surface-raised disabled:text-text-muted focus-visible:-outline-offset-4"
         >

@@ -7,7 +7,8 @@
 //! Left out, each for its reason: the dialogs (`*_choose`, `playback_move`, a new tile server's question) can't be
 //! answered here; anything that goes to the network (weather, hospitals, an address search that gets as far as the
 //! service, a tile not in the cache) would contact a real service; ffmpeg's commands (`video_probe`, `video_still`,
-//! `playback_make`, `playback_find`, `clip_save`) and the opener's (`open_link`, `open_pdf`, `reveal_original`,
+//! `playback_make`, `playback_find`, `clip_save`; `heic_picture`, which needs only a photo's bytes and the app's
+//! cache folder, is the one tested here) and the opener's (`open_link`, `open_pdf`, `reveal_original`,
 //! `sbd_show_backups`) start another program; `projects_folder_for_new` can make a folder in this computer's Videos.
 //! `clip_cancel` reads and sets video.rs's `CLIP_BUSY` and `CLIP_STOP`, which belong to the process, not to an app:
 //! where the ffmpeg sidecars exist, video.rs's clip test holds the busy flag across its saves and asserts on both
@@ -137,6 +138,16 @@ impl Harness {
     /// An answer that is bytes (`tauri::ipc::Response`), which the page reads as an ArrayBuffer.
     fn call_bytes(&self, cmd: &str, args: Json) -> Result<Vec<u8>, Json> {
         self.request(cmd, InvokeBody::Json(args))
+            .map(|body| match body {
+                InvokeResponseBody::Raw(bytes) => bytes,
+                InvokeResponseBody::Json(text) => panic!("{cmd} answered JSON, not bytes: {text}"),
+            })
+    }
+
+    /// `invoke(cmd, bytes)` whose answer is bytes too (heic_picture): the request body raw, the answer read as an
+    /// ArrayBuffer.
+    fn call_raw_bytes(&self, cmd: &str, bytes: Vec<u8>) -> Result<Vec<u8>, Json> {
+        self.request(cmd, InvokeBody::Raw(bytes))
             .map(|body| match body {
                 InvokeResponseBody::Raw(bytes) => bytes,
                 InvokeResponseBody::Json(text) => panic!("{cmd} answered JSON, not bytes: {text}"),
@@ -959,6 +970,68 @@ mod files_and_media {
         fs::remove_file(h.dir().join("still.png")).unwrap();
         assert_eq!(shown("m1"), Ok(json!(false)));
         h.call("sbd_close", json!({ "handle": handle })).unwrap();
+    }
+}
+
+/// A HEIC photo turned into a PNG (heic.rs, 6.27n): the one ffmpeg command here, since it needs only the photo's bytes
+/// and the app's own cache folder (the harness's). Where the ffmpeg sidecars run, as heic.rs's own tests need them.
+mod heic_photos {
+    use super::*;
+
+    fn proof() -> Vec<u8> {
+        fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("testdata")
+                .join("heic")
+                .join("heic-proof.heic"),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn heic_picture_takes_the_raw_body_and_answers_a_pngs_bytes() {
+        let h = Harness::new("heic");
+        let answer = h.call_raw_bytes("heic_picture", proof());
+        if cfg!(target_os = "macos") {
+            // WebKit reads HEIC itself: the Mac answers the page's own HEIC line, as before.
+            assert_eq!(
+                refused(answer.map(|_| Json::Null)),
+                "This is an HEIC photo, which Storiiboard can’t read on this computer yet. Convert it to JPEG first."
+            );
+            return;
+        }
+        let png = answer.unwrap();
+        assert!(png.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]));
+        // IHDR first, 1024 × 768, then the file's profile.
+        assert_eq!(&png[12..16], b"IHDR");
+        assert_eq!(&png[16..24], [0, 0, 4, 0, 0, 0, 3, 0]);
+        assert_eq!(&png[37..41], b"iCCP");
+        // Its temp file was in the app's cache folder, and is gone.
+        let left: Vec<_> = fs::read_dir(h.cache_dir())
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .map(|e| e.file_name())
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert!(
+            left.iter()
+                .all(|name| !name.to_string_lossy().ends_with(".heic")),
+            "{left:?}"
+        );
+        // A file that isn't a HEIF, refused with its words; arguments as JSON aren't a photo.
+        assert_eq!(
+            refused(
+                h.call_raw_bytes("heic_picture", vec![0xff, 0xd8, 0xff, 0xd9])
+                    .map(|_| Json::Null)
+            ),
+            "That file isn't an HEIC photo."
+        );
+        assert_eq!(
+            refused(h.call("heic_picture", json!({ "bytes": [1, 2, 3] }))),
+            "Expected the picture as raw bytes."
+        );
     }
 }
 

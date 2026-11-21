@@ -486,7 +486,7 @@ describe('the review’s fixes (6.9 review)', () => {
     const live = Object.values(records()).filter((r) => r.type === 'plan_item' && r.trashedAt === null);
     expect(live.map((r) => r.props.kind).sort()).toEqual(['wall', 'wall']);
     expect(Object.values(records()).some((r) => r.type === 'media')).toBe(false);
-    expect(noticeNow()).toContain('An underlay wasn’t pasted: its picture has been deleted for good.');
+    expect(noticeNow()).toContain('An underlay wasn’t pasted: its picture is no longer in the project.');
   });
 
   it('pastes a cut underlay back with its picture: the clip keeps the picture record it was copied with', async () => {

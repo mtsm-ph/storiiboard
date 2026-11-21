@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { showInfo, showNotice } from '../../app/notice';
 import { openLink, openPdf } from '../../app/opener';
 import { choosePdfs } from '../../app/pictures';
@@ -11,6 +11,7 @@ import type { SbdRecord } from '../../core/model/record';
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import { Button } from '../../ui/Button';
 import { Select, TextField } from '../../ui/fields';
+import { useScrollLane } from '../../ui/scrollLane';
 import { addPdfs, attachmentName, newLink, renameAttachment, savePdfCopy, trashAttachment } from './attachmentEdits';
 
 // The Assets tile (3.11), in the Assets workspace: the project's PDFs and links, on the project itself or on a scene,
@@ -69,6 +70,8 @@ export function AssetsTile() {
   const [title, setTitle] = useState('');
   const [adding, setAdding] = useState(false);
   const listId = useId();
+  const body = useRef<HTMLDivElement>(null);
+  useScrollLane(body);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('assets.noProject')}</p>;
   const projectId = project.projectId;
   const choices = targets(records, projectId);
@@ -100,7 +103,7 @@ export function AssetsTile() {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div ref={body} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="flex flex-col gap-3 border-b border-border p-3">
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-64">
