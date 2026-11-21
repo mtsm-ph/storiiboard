@@ -3,7 +3,7 @@ import { skipOnboarding } from './onboarding';
 
 // How much work the Export dialog does while a PNG export runs (1.24). Each frame written re-renders the dialog to
 // say how far it got; working the board out again on each of those renders cost a feature-size board a second or
-// more per frame. Counted, not timed: the dev server's storyboard module is wrapped so each board() call adds one to
+// more per frame. Counted, not timed: the dev server's board() module is wrapped so each board() call adds one to
 // a counter in the page.
 
 const FRAMES = 12;
@@ -12,7 +12,7 @@ const dialog = (page: Page) => page.getByRole('dialog', { name: 'Export' });
 
 test.beforeEach(async ({ page }) => {
   // Routed before the page loads, so the app imports the wrapped module. (Routing also turns off the HTTP cache.)
-  await page.route(/\/src\/features\/storyboard\/board\.ts(\?|$)/, async (route) => {
+  await page.route(/\/src\/core\/ops\/storyboardEdits\.ts(\?|$)/, async (route) => {
     const response = await route.fetch();
     const source = await response.text();
     const declaration = 'export function board(';
