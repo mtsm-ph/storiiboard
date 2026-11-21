@@ -8,7 +8,7 @@ import { cameraLabel, matchingMode, modeLabel, SENSOR_MODES, type SensorMode } f
 import type { Change } from '../../core/ops/ops';
 import { Select, TextField } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
-import { camerasOutsideRange, cameraLetterChange, framesOutsideRange, lensRangeChange, lensSqueezeChange, sensorModeNameChange, sensorModePick, sensorSizeChange } from './gearEdits';
+import { camerasOutsideRange, cameraLetterChange, framesOutsideRange, lensRangeChange, lensSqueezeChange, sensorModeNameChange, sensorModePick, sensorSizeChange } from '../../core/ops/gearEdits';
 
 // A camera body's and a lens's own fields in the Gear tile (6.1). A body: the camera and recording mode picked from
 // the short table (src/core/model/sensorModes.ts), which fills the mode's name, width and height, each still typed

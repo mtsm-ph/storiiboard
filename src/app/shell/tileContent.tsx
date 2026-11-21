@@ -4,6 +4,7 @@ import { ScenesTile } from '../../features/storyboard/ScenesTile';
 import { StoryboardTile } from '../../features/storyboard/StoryboardTile';
 import { HistoryTile } from '../../features/history/HistoryTile';
 import { TrashTile } from '../../features/trash/TrashTile';
+import { SuggestionsTile } from '../../features/suggestions/SuggestionsTile';
 import { ColorScriptTile } from '../../features/storyboard/palette/ColorScriptTile';
 import { PlayerTile } from '../../features/video/PlayerTile';
 import { LocationsTile } from '../../features/locations/LocationsTile';
@@ -31,6 +32,7 @@ export const TILE_CONTENT: Partial<Record<TileId, ComponentType>> = {
   board: StoryboardTile,
   inspector: InspectorTile,
   trash: TrashTile,
+  suggestions: SuggestionsTile,
   history: HistoryTile,
   colorScript: ColorScriptTile,
   player: PlayerTile,

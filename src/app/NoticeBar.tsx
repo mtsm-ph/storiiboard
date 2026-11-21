@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { t } from '../core/i18n';
 import { useIsTopWindow, useOpenWindowCount } from '../ui/InAppWindow';
-import { clearNotice, markNoticeShown, noticeShownBefore, useNotice } from './notice';
+import { clearNotice, markNoticeShown, noticeShownBefore, useNotice, type NoticeAction } from './notice';
 
 /**
  * The notice: what didn't happen, or what's worth knowing. Above the workspace, or inside the top window of the app's
@@ -15,11 +15,11 @@ export function NoticeBar() {
   // In a window: only the top one. Outside: only with no window open.
   if (notice.message === null || (top === null ? windows > 0 : !top)) return null;
   // Keyed by the notice, so each one starts its own bar and decides afresh whether it's been read out.
-  return <Bar key={notice.seq} message={notice.message} kind={notice.kind} seq={notice.seq} copy={notice.copy} />;
+  return <Bar key={notice.seq} message={notice.message} kind={notice.kind} seq={notice.seq} copy={notice.copy} action={notice.action} />;
 }
 
 /** One notice on screen. A live region only the first time it's drawn, so moving it between windows says nothing new. */
-function Bar({ message, kind, seq, copy }: { message: string; kind: 'warning' | 'info'; seq: number; copy: string | null }) {
+function Bar({ message, kind, seq, copy, action }: { message: string; kind: 'warning' | 'info'; seq: number; copy: string | null; action: NoticeAction | null }) {
   // Decided once per bar: later renders keep the same role. Marked in an effect, so a render React throws away
   // (StrictMode's double call) never counts as shown.
   const [repeat] = useState(() => noticeShownBefore(seq));
@@ -37,7 +37,20 @@ function Bar({ message, kind, seq, copy }: { message: string; kind: 'warning' | 
     <div data-notice="" role={repeat ? undefined : 'status'} className="mx-gap mt-gap flex shrink-0 flex-wrap items-center gap-3 border border-text px-3 py-1.5">
       <p className="text-[13px]">{message}</p>
       {copy !== null && <CopyList text={copy} />}
-      <button type="button" onClick={clearNotice} className={`sb-label border border-text px-2 py-1 ${copy === null ? 'ml-auto' : ''}`}>
+      {/* What the notice offers (Bring in): the notice goes as it's done, and the work says how it went. */}
+      {action !== null && (
+        <button
+          type="button"
+          onClick={() => {
+            clearNotice();
+            action.run();
+          }}
+          className={`sb-label border border-text px-2 py-1 ${copy === null ? 'ml-auto' : ''}`}
+        >
+          {action.label}
+        </button>
+      )}
+      <button type="button" onClick={clearNotice} className={`sb-label border border-text px-2 py-1 ${copy === null && action === null ? 'ml-auto' : ''}`}>
         {t('appShell.gotIt')}
       </button>
     </div>

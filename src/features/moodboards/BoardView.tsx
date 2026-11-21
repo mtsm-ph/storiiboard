@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { showInfo } from '../../app/notice';
-import { fromFile, choosePictures, onWindowDrop } from '../../app/pictures';
+import { fromFile, choosePictures, isChangeFile, onWindowDrop } from '../../app/pictures';
 import { projectStore, useProject } from '../../app/projectStore';
 import { isMac } from '../../app/shell/undoShortcuts';
 import { isTauriApp } from '../../app/fileAccess';
@@ -546,7 +546,12 @@ export function BoardView({ board }: { board: SbdRecord }) {
         onDrop={(event) => {
           if (event.dataTransfer.files.length === 0) return;
           event.preventDefault();
-          void addBoardPictures(board.id, [...event.dataTransfer.files].map(fromFile), worldAt({ x: event.clientX, y: event.clientY }));
+          // A change file (7.1) is never a picture. Dropped here in the browser build it is left out here; brought in only
+          // by the storyboard's document listener when a Storyboard tile is open. The desktop app brings it in from the
+          // window's own drop.
+          const pictures = [...event.dataTransfer.files].filter((file) => !isChangeFile(file.name));
+          if (pictures.length === 0) return;
+          void addBoardPictures(board.id, pictures.map(fromFile), worldAt({ x: event.clientX, y: event.clientY }));
         }}
       >
         {/* Before the canvas, so its tab stops come first. The Page tool belongs to a deck's board (5.5): its key does

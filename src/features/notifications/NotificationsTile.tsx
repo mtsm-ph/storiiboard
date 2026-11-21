@@ -10,17 +10,24 @@ import { SegmentedControl } from '../../ui/SegmentedControl';
 import { useLocale } from '../../ui/useLocale';
 import { LineText } from '../history/HistoryTile';
 import { loadSteps, PAGE, type Steps } from '../history/steps';
-import { who } from '../history/summary';
+import { who, type Line } from '../history/summary';
+import type { OpGroup } from '../../core/ops/ops';
 import { selectionStore, useSelection } from '../storyboard/selection';
-import { markAllRead, markStepRead, stepUnread, unreadCount, useNotifications } from './notificationsStore';
+import { fromWords } from '../suggestions/review';
+import { openSuggestions } from '../suggestions/suggestionsFocus';
+import { markAllRead, markStepRead, markSuggestionRead, stepUnread, suggestionUnread, unreadCount, useNotifications, type SuggestionNote } from './notificationsStore';
 
 // The Notifications tile (3.10, CLAUDE.md: Notifications): History's steps, newest first, what changed, who and when,
 // with read and unread for whoever is reading (This is me, else this computer's `local`). Filters All, Unread and This
 // scene; Mark all read. Opening a step marks it read and picks what it changed: a frame, else a scene, so the
-// Inspector and the board show it. Steps you made count as read. Suggestions and comments join with Phases 7 and 9.
+// Inspector and the board show it. Steps you made count as read. Suggestions joined in 7.2: a step that brought some in
+// shows as one row per import ("12 suggestions from Robin Vale"), unread until opened even when the import was yours,
+// and opens the Suggestions tile on that import; a step that did more than bring them in (a redo, a restore) keeps its
+// own row beside them. Comments join with Phase 9.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 type Filter = 'all' | 'unread' | 'scene';
+type Row = { kind: 'step'; group: OpGroup; line: Line; recordIds: string[] } | { kind: 'suggestions'; group: OpGroup; note: SuggestionNote };
 
 /** Whether a record is the scene, or in it (a frame, a note, a frame's picture or stroke). */
 function inScene(records: Records, id: string, sceneId: string): boolean {
@@ -84,9 +91,18 @@ function Feed() {
   }, [project, records, canUndo, locale, count]);
 
   if (!project) return null;
-  const shown = (steps ?? []).filter(({ group, recordIds }) =>
-    filter === 'unread' ? stepUnread(state, group) : filter === 'scene' ? sceneId !== null && recordIds.some((id) => inScene(records, id, sceneId)) : true,
-  );
+  // Each import's notification, by the step that brought it in: shown in that step's place (newest import first).
+  const notesAt = new Map<number, SuggestionNote[]>();
+  for (const note of state.suggestions) notesAt.set(note.seq, [note, ...(notesAt.get(note.seq) ?? [])]);
+  const shown = (steps ?? []).flatMap(({ group, line, recordIds }): Row[] => {
+    const notes = notesAt.get(group.seq) ?? [];
+    // Not in a scene: This scene leaves them out.
+    const noteRows = filter === 'scene' ? [] : notes.filter((note) => filter !== 'unread' || suggestionUnread(state, note)).map((note): Row => ({ kind: 'suggestions', group, note }));
+    // A plain bring-in is its notifications alone; a step that did more keeps its own row beside them.
+    if (notes.some((note) => note.alone)) return noteRows;
+    const keep = filter === 'unread' ? stepUnread(state, group) : filter === 'scene' ? sceneId !== null && recordIds.some((id) => inScene(records, id, sceneId)) : true;
+    return keep ? [{ kind: 'step', group, line, recordIds }, ...noteRows] : noteRows;
+  });
 
   return (
     <div className="flex min-h-full flex-col">
@@ -120,16 +136,23 @@ function Feed() {
         </p>
       ) : (
         <ol aria-label={t('notifications.list')} className="flex flex-col">
-          {shown.map(({ group, line, recordIds }) => {
-            const isUnread = stepUnread(state, group);
+          {shown.map((row) => {
+            const { group } = row;
+            const isUnread = row.kind === 'step' ? stepUnread(state, group) : suggestionUnread(state, row.note);
+            const line: Line = row.kind === 'step' ? row.line : [tn('notifications.suggestions', row.note.count, { from: fromWords(row.note.authors, row.note.source) })];
             return (
-              <li key={group.id}>
+              <li key={row.kind === 'step' ? group.id : `${group.id}:${row.note.itemId}`}>
                 <button
                   type="button"
-                  data-notification={group.id}
+                  data-notification={row.kind === 'step' ? group.id : row.note.itemId}
                   onClick={() => {
+                    if (row.kind === 'suggestions') {
+                      void markSuggestionRead(row.note);
+                      openSuggestions(row.note.groupId, project.projectId);
+                      return;
+                    }
                     void markStepRead(group);
-                    const pick = pickOf(records, recordIds);
+                    const pick = pickOf(records, row.recordIds);
                     if (pick?.shot) selectionStore.getState().selectShot(pick.shot, pick.scene);
                     else if (pick) selectionStore.getState().selectScene(pick.scene);
                   }}

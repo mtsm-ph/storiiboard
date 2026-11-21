@@ -9,6 +9,7 @@ use tauri::{webview::PageLoadEvent, Manager};
 
 mod app_data;
 mod backup;
+mod changes;
 #[cfg(test)]
 mod command_tests;
 mod exif;
@@ -104,6 +105,11 @@ pub(crate) fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> ta
             pictures::lut_choose,
             pictures::project_json_choose,
             pictures::pdf_choose,
+            changes::changes_choose,
+            changes::changes_read,
+            changes::changes_folder,
+            changes::changes_folder_read,
+            changes::changes_folder_rename,
             video::clip_save,
             video::clip_cancel,
             export::export_choose_file,

@@ -1003,8 +1003,8 @@ steps (later, suggestions and comments too). What's stored is each person's read
 |---|---|---|
 | id, created_at, updated_at | | As every table |
 | user_id | text | As above |
-| item_kind | text | `op_group` now; `suggestion` and `comment` with Phases 7 and 9 |
-| item_id | text | The op group's id, or the suggestion's or comment's record id |
+| item_kind | text | `op_group`; `suggestion` from 7.2 (one per import of suggestions); `comment` with Phase 9 |
+| item_id | text | The op group's id; for `suggestion`, the import's first suggestion's record id (in the file's order); or the comment's record id |
 | read_at | text | When it was opened |
 
 - `notification_reads` is unique on (`user_id`, `item_kind`, `item_id`); a second opening keeps the first time. When a
@@ -1012,6 +1012,10 @@ steps (later, suggestions and comments too). What's stored is each person's read
 - Writing read state counts as a change for the 5-minute backups, as Seen does; a step already read, or yours, writes
   nothing when opened.
 - Read state isn't an op: marking an item read can't be undone and isn't a step in History.
+- An import's notification (7.2) sits at the place in the log of the step that brought it in (`read_through_seq` covers it
+  like that step), and is unread until opened or covered, even when the import was the reader's own: it says there is
+  something to review. An import is the suggestions of one change file; a suggestion that names none is an import of
+  its own. Its item is the import's first suggestion's id. No table, column or schema number changes for it.
 - A step by the person reading (its `author` is who they sign as) counts as read: they made it. By name, until sign-in
   brings a stable id: steps signed before a rename read as another's, and two people with no name (both `local`), or
   with the same initials, read as one.
@@ -1322,8 +1326,8 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
   Since 6.24 an op group's time is strictly later than every earlier group's in the file, so two steps never share a
   time; files written before may hold such ties.
   Erased sketch strokes aren't listed in the Trash; undo brings them back.
-- A deletion approved from a change file is the same `trash` op, with the approver as `trashed_by`. Its op group also
-  marks the suggestion approved, so undoing the approval undoes both.
+- A deletion applied from a change file is the same `trash` op, with the person who applied it as `trashed_by`. Its op
+  group also marks the suggestion applied (`status: approved`), so undoing the Apply undoes both.
 - Views, rollups, call sheets, checks and MCP reads skip records with `trashed_at` set unless the caller asks for them.
 - Empty Trash, after a confirm, deletes the trashed records, their children and their media bytes for good. Older ops
   that touched them lose those records' data and can no longer be undone. Named versions lose them too; backups keep
@@ -1701,9 +1705,9 @@ the board again.
 
 ## Change files (.sbdchanges)
 
-Suggestions made on the web review copy come back to the desktop as a change file. Importing one never edits the
-project: it adds the suggestions to the review queue, where a person approves or rejects each one. The desktop imports
-change files from Phase 7; the web writes them from Phase 9.
+Suggestions made on the web review copy, and the assistant's (Phase 7 decision 3), come to the desktop as a change file. Importing one never edits the
+project: it adds the suggestions to the review queue, where a person applies or rejects each one. The desktop imports
+change files from Phase 7; the assistant writes them from Phase 7, the web from Phase 9.
 
 A change file is one UTF-8 JSON object:
 
@@ -1713,6 +1717,7 @@ A change file is one UTF-8 JSON object:
   "version": 1,
   "id": "8d0f3c52-5a0e-4c47-9a7e-2b1f0c6e9a11",
   "project_id": "0b6e2d0a-3f5c-4d8e-9c1a-7e2f4b5a6c3d",
+  "project_name": "Harbor Lights",
   "review_copy": { "id": "c41d…", "published_at": "2026-11-20T18:00:00.000Z" },
   "created_at": "2026-11-21T09:12:00.000Z",
   "created_by": "web",
@@ -1736,40 +1741,363 @@ A change file is one UTF-8 JSON object:
 | Field | Notes |
 |---|---|
 | format, version | `version` goes up only for a change an older app can't read safely. Adding a kind or an optional field doesn't change it. An app refuses a newer version with "made by a newer Storiiboard" |
-| id | This file's id |
+| id | This file's id: a UUID, lowercase. A writer never adds to a change file it already wrote: more suggestions go in a new file with a new id (7.1 round 3), since the folder skips, whole, a file whose id it has brought in. 7.6's assistant writes this way |
 | project_id | The project record's id. A file for another project is refused |
-| review_copy | The published review copy the suggestions were made on |
-| created_by | What wrote the file: `web` for now |
-| people | Who made the suggestions: name, Team role and, when known, their `person` record. Never contact details |
-| suggestions[].id | Becomes the suggestion record's id, so importing the same file twice adds nothing |
+| project_name | Optional (7.1): the project's name as the writer saw it, shown as text when the file is refused for another project |
+| review_copy | Optional (7.1): the published review copy the suggestions were made on. Read by nothing yet |
+| created_by | What wrote the file: `web` (the review copy, Phase 9) or `mcp` (the assistant, Phase 7). Shown as text, never trusted |
+| people | Who made the suggestions: `id` (the key `suggestions[].author` names), name, Team role and, when known, their `person` record. Never contact details: any other field of a person is left out |
+| suggestions[].id | Becomes the suggestion record's id, so importing the same file twice adds nothing. A UUID, lowercase |
 | suggestions[].kind | What's suggested (below) |
-| suggestions[].target | The record, its type, a label as the reviewer saw it, and its `updated_at` in the review copy |
-| suggestions[].data | Kind-specific; empty for `trash` |
+| suggestions[].target | The record, its type, a label as the reviewer saw it, and its `updated_at` in the review copy; for a `create`, only the type and the label |
+| suggestions[].data | Kind-specific (below); empty for `trash` |
 
-Kinds:
+Kinds (7.0, Kevin, Nov 16: Phase 7 decision 4). Format version 1 knows four; each is written here before it is built:
 
 | Kind | Means | Status |
 |---|---|---|
-| `trash` | Delete this shot or scene. Approved, it's a `trash` op, so the item goes to the Trash | v1 |
-| `comment` | A comment on a frame, plan or call sheet | Reserved |
-| `reorder` | Move an item to a new position or parent | Reserved |
-| `update` | Change some props | Reserved |
-| `create` | Add a shot or scene. Rejected, the proposal goes to the Trash so it can be recovered | Reserved |
-| `restore` | Bring an item back from the Trash (the web's Trash view) | Reserved |
+| `trash` | Send a frame, scene or note to the Trash | v1 |
+| `update` | Change some of a record's fields | v1 (7.0) |
+| `create` | Add a frame, scene or note | v1 (7.0) |
+| `reorder` | Move a frame or note to a new place | v1 (7.0) |
+| `restore` | Bring an item back from the Trash (the web's Trash view) | Reserved: waits for the departments' "changes" body |
+| `comment` | A comment on a frame, plan or call sheet | Not planned for version 1 |
 
-Importing:
+A person **Applies** or **Rejects** each suggestion, one by one (Phase 7 decision 5): every Apply and every Reject is
+an op group of its own, so each can be undone, and undoing either brings the suggestion back to `pending` and the
+project to as it was. The stored status stays `approved` or `rejected`; only the words people see say Apply. "Apply
+the rest" (7.2) is a run of single applies, each its own group.
 
-- The file is untrusted input. It's checked against the format before anything is stored, it's limited to 5 MB, and
-  its text is shown as text. Names in it are what the web reported; that's one reason every suggestion still needs a
-  person's approval.
-- Each suggestion becomes a `suggestion` record, all in one op group, so undoing the import removes them. Its props:
-  `kind`, `target_id`, `status` (`pending`, `approved`, `rejected`), `source` (`change_file`, or `mcp` for AI
-  suggestions), `change_file_id`, `author`, `note`, `data`, and `decided_by` and `decided_at` once decided.
-- The review screen flags a suggestion whose target changed after the review copy was published (the project's
-  `updated_at` is newer), one whose target is no longer in the project, and one whose target is already in the Trash.
-- Unknown kinds and unknown fields are kept as they are, shown as "needs a newer Storiiboard", and never applied or
-  dropped.
-- Rejecting a suggestion changes nothing in the project; the suggestion stays, `rejected`, in the review log.
+### What a suggestion may touch
+
+One table in the code (src/core/model/suggestionScope.ts), by record type, kind and field, with a check for each
+field's values. The assistant's row (Phase 7) allows:
+
+| Record | Kinds | Fields |
+|---|---|---|
+| `shot` (a frame) | `trash`, `update`, `create`, `reorder` | `title`, `size`, `lens_mm`, `t_stop`, `support`, `height`, `move`, `status`, `action`, `dialogue`, `location_id`, `shoot_day_id`, `gear_ids` |
+| `scene` | `trash`, `update`, `create` | `name`, `int_ext`, `day_night`, `location_id`, `page_eighths` |
+| `note` | `trash`, `update`, `create`, `reorder` | `text` |
+| `shoot_day` | `update` | `gear_ids` (the day's gear list), `call_time` and `wrap_time` (its crew call and wrap, the call sheet's calls) |
+| `callsheet` | `update` | `notes`, `safety_notes`, `department_calls`, `person_times` |
+
+Never people's contact details, project settings, files, pictures, sketches or other media; never shot or scene
+numbers or their locks, approvals, department status, Seen, `trashed_at` and `trashed_by`, custom fields, a frame's
+setup or lens pick, or a scene's characters (`character_ids`: no edit of the app sets them by hand; 7.7's breakdown
+brings them back with one). Plan items join the row in 7.6. A row's words ("What the assistant can suggest") are made from the
+table, so they always say what the rule allows.
+
+Apply only does what a person could do by hand, with the same edit the app makes. So scenes have no `reorder` (no one
+can move a scene on the board today), and a suggestion can empty a field only where a person can empty it: a frame's
+title, lens, T-stop, support, height, move, own location, shoot day and gear; a scene's time of day and length; a
+note's text (to ''); a day's gear list, crew call and wrap; a call sheet's notes and each call or time.
+A frame's size and status and a scene's INT/EXT and location can be changed but not emptied; a frame's action and
+dialogue, and a scene's name, are emptied as text ('').
+
+A call sheet is named by its day: `target.id` is the `shoot_day`'s id and `target.type` is `callsheet`, since a day has
+no `callsheet` record until its first note (Call sheet props, 4.1). Applied to a day with none, it makes the record with
+the fields, as the first note typed does.
+
+### `trash`
+
+`data` is `{}`. The target is a frame, scene or note. Applied, it's the same trash op the board makes: a frame's scene
+closes up its letters unless they're locked; a scene takes its live frames, notes and setups with it in the same group.
+The applier is `trashed_by`.
+
+```json
+{ "id": "f2b7…", "kind": "trash", "target": { "id": "9c3e…", "type": "shot", "label": "SC 04 · 4B", "updated_at": "2026-11-20T17:41:09.000Z" },
+  "author": "r1", "created_at": "2026-11-21T09:10:31.000Z", "note": "We have this in 4A.", "data": {} }
+```
+
+### `update`
+
+`data` is `{ "props": { field: value }, "before": { field: value } }`: each field to change and its new value, and the
+value the suggester saw. Only the fields the scope row allows for the target's type. `null` takes a field off where it
+can be empty (a frame's lens, its shoot day; a call sheet's notes); what a field's own edit reads as empty takes it off
+too (an empty title, an empty gear list). Applied, only the named fields change, in one op on the target (for a call
+sheet, on its `callsheet` record): each field by the edit a person would make for it (the Inspector's, the Days tile's
+for a frame's day and a day's crew call and wrap, the Gear picker's for a gear list, the call sheet's own for its notes,
+calls and times), one after another, folded into that one op.
+
+- A gear list (`gear_ids`, the row's only list of ids) keeps what a person can't see: every stored entry that isn't a
+  live gear item (in the Trash, gone, not an id) stays where it is, and is left out of *changed since*. It changes by
+  the Gear picker's own adds and removes: the items a person would untick come off, the ones they'd tick go on at the
+  end, so an item already listed keeps its place.
+- A call sheet's `department_calls` and `person_times` merge key by key, as the sheet's own edits do: a department or
+  a person named is set; `null` or `''` takes that one off (a person given `null` has their call, HMU ready and on set
+  taken off); every key not named stays as it is, one this version can't read included. The field itself can't be
+  taken off whole. Only the named keys are compared for *changed since*. `person_times` names only the day's people:
+  when the day has a list (`people_ids`, 4.2), a person not on it is refused, since the sheet shows only them; a day
+  without the list (everyone) takes any live person.
+- A frame on no live day goes onto one only if it is Need to shoot, as the Days tile offers it (4.11), where the status
+  read is the one it has after Apply (so a suggestion that sets Need to shoot too may). Any other is flagged *can't be
+  applied*. A frame already on a live day moves to another whatever its status, as the Days tile's Move to does, and
+  taking a frame off a day always can be.
+- A field whose stored value isn't even the right shape (a list, an object) is never written over.
+
+```json
+{ "id": "a41c…", "kind": "update", "target": { "id": "9c3e…", "type": "shot", "label": "SC 04 · 4B", "updated_at": "2026-11-20T17:41:09.000Z" },
+  "author": "r1", "created_at": "2026-11-21T09:11:02.000Z", "note": "Tighter for the reveal.",
+  "data": { "props": { "size": "CU", "lens_mm": 85 }, "before": { "size": "MCU", "lens_mm": 50 } } }
+```
+
+### `create`
+
+`data` is `{ "type", "parent_id", "after_id", "props" }`: a frame (under a scene), a scene (under the project) or a
+note (under a scene), placed after `after_id` among the parent's live children (`null`: first), with `props` among the
+fields the scope row allows for that type. `target` has only `type` (the same as `data.type`) and `label`; there is no
+record yet. Shot numbers come from the project's own rule, never from the file: a new frame is numbered as one added on
+the board, and a new scene takes the board's number for its place (4A after 4, one past the highest at the end), made
+by the board's own add. A scene goes only where a person can add one: after a live scene, or (its `after_id` gone) at
+the end. A scene with `after_id` `null` (first on the board) on a board that has a live scene is flagged *can't be
+applied*: no one can add one before the first by hand, so Apply doesn't either. On a board with no live scene (empty,
+or only scenes in the Trash), first and last are the same place: it is added as + Add Scene adds one.
+
+An `after_id` equal to the suggestion's own id, or a chain of `after_id`s through `create`s of the same file that comes
+back to it, is flagged *can't be applied* on `after_id`, never *waiting*: it would wait on itself. The same for
+`after_suggestion` when its chain of parents comes back round. The chain is followed through both links at once (each
+pending `create`'s `after_id` and `after_suggestion`), so a loop that mixes them (a scene after a frame that goes under
+that scene) is found too, and flagged on the link of each suggestion that leads back to it. At most 500 links are
+followed: a longer chain is read as one that ends, so it shows as *waiting*, not as a loop.
+
+`parent_id` may instead name another `create` suggestion of the same file, for a new scene's new frames; the record
+then names it in `after_suggestion`. Such a suggestion can be applied only once that one has been, and is flagged
+until then; once it has, the parent is the scene it made. An `after_id` naming a `create` of the same file that has
+been applied reads as the record it made, so a new scene's frames keep their order; one not applied yet is *waiting*
+(it can't be applied until that one is), and one rejected made nothing, so the place reads as gone (at the end).
+
+Nothing is created until it is applied. A rejected `create` creates nothing and stays in the review log.
+
+```json
+{ "id": "c7d2…", "kind": "create", "target": { "type": "shot", "label": "New frame after 4B" },
+  "author": "r1", "created_at": "2026-11-21T09:12:40.000Z", "note": "",
+  "data": { "type": "shot", "parent_id": "51aa…", "after_id": "9c3e…", "props": { "size": "INSERT", "action": "Her hand on the latch." } } }
+```
+
+### `reorder`
+
+`data` is `{ "parent_id", "after_id" }`: the target, a frame or a note, moves to after `after_id` among `parent_id`'s
+live frames and notes (`null`: first), as a drag on the board moves it. A frame may move to another scene, and loses
+its setup there, as Setups (6.0) says, and is numbered there as the board numbers a frame dropped in; a frame can't
+leave a scene whose numbers are locked. A note moves within its own scene. Scenes don't `reorder`: no one can move a
+scene on the board by hand today, so a scene's `reorder` is outside the scope. A target already right after `after_id`
+(or first, or last for an `after_id` gone) is *no change* and writes no move. `after_id` may name a `create` of the
+same file, as for `create`. A shoot day keeps no order of its own frames (a day's frames are read in board order), so
+`reorder` is the storyboard's only.
+
+```json
+{ "id": "e90b…", "kind": "reorder", "target": { "id": "9c3e…", "type": "shot", "label": "SC 04 · 4B", "updated_at": "2026-11-20T17:41:09.000Z" },
+  "author": "r1", "created_at": "2026-11-21T09:13:15.000Z", "note": "Start on the insert.",
+  "data": { "parent_id": "51aa…", "after_id": null } }
+```
+
+### The `suggestion` record
+
+Importing a change file (7.1) makes a `suggestion` record under the project for each suggestion, all in one op group,
+so undoing the import removes them. The assistant's proposals arrive the same way, as change files it writes (Phase 7
+decision 3: it never writes the .sbd). Its props:
+
+| Prop | Value |
+|---|---|
+| kind | `trash`, `update`, `create` or `reorder`; another is kept as it is |
+| target_id | The record it acts on (for a call sheet, its day); null for a `create` |
+| target_type | That record's type; for a `create`, the type it adds |
+| target_label | The target as the suggester saw it, shown as text |
+| target_updated_at | The target's `updated_at` when it was suggested |
+| status | `pending`, then `approved` (applied) or `rejected` |
+| source | `change_file`, or `mcp` for the assistant's |
+| change_file_id | The change file's id |
+| author | `{ "name", "role", "person_id"? }`, copied from the file's `people`; never contact details |
+| note | The suggester's words, shown as text |
+| data | Kind-specific (above) |
+| suggested_at | When it was suggested (`created_at` in the file) |
+| decided_by, decided_at | Who applied or rejected it, the author as the op log records it, and when: the time of the op group that applied or rejected it, as `trashed_at` keeps its trash's time (a bring_back keeps it, as it keeps `trashed_at`) |
+| created_id | For an applied `create`: the id of the record it made |
+| after_suggestion | For a `create` whose parent is another `create` of the same file: that suggestion's id |
+
+Apply is one op group: the target's ops, made by the edits a person makes by hand (the board's, the Inspector's, the
+Days tile's, the Gear picker's, the call sheet's), several fields of one record folded into one op, then the
+suggestion's own update (`status: approved`, `decided_by`, `decided_at`, and `created_id` for a `create`). Reject is
+one op group that updates only the suggestion. History words them "Applied a suggestion: " and the change's own line
+("Applied a suggestion that changed nothing" when the project already read as suggested), and "Rejected a suggestion: "
+and what it would have done, naming the target by its own record's name as the step left it, and by `target_label`
+only when the record is gone.
+
+### Values are untrusted
+
+Every value is checked against its field before anything is written: text bounded in length (200 characters for a
+title or a scene's name, 10,000 for an action, a dialogue, a note or a call sheet's notes); numbers finite and in the
+field's own range (a focal length above 0 to 2000 mm and inside a picked lens's range, a T-stop from the Inspector's
+list, a scene's length from 1 to 7,992 eighths); choices from their lists (shot sizes, statuses, supports, heights,
+moves, INT/EXT, times of day, department ids); times as `HH:MM`; ids naming a live record of the right type (a
+location, a shoot day, gear items, people), each once in a list. An update or create names at most 50
+fields. A suggestion with a value that fails is kept, flagged "can't be applied" naming the field, and never applied.
+The record is read bounded and rebuilt clean (as a settings preset is) before anything is shown; no key, however it's
+spelled (`__proto__` among them), reaches anything but a field lookup.
+
+### Flags
+
+What the review screen (7.2) shows on a suggestion, worked out from the records as they are now (src/core/model/
+suggestion.ts, which 7.5's server shares):
+
+- *Changed since*: for `update`, a named field's value now reads differently from its `before`, field by field, shown
+  with the three values (then, suggested, now). Values are compared as they read: what reads as empty (`''`, `[]`,
+  `{}`, `null`, a missing prop) is the same as absent, and a map's keys in any order are the same map; a list compares
+  only the entries a person can see, and a call sheet's calls and times only the keys named. For the other kinds, the
+  target's `updated_at` is newer than `target_updated_at` (or that can't be read); for a scene to the Trash, the newest
+  `updated_at` among the scene and the live frames, notes and setups that would go with it, so a frame added since
+  counts. A person may still apply it: it writes the suggested value.
+- *Gone*: the target or the parent no longer exists (a `create` whose parent suggestion was rejected too). For
+  `after_id` alone (not a live child of the parent), it goes at the end instead, and says so.
+- *In the Trash*: the target or the parent is trashed.
+- *Waiting*: a `create` whose parent is another suggestion not yet applied, or a `create` or `reorder` whose
+  `after_id` names a `create` of the same file not yet applied, each with its own words.
+- *Locked*: a frame would leave a scene whose shot numbers are locked.
+- *Outside the scope*: a kind, type or field the row doesn't allow: kept, listed as refused, never applied "for
+  review".
+- *Can't be applied*: a value that fails its field's check, or `data` that can't be read for its kind; and, each with
+  its own words, what the app can't do by hand: a scene before the board's first live scene, a frame on no day onto
+  one while it isn't Need to shoot (its status after Apply). A `create` placed after itself, directly or round a chain,
+  is *can't be applied* on `after_id` (or `after_suggestion`) with its own words ("it would wait on itself"), never
+  *waiting*; times for someone not on the day are
+  refused on `person_times`.
+- *Needs a newer Storiiboard*: an unknown kind, status or field (of the record, or of its `data`): kept as it is.
+- *No change*: the project already reads as suggested (an update that would write only a key order, a reorder to where
+  it is); Apply writes only the decision.
+
+Only *changed since*, *no change* and a gone `after_id` leave Apply open; a suggestion already decided can't be
+decided again.
+
+Additive: `suggestion` is a record type every version keeps (it was in the first schema), so no table, column, op
+group kind or schema number; an older version keeps the records as they are.
+
+### Importing (7.1)
+
+A change file is untrusted input: anyone can write one by hand. Whatever is in it, importing it only ever adds
+`suggestion` records under the project; it never edits another record, never reaches a file path, never runs anything,
+and every word in it is shown as text. Names in it are what the web or the assistant reported; that's one reason every
+suggestion still needs a person to apply it. The checks are one pure reader (src/core/storage/changeFile.ts, which 7.5's
+server shares to write files of the same shape); Rust adds the size cap before the page sees a byte.
+
+A file is refused whole, nothing stored, with words that say why (never a stack trace), when it is:
+
+- larger than 5 MB (5,242,880 bytes); Rust refuses it before reading, and the page again;
+- not UTF-8 text, or not JSON, or JSON nested deeper than 16 arrays and objects (counted before it is parsed);
+- not an object whose `format` is `storiiboard.changes` ("isn't a change file");
+- of a `version` that isn't a whole number from 1, or above 1: "made by a newer Storiiboard";
+- without an `id` that is a lowercase UUID;
+- for another project: `project_id` isn't this project's id, refused with "This change file is for another project",
+  and its `project_name` as text when it has one;
+- holding more than 2,000 suggestions or more than 50 people;
+- holding a string over its bound, wherever it is: an id 100 characters (the file's, a person's, a target's, a
+  `person_id`); `created_by` and a person's name 100; a Team role, a kind and a target's type 40; a target's label 200;
+  a time 40; a note 2,000; any other string, `data` and unknown fields included, 10,000; any key 100;
+- holding a suggestion larger than 256 KB (262,144 bytes) as JSON in UTF-8 (7.1 round 3): a bound chosen, not one 7.0
+  implies, set to fit two full 10,000-character fields with their `before`: 120,000 bytes of text in any script;
+  240,000 at worst as escaped JSON, with room left for the rest;
+- holding a suggestion that isn't an object, has no lowercase UUID `id`, or shares its `id` with another in the file; a
+  person with no `id` or one shared; or a suggestion field named as one of the record's own props (`status`, `source`,
+  `change_file_id`, `target_id`, `target_type`, `target_label`, `target_updated_at`, `suggested_at`, `decided_by`,
+  `decided_at`, `created_id`, `after_suggestion`), which only the app sets;
+- holding a target field `target.<x>` this version doesn't map whose record prop, `target_<x>`, is already a field of
+  the same suggestion, one of the record's own props or a prop 7.0 reads: it can't be both, so the file is refused.
+
+The words name a field only by its position, "suggestion 12, a field" or "person 3, a field", or by the format's own
+name for a field of the file (`version`, `id`, `project_id`, …), never by a key the file itself wrote.
+
+Everything else is brought in, each suggestion as a `suggestion` record with the suggestion's own `id`:
+
+| From the file | To the record |
+|---|---|
+| `kind`, `note`, `data` | `kind`, `note`, `data`, as they are |
+| `target.id`, `.type`, `.label`, `.updated_at` | `target_id`, `target_type`, `target_label`, `target_updated_at` |
+| `target.<other>` | `target_<other>`, kept as it is |
+| `author` | `author`: the named person's `name`, `role` and `person_id` only, else empty |
+| `created_at` | `suggested_at` |
+| the file's `id` | `change_file_id` |
+| `created_by` | `source`: `mcp` when it is `mcp`, else `change_file` |
+| a `create`'s `data.parent_id` naming another `create` of the file | `after_suggestion` |
+| any other field | kept under its own name, but `__proto__`, which is left out |
+| | `status`: `pending` |
+
+A suggestion that fails 7.0's reader (an unknown kind, a field this version doesn't know, `data` it can't read, a
+target outside the scope) is still brought in and flagged as it reads, under the assistant's scope row (`scopeRowFor`),
+whatever wrote the file. Unknown kinds and unknown fields are kept as they are, shown as "needs a newer Storiiboard",
+and never applied or dropped. Fields of the file itself that this version doesn't know aren't stored: the file is
+never changed, so they stay in it.
+
+One import is one op group of creates, so one undo removes everything it brought in. A suggestion whose `id` is
+already a suggestion in the project was brought in before and adds nothing; one whose `id` is another record's is left
+out and the status line says how many. A file that adds nothing writes no op and says "Already brought in" (one from
+the folder says nothing); one that adds nothing because every id is another record's says that instead, and one with
+`suggestions: []` says it holds none. The status line says "Brought in 12 suggestions from Robin Vale" (the authors'
+name when they share one, as text), and History says the same.
+
+Rejecting a suggestion changes nothing in the project; the suggestion stays, `rejected`, in the review log.
+
+### Where change files come from (7.1, Phase 7 decision 3)
+
+- By hand: the project menu's Import changes…, or a `.sbdchanges` file dropped anywhere on the window (a picture
+  dropped keeps its meaning; a change file never becomes a picture). Rust reads only the file the Open dialog or the
+  drop gave it, by that path, once (the path is taken out of what it was given as it is read), at most 5 MB, and only
+  a name ending in `.sbdchanges`. A file brought in by hand comes in again even when the folder's bring-in of it was
+  undone: the person chose it.
+- From the assistant (7.6): a folder beside the project named for it, `<Project> Suggestions/` beside `<Project>.sbd`
+  (`<Project>` is the .sbd's file name, as for `Backups/`), holding the change files the assistant writes and a marker
+  file, `storiiboard-folder.json`:
+
+  ```json
+  { "format": "storiiboard.suggestions-folder", "project_id": "0b6e2d0a-3f5c-4d8e-9c1a-7e2f4b5a6c3d", "project_name": "Harbor Lights" }
+  ```
+
+- The app brings the folder in when the project opens: one pass, as **one** op group, so one undo takes the whole pass
+  back. A pass has two budgets (7.1 round 3): it reads at most 1,000 files and 50 MB (52,428,800 bytes) to find what's
+  new, and of what's new brings in at most 200 files, 10 MB (10,485,760 bytes) and 2,000 suggestions. A file brought in
+  before costs only the read budget. A file that couldn't be read costs the read budget by its listed size and is tried
+  again at the next pass; however many there are, the pass says them in one counted line ("3 change files in Harbor
+  Lights Suggestions couldn't be read"). What's left waits, with a line that counts only the files not yet looked at or
+  not yet brought in ("4 change files not looked at yet in Harbor Lights Suggestions") and Bring in, each press one more
+  pass and one more op group. A Bring in pressed after a switch to another project only takes its line away, and a
+  switch or a close takes the line about the project left behind away. When the window comes back to the front (the window's own focus event) the folder is only
+  looked at: what's new is said with the same line and Bring in, and nothing is brought in, so coming back to the app
+  never changes what ⌘Z and ⌘⇧Z do. One look at the folder runs at a time; one asked for meanwhile runs after it, for
+  whichever project is open then, and a project switched to always gets its own pass at open.
+- Rust finds the folder beside the open project itself, and reads the project's id from the open .sbd itself (the
+  page names neither a path nor an id, only the open project's handle). It looks at most at the folder's first 10,000
+  entries, and says so when there were more, never silently; among them it lists every regular file whose name ends in
+  `.sbdchanges` with its size and modified time, at most 5 MB each (a larger one is named and skipped). The page picks
+  the files it hasn't read, in name order.
+- It never follows a link or a Windows junction. The folder must be a real folder, not a link, whose real parent is the
+  project's own folder: by identity, never by comparing names (a name in another case, or the other Unicode spelling of
+  an accent, is the same folder). A file in it is looked at by its own entry first, never followed: a link or a junction
+  there is refused before anything is opened. It is then opened as any program opens it (on Windows without opening the
+  reparse point itself, so a OneDrive or Dropbox placeholder is read through its cloud filter; on a Mac with
+  `O_NOFOLLOW` and `O_NONBLOCK`, so a link or a FIFO is refused rather than waited on), refused unless what was opened is
+  a regular file, and it is "checked to be the file opened": the real path of the open handle must be the folder's real
+  path, found once, joined with the file's name. On Windows those two are what protect: a link put in place between
+  the look and the open would be followed by the open, and its handle is the target's, so the handle's final path,
+  somewhere other than `<real folder>/<name>`, is what refuses it; the same check refuses a folder swapped for a
+  junction between the listing and the read. (A Mac and Linux also check that the opened file's device and inode are
+  the ones looked at.) The marker is never read as a change file; it is read at most
+  64 KB. A folder whose marker names another project is skipped, with a line saying so; one with no marker, or a marker
+  that can't be read, is read (a person may have made it). Each file then goes through the checks above, as one
+  dropped would.
+- What's been brought in: a file or a suggestion id that the project's History ever created a suggestion from (its
+  creates of `suggestion` records, undone ones included) is skipped, so a pass that was undone stays undone at the next
+  open. While the project stays open, a file is known as read by its name, size and modified time, the session-long
+  "read" key: a file rewritten with the same size inside one tick of a coarse timestamp (some drives keep 2 seconds)
+  waits for the next open.
+- Nothing in the folder is ever deleted, moved or written by the app.
+- A renamed project: when no `<Project> Suggestions/` exists but a folder beside the project named `<anything>
+  Suggestions` (a real folder, not a link) has a marker naming this project's id, the app asks once per open to rename
+  it to `<Project> Suggestions` (Rename / Not now). It is never offered, and Rust refuses it, when `<anything>.sbd`
+  sits beside it: that project's folder is its own, though an opened backup or version copy beside it has the same id.
+  Renaming is the only write, through Rust, only after the person says so, only from such a folder beside the project,
+  only to that name, and never over an existing file or folder: checked first, and refused by the rename itself (on a
+  Mac `renamex_np` with `RENAME_EXCL`, on Windows `MoveFileEx` without replacing; Linux, which no release ships for,
+  keeps a plain rename after the check). A Mac volume that can't do an exclusive rename (exFAT, FAT, some SMB shares
+  answer `ENOTSUP`) gets the plain rename after the check instead, which a folder made in the moment between could be
+  replaced by only if it is empty. Until it is renamed its files aren't brought in.
 
 ## Project data as JSON (2.9)
 
@@ -1787,7 +2115,9 @@ Export → Project data (JSON), the default of the two (3.14, Kevin Nov 9), leav
 can hold deleted material and everyone's names. It writes every table, with these rows left out:
 - `records`: every record in the Trash and everything under it (what Empty Trash deletes, and the kinds it doesn't,
   such as an erased sketch stroke with who erased it); `shot_seen` rows of those frames;
-- `media_files` and `thumbnails`: pictures no record left names (by the SHA-256 in its props);
+- `media_files` and `thumbnails`: pictures no record left names (by the SHA-256 in its props). A `suggestion` record
+  never counts (7.1 round 2): its text came from a change file anyone can write, so a hash in it can't keep a removed
+  picture in the export;
 - `op_groups`, `ops`, `versions` (points in History), `notification_cursors` and `notification_reads` (they read
   History) and `lookups` (a cache, which can hold a deleted location's address): no rows.
 
@@ -1894,7 +2224,8 @@ merge a database, so two guards sit around every open project:
 | `<Project> (copy).sbd` | Open a copy, chosen when another computer has the project open. A separate project | 1.2 | Like any project |
 | `<Project> (<version>).sbd` | Open version: a copy restored to a named version's step, a separate project. A second copy of the same version is `(<version> 2)` | 1.23 | Like any project |
 | `.<Project> (<version>) <8 hex digits>.sbd` | Open version's draft while it's copied and restored, renamed to the copy's name once it's ready. Hidden: a leading dot on Mac, the hidden attribute on Windows (cleared before the rename) | 1.23 | Deleted if Open version fails. One a crash cuts off stays, hidden, until the person deletes it: the app never deletes a project-shaped file it didn't just make |
-| `<name>.sbdchanges` | Suggestions from the web review copy | Phase 7 (import), Phase 9 (web) | Wherever the person saved it |
+| `<name>.sbdchanges` | Suggestions, from the assistant (in the folder below) or brought by hand (Import changes…, or dropped on the window) | Phase 7 (import, 7.1; the assistant, 7.6) | Wherever the person saved it; never deleted, moved or written by the app |
+| `<Project> Suggestions/` | The assistant's change files for this project, and its marker `storiiboard-folder.json` (`format`, `project_id`, `project_name`; see Change files). Brought in when the project opens and when the window comes back to the front | 7.1 | Never deleted, moved or written by the app; renamed to match a renamed project only when the person says so |
 | `<name>.sbdpack` | Zip of the .sbd and every linked file (Collect Project) | Phase 8 | |
 | Review package | Compressed review copy: the records reviewers may see, compressed images, theme and watermark. Uploaded on Publish, or exported as a file | Phase 9 | On the web, 30 days after the last shoot day |
 
@@ -1936,3 +2267,8 @@ change, no migration and no schema_version change; an older version keeps a card
 5.5 adds the board `kind` `deck` (with `page_format` and `page_orientation`) and the `board_item` kinds `page` (with `format`, `orientation`, `name` and `background`;
 its contents are worked out, not stored) and `field_card` (with `field` and a text box's style): additive, no table change, no migration and
 no schema_version change; an older version keeps a deck as a board and a page or field card as an item it doesn't show.
+7.0 writes the change files' four kinds (`trash`, `update`, `create`, `reorder`) and the `suggestion` record's props (see Change files):
+additive, no table change, no migration and no schema_version change; an older version keeps the records as they are.
+7.1 brings change files in (Importing, and the `<Project> Suggestions/` folder and its marker; `project_name` and an
+optional `review_copy` in the file): it writes only `suggestion` records with 7.0's props, so no table change, no
+migration and no schema_version change.

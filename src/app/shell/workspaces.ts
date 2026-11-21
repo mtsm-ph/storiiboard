@@ -43,6 +43,7 @@ const BUILT_IN_TILES = [
   'notifications',
   'history',
   'trash',
+  'suggestions',
   'colorScript',
   'department',
 ] as const;
