@@ -10,6 +10,7 @@ import { castOf, characterName, contactOnSheet, PERSON_TEXT_FIELDS, personFieldR
 import type { SbdRecord } from '../../core/model/record';
 import { ROLE_LABELS, ROLES } from '../../core/model/role';
 import { Button } from '../../ui/Button';
+import { useScrollLane } from '../../ui/scrollLane';
 import { cx } from '../../ui/cx';
 import { Select, TextArea, TextField } from '../../ui/fields';
 import { setCustomField } from '../storyboard/board';
@@ -75,6 +76,8 @@ export function PeopleTile() {
       observer.disconnect();
     };
   }, [box]);
+  const list = useRef<HTMLUListElement>(null);
+  useScrollLane(list);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('people.noProject')}</p>;
   const projectId = project.projectId;
   const pendingId = pendingIn(pending, project);
@@ -137,7 +140,7 @@ export function PeopleTile() {
         {all.length === 0 ? (
           <p className="p-3 text-[13px] text-text-muted">{t('people.none')}</p>
         ) : (
-          <ul id={listId} aria-label={t('people.list')} className="min-h-0 flex-1 overflow-y-auto">
+          <ul ref={list} id={listId} aria-label={t('people.list')} className="min-h-0 flex-1 overflow-y-auto">
             {all.map(({ record, fields }) => {
               const current = record.id === selected?.record.id;
               return (
@@ -290,6 +293,8 @@ interface PersonEditorProps {
 }
 
 function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, onChange, onRole, onDepartment, onFullView, onContactOnSheet, characters, onCast, onDelete }: PersonEditorProps) {
+  const editor = useRef<HTMLElement>(null);
+  useScrollLane(editor);
   const playsId = useId();
   const fullViewNoteId = useId();
   const fullView = personFullView(fields);
@@ -328,7 +333,7 @@ function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, o
     );
   };
   return (
-    <section aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-person-editor={id}>
+    <section ref={editor} aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-person-editor={id}>
       <h3 id={headingId} className="sb-label">
         {fields.name || t('people.unnamed')}
       </h3>

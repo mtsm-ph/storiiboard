@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { heicAsked, proofHeic, useHeicStandIn } from './heicStandIn';
 import { openSettings, settingsWindow } from './settings';
 
 // A new project's first step and Settings → Theme (1.16), in the memory build: a logo gives accents, Create writes the
@@ -116,6 +117,42 @@ test('a logo offers its accent, the dialog previews it, and Create themes the pr
   await page.keyboard.press(await undoKey(page));
   await expect.poll(() => accent(page)).toBe('');
   await expect(themeTile(page).getByText('No image')).toBeVisible();
+});
+
+test('a HEIC key image is decoded once per pick where the webview can’t read it, gives its accent and shows', async ({ page }) => {
+  // Chromium, like WebView2 on Windows, can't decode a HEIC: the desktop app's decoder (a stand-in here) is asked.
+  const { engineReadsHeic } = await useHeicStandIn(page);
+  const asks = engineReadsHeic ? 0 : 1;
+  await newProject(page);
+  let chooser = page.waitForEvent('filechooser');
+  await onboarding(page).getByRole('button', { name: 'Choose image…' }).click();
+  await (await chooser).setFiles(proofHeic());
+  await expect(onboarding(page).getByText('IMG_0005.HEIC')).toBeVisible();
+  const accents = onboarding(page).getByRole('radiogroup', { name: 'Accent' }).getByRole('radio');
+  // The kit's orange, then the picture's own, the first of them picked.
+  await expect.poll(() => accents.count()).toBeGreaterThan(1);
+  await expect(accents.nth(1)).toHaveAttribute('aria-checked', 'true');
+  const shows = (well: Locator) => well.locator('[data-theme-well] img').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0);
+  await expect.poll(() => shows(onboarding(page))).toBe(true);
+  expect(await heicAsked(page)).toBe(asks);
+
+  await onboarding(page).getByRole('button', { name: 'Create' }).click();
+  await expect(onboarding(page)).toHaveCount(0);
+  await expect.poll(() => accent(page)).not.toBe('');
+  expect((await stored(page)).theme).toMatchObject({ source: 'image' });
+
+  // Settings → Theme shows it as stored, and takes another HEIC the same way: one more ask for one more pick.
+  await openSettings(page, 'Theme');
+  await expect(themeTile(page).getByText('IMG_0005.HEIC')).toBeVisible();
+  await expect.poll(() => shows(themeTile(page))).toBe(true);
+  const before = await accent(page);
+  chooser = page.waitForEvent('filechooser');
+  await themeTile(page).getByRole('button', { name: 'Replace image…' }).click();
+  await (await chooser).setFiles(proofHeic());
+  await expect.poll(() => heicAsked(page)).toBe(asks * 2);
+  await expect.poll(() => shows(themeTile(page))).toBe(true);
+  await expect.poll(() => accent(page)).toBe(before);
+  expect(await heicAsked(page)).toBe(asks * 2);
 });
 
 test('a picture pasted anywhere on the dialog is its image', async ({ page }) => {

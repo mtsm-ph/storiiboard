@@ -1,3 +1,4 @@
+import { makeCanvas } from '../../../core/media/canvas';
 import { cropBox } from '../../../core/media/crop';
 import { mediaFields, readThumbnail } from '../../../core/media/store';
 import type { SbdRecord } from '../../../core/model/record';
@@ -36,8 +37,8 @@ export async function readFrame(file: ProjectFile, sha256: string, crop: ReturnT
     const frameAspect = aspect ?? bitmap.width / bitmap.height;
     const width = frameAspect >= 1 ? READ_EDGE : Math.max(1, Math.round(READ_EDGE * frameAspect));
     const height = frameAspect >= 1 ? Math.max(1, Math.round(READ_EDGE / frameAspect)) : READ_EDGE;
-    const canvas = new OffscreenCanvas(width, height);
-    const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
+    // makeCanvas, never OffscreenCanvas directly: macOS 13.0 to 13.2's webview has none.
+    const { ctx } = makeCanvas(width, height, { colorSpace: 'srgb' });
     if (!ctx) return null;
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';

@@ -22,6 +22,7 @@ import { moodboardStore, useMoodboard } from '../../../features/moodboards/moodb
 import { HIDE_SIDEBAR_ID, sidebarShortcut } from './sidebarToggle';
 import { IconButton } from '../../../ui/Button';
 import { SidebarGlyph } from '../../../ui/glyphs';
+import { useScrollLane } from '../../../ui/scrollLane';
 import { isMac } from '../undoShortcuts';
 import { GearButton, ProfileButton, WebVersionItem } from './SidebarFoot';
 import { t } from '../../../core/i18n';
@@ -72,6 +73,8 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
   const opening = useOpeningProject();
   const nav = useRef<HTMLElement>(null);
   useFocusBackAfterOpening(nav, opening, sectionId(activeId));
+  const sections = useRef<HTMLUListElement>(null);
+  useScrollLane(sections);
 
   // Re-read Recent whenever the open project changes, however it was opened.
   useEffect(() => {
@@ -171,7 +174,7 @@ export function Sidebar({ workspaces, activeId, onSelect, activeSceneId, onSelec
           }
         </Menu>
       </div>
-      <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <ul ref={sections} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {workspaces.map((workspace, i) => {
           const active = workspace.id === activeId;
           return (

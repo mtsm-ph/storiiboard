@@ -18,6 +18,7 @@ import { sceneSetups, setupLabel } from '../../core/model/setup';
 import { sceneFields, sceneLabel, shotFields, specLine } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
+import { useScrollLane } from '../../ui/scrollLane';
 import { cx } from '../../ui/cx';
 import { Select, TextArea, TextField } from '../../ui/fields';
 import { StatusGlyph } from '../../ui/tags';
@@ -87,6 +88,8 @@ export function DaysTile() {
       observer.disconnect();
     };
   }, [box]);
+  const list = useRef<HTMLUListElement>(null);
+  useScrollLane(list);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('days.noProject')}</p>;
   const projectId = project.projectId;
   const days = projectShootDays(records, projectId);
@@ -125,7 +128,7 @@ export function DaysTile() {
         {days.length === 0 ? (
           <p className="p-3 text-[13px] text-text-muted">{t('days.none')}</p>
         ) : (
-          <ul id={listId} aria-label={t('days.list')} className="min-h-0 flex-1 overflow-y-auto">
+          <ul ref={list} id={listId} aria-label={t('days.list')} className="min-h-0 flex-1 overflow-y-auto">
             {days.map((day) => {
               const current = day.record.id === selected?.record.id;
               const totals = dayTotals(records, dayFrames(records, projectId, day.record.id), minutes);
@@ -284,6 +287,8 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
   const headingId = useId();
   const workspaceId = useWorkspaceId();
   const crewId = useId();
+  const editor = useRef<HTMLElement>(null);
+  useScrollLane(editor);
   const gearId = useId();
   const catalogue = projectGear(records, projectId);
   const dayGear = gearIdsOf(day.record.props);
@@ -340,7 +345,7 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
   );
 
   return (
-    <section aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-day-editor="">
+    <section ref={editor} aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-day-editor="">
       <h2 id={headingId} tabIndex={-1} className="text-[18px] leading-tight font-bold focus-visible:outline-offset-2">
         {label}
       </h2>

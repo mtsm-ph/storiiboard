@@ -38,9 +38,10 @@
   (`heic_picture`, src-tauri/src/heic.rs, through src/core/media/image.ts and src/app/heicPicture.ts). ffmpeg decodes
   it, upright, fitted inside 2560 px, as a PNG tagged with the file's own colour: its ICC profile carried (at most
   64 KiB, else the photo is refused), else its four-number tag as cICP, else sRGB. The page then stores from it what
-  a Mac stores. 64 MiB in at most, 10 s, two decodes at a time, an HDR photo refused with a line. The Mac changes
-  nothing: WebKit reads HEIC itself. While two or more files are being added the status line counts them ("Reading
-  3 of 30…").
+  a Mac stores. 64 MiB in at most, 10 s, two decodes at a time, an HDR photo refused with a line, and over 120
+  megapixels refused before any decode (the picture, and its grid's tiles as ffmpeg counts them; 6.27v). A key image
+  and a company logo come in the same way (`readablePicture` in image.ts, 6.27z). The Mac changes nothing: WebKit
+  reads HEIC itself. While two or more files are being added the status line counts them ("Reading 3 of 30…").
 - Network (Kevin, Nov 9): one HTTP client for every need, reqwest with rustls (ring, as Tauri's updater uses it), only
   in src-tauri/src/net.rs.
 - PDFs: pdf-lib; QR codes: qrcode-generator. Sun times: SunCalc. A place's time zone: tzf-rs in Rust,
@@ -56,15 +57,36 @@
   (e2e/smoke.spec.ts) on Linux, the whole end-to-end suite in WebKit on a Mac (Kevin, Nov 14) and in Chromium on
   Linux at one worker per core (`--workers=100%`, Kevin, Nov 18: 4 cores while the repo is public, 2 once private;
   if timeouts still show, the default, never a longer timeout), and the Mac and Windows installers, each listing what
-  its bundle carries. A job red only because of GitHub's machine is rerun, never waved through, and the report says
-  so; red twice for the same cause goes to Kevin.
+  its bundle carries and then starting the app it just built in its launch check (below). A job red only because of
+  GitHub's machine is rerun, never waved through, and the report says so; red twice for the same cause goes to Kevin.
 - Merging on a checkpoint (Kevin, Nov 20): a green job is green, retries and all. A flaky test holds a merge only when
   that checkpoint's own PRs added or changed it, or changed the code it tests; every flaky test is named in the
   report, and one that has been flaky in two checkpoints is fixed before the next. One stack's red doesn't hold
   another: when a checkpoint is red in one job and a PR in it can't have caused that (it touches nothing the failing
-  step runs), that PR merges, and the report says why.
+  tests run; Kevin, Nov 20 night), that PR merges, the report says why, and the session checks that `v2` plus the
+  held PR is the checkpoint's tree.
 - The end-to-end tests run under the installed app's content security policy (6.13): a violation fails the test.
-  src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
+  Every worker runs under its own, stricter policy (src-tauri/worker-csp.txt, 6.27i: no network, no eval), which the
+  app sends on every JavaScript response (src-tauri/src/worker_csp.rs) and the test server likewise; Tauri puts the
+  page's policy only on .html, and a worker never inherits it.
+- The launch check (6.27l, Kevin, Nov 20): with `STORIIBOARD_LAUNCH_CHECK=1` in the environment, and only then, the
+  app starts in a self-check mode (src-tauri/src/launch_check.rs, src/app/launchCheck). It makes the main window,
+  loads the page, breaks the page's policy once on purpose to see it refused and reported, reads a built-in PDF
+  through the PDF worker and a built-in picture through the accent reader's worker, fetches both worker scripts and
+  reads their policy, then quits with 0. A step that fails is named on stdout and by the exit code (10 + n; 30 + n
+  when the 90 s limit ends; 3 for a quit before the end). The mode does nothing else: none of the app's own start-up
+  work, no project, no request (net.rs refuses every one). Both installer jobs run it on the app just built
+  (scripts/launchCheck.sh). What it can and can't prove is in docs/briefs/launch-check.md. It is the one test that
+  runs in the real webviews: Playwright's WebKit is newer than any Safari, so an end-to-end test can pass where the
+  Mac app fails. Its first run on a Mac found one (6.27p): pdf.js's `getTextContent` reads a stream with `for await`,
+  which Safari's engine lacks, so the Mac app could not read a PDF; src/features/script/readPdf.ts reads through
+  `streamTextContent` and a reader instead, and src/app/pdfjsUse.test.ts keeps it so. Its accents step asks the
+  worker alone. When the worker fails at its canvas (not at decoding the picture) and the page reads the same picture,
+  the step passes by the page and says so, and scripts/launchCheck.sh refuses such a pass unless it is given
+  `--accents-by-page-ok`, which only the Mac installer job gives (6.27r, Kevin, Nov 20: GitHub's Mac has a virtual
+  GPU; Windows and a real Mac stay strict). A branch named `checkpoint/launch-<name>` runs only the ffmpeg sources
+  and the two installers, launch check included: about a quarter of an hour, never a checkpoint to merge on.
+- src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
   commands are tested in Rust through tauri's `test` feature (6.16). No HTML5 drag and drop anywhere in the app
   (lint and src/app/noHtmlDrag.test.ts, 6.15).
 - A failing functional or data-safety test gets fixed, never skipped.
@@ -242,8 +264,10 @@
     location (no address search, no request). A compass at the plan's top right shows north and the sun: chrome,
     never printed, never stored.
     Scout photos (6.27, Kevin Nov 16 and 17): a location's photo keeps its EXIF date, time and GPS (read in Rust,
-    src-tauri/src/exif.rs, which checks every block itself before the library reads it; a refused or HEIC photo
-    still imports and the status line says so); one photo can be the location's light reference. Every picture the
+    src-tauri/src/exif.rs, which checks every block itself before the library reads it; a HEIC's block is found by
+    heic.rs's own box reader, its Exif item through iinf and iloc, no library code copied: 6.27y; a refused photo,
+    or a HEIC whose boxes can't be followed, still imports and the status line says so); one photo can be the
+    location's light reference. Every picture the
     page encodes is cleaned in `canvasBlob` (6.27b, src/core/media/cleanPicture.ts): kept by a list, never removed by
     one, the colour profile at most 64 KiB as stored; Rust's door (picture_door.rs, sbd.rs) and the in-page build
     refuse anything else, both readers tested against one shared list of statements; an import leaves out a stored
@@ -384,6 +408,10 @@
     curated hue families, light and dark, so no theme can be unreadable.
   - The theme's tokens are stored in the project record; a project without an image uses the default theme.
   - Run every generated theme through the axe checks, light and dark.
+  - The image's accents are read in a Web Worker; when the worker can't start, dies, reports an error or takes too
+    long, the page reads them itself, and a person sees an error only when the page fails too (6.27r, Kevin, Nov 20).
+    No code calls `new OffscreenCanvas` directly: `makeCanvas` (src/core/media/makeCanvas.ts, re-exported by
+    canvas.ts) falls back to a `<canvas>` where there is none (macOS 13.0 to 13.2).
 - Export (Phase 1): src/features/export is a registry; a format is one file plus one line. Per scene or whole
   project. Exports skip the Trash, and files go to disk through src/core/storage.
 - Review (Phase 7 desktop, Phase 9 web): web suggestions come back as a change file (.sbdchanges, in
@@ -508,9 +536,10 @@
   what a builder can't fix, judges review findings, does all of git (commits, PRs, merges), runs the CI checkpoints,
   keeps CLAUDE.md, PLAN.md and HANDOFF.md and writes Kevin's reports. The builder (.claude/agents/builder.md) writes
   the code and its tests from a brief; the reviewer (.claude/agents/reviewer.md) reviews, read-only.
-  - Models (Kevin, Nov 13): the main session runs on Fable 5.2; the builder on claude-opus-5-5 at effort medium; the
-    reviewer on claude-opus-5-5 at effort high. The agents' models and effort are set in their files; start them
-    without a model. Agent files are read when a chat starts, so a change to one takes effect in the next chat.
+  - Models (Kevin, Nov 13 and 20): the main session runs on the model Kevin starts it with (Opus 5.5 for now); the
+    builder on claude-opus-5-5 at effort medium; the reviewer on claude-opus-5-5 at effort high. The agents' models and
+    effort are set in their files; start them without a model. Agent files are read when a chat starts, so a change to
+    one takes effect in the next chat.
   - The main session costs the most per token, so it writes no long code itself and keeps its own reading small:
     fixes from a review go back to a builder, and a brief still carries everything a builder needs.
   - The first builder run in a new chat is the model check: its transcript must record the model builder.md names
