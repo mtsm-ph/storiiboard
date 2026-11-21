@@ -1128,7 +1128,30 @@ export async function placesBefore(
   return { children, gone };
 }
 
-/** The records under each asked parent as they were just before `seq` (placesBefore, without the records gone since). */
+/**
+ * The project record as it was at each `seq`: the `before` of its first write from `seq` on, else the row as it is now.
+ * The project is never deleted, and its first write may come long after the file was made (ensureProjectRecord writes
+ * its row straight into the file), so its state then is what the next write found, not the last write before.
+ */
+export async function projectAt(file: ProjectFile, seqs: readonly number[]): Promise<(SbdRecord | null)[]> {
+  if (seqs.length === 0) return [];
+  const [row] = await file.query(`SELECT ${RECORD_COLUMNS} FROM records WHERE type = 'project' AND parent_id IS NULL LIMIT 1`);
+  if (!row) return seqs.map(() => null);
+  const now = fromRow(row);
+  const rows = await file.query(
+    `SELECT j.key AS i, w.seq AS seq, w.before FROM json_each(?) j
+      LEFT JOIN ops w ON w.seq = (SELECT o.seq FROM ops o WHERE o.record_id = ? AND o.seq >= j.value ORDER BY o.seq LIMIT 1)
+      ORDER BY j.key`,
+    [JSON.stringify(seqs), now.id],
+  );
+  // A first write that made it (no before) means it wasn't there yet: not known then.
+  return rows.map((r) => (r.seq === null || r.seq === undefined ? now : fromSnapshot(r.before)));
+}
+
+/**
+ * The records under each asked parent as they were just before `seq`: placesBefore without the records gone since, for a
+ * caller asking about one place at a time (placesBefore.test.ts: the same records either way).
+ */
 export async function childrenBefore(file: ProjectFile, asks: readonly { parentId: string; seq: number }[]): Promise<SbdRecord[][]> {
   return (await placesBefore(file, asks)).children;
 }

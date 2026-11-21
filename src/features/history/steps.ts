@@ -1,6 +1,6 @@
 import type { PlanUnit } from '../../core/model/length';
 import type { SbdRecord } from '../../core/model/record';
-import { childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, placesBefore, recordsBefore, storedPictures, type GoneRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, placesBefore, projectAt, recordsBefore, storedPictures, type GoneRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
 import { listVersions, type NamedVersion } from '../../core/storage/versions';
 import { byStep, describeGroup, lineText, moveTarget, peopleDiff, scheduledScene, stepScene, type Line } from './summary';
@@ -187,11 +187,44 @@ export async function stepRecords(
     around.set(ask.group, named);
   });
   const unsure = new Set<string>();
+  // A record in the Trash at the step is never a neighbour (summary.ts keeps live ones only), so its purge since changes
+  // nothing. Empty Trash keeps each write's kind and group: its last write before the step tells. A delete (an edit's or
+  // a redo's) or an undone restore left it in the Trash; anything else, a Restore to here's revert among them, can't
+  // say so, and it counts as there.
+  const writes = new Map<string, LoggedOp[]>();
+  if (reads.length > 0 && gone.length > 0) {
+    for (const op of await opsOfRecords(file, gone.map((record) => record.id))) {
+      const list = writes.get(op.recordId);
+      if (list) list.push(op);
+      else writes.set(op.recordId, [op]);
+    }
+  }
+  const trashedThen = (id: string, start: number): boolean => {
+    const last = (writes.get(id) ?? []).filter((op) => op.seq < start).at(-1);
+    if (!last) return false;
+    return (last.kind === 'trash' && (last.groupKind === 'edit' || last.groupKind === 'redo')) || (last.kind === 'restore' && last.groupKind === 'undo');
+  };
   for (const { group, start } of reads) {
     const own = new Set((byGroup.get(group) ?? []).map((op) => op.recordId));
-    const there = (record: GoneRecord) => record.last >= start && (own.has(record.id) || !(record.made && record.first >= start));
+    const there = (record: GoneRecord) => record.last >= start && (own.has(record.id) || !(record.made && record.first >= start)) && !trashedThen(record.id, start);
     if (gone.some(there)) unsure.add(group);
   }
+  // A frame's place is proven by its letter (summary.ts), in the project's own lettering: the project as it was at the
+  // step, which no move writes and nothing deletes, so it's named for every step that has to prove its place.
+  const proving = [...unsure].flatMap((group) => {
+    const ops = byGroup.get(group) ?? [];
+    const named = around.get(group);
+    if ([...(named?.values() ?? [])].some((r) => r.type === 'project') || ops.some((op) => (op.after ?? op.before)?.type === 'project')) return [];
+    return [{ group, seq: ops.reduce((max, op) => Math.max(max, op.seq), 0) + 1 }];
+  });
+  const projects = await projectAt(file, proving.map((ask) => ask.seq));
+  proving.forEach((ask, i) => {
+    const project = projects[i];
+    if (!project) return;
+    const named = around.get(ask.group) ?? new Map<string, SbdRecord>();
+    named.set(project.id, project);
+    around.set(ask.group, named);
+  });
   // An issued call sheet that already existed (4.7): its day, which only the call sheet record knows.
   const days = [...around].flatMap(([group, named]) => {
     const issued = byGroup.get(group)?.find((op) => op.after?.type === 'media' && typeof op.after.props.issue_version === 'number');

@@ -8,6 +8,8 @@ import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot, moveItem, trashShot } from '../storyboard/board';
+import { reorderChanges } from '../moodboards/items';
+import { movePageChanges } from '../moodboards/pages';
 import { loadSteps } from './steps';
 import { describeEdit, frameRows, lineText } from './summary';
 
@@ -185,6 +187,76 @@ describe('a deck’s page moved', () => {
     setLocale('es');
     expect(say([moved(p3, 'd', '0')], pages)).toBe('Se movió la página 3 al principio de la presentación Pitch');
     expect(say([moved(p2, 'd', 'cm')], pages)).toBe('Se movió la página «Cover» después de la página 3');
+  });
+
+  it('names an unnamed page “a page”, never by a number, when a record of the project then is gone for good', () => {
+    const unsure = (ops: LoggedOp[], around: ReadonlyMap<string, SbdRecord>) => lineText(describeEdit(ops, none, around, undefined, true));
+    // Page 1 purged since: the deck's pages as the step knows them are only 2 and 3, so a number could be wrong.
+    expect(unsure([moved(p3, 'd', '0')], near(deck, p2, p3))).toBe('Moved a page');
+    expect(unsure([moved(p2, 'd', '0')], near(deck, p2, p3))).toBe("Moved page 'Cover'");
+    setLocale('es');
+    expect(unsure([moved(p3, 'd', '0')], near(deck, p2, p3))).toBe('Se movió una página');
+    expect(unsure([moved(p2, 'd', '0')], near(deck, p2, p3))).toBe('Se movió la página «Cover»');
+  });
+});
+
+describe('a page dragged in a deck whose keys couldn’t be read (6.23)', () => {
+  // A deck's pages and a rectangle, page 3's key one keyBetween can't read: a page's drag writes every item afresh.
+  const deck = record('d', 'board', 'p', 'k', { kind: 'deck', name: 'Pitch' });
+  const page = (id: string, sortKey: string, x: number) =>
+    record(id, 'board_item', 'd', sortKey, { kind: 'page', x, y: 0, width: 1920, height: 1080, format: '16:9', orientation: 'portrait', name: '' });
+  const p1 = page('p1', 'b', 0);
+  const rect = record('r1', 'board_item', 'd', 'c', { kind: 'rect', x: 0, y: 0, width: 100, height: 100, rotation: 0 });
+  const p2 = page('p2', 'd', 2200);
+  const p3 = page('p3', '~', 4400);
+  const odd: Record<string, SbdRecord> = { p: project, d: deck, p1, r1: rect, p2, p3 };
+  const around = near(project, deck, p1, rect, p2, p3);
+  const logged = (changes: readonly Change[], records: Record<string, SbdRecord> = odd): LoggedOp[] => {
+    const now: Record<string, SbdRecord> = { ...records };
+    return changes.map((change) => {
+      const was = change.kind === 'move' ? now[change.id] : undefined;
+      if (!was || change.kind !== 'move') throw new Error('not in the test');
+      const after = { ...was, parentId: change.parentId, sortKey: change.sortKey };
+      now[was.id] = after;
+      return op('move', was, after);
+    });
+  };
+
+  it('names the page the person moved and where, not the items written afresh with it', () => {
+    const last = movePageChanges(odd, 'd', 'p1', 2);
+    expect(last.length).toBeGreaterThan(2);
+    expect(say(logged(last), around)).toBe('Moved page 1 to after page 3');
+    const first = movePageChanges(odd, 'd', 'p3', 0);
+    expect(say(logged(first), around)).toBe('Moved page 3 to the start of deck Pitch');
+    setLocale('es');
+    expect(say(logged(last), around)).toBe('Se movió la página 1 después de la página 3');
+    expect(say(logged(first), around)).toBe('Se movió la página 3 al principio de la presentación Pitch');
+  });
+
+  it('a rectangle sent to the front in that deck still reads as its items reordered', () => {
+    const r2 = record('r2', 'board_item', 'd', '~~', { kind: 'rect', x: 0, y: 0, width: 100, height: 100, rotation: 0 });
+    const withTwo = { ...odd, r2 };
+    const front = reorderChanges(withTwo, 'd', ['r1'], 'front');
+    expect(front.length).toBeGreaterThan(1);
+    expect(say(logged(front, withTwo), near(...Object.values(withTwo)))).toBe('Reordered 5 items');
+  });
+});
+
+describe('a frame’s place proven by its letter (a record of the project then gone for good)', () => {
+  const unsure = (ops: LoggedOp[], around: ReadonlyMap<string, SbdRecord>) => lineText(describeEdit(ops, none, around, undefined, true));
+  const d4 = shot('d4', 'sc4', 'd', '4D');
+
+  it('proves nothing from a move that didn’t re-letter its scene: the letters after it must follow', () => {
+    // Scene 4 held A, B, C and D; B dragged after C by a step that wrote no renumber, so it keeps the letter B; C was
+    // deleted for good since. One known frame before it (A) matches B's letter, but D after it isn't C: not proven.
+    expect(unsure([moved(b4, 'sc4', 'cm')], near(project, sc4, a4, d4))).toBe('Moved 4B');
+    // The same drag as moveItem writes it (B and C re-lettered with it), D deleted for good since: proven.
+    const asC = { ...b4, sortKey: 'cm', props: { ...b4.props, number: '4C' } };
+    const steps = [moved(b4, 'sc4', 'cm'), op('update', { ...b4, sortKey: 'cm' }, asC), changed(c4, { number: '4B' })];
+    expect(unsure(steps, near(project, sc4, a4, c4))).toBe('Moved 4B to after 4C');
+    setLocale('es');
+    expect(unsure([moved(b4, 'sc4', 'cm')], near(project, sc4, a4, d4))).toBe('Se movió 4B');
+    expect(unsure(steps, near(project, sc4, a4, c4))).toBe('Se movió 4B después de 4C');
   });
 });
 
@@ -417,6 +489,78 @@ describe('History as read from the file', () => {
     ]);
     // 4D is still to shoot and isn't on it: the frames, as before.
     expect((await lines())[0]).toBe(`Moved 2 frames to shoot day ${dayDateLabel('2026-11-16')}`);
+  });
+
+  it('a page’s number never stands for an unnamed page once a page of the deck then is deleted for good', async () => {
+    const page = (id: string, sortKey: string) => ({
+      kind: 'create' as const,
+      record: { id, type: 'board_item' as const, parentId: 'deck', sortKey, props: { kind: 'page', x: 0, y: 0, width: 1920, height: 1080, format: '16:9', orientation: 'landscape', name: '' } },
+    });
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'deck', type: 'board', parentId: file.projectId, sortKey: 'X', props: { kind: 'deck', name: 'Pitch' } } },
+      page('P1', 'a'),
+      page('P2', 'b'),
+      page('P3', 'c'),
+    ]);
+    await store.getState().apply(movePageChanges(store.getState().records, 'deck', 'P3', 0));
+    expect((await lines(1))[0]).toBe('Moved page 3 to the start of deck Pitch');
+    await store.getState().apply([{ kind: 'trash', id: 'P1' }]);
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    const now = await lines();
+    expect(now).toContain('Moved a page');
+    expect(now.some((l) => /^Moved page \d/.test(l))).toBe(false);
+    setLocale('es');
+    expect(await lines()).toContain('Se movió una página');
+  });
+
+  it('a drag while a record was in the Trash keeps its place once the Trash is emptied; one restored then doesn’t', async () => {
+    const sceneMove = (id: string, sortKey: string) => [{ kind: 'move' as const, id, parentId: file.projectId, sortKey }];
+    // 4A deleted, SC 03 dragged after SC 04, then the Trash emptied: 4A was in the Trash at the drag, never beside it.
+    const a = await frame('sc4');
+    await store.getState().apply(trashShot(store.getState().records, file.projectId, a));
+    await store.getState().apply(sceneMove('sc3', 'Vm'));
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    expect(await lines()).toContain('Moved SC 03 to after SC 04');
+    // Deleted and restored before the drag, deleted for good after it: it was in the project then, so the place isn't said.
+    const b = await frame('sc4');
+    await store.getState().apply(trashShot(store.getState().records, file.projectId, b));
+    await store.getState().apply([{ kind: 'restore', id: b }]);
+    await store.getState().apply(sceneMove('sc4', 'Vz'));
+    await store.getState().apply(trashShot(store.getState().records, file.projectId, b));
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    expect(await lines()).toContain('Moved SC 04');
+    expect(await lines()).not.toContain('Moved SC 04 to after SC 03');
+    // Restored, then the restore undone: back in the Trash at the drag.
+    const c = await frame('sc4');
+    await store.getState().apply(trashShot(store.getState().records, file.projectId, c));
+    await store.getState().apply([{ kind: 'restore', id: c }]);
+    await store.getState().undo();
+    await store.getState().apply(sceneMove('sc4', '0'));
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    expect(await lines()).toContain('Moved SC 04 to the start of the project');
+    setLocale('es');
+    expect(await lines()).toEqual(expect.arrayContaining(['Se movió ESC 03 después de ESC 04', 'Se movió ESC 04', 'Se movió ESC 04 al principio del proyecto']));
+  });
+
+  it('a frame lettered past H keeps its place after a purge elsewhere, in the project’s own lettering', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 10; i += 1) ids.push(await frame('sc4'));
+    const elsewhere = await frame('sc3');
+    const number = (id: string | undefined) => {
+      const value = store.getState().records[id ?? '']?.props.number;
+      return typeof value === 'string' ? value : '';
+    };
+    const [eighth, ninth, tenth] = [ids[7], ids[8], ids[9]];
+    const [h, last] = [number(eighth), number(tenth)];
+    expect(h).toBe('4H');
+    // The tenth frame dragged before the ninth: lettered by its new place, past H, where the two alphabets differ.
+    await move(tenth ?? '', 'sc4', ninth ?? null);
+    expect((await lines(1))[0]).toBe(`Moved ${last} to after 4H`);
+    await store.getState().apply(trashShot(store.getState().records, file.projectId, elsewhere));
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    expect(await lines()).toContain(`Moved ${last} to after 4H`);
+    setLocale('es');
+    expect(await lines()).toContain(`Se movió ${last} después de 4H`);
   });
 
   it('an undo, a redo and a restore name their target’s own line though it’s older than the page', async () => {

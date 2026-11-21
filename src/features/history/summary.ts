@@ -1514,13 +1514,28 @@ function movedKind(record: SbdRecord | null | undefined): MovedKind | null {
 }
 
 /**
- * Where a step's moves went, when they all went under one parent and are frames, notes, scenes or pages: the parent's
- * id, for the History reader (steps.ts) to read that parent's records as they were before the step. Null otherwise.
+ * A deck's items written afresh with a page in the same step, other kinds among them: a page dragged in a deck whose
+ * keys couldn't be read (6.23, movePageChanges writes every item of the deck), its pages' neighbours the pages.
+ */
+const deckRekey = (moves: readonly LoggedOp[]): boolean =>
+  moves.some((op) => movedKind(op.after) === 'page') && moves.some((op) => movedKind(op.after) !== 'page') && moves.every((op) => op.after?.type === 'board_item');
+
+/** The kind of a step's moves (movedKind), a deck's items written afresh with a page as pages; null when mixed. */
+function movesKind(moves: readonly LoggedOp[]): MovedKind | null {
+  if (deckRekey(moves)) return 'page';
+  const kind = movedKind(moves[0]?.after);
+  return kind !== null && moves.every((op) => movedKind(op.after) !== null) ? kind : null;
+}
+
+/**
+ * Where a step's moves went, when they all went under one parent and are frames, notes, scenes or pages (or a deck's
+ * items written afresh with a page): the parent's id, for the History reader (steps.ts) to read that parent's records as
+ * they were before the step. Null otherwise.
  */
 export function moveTarget(ops: readonly LoggedOp[]): string | null {
   const moves = ops.filter((op) => op.kind === 'move' && op.after);
   const target = moves[0]?.after?.parentId ?? null;
-  if (target === null || !moves.every((op) => op.after?.parentId === target && movedKind(op.after) !== null)) return null;
+  if (target === null || !moves.every((op) => op.after?.parentId === target) || movesKind(moves) === null) return null;
   return target;
 }
 
@@ -1582,11 +1597,15 @@ function asLeft(ops: readonly LoggedOp[]): (record: SbdRecord) => SbdRecord {
  */
 function personMoves(moves: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): readonly LoggedOp[] {
   const target = moveTarget(moves);
-  const kind = movedKind(moves[0]?.after);
+  const kind = movesKind(moves);
   if (moves.length < 2 || target === null || kind === null || moves.some(purged)) return moves;
   const ids = new Set(moves.map((op) => op.recordId));
-  // Re-keyed: every record the place held is in the step (the Trash's too); else the person moved them all.
-  const held = [...around.values()].filter((r) => r.parentId === target && (kind === 'frame' ? r.type === 'shot' || r.type === 'note' : neighbourOf(kind)(r)));
+  // Re-keyed: every record the place held is in the step (the Trash's too); else the person moved them all. A deck's
+  // items written afresh with a page are all its items, not only its pages.
+  const rekeyed = deckRekey(moves);
+  const held = [...around.values()].filter(
+    (r) => r.parentId === target && (kind === 'frame' ? r.type === 'shot' || r.type === 'note' : rekeyed ? r.type === 'board_item' : neighbourOf(kind)(r)),
+  );
   if (held.some((r) => !ids.has(r.id))) return moves;
   const stayed = moves.flatMap((op) => (op.before?.parentId === target && op.after ? [{ op, before: op.before, after: op.after }] : []));
   const others = moves.filter((op) => op.before?.parentId !== target);
@@ -1625,7 +1644,9 @@ function personMoves(moves: readonly LoggedOp[], around: ReadonlyMap<string, Sbd
 /**
  * Whether a frame's place is proven by its number, with records of its scene since deleted for good: in a scene whose
  * numbers follow the board, the step left every live frame lettered by its place, so the first moved frame's letter
- * counts the live frames before it. Its count of the known ones before it the same: none is missing there.
+ * counts the live frames before it. Its count of the known ones before it the same: none is missing there. And the
+ * known live frames after it carry the next letters in order, so the step did re-letter the scene: a move that didn't
+ * (an older version's file, a step not made by moveItem) keeps its old letter, which proves nothing.
  */
 function placeProven(first: SbdRecord, before: readonly SbdRecord[], target: string, ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): boolean {
   if (first.type !== 'shot') return false;
@@ -1633,12 +1654,26 @@ function placeProven(first: SbdRecord, before: readonly SbdRecord[], target: str
   const known = around.get(target);
   const scene = known ? left(known) : ops.find((op) => op.recordId === target)?.after;
   if (scene?.type !== 'scene' || sceneFields(scene.props).numbersLocked) return false;
-  const letters = lettersOf(shotFields(left(first).props).number, sceneFields(scene.props).number);
+  const sceneNumber = sceneFields(scene.props).number;
+  const letters = lettersOf(shotFields(left(first).props).number, sceneNumber);
   if (letters === null) return false;
-  // The project's I and O setting when the step knows the project; else only letters both settings read alike.
-  const project = [...around.values()].find((r) => r.type === 'project');
+  // The frames after it as the step left them: the step's own (the other frames it moved) and the known ones.
+  const records = new Map<string, SbdRecord>();
+  for (const r of around.values()) records.set(r.id, left(r));
+  for (const op of ops) if (op.after) records.set(op.recordId, op.after);
+  const after = [...records.values()]
+    .filter((r) => r.parentId === target && r.type === 'shot' && r.trashedAt === null && r.id !== first.id && byKey(r, left(first)) > 0)
+    .sort(byKey)
+    .map((r) => lettersOf(shotFields(r.props).number, sceneNumber));
+  if (after.some((l) => l === null)) return false;
+  // The project's I and O setting when the step knows the project (as it left it); else only letters both settings read
+  // alike.
+  const written = ops.find((op) => op.after?.type === 'project');
+  const project = written?.after ?? [...around.values()].find((r) => r.type === 'project');
   const options = project ? [{ skipIO: projectStoryboard(project.props).skipIO }] : [{ skipIO: true }, { skipIO: false }];
-  return options.every((option) => letterIndex(letters, option) === before.length);
+  return options.every(
+    (option) => letterIndex(letters, option) === before.length && after.every((l, i) => l !== null && letterIndex(l, option) === before.length + 1 + i),
+  );
 }
 
 /**
@@ -1674,7 +1709,7 @@ function moveWhere(
   if (unsure && !placeProven(first, earlier, target, ops, around)) return null;
   const before = earlier.at(-1);
   if (kind === 'scene' || !parent) return before ? { after: nameOf(before) } : { projectStart: true };
-  if (kind === 'page') return before ? { after: pageName(before, moves, target, around) } : { start: t('history.deckNamed', { name: lineText([nameOf(parent)]) }) };
+  if (kind === 'page') return before ? { after: pageName(before, moves, target, around, unsure) } : { start: t('history.deckNamed', { name: lineText([nameOf(parent)]) }) };
   const place = nameOf(parent);
   if (!before) return { start: place };
   if (before.type === 'shot' && shotFields(before.props).number === '') return { to: place };
@@ -1683,11 +1718,13 @@ function moveWhere(
 
 /**
  * A deck's page in a move's line: by its name, as the deck lines say it, or by its number among the deck's pages as
- * they were before the step (as Trash numbers one), never "a page" when it can be told.
+ * they were before the step (as Trash numbers one), never "a page" when it can be told. Not by its number when a record
+ * of the project then has since been deleted for good (`unsure`): a purged page isn't counted, so the number could be
+ * wrong; then "a page".
  */
-function pageName(page: SbdRecord, moves: readonly LoggedOp[], target: string, around: ReadonlyMap<string, SbdRecord>): Part {
+function pageName(page: SbdRecord, moves: readonly LoggedOp[], target: string, around: ReadonlyMap<string, SbdRecord>, unsure: boolean): Part {
   const fields = itemFields(page.props);
-  if (fields?.kind === 'page' && fields.name.trim() !== '') return nameOf(page);
+  if (unsure || (fields?.kind === 'page' && fields.name.trim() !== '')) return nameOf(page);
   const ids = new Set(moves.map((op) => op.recordId));
   const pages = [
     ...[...around.values()].filter((r) => !ids.has(r.id)),
@@ -1725,7 +1762,7 @@ function movedLine(all: readonly LoggedOp[], ops: readonly LoggedOp[], around: R
   const record = recordOf(moved);
   // A deck's page by its name or its number then, as the deck lines name one.
   const target = moveTarget(moves);
-  const name = record && movedKind(record) === 'page' && target !== null ? pageName(moved.before ?? record, moves, target, around) : nameOf(record);
+  const name = record && movedKind(record) === 'page' && target !== null ? pageName(moved.before ?? record, moves, target, around, unsure) : nameOf(record);
   const said = !where
     ? line('history.moved', { name })
     : 'after' in where
@@ -1960,6 +1997,12 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
   if (moved) {
     // One page moved to another place in the deck (5.5), after the page before it.
     if (moves.length === 1 && itemFields(record(moved)?.props ?? {})?.kind === 'page') return movedLine(moves, ops, around, tag, unsure);
+    // The same in a deck whose keys couldn't be read (6.23): its items written afresh with the page, the page the one
+    // whose place among them changed (personMoves).
+    if (moves.length > 1 && moves.every((op) => record(op)?.type === 'board_item') && moveTarget(moves) !== null) {
+      const person = personMoves(moves, around);
+      if (person.length === 1 && movedKind(person[0]?.after) === 'page') return movedLine(moves, ops, around, tag, unsure);
+    }
     // A scene's setups put in another order (6.0): their numbers follow.
     if (moves.every((op) => record(op)?.type === 'setup')) return line('history.setupsReordered', { scene: setupScene(record(moved), ops, around) });
     // A board's items sent forward or back (5.0): their stacking order, not a move across the board.
