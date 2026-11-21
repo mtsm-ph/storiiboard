@@ -377,9 +377,10 @@ except the tile accent (Kevin's pick) and the Rust file locks (brief only).
 
 **nov21-d's Mac installer was red once:** this machine read no canvas back (worker and page both "The object is in an
 invalid state."), the accents step passed by the canvas rule, then `worker-policy` reached the 90 s limit. Rerun:
-green, accents read by the worker, image `macos-26-arm64`. Next: a time limit with its own words on each worker
-script's fetch in `workerPolicy` (src/app/launchCheck/launchCheck.ts), so a hang after a canvas failure names itself;
-then `checkpoint/launch-3` (allowed tonight).
+green, accents read by the worker, image `macos-26-arm64`. **#255 (6.37, open, two rounds, reviewed)** gives each
+launch-check line its time since the start and each worker script's fetch a 10 s limit. `checkpoint/launch-3` green:
+the Mac passed every step in 5.2 s, Windows in 6.5 s, so nov21-d's 90 s was a hang after the canvas failure, not a
+spent budget. A launch checkpoint is never one to merge on: #255 merges on the next full checkpoint Kevin names.
 
 **Follow-ups:** #241's low ones (a store pending count, test gaps); a unit test seen flaky once locally,
 `switchBackup.test.ts` "makes no copy on the reopen path…" (passed alone and on rerun).
