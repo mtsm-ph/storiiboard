@@ -4,8 +4,9 @@ import { discardDrafts } from './drafts';
 // Which Settings tab is open (polish B), apart from the window itself (SettingsWindow.tsx), so what a tab shows can
 // open Settings at another tab without importing the window that holds it.
 
-// Presets (6.5.8) last, after the tabs people already know their way to by arrow keys.
-export const SETTINGS_TABS = ['project', 'app', 'theme', 'backups', 'storage', 'online', 'profile', 'presets'] as const;
+// Presets (6.5.8) last, after the tabs people already know their way to by arrow keys; AI assistant (7.6) beside Online
+// services, the other tab on what leaves this computer.
+export const SETTINGS_TABS = ['project', 'app', 'theme', 'backups', 'storage', 'online', 'assistant', 'profile', 'presets'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 interface SettingsState {

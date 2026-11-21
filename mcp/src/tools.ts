@@ -52,6 +52,8 @@ export interface ToolContext {
   data: ProjectData;
   /** Department flags (Kevin, Nov 21): empty until departments by file store them. */
   departments?: DepartmentAccess;
+  /** The assistant's app by its own name from the MCP initialize request, cleaned (7.6): who a change file is from. */
+  client?: string;
 }
 
 type Json = JsonValue;
@@ -81,7 +83,7 @@ function noLookups(records: Records): ReadonlyMap<string, string | null> {
   return new Map(Object.keys(records).map((id) => [id, null]));
 }
 
-interface Read {
+export interface Read {
   data: ProjectData;
   /** Props given (assistantView). */
   given: Records;
@@ -90,7 +92,7 @@ interface Read {
   projectId: string;
 }
 
-function read(context: ToolContext, includeTrashed = false): Read {
+export function read(context: ToolContext, includeTrashed = false): Read {
   const view = assistantView(context.data.records, { includeTrashed, departments: context.departments ?? NO_DEPARTMENT_FLAGS });
   return { data: context.data, given: view.given, scoped: view.scoped, projectId: context.data.projectId };
 }
@@ -105,17 +107,17 @@ const ref = (r: Read, id: string | null | undefined): Obj | null => {
 
 const trashed = (record: SbdRecord): Obj => (record.trashedAt === null ? {} : { trashed: true, trashed_at: record.trashedAt });
 
-const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+export const bySortKey = (a: SbdRecord, b: SbdRecord) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /** The project's scenes in board order: live ones, and with `withTrashed` those in the Trash too. */
-function boardScenes(r: Read, withTrashed: boolean): SbdRecord[] {
+export function boardScenes(r: Read, withTrashed: boolean): SbdRecord[] {
   return Object.values(r.scoped)
     .filter((s) => s.type === 'scene' && s.parentId === r.projectId && (withTrashed || s.trashedAt === null))
     .sort(bySortKey);
 }
 
 /** A scene by its number as on the slate ("12", "4A", "SC 04" and "04" for 4), live first. */
-function sceneByNumber(r: Read, number: string, withTrashed = false): SbdRecord {
+export function sceneByNumber(r: Read, number: string, withTrashed = false): SbdRecord {
   const wanted = number.trim().replace(/^sc\s*/i, '').toUpperCase();
   const scenes = boardScenes(r, withTrashed);
   const match = (list: SbdRecord[]) =>
@@ -145,7 +147,7 @@ function setupOf(r: Read, scene: SbdRecord, setup: string): Setup {
 }
 
 /** A shoot day by its date (YYYY-MM-DD) or its number ("3", "Day 3"). */
-function dayOf(r: Read, day: string): ShootDay {
+export function dayOf(r: Read, day: string): ShootDay {
   const days = projectShootDays(r.scoped, r.projectId);
   const wanted = day.trim().replace(/^day\s*/i, '');
   const byDate = days.filter((d) => d.fields.date === wanted);

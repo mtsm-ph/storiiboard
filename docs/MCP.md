@@ -1,8 +1,10 @@
 # The MCP server
 
-Storiiboard's MCP server lets an AI assistant (Claude Desktop, Claude Code, any MCP client) read a project: its scenes,
-frames, schedule, call sheets, people, gear, locations, bird's-eye plans and suggestions. Built in 7.5 (Phase 7,
-docs/PHASE7_DECISIONS.md decisions 1, 2, 3, 14, 15 and 16). It reads only; it never changes the project.
+Storiiboard's MCP server lets an AI assistant (Claude Desktop, Claude Code, any MCP client) read a project (its scenes,
+frames, schedule, call sheets, people, gear, locations, bird's-eye plans and suggestions), run the project's checks, and
+suggest changes. Built in 7.5 (reading) and 7.6 (checking and proposing; Phase 7, docs/PHASE7_DECISIONS.md decisions 1,
+2, 3, 4, 5, 14, 15 and 16). It never changes the project: a suggestion is written as a change file beside it, and a
+person applies or rejects each one in the app ("The one write", below).
 
 **Everything the server returns goes to the assistant's maker** (Anthropic for Claude, and so on), as part of the
 conversation. That is why it never returns contact details, never returns a stored file, and reads only the project
@@ -89,7 +91,7 @@ of them when a call names only the shared name. A number whose label is another 
 real `Harbor Lights (2).sbd` beside them, the two are `(1)` and `(3)`), and a path given twice is one project. It never
 tells the assistant a folder's name, which can name a person or a client.
 
-Quit Claude Desktop and open it again; the ten Storiiboard tools are listed under the tools button.
+Quit Claude Desktop and open it again; the seventeen Storiiboard tools are listed under the tools button.
 
 ## Connect Claude Code
 
@@ -119,6 +121,55 @@ claude mcp add storiiboard -- node /Users/robin/Code/storiiboard/mcp/dist/server
 - mcp/test/server.test.ts runs a session of every tool and checks the project's bytes and its folder's listing (names,
   sizes, times) are the same before, during and after; the WAL refusal is checked the same way. The test's own build
   goes to `test-results/7.5/dist-test/`, never over `mcp/dist`.
+
+## The one write (7.6)
+
+The propose tools are the server's first and only write (Phase 7 decision 3: the assistant never writes the .sbd).
+Each call writes **one new change file** (`.sbdchanges`, docs/SBD_FORMAT.md "Change files") into the project's own
+`<Project> Suggestions/` folder beside it, `<Project>` being the .sbd's file name, and nothing else anywhere: never the
+.sbd (it is still opened read-only, as above), never another folder, never a file it didn't just make, never over an
+existing file.
+
+- **Checked before anything is written.** Every suggestion is read by the app's own reader (`reviewSuggestion`, 7.0)
+  under the assistant's scope row, beside the others of its file, against the project as it is: one with any flag
+  (outside what the assistant can suggest, a value its field doesn't take, a focal length outside the lens picked, a
+  frame that can't leave a locked scene, nothing to change) is refused, and so is the whole call. The one flag let
+  through is *waiting* on another suggestion of the same file (a new scene's frames, a frame after a new one). A value
+  or a note that reads as a phone number, an email, coordinates or a map link, or holds a contact detail the project
+  stores, is refused too: contact details are never suggested. Then the file's bytes are read by the app's own
+  change-file reader (7.1, src/core/storage/changeFile.ts), the very bytes that are written, within its bounds (5 MB,
+  2,000 suggestions). A refusal says why in words and writes nothing, so the assistant can try again.
+- **The file**: 7.1's format, `format: "storiiboard.changes"`, `version: 1`, a new `id` every call (a writer never adds
+  to a file it wrote), `project_id` and `project_name` from the project as read, `created_by: "mcp"`, and one person,
+  `{ "id": "a", "name": <the client's own name>, "role": "assistant" }`: the name the assistant's app gave itself in
+  the MCP initialize request (its `title`, else its `name`, such as "Claude Desktop"), as text, cleaned and at most
+  100 characters. Each suggestion's `before` values come from the project as read. Its name is
+  `<YYYY-MM-DD HH-mm-ss> <client> <8 hex>.sbdchanges`: this computer's time, the client's name kept to letters, digits,
+  spaces, dots, dashes and underscores (at most 40), and the first 8 hex digits of the file's id, so a name never
+  repeats.
+- **How it is written**: whole, as a temporary file in the same folder whose name the app's listing skips (it ends in
+  `.writing`, not `.sbdchanges`), opened only if nothing of that name is there, flushed; then put in place under its
+  name by a hard link, which fails if anything of that name is there, and the temporary name taken away. A volume with
+  no hard links (exFAT, FAT, some network shares) gets a rename once nothing of the name is there (Node has no rename
+  that refuses to replace a file, so one made in that moment would be replaced). A write that fails takes its
+  temporary file away.
+- **The folder**: found as the app finds it (src-tauri/src/changes.rs): a real folder, not a link or a junction, whose
+  real parent is the project's own folder. When there is none, it is made with its marker, `storiiboard-folder.json`
+  (`{ "format": "storiiboard.suggestions-folder", "project_id", "project_name" }`), and nothing else. A folder of that
+  name whose marker names another project is refused in words ("is for another project, Saltmarsh"), and so is a link,
+  a junction or a file where the folder would be. A renamed project: with no `<Project> Suggestions/`, a folder beside
+  it named `<anything> Suggestions` whose marker names this project (and with no `<anything>.sbd` beside it) is the
+  project's folder, as the app finds it, and is written into; a second one is never made. The app asks to rename that
+  folder before it brings its files in, and the answer says so.
+- **Then**: Storiiboard brings the file in when the project opens, as one step that can be undone, or offers it (a
+  line and Bring in) when its window comes back to the front. Each suggestion arrives in the Suggestions tile, in a
+  group "From Claude Desktop, through the assistant", and a person applies or rejects each one; nothing changes until
+  then.
+- mcp/test/propose.test.ts runs every propose tool over stdio and checks each wrote exactly one file, that 7.1's reader
+  accepts it and 7.0's reader reads its suggestions unflagged; that a refused value writes nothing (the folder isn't
+  even made); that the project's bytes and everything else beside it are unchanged; that names and ids never repeat;
+  that another project's folder is refused; and (mcp/test/writeAndChecks.test.ts) that a failed write leaves no
+  temporary file and a file of the same name is never written over.
 
 ## What is never returned, and why
 
@@ -182,7 +233,8 @@ decided before an assistant can read it.
   scrubbed and kept to 64 characters.
 - **Files**: no picture, video, PDF, link or script, and no file path. A frame says only whether it has a picture.
 - **The Trash**, unless a call asks with `include_trashed: true`; each trashed item is then marked `trashed`.
-- **Board items, sketches, settings presets and availability**: no 7.5 tool reads them.
+- **Board items, sketches, settings presets and availability**: no tool returns them (run_checks reads availability
+  for its own check, and says only who is called while away).
 - **Department flags** (Kevin, Nov 21): each department can say whether the assistant may read its files; what's
   marked no, the assistant can't touch, except for the director and people given permission. No record is a
   department's file yet (that comes with departments by file) and nothing stores the flag yet, so today nothing is
@@ -360,11 +412,90 @@ type when the target is in the project), every value scrubbed, and `fields_left_
 known props (a suggested phone number, say) and counts the rest (`"2 unknown fields"`). A person applies each one in
 the app.
 
+### run_checks
+
+`{ project }` → every check over the project, from the function the app's Project checks tile runs (`allChecks`,
+src/core/checks/allChecks.ts), in the tile's own words (English):
+
+```
+{ findings: [{ id, kind, check, words, day: { id, number, date } | null,
+               target: { kind: "frame", frame: { id, number }, scene: { id, number } }
+                     | { kind: "plan", scene, setup: { id, number }, item_ids }
+                     | { kind: "location", location: { id, name } }
+                     | { kind: "call_sheet", day } }],
+  skipped: [{ id, kinds, reason, words, day, location: { id, name } | null }],
+  old_forecasts: [{ id, day, location, fetched_at, words }],
+  note }
+```
+
+`kind` is one of `unavailable-on-day`, `gear-not-on-day`, `golden-hour-midday`, `exterior-rain`,
+`location-missing`, `department-missing`, `hmu-too-short`, `plan-lens-differs`; `reason` one of `no-zone`,
+`no-place`, `no-forecast`, `forecast-not-covering`, `forecast-not-hours`, `no-date`. The rain check reads only the
+forecasts the project already holds (its cache in the file): the server never fetches one. No zone is looked up: a
+location with its time zone typed is read in it, one with none typed has its light and rain skipped (`no-zone`),
+never read in the zone of the computer the server runs on. An old forecast's words leave out when it was fetched (the
+time would be this computer's); `fetched_at` is UTC. Amounts are metric. The checks run on the records the assistant
+view keeps (no Trash); only the words and targets above go out, through the same text rule and guard as every answer.
+
+### The propose tools
+
+Each takes `project` and `note` (words for the person who reviews it, at most 2,000 characters), checks its
+suggestions and writes them as one change file (The one write, above), and answers:
+
+```
+{ written: { file, folder, folder_made, change_file_id, suggestions },
+  suggestions: [{ id, kind, target, says }], next }
+```
+
+Fields are named and valued as the app names and values them (the assistant's scope row,
+src/core/model/suggestionScope.ts; docs/SBD_FORMAT.md "What a suggestion may touch"): a frame's `title`, `size`
+(`EWS`, `WS`, `MS`, `MCU`, `CU`, `ECU`, `INSERT`), `lens_mm`, `t_stop`, `support`, `height`, `move`, `status`
+(`have`, `need`, `source`), `action`, `dialogue`, `location_id`, `shoot_day_id`, `gear_ids`; a scene's `name`,
+`int_ext`, `day_night`, `location_id`, `page_eighths`. Plain values are taken where a person would use them:
+`location` (or `location_id`) by the location's name, `shoot_day` by a date or a day number, `gear` by the items'
+names. Shot and scene numbers are never suggested: the project's own rule gives them.
+
+### suggest_shot_changes
+
+`{ project, changes: [{ frame: "12A", scene?, fields: { size: "CU", lens_mm: 85 } }], note? }`: an `update` for each
+frame, its `before` the frame's values as read. A frame by its number; its scene too when two share it.
+
+### suggest_new_shots
+
+`{ project, scene?: "12", after?: "12B" | "start", new_scene?: { name, int_ext, day_night, location, page_eighths,
+after?: "12" }, frames: [{ size, action, … }], note? }`: a `create` for each frame, in the order given, each after the
+one before it; in an existing scene after the frame named, at the start, or (left out) at the end; or a `create` for
+a new scene (after the scene named, else at the end of the board) with its frames under it.
+
+### suggest_reorder
+
+`{ project, moves: [{ frame: "12B" } | { scene: "12", note: 1 }, with after: "12A" | "start", or after_note: 2, and
+to_scene?: "13"], note? }`: a `reorder` for each frame or note (a note by its number among the scene's notes, from 1);
+a frame can move to another scene, a note only within its own.
+
+### suggest_gear_for_day
+
+`{ project, day: "2026-11-18" | "1", add?: ["SkyPanel S60"], remove?: ["Boom kit Sennheiser"], note? }`: an
+`update` of the day's gear list, items by name from the catalogue; added ones at the end, as the Gear picker adds them.
+
+### suggest_call_sheet_notes
+
+`{ project, day, notes?, safety_notes?, call_time?, wrap_time?, department_calls?: { sound: "06:30" },
+person_times?: { "Sam Ortiz": { call?, hmu_ready?, on_set? } }, note? }`: an `update` of the day's call sheet (notes,
+safety notes, department calls, people's times, a person by name), and one of the day itself for its crew call and
+wrap. Times `HH:MM`; `null` clears one.
+
+### suggest_trash
+
+`{ project, items: [{ frame: "12A" } | { scene: "12" } | { scene: "12", note: 1 }], note? }`: a `trash` for each, never
+a deletion; applied, it is the board's own move to the Trash.
+
 ## Later
 
-- 7.6: `run_checks` (the checks in src/core/checks) and the propose tools, which write suggestions as a change file
-  beside the project, never into it (decision 3).
-- 7.7: `read_script`.
+- 7.7: `read_script` and `suggest_breakdown` (it needs the scene's breakdown lists, decision 9).
+- With the room review: `suggest_room` (plan items join the assistant's scope row then).
+- Settings → AI assistant's switch "Let the assistant read contact details" (decision 14) waits for a project prop
+  Kevin hasn't approved; until it is built, these tools never read contact details.
 - With departments by file: `get_room_reference`, `list_files`, `read_file` and `suggest_file_organization`, each
   obeying a file's flag (Read, Details only, Never).
 - 7.10: local HTTP. Phase 8: the Claude Desktop bundle.

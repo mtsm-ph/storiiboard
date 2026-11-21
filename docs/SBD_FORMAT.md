@@ -2082,6 +2082,10 @@ Rejecting a suggestion changes nothing in the project; the suggestion stays, `re
   { "format": "storiiboard.suggestions-folder", "project_id": "0b6e2d0a-3f5c-4d8e-9c1a-7e2f4b5a6c3d", "project_name": "Harbor Lights" }
   ```
 
+  The MCP server (7.6) writes one new file per call, named `<YYYY-MM-DD HH-mm-ss> <client> <8 hex>.sbdchanges`, first
+  as a temporary file ending in `.writing` (a name this listing skips), never over an existing file; it makes the folder
+  with its marker when there is none. docs/MCP.md, "The one write", has the whole of it.
+
 - The app brings the folder in when the project opens: one pass, as **one** op group, so one undo takes the whole pass
   back. A pass has two budgets (7.1 round 3): it reads at most 1,000 files and 50 MB (52,428,800 bytes) to find what's
   new, and of what's new brings in at most 200 files, 10 MB (10,485,760 bytes) and 2,000 suggestions. A file brought in
