@@ -220,6 +220,35 @@ describe('watchLane measures the overflow without the lane', () => {
     clamp: (reach: number) => void;
   }
 
+  /** A scroller around the one watched, scrolled down to `top`: it reaches less far when the one inside gets shorter. */
+  interface Outer {
+    parentElement: null;
+    scrollLeft: number;
+    scrollTop: number;
+    writes: number;
+    clamp: (reach: number) => void;
+  }
+
+  function outer(top: number): Outer {
+    let at = top;
+    const area: Outer = {
+      parentElement: null,
+      scrollLeft: 0,
+      writes: 0,
+      get scrollTop() {
+        return at;
+      },
+      set scrollTop(value: number) {
+        area.writes += 1;
+        at = value;
+      },
+      clamp: (reach: number) => {
+        at = Math.min(at, reach);
+      },
+    };
+    return area;
+  }
+
   /**
    * A scroller 400 px high whose content is `content.height(lane)` px high, so a test can make the lane's own room push
    * it taller, as a lane that makes a line wrap does. `resize()` is a resize observer's call followed by the frame it
@@ -228,7 +257,16 @@ describe('watchLane measures the overflow without the lane', () => {
    * position is pulled back as a browser pulls it when the content gets shorter, and so is each area made by `inner()`:
    * without the lane it is 16 px wider, so it reaches 16 px less far.
    */
-  function scroller(content: { height: (lane: string | null) => number }) {
+  function scroller(
+    content: { height: (lane: string | null) => number },
+    options: {
+      overflowX?: string;
+      scrollWidth?: number;
+      paddingBottom?: (lane: string | null) => number;
+      /** A scroller around this one, and how far it reaches with each lane on this one. */
+      parent?: { area: Outer; reach: (lane: string | null) => number };
+    } = {},
+  ) {
     const frames: FrameRequestCallback[] = [];
     const resized: ((entries: { target: unknown }[]) => void)[] = [];
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
@@ -258,25 +296,37 @@ describe('watchLane measures the overflow without the lane', () => {
         }
       },
     );
-    vi.stubGlobal('getComputedStyle', () => ({ display: 'block', overflowX: 'hidden', overflowY: 'auto' }));
     const attributes = new Map<string, string>();
+    const laneNow = () => attributes.get('data-scroll-lane') ?? null;
+    // The style is read live, as a browser's is: the bottom padding follows the lane.
+    vi.stubGlobal('getComputedStyle', () => ({
+      display: 'block',
+      overflowX: options.overflowX ?? 'hidden',
+      overflowY: 'auto',
+      get paddingBottom() {
+        return `${String(options.paddingBottom?.(laneNow()) ?? 0)}px`;
+      },
+    }));
     const lanes: (string | null)[] = [];
     const scrollListeners: ((event: { target: unknown }) => void)[] = [];
     const inners: { area: Inner; reach: (lane: string | null) => number }[] = [];
     let top = 0;
     let rect = { width: 300, height: 400 };
-    /** Times the content was read without the lane. */
+    /** Times the content was read without the lane: the lane taken off and put back within one measure. */
     let bareReadings = 0;
-    const height = () => content.height(attributes.get('data-scroll-lane') ?? null);
+    let off = false;
+    const height = () => content.height(laneNow());
     // Each change of the lane lays the content out again, pulling every position back that no longer reaches.
     const relayout = () => {
-      const lane = attributes.get('data-scroll-lane') ?? null;
+      const lane = laneNow();
       top = Math.min(top, Math.max(0, height() - 400));
       for (const { area, reach } of inners) area.clamp(reach(lane));
+      options.parent?.area.clamp(options.parent.reach(lane));
     };
     const element = {
       children: [],
-      scrollWidth: 300,
+      parentElement: options.parent?.area ?? null,
+      scrollWidth: options.scrollWidth ?? 300,
       clientWidth: 300,
       clientHeight: 400,
       scrollLeft: 0,
@@ -292,11 +342,13 @@ describe('watchLane measures the overflow without the lane', () => {
       getBoundingClientRect: () => rect,
       getAttribute: (name: string) => attributes.get(name) ?? null,
       setAttribute: (name: string, value: string) => {
+        if (off) bareReadings += 1;
+        off = false;
         attributes.set(name, value);
         relayout();
       },
       removeAttribute: (name: string) => {
-        if (attributes.has(name)) bareReadings += 1;
+        if (attributes.has(name)) off = true;
         attributes.delete(name);
         relayout();
       },
@@ -307,7 +359,9 @@ describe('watchLane measures the overflow without the lane', () => {
     };
     const frame = () => {
       for (const callback of frames.splice(0)) callback(0);
-      lanes.push(attributes.get('data-scroll-lane') ?? null);
+      // A lane taken off and not put back in the same measure was dropped, not read without.
+      off = false;
+      lanes.push(laneNow());
     };
     /** A resize observer's call after a frame's layout, reporting the scroller's own box as it is then. */
     const observe = () => {
@@ -355,7 +409,7 @@ describe('watchLane measures the overflow without the lane', () => {
     };
   }
 
-  it('takes the lane while the content overflows without it, and drops it once the content fits without it', () => {
+  it('takes the lane while the content overflows without it, and drops it after a change of size once the content fits without it', () => {
     const content: { height: (lane: string | null) => number } = { height: (lane) => (lane === null ? 600 : 640) };
     const s = scroller(content);
     expect(s.lanes).toEqual(['y']);
@@ -462,9 +516,99 @@ describe('watchLane measures the overflow without the lane', () => {
     expect(s.lanes).toEqual(['y']);
     // Scrolled near the end: without the lane the content is shorter, and a browser would pull the position back to 100.
     s.element.scrollTop = 280;
+    // A change of size, so the content is read without the lane once it holds.
+    s.box(320);
     s.resize();
+    expect(s.readings()).toBe(1);
     expect(s.lanes.at(-1)).toBe('y');
     expect(s.element.scrollTop).toBe(280);
+    s.stop();
+  });
+
+  it('reads once without the lane when the content alone shrinks into the band and holds for a frame, and drops it', () => {
+    // A 400 px box; the content ends 380 px down without the lane, 420 with it: it fits only without the lane.
+    const content: { height: (lane: string | null) => number } = { height: (lane) => (lane === null ? 600 : 640) };
+    const s = scroller(content);
+    // The lane's own change resizes the content, and the browser reports it: that measure sets where the content was.
+    s.resize();
+    expect(s.lanes).toEqual(['y', 'y']);
+    // Frames trashed: the content shrinks, the box doesn't. Read with the lane on first, so it stays a frame.
+    content.height = (lane) => (lane === null ? 380 : 420);
+    s.resize();
+    expect(s.readings()).toBe(0);
+    expect(s.lanes.at(-1)).toBe('y');
+    // The smaller size has held for a frame: one reading without the lane, and the lane goes.
+    s.frame();
+    expect(s.readings()).toBe(1);
+    expect(s.lanes.at(-1)).toBeNull();
+    s.resize();
+    s.resize();
+    expect(s.readings()).toBe(1);
+    expect(s.lanes.slice(-2)).toEqual([null, null]);
+    s.stop();
+  });
+
+  it('reads nothing more when the content alone grows, into the band or past it, and keeps the lane', () => {
+    // Content that grows past the band, the lane on: no reading at all.
+    const tall: { height: (lane: string | null) => number } = { height: (lane) => (lane === null ? 600 : 640) };
+    const s = scroller(tall);
+    s.resize();
+    tall.height = (lane) => (lane === null ? 700 : 740);
+    s.resize();
+    s.frame();
+    expect(s.readings()).toBe(0);
+    expect(s.lanes.at(-1)).toBe('y');
+    s.stop();
+    // Into the band: the lane is on with the content shorter than the box only while it is held (a line that shows
+    // only without the lane, as the keys line does), and growth from there into the band reads nothing either.
+    const band: { height: (lane: string | null) => number } = { height: (lane) => (lane === null ? 600 : 640) };
+    const h = scroller(band);
+    band.height = () => 390;
+    h.resize();
+    band.height = () => 420;
+    h.resize();
+    expect(h.lanes).toEqual(['y', null, 'y']);
+    band.height = () => 360;
+    h.resize();
+    h.frame();
+    expect(h.lanes.at(-1)).toBe('y');
+    const before = h.readings();
+    band.height = (lane) => (lane === null ? 380 : 420);
+    h.resize();
+    h.frame();
+    h.resize();
+    expect(h.readings()).toBe(before);
+    expect(h.lanes.slice(-3)).toEqual(['y', 'y', 'y']);
+    h.stop();
+  });
+
+  it('never takes a sideways lane off to read: its room up and down is taken away by arithmetic, and nothing moves', () => {
+    // A table scrolling sideways in a 400 px box: 390 px high, 406 with the lane's bottom padding (its own is 0).
+    const content: { height: (lane: string | null) => number } = { height: (lane) => (lane === 'x' ? 406 : 390) };
+    const s = scroller(content, { overflowX: 'auto', scrollWidth: 900, paddingBottom: (lane) => (lane === 'x' ? 16 : 0) });
+    expect(s.lanes).toEqual(['x']);
+    s.resize();
+    // A change of size that holds, and the content shrinking: still the sideways lane alone, and never read without it.
+    s.box(320);
+    s.resize();
+    s.frame();
+    content.height = (lane) => (lane === 'x' ? 396 : 380);
+    s.resize();
+    s.frame();
+    expect(s.readings()).toBe(0);
+    expect(s.lanes.every((lane) => lane === 'x')).toBe(true);
+    s.stop();
+  });
+
+  it('puts back the position of a scroller around it that a reading without the lane pulled back', () => {
+    // The scroller's height follows its content, so without the lane the one around it is shorter and reaches less far.
+    const around = outer(500);
+    const s = scroller({ height: (lane) => (lane === null ? 500 : 700) }, { parent: { area: around, reach: (lane) => (lane === null ? 300 : 500) } });
+    s.box(320);
+    s.resize();
+    expect(s.readings()).toBe(1);
+    expect(around.scrollTop).toBe(500);
+    expect(around.writes).toBe(1);
     s.stop();
   });
 

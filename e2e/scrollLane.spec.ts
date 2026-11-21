@@ -84,14 +84,16 @@ test('a tile that fits takes no lane: its content reaches its right edge as befo
   expect(selection).toEqual({ overflows: false, lanes: [null, null], padding: '0px', gap: 0 });
 });
 
-test('a Shot list scrolled to its right end stays there when a frame is added under the lane (#222 round 6c)', async ({ page }) => {
-  // Reading the board without its lane lays everything inside out 16 px wider, which pulled the table's sideways
-  // position back by 16 px on every change of the board's content; it is put back now, and a change of content alone
-  // is read with the lane on.
+/**
+ * The Storyboard as a Shot list wide enough to scroll sideways (four custom fields with long values) and long enough
+ * for the board to scroll (15 frames), the last frame selected, its Action `action`.
+ */
+async function wideShotList(page: Page, action: string) {
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ }).click();
   const board = page.getByRole('region', { name: 'Storyboard', exact: true });
   const inspector = page.getByRole('region', { name: 'Frame inspector', exact: true });
-  for (let i = 0; i < 14; i += 1) await board.getByRole('button', { name: '+ Frame in SC 01' }).click();
+  for (let i = 0; i < 15; i += 1) await board.getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await expect(board.locator('[data-shot-id]')).toHaveCount(15);
   await board.locator('[data-shot-id]').first().click();
   for (const name of ['Second unit notes', 'Drone operator', 'Visual effects plate', 'Picture vehicle']) {
     await inspector.getByLabel('New field').fill(name);
@@ -101,56 +103,101 @@ test('a Shot list scrolled to its right end stays there when a frame is added un
     await field.fill('Kept wide on purpose, to scroll');
     await field.press('Enter');
   }
+  await board.locator('[data-shot-id]').last().click();
+  await inspector.getByLabel('Action').fill(action);
+  await inspector.getByLabel('Action').press('Tab');
   await board.getByRole('radio', { name: 'Shot list' }).click();
   const table = board.getByRole('table', { name: 'Shot list' });
   await expect(table.getByRole('columnheader', { name: 'Picture vehicle' })).toBeVisible();
+  await expect(table).toContainText(action);
   const scroller = table.locator('xpath=..');
-  /** The table's scroller, and the board's: its lane and whether it overflows. */
-  const read = () =>
-    scroller.evaluate((area) => {
+  /** The table's scroller and the board's: where each is and how far it reaches, and their lanes. */
+  const read = (frames = 0) =>
+    scroller.evaluate(async (area, count) => {
+      for (let i = 0; i < count; i += 1) await new Promise((resolve) => requestAnimationFrame(resolve));
       const tile = area.closest('[data-scroll-root]');
+      if (!(tile instanceof HTMLElement)) throw new Error('no tile body');
       return {
         left: area.scrollLeft,
         max: area.scrollWidth - area.clientWidth,
-        tileLane: tile?.getAttribute('data-scroll-lane') ?? null,
-        tileOverflows: tile ? tile.scrollHeight > tile.clientHeight : false,
+        lane: area.getAttribute('data-scroll-lane'),
+        top: tile.scrollTop,
+        bottom: tile.scrollHeight - tile.clientHeight,
+        tileLane: tile.getAttribute('data-scroll-lane'),
       };
-    });
+    }, frames);
   await expect.poll(async () => (await read()).tileLane).toBe('y');
   const before = await read();
-  expect(before.tileOverflows).toBe(true);
+  expect(before.bottom).toBeGreaterThan(0);
   expect(before.max).toBeGreaterThan(0);
+  return { inspector, table, scroller, read };
+}
+
+test('a Shot list scrolled to its right end stays there when a frame’s Action is edited in the Inspector (#222 round 6c)', async ({ page }) => {
+  // Reading the board without its lane lays everything inside out 16 px wider, which pulled the table's sideways
+  // position back by 16 px on every change of the board's content; it is put back now, and a change of content alone
+  // is read with the lane on (or, when it shrinks, once without it, round 6d).
+  // Wrapped already, so the Action's column is at its widest and the edit below changes only the row's height.
+  const { inspector, table, scroller, read } = await wideShotList(page, 'She crosses the kitchen to the window.');
+  // A person scrolls the table to its right end.
   await scroller.evaluate((area) => {
     area.scrollLeft = area.scrollWidth - area.clientWidth;
   });
   await expect.poll(async () => { const now = await read(); return now.left === now.max; }).toBe(true);
-  const frames = board.locator('[data-shot-id]');
-  // The new frame takes the focus, and focus scrolls its number, in the table's first column, into view: that is the
-  // board's own doing, not the lane's, so here focus moves without scrolling. The frame is added by its button's own
-  // click, so nothing scrolls the button into view first either.
-  await page.evaluate(() => {
-    const focus = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'focus')?.value as (this: HTMLElement, options?: FocusOptions) => void;
-    HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOptions) {
-      focus.call(this, { ...options, preventScroll: true });
-    };
-  });
-  await table.getByRole('button', { name: '+ Frame in SC 01' }).dispatchEvent('click');
-  await expect(frames).toHaveCount(15);
-  const after = await scroller.evaluate(async (area) => {
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    return { left: area.scrollLeft, max: area.scrollWidth - area.clientWidth };
-  });
+  // The Action made long enough to wrap its row onto more lines: the table and the board get taller. Tab keeps the
+  // focus in the Inspector, so nothing in the board is focused or scrolled into view.
+  const long = 'She crosses the kitchen to the window, sets the cup down, turns back to him, and waits for him to speak first.';
+  await inspector.getByLabel('Action').fill(long);
+  await inspector.getByLabel('Action').press('Tab');
+  await expect(table).toContainText(long);
+  const after = await read(5);
   expect(after.max).toBeGreaterThan(0);
   expect(after.left).toBe(after.max);
-  // The board taller: its box changes, so once the new size holds it is read without the lane, and the table's
-  // position is put back. The table's width doesn't change, so neither does how far it reaches.
-  await page.setViewportSize({ width: 1280, height: 560 });
-  const resized = await scroller.evaluate(async (area) => {
-    for (let i = 0; i < 4; i += 1) await new Promise((resolve) => requestAnimationFrame(resolve));
+  // The board taller: its box changes, so once the new size holds it is read without the lane (its attribute taken off
+  // and put back, counted here), and the table's position is put back. The table's width doesn't change, so neither
+  // does how far it reaches.
+  await scroller.evaluate((area) => {
     const tile = area.closest('[data-scroll-root]');
-    return { left: area.scrollLeft, max: area.scrollWidth - area.clientWidth, tileLane: tile?.getAttribute('data-scroll-lane') ?? null };
+    if (!(tile instanceof HTMLElement)) throw new Error('no tile body');
+    const changes = { count: 0 };
+    (window as unknown as { laneChanges: typeof changes }).laneChanges = changes;
+    new MutationObserver((records) => {
+      changes.count += records.length;
+    }).observe(tile, { attributes: true, attributeFilter: ['data-scroll-lane'] });
   });
-  expect(resized).toEqual({ left: after.max, max: after.max, tileLane: 'y' });
+  await page.setViewportSize({ width: 1280, height: 560 });
+  const resized = await read(5);
+  const changes = await page.evaluate(() => (window as unknown as { laneChanges: { count: number } }).laneChanges.count);
+  expect(changes).toBeGreaterThanOrEqual(2);
+  expect({ left: resized.left, max: resized.max, tileLane: resized.tileLane }).toEqual({ left: after.max, max: after.max, tileLane: 'y' });
+});
+
+test('the board scrolled to its bottom stays there when the Shot list inside it changes size (#222 round 6d)', async ({ page }) => {
+  // The table scrolling sideways has a lane of its own, whose bottom padding is part of its height. Taken off for a
+  // reading after the table's box changed, it made the board's content 16 px shorter for a moment, and the board,
+  // scrolled to its bottom, was pulled 16 px up and stayed there. A sideways lane is never taken off now.
+  const long = 'She crosses the kitchen to the window, sets the cup down, turns back to him, and waits for him to speak first.';
+  const { inspector, table, scroller, read } = await wideShotList(page, long);
+  await expect.poll(async () => (await read()).lane).toBe('x');
+  // A person scrolls the board to its very bottom and the table to its right end.
+  await scroller.evaluate((area) => {
+    const tile = area.closest('[data-scroll-root]');
+    if (!(tile instanceof HTMLElement)) throw new Error('no tile body');
+    tile.scrollTop = tile.scrollHeight - tile.clientHeight;
+    area.scrollLeft = area.scrollWidth - area.clientWidth;
+  });
+  await expect.poll(async () => { const now = await read(); return now.left === now.max && now.bottom - now.top < 1; }).toBe(true);
+  // The last frame's Action made short: its row no longer wraps, and the table and the board get shorter.
+  await inspector.getByLabel('Action').fill('Short.');
+  await inspector.getByLabel('Action').press('Tab');
+  await expect(table).toContainText('Short.');
+  await expect(table).not.toContainText(long);
+  const after = await read(5);
+  expect(after.bottom).toBeGreaterThan(0);
+  expect(after.bottom - after.top).toBeLessThan(1);
+  expect(after.max).toBeGreaterThan(0);
+  expect(after.left).toBe(after.max);
+  expect(after.lane).toBe('x');
 });
 
 test('with classic bars the overflowing tile takes no lane', async ({ page }) => {
