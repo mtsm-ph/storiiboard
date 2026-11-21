@@ -380,6 +380,12 @@ function waitingAction(opened: Project): NoticeAction {
 
 const keysOf = (files: readonly Listed[]): string => files.map(keyOf).join('\u0001');
 
+/**
+ * The files not yet brought in, newest first by their modified time, then by name (7.6 round 2): a pass reads them in
+ * this order, so a new file comes in even when older ones fill the read budget (the assistant writes one per call).
+ */
+const newestFirst = (files: readonly Listed[]): Listed[] => [...files].sort((a, b) => b.modified - a.modified || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
 async function runFolder(opened: Project, ask: FolderAsk): Promise<void> {
   const handle = opened.file.nativeHandle;
   if (handle === undefined) return;
@@ -393,7 +399,7 @@ async function runFolder(opened: Project, ask: FolderAsk): Promise<void> {
   const listing = await listFolder(opened, state, handle);
   if (listing === null || projectStore.getState().project !== opened) return;
   const folder = cleanText(listing.folder, 200);
-  const waiting = listing.files.filter((file) => !state.read.has(keyOf(file)));
+  const waiting = newestFirst(listing.files.filter((file) => !state.read.has(keyOf(file))));
   if (mode === 'find') {
     const keys = keysOf(waiting);
     if (waiting.length > 0 && keys !== state.lastWaiting) showInfo(tn('changes.waiting', waiting.length, { folder }), { action: waitingAction(opened) });
@@ -443,7 +449,7 @@ async function listFolder(opened: Project, state: FolderState, handle: number): 
 }
 
 /**
- * One pass: the waiting files read in name order, at most 1,000 files and 50 MB read to find what's new, of which at
+ * One pass: the waiting files read newest first, at most 1,000 files and 50 MB read to find what's new, of which at
  * most 200 files, 10 MB and 2,000 suggestions are brought in, as one op group. A file or a suggestion the log ever
  * brought in, undone ones included, is skipped and costs only the read budget, so an undone pass stays undone. A file
  * that couldn't be read costs the read budget by its listed size and waits for the next pass; however many there are,

@@ -37,7 +37,7 @@ for (const url of ['/', '/?files=memory']) {
     await gear(page).click();
     const settings = settingsWindow(page);
     await expect(settings).toBeVisible();
-    for (const tab of ['Project', 'App', 'Theme', 'Backups', 'Storage', 'Online services', 'Profile']) {
+    for (const tab of ['Project', 'App', 'Theme', 'Backups', 'Storage', 'Online services', 'AI assistant', 'Profile']) {
       await settings.getByRole('tab', { name: tab, exact: true }).click();
       await staysInside(page, settings, tab);
     }

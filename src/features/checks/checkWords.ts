@@ -9,7 +9,7 @@ import { shotFields } from '../../core/model/storyboard';
 import { momentIn, type WeatherUnits } from '../../core/net/weather';
 import { iconLabel } from '../birdseye/plan/iconWords';
 import { findingWords } from '../callsheets/checkWords';
-import { planPlace } from '../schedule/DaysTile';
+import { planPlace } from '../schedule/planPlace';
 
 // The Checks tile's words (7.4), in the app's language, made when shown: the findings carry ids and codes, never text.
 // A call sheet finding reads exactly as on its day's strip (findingWords); the gear and lens checks, which the strip

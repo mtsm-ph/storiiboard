@@ -6,6 +6,10 @@
 //
 //   node scripts/advisories.ts --osv osv.json --npm npm-audit.json --tree-windows tree-windows.txt --tree-mac tree-mac.txt
 //                              [--lock package-lock.json] [--config osv-scanner.toml]
+//                              [--npm-mcp npm-audit-mcp.json] [--lock-mcp mcp/package-lock.json]
+//
+// --npm-mcp is npm audit of the MCP server's folder (7.5, `npm audit --prefix mcp --json`), read with its own lock
+// file; its packages ship as the app's do.
 //
 // Red: an advisory on an npm package that isn't dev only, or on a crate in the app's normal tree for Windows
 // (x86_64-pc-windows-msvc) or the Mac (aarch64-apple-darwin); and malware anywhere, dev tools included, since it runs
@@ -347,6 +351,20 @@ export function npmAuditAdvisories(report: Json, lock: LockPackages): Advisory[]
   return out;
 }
 
+/**
+ * The MCP server's own lock file (mcp/package-lock.json, 7.5) and npm audit of it: its install paths under `mcp/`, so
+ * one lock of both is read for whether a package ships and the server's never meet the app's. The server is no dev
+ * tool (Phase 8 packs it for Claude Desktop), so a package it installs that isn't dev only ships.
+ */
+export function prefixedLock(lock: LockPackages, prefix: string): LockPackages {
+  return Object.fromEntries(Object.entries(lock).flatMap(([path, entry]) => (path === '' ? [] : [[`${prefix}${path}`, entry] as const])));
+}
+
+/** A folder's npm audit advisories with their install paths under its `prefix`, saying which folder they are in. */
+export function prefixedAdvisories(advisories: readonly Advisory[], prefix: string): Advisory[] {
+  return advisories.map((advisory) => ({ ...advisory, nodes: advisory.nodes.map((node) => `${prefix}${node}`), notes: [...advisory.notes, `in ${prefix} (the MCP server)`] }));
+}
+
 // ---- Putting the two together ------------------------------------------------------------------------------------
 
 function unique<T>(items: readonly T[]): T[] {
@@ -532,10 +550,13 @@ const OPTIONS = {
   'tree-windows': { type: 'string' },
   'tree-mac': { type: 'string' },
   lock: { type: 'string', default: 'package-lock.json' },
+  // npm audit of the MCP server's folder (7.5), read with its own lock file.
+  'npm-mcp': { type: 'string' },
+  'lock-mcp': { type: 'string', default: 'mcp/package-lock.json' },
   config: { type: 'string', default: 'osv-scanner.toml' },
 } as const;
 
-function main(args: string[]): number {
+export function main(args: string[]): number {
   let parsed: ReturnType<typeof parseArgs<{ args: string[]; options: typeof OPTIONS }>>;
   try {
     parsed = parseArgs({ args, options: OPTIONS });
@@ -548,7 +569,7 @@ function main(args: string[]): number {
   const treeWindows = values['tree-windows'];
   const treeMac = values['tree-mac'];
   if (!osv || !npm || !treeWindows || !treeMac) {
-    console.error('Usage: node scripts/advisories.ts --osv <file> --npm <file> --tree-windows <file> --tree-mac <file> [--lock <file>] [--config <file>]');
+    console.error('Usage: node scripts/advisories.ts --osv <file> --npm <file> --tree-windows <file> --tree-mac <file> [--lock <file>] [--config <file>] [--npm-mcp <file>] [--lock-mcp <file>]');
     return 1;
   }
   const read = <T>(path: string, how: (path: string) => T): T => {
@@ -559,11 +580,17 @@ function main(args: string[]): number {
     }
   };
   try {
-    const packages = read(lock, (path) => lockPackages(readJson(path)));
+    const own = read(lock, (path) => lockPackages(readJson(path)));
+    const npmMcp = values['npm-mcp'];
+    const lockMcp = values['lock-mcp'];
+    const mcpPackages = npmMcp ? read(lockMcp, (path) => lockPackages(readJson(path))) : {};
+    // One lock of both, the server's paths under mcp/.
+    const packages = { ...own, ...prefixedLock(mcpPackages, 'mcp/') };
     const ignores = read(config, (path) => parseIgnores(readFileSync(path, 'utf8')));
     const advisories = mergeAdvisories([
       ...read(osv, (path) => osvAdvisories(readJson(path))),
-      ...read(npm, (path) => npmAuditAdvisories(readJson(path), packages)),
+      ...read(npm, (path) => npmAuditAdvisories(readJson(path), own)),
+      ...(npmMcp ? prefixedAdvisories(read(npmMcp, (path) => npmAuditAdvisories(readJson(path), mcpPackages)), 'mcp/') : []),
     ]);
     const trees = [
       { target: 'Windows', crates: read(treeWindows, (path) => cargoTreeCrates(readFileSync(path, 'utf8'))) },

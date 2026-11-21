@@ -7,6 +7,7 @@ import { roveFocus } from '../../ui/roving';
 import { useScrollLane } from '../../ui/scrollLane';
 import { OnlineServicesTab } from '../preferences/OnlineServicesTab';
 import { AppTile } from '../preferences/AppTile';
+import { AssistantTab } from '../preferences/AssistantTab';
 import { BackupsPanel } from '../project/BackupsPanel';
 import { ProjectHome } from '../project/ProjectHome';
 import { StorageTile } from '../project/StorageTile';
@@ -34,6 +35,7 @@ const TAB_LABEL: Readonly<Record<SettingsTab, string>> = labels({
   backups: 'settings.tab.backups',
   storage: 'settings.tab.storage',
   online: 'settings.tab.online',
+  assistant: 'settings.tab.assistant',
   profile: 'settings.tab.profile',
   presets: 'settings.tab.presets',
 });
@@ -45,6 +47,7 @@ const TAB_CONTENT: Readonly<Record<SettingsTab, ComponentType>> = {
   backups: BackupsPanel,
   storage: StorageTile,
   online: OnlineServicesTab,
+  assistant: AssistantTab,
   profile: ProfileTab,
   presets: PresetsTab,
 };

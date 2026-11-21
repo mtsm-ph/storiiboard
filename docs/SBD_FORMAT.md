@@ -2082,8 +2082,13 @@ Rejecting a suggestion changes nothing in the project; the suggestion stays, `re
   { "format": "storiiboard.suggestions-folder", "project_id": "0b6e2d0a-3f5c-4d8e-9c1a-7e2f4b5a6c3d", "project_name": "Harbor Lights" }
   ```
 
+  The MCP server (7.6) writes one new file per call, named `<YYYY-MM-DD HH-mm-ssZ> <client> <8 hex>.sbdchanges` (the
+  time in UTC), first as a temporary file ending in `.writing` (a name this listing skips), never over an existing file;
+  it makes the folder with its marker when there is none, and refuses to write into one already holding 1,000 change
+  files or 50 MB of them (7.6 round 2). docs/MCP.md, "The one write", has the whole of it.
+
 - The app brings the folder in when the project opens: one pass, as **one** op group, so one undo takes the whole pass
-  back. A pass has two budgets (7.1 round 3): it reads at most 1,000 files and 50 MB (52,428,800 bytes) to find what's
+  back. It reads the files it hasn't brought in newest first by their modified time (7.6 round 2). A pass has two budgets (7.1 round 3): it reads at most 1,000 files and 50 MB (52,428,800 bytes) to find what's
   new, and of what's new brings in at most 200 files, 10 MB (10,485,760 bytes) and 2,000 suggestions. A file brought in
   before costs only the read budget. A file that couldn't be read costs the read budget by its listed size and is tried
   again at the next pass; however many there are, the pass says them in one counted line ("3 change files in Harbor
@@ -2098,7 +2103,7 @@ Rejecting a suggestion changes nothing in the project; the suggestion stays, `re
   page names neither a path nor an id, only the open project's handle). It looks at most at the folder's first 10,000
   entries, and says so when there were more, never silently; among them it lists every regular file whose name ends in
   `.sbdchanges` with its size and modified time, at most 5 MB each (a larger one is named and skipped). The page picks
-  the files it hasn't read, in name order.
+  the files it hasn't read, newest first by modified time, then by name (7.6 round 2).
 - It never follows a link or a Windows junction. The folder must be a real folder, not a link, whose real parent is the
   project's own folder: by identity, never by comparing names (a name in another case, or the other Unicode spelling of
   an accent, is the same folder). A file in it is looked at by its own entry first, never followed: a link or a junction

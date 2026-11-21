@@ -216,17 +216,21 @@ jobs:
       # An empty config, so OSV-Scanner reports everything and osv-scanner.toml's ignores are applied once, by the
       # script, the same way for npm audit's findings. Its exit code doesn't decide: 1 only says it found something;
       # above 1 it failed, and the script must not read what it left.
-      - name: OSV-Scanner on both lock files
+      # The MCP server's lock file too (7.5 round 2).
+      - name: OSV-Scanner on the three lock files
         run: |
           mkdir -p test-results/advisories
           : > "$RUNNER_TEMP/osv/no-ignores.toml"
           status=0
           "$RUNNER_TEMP/osv/osv-scanner" scan source --config "$RUNNER_TEMP/osv/no-ignores.toml" --format json \
-            --lockfile package-lock.json --lockfile src-tauri/Cargo.lock > test-results/advisories/osv.json || status=$?
+            --lockfile package-lock.json --lockfile src-tauri/Cargo.lock --lockfile mcp/package-lock.json > test-results/advisories/osv.json || status=$?
           if [ "$status" -gt 1 ]; then echo "OSV-Scanner failed with exit code $status"; exit 1; fi
       # Its exit code doesn't decide either; a failed audit writes an error the script refuses.
       - name: npm audit
         run: npm audit --json > test-results/advisories/npm-audit.json || true
+      # The MCP server's lock file (7.5), read the same way with its own lock.
+      - name: npm audit of the MCP server
+        run: npm audit --prefix mcp --json > test-results/advisories/npm-audit-mcp.json || true
       # Normal dependencies only, proc macros left out: build scripts' crates and proc macros run only as the app is
       # compiled, so neither is in what ships.
       - name: The app's crates on Windows and on the Mac
@@ -237,6 +241,7 @@ jobs:
       - name: Classify every finding
         run: >-
           node scripts/advisories.ts --osv test-results/advisories/osv.json --npm test-results/advisories/npm-audit.json
+          --npm-mcp test-results/advisories/npm-audit-mcp.json
           --tree-windows test-results/advisories/tree-windows.txt --tree-mac test-results/advisories/tree-mac.txt
       - name: Keep what the job read
         if: ${{ !cancelled() && hashFiles('test-results/advisories/*') != '' }}

@@ -57,6 +57,9 @@ export default defineConfig(
   {
     ignores: [
       'dist',
+      // The MCP server (7.5) is linted on its own, with its own TypeScript project (`npm run lint --prefix mcp`), so the
+      // app's lint never needs mcp/node_modules.
+      'mcp/**',
       'src-tauri/target',
       'src-tauri/gen',
       'prototype',

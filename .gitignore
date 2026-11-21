@@ -32,3 +32,5 @@ src-tauri/binaries/
 *.exe
 msi/
 nsis/
+# Claude Desktop bundles (the MCP probe, docs/MCP.md): packed by hand, never committed.
+*.mcpb
