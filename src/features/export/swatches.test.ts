@@ -123,7 +123,7 @@ describe('what a source offers', () => {
       signal: new AbortController().signal,
     };
     const result = await swatchesAse.run({ ...base, swatches: { kind: 'scene', sceneId: 's' } });
-    expect(result.what).toBe('2 colours');
+    expect(result.what).toBe('2 colors');
     expect(written[0]?.name).toBe('SC 04 palette.ase');
     expect(String.fromCharCode(...(written[0]?.bytes.slice(0, 4) ?? []))).toBe('ASEF');
     const empty = { ...records, s: { ...(records.s as SbdRecord), props: { number: '4' } } };

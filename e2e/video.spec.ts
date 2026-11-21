@@ -188,16 +188,16 @@ test('Settings → Storage counts the copies, moves them, clears them when asked
   await expect(storage(page).getByRole('button', { name: 'Clear playback copies…' })).toBeDisabled();
 
   // The licences, in a window of their own: here, a note that they ship with the desktop app.
-  await storage(page).getByRole('button', { name: 'Licences…' }).click();
-  const licences = page.getByRole('dialog', { name: 'Licences' });
-  await expect(licences.getByRole('textbox', { name: 'FFmpeg: the GNU LGPL 2.1' })).toHaveValue('The licences ship with the desktop app.');
-  await licences.getByRole('combobox', { name: 'Licence' }).selectOption({ label: 'zimg' });
-  await expect(licences.getByRole('textbox', { name: 'zimg' })).toHaveValue('The licences ship with the desktop app.');
+  await storage(page).getByRole('button', { name: 'Licenses…' }).click();
+  const licences = page.getByRole('dialog', { name: 'Licenses' });
+  await expect(licences.getByRole('textbox', { name: 'FFmpeg: the GNU LGPL 2.1' })).toHaveValue('The licenses ship with the desktop app.');
+  await licences.getByRole('combobox', { name: 'License' }).selectOption({ label: 'zimg' });
+  await expect(licences.getByRole('textbox', { name: 'zimg' })).toHaveValue('The licenses ship with the desktop app.');
   await page.keyboard.press('Escape');
   // Escape closes that window only, and focus goes back to the button that opened it.
   await expect(licences).toHaveCount(0);
   await expect(settingsWindow(page)).toBeVisible();
-  await expect(storage(page).getByRole('button', { name: 'Licences…' })).toBeFocused();
+  await expect(storage(page).getByRole('button', { name: 'Licenses…' })).toBeFocused();
 
   // The inspector looks again: the copy is gone, and can be made again.
   await closeSettings(page);

@@ -70,7 +70,7 @@ async function screen(page: Page, x: number, y: number) {
  */
 async function furnishedSetup(page: Page) {
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
@@ -190,7 +190,7 @@ test('Units on paper start as this computer’s plan units; feet on paper print 
   await fromPlan(page, 'plan-setup-pdf');
   const units = dialog(page).getByRole('combobox', { name: 'Printed units' });
   await expect(units).toHaveValue('metres');
-  const both = dialog(page).getByRole('switch', { name: 'Scale bar in metres and feet' });
+  const both = dialog(page).getByRole('switch', { name: 'Scale bar in meters and feet' });
   await expect(both).toHaveAttribute('aria-checked', 'false');
   // Feet on paper: the scale in inches to the foot, the bar in feet, no metres.
   await units.selectOption({ label: 'Feet and inches' });
@@ -206,7 +206,7 @@ test('Units on paper start as this computer’s plan units; feet on paper print 
   await fromPlan(page, 'plan-setup-pdf');
   await expect(dialog(page).getByRole('combobox', { name: 'Printed units' })).toHaveValue('feet');
   // Both bars, metres above feet, on feet's scale.
-  await dialog(page).getByRole('switch', { name: 'Scale bar in metres and feet' }).click();
+  await dialog(page).getByRole('switch', { name: 'Scale bar in meters and feet' }).click();
   const [twice] = await pdfTexts(await bytesOf(await save(page)));
   expect(twice).toMatch(/Scale \d+(\/\d+)?" = 1'-0"/);
   const metresAt = twice?.search(/\b\d+(\.\d+)? m\b/) ?? -1;
@@ -527,7 +527,7 @@ test('every entry’s count is the pages it writes and its name the file it save
 
 test('a setup with frames and nothing drawn prints its frames, in the scene’s and the day’s plans, and the packet says what it left out', async ({ page }) => {
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
   // SC 01's Setup 1 with both frames and Setup 2 with none; no room, nothing drawn.
   await toSection(page, 'Setup');

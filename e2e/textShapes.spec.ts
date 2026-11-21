@@ -154,8 +154,8 @@ test('makes a sticky note in each of its six colours', async ({ page }) => {
   expect((await data(page))[0]).toMatchObject({ kind: 'sticky', text: 'Rain cover?', width: 200, height: 200, color: '#FFE97A' });
   const colours = [['#FFE97A', 'Yellow'], ['#FFC9A8', 'Peach'], ['#FFB8C8', 'Pink'], ['#BFE8B0', 'Green'], ['#B5DDF5', 'Blue'], ['#D9C8F0', 'Lilac']] as const;
   for (const [colour, name] of colours) {
-    await properties(page).getByRole('button', { name: /^Sticky colour:/ }).click();
-    const panel = properties(page).getByRole('group', { name: 'Sticky colour' });
+    await properties(page).getByRole('button', { name: /^Sticky color:/ }).click();
+    const panel = properties(page).getByRole('group', { name: 'Sticky color' });
     // Stickies are offered their six swatches, each by its name, and any other colour by the Hex field (6.5.7a).
     // Six buttons and two textboxes in all (the Hex field and the system picker, which Playwright counts as one), so
     // an extra control is caught.
@@ -184,7 +184,7 @@ test('gives an ellipse a fill by hex, and refuses a hex that is not a colour', a
   await properties(page).getByRole('button', { name: /^Fill:/ }).click();
   await field.fill('nope');
   await field.press('Enter');
-  await expect(properties(page).getByRole('alert')).toHaveText('Type a colour like #DF5E27.');
+  await expect(properties(page).getByRole('alert')).toHaveText('Type a color like #DF5E27.');
   expect((await data(page))[0]?.fill).toBe('#DF5E27');
 });
 
@@ -200,9 +200,9 @@ test('takes a colour from the system picker, and the strip never resizes the can
   await expect(properties(page)).toBeVisible();
   expect(await canvas(page).boundingBox()).toEqual(box);
   await properties(page).getByRole('button', { name: /^Fill:/ }).click();
-  await properties(page).getByLabel('System colour picker').fill('#123456');
+  await properties(page).getByLabel('System color picker').fill('#123456');
   await expect.poll(async () => (await data(page))[0]?.fill).toBe('#123456');
-  await properties(page).getByLabel('System colour picker').fill('#654321');
+  await properties(page).getByLabel('System color picker').fill('#654321');
   await expect.poll(async () => (await data(page))[0]?.fill).toBe('#654321');
 });
 
@@ -251,7 +251,7 @@ test('changes the font, style, size and alignment of a text box', async ({ page 
   const size = properties(page).getByLabel('Size');
   await size.fill('40');
   await size.press('Enter');
-  await properties(page).getByRole('button', { name: 'Centre' }).click();
+  await properties(page).getByRole('button', { name: 'Center' }).click();
   await expect
     .poll(async () => {
       const [item] = await data(page);
@@ -339,7 +339,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await click(page, 200, -100);
     await page.keyboard.type('Rain cover?');
     await page.keyboard.press('Escape');
-    await properties(page).getByRole('button', { name: /^Sticky colour:/ }).click();
+    await properties(page).getByRole('button', { name: /^Sticky color:/ }).click();
     await page.evaluate(() => document.fonts.ready.then(() => true));
     const { violations } = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
     expect(violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);

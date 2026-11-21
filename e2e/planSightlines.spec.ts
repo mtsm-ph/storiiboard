@@ -84,7 +84,7 @@ async function clickAt(page: Page, x: number, y: number) {
 /** Metres, a camera body (the project's default for every camera), and SC 01's Setup 1 with its room started. */
 async function startRoom(page: Page) {
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
   await toSection(page, 'Production');
   await gear(page).getByRole('button', { name: '+ New item' }).click();

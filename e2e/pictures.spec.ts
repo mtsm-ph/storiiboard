@@ -146,7 +146,7 @@ test('frames the picture with the keys and the zoom, saving each move once', asy
   await page.keyboard.press(`${await command(page)}+z`);
   await expect(inspector(page).getByRole('application', { name: /^Framing/ })).toHaveAccessibleName('Framing, zoom 121%');
   await expect.poll(left).not.toBe(moved);
-  await inspector(page).getByRole('button', { name: 'Centre' }).click();
+  await inspector(page).getByRole('button', { name: 'Center' }).click();
   await expect(inspector(page).getByRole('application', { name: /^Framing/ })).toHaveAccessibleName('Framing, zoom 100%');
 });
 

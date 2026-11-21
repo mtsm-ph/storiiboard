@@ -92,7 +92,7 @@ async function moveTo(page: Page, x: number, y: number) {
 }
 const field = (page: Page, name: string): Locator => selectionTile(page).getByRole('textbox', { name, exact: true });
 
-async function setUnits(page: Page, label: 'Metres' | 'Feet and inches') {
+async function setUnits(page: Page, label: 'Meters' | 'Feet and inches') {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label });
   await closeSettings(page, 'apply');
@@ -101,7 +101,7 @@ async function setUnits(page: Page, label: 'Metres' | 'Feet and inches') {
 /** The Setup workspace on SC 01's Setup 1, its room started. */
 async function startRoom(page: Page) {
   // Metres whatever this computer's region says (feet in the US).
-  await setUnits(page, 'Metres');
+  await setUnits(page, 'Meters');
   await toSection(page, 'Setup');
   await expect(planTile(page)).toContainText('Pick a setup, or a scene’s heading, in the Setups tile to see its plan.');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
@@ -151,7 +151,7 @@ test('starts a room, draws walls by click and typed length in metres and feet, r
   await clickAt(page, 150 - 190.5, 200);
   await expect.poll(() => selection(page)).toHaveLength(1);
   await expect(field(page, 'Length')).toHaveValue('12\' 6"');
-  await setUnits(page, 'Metres');
+  await setUnits(page, 'Meters');
   await expect(field(page, 'Length')).toHaveValue('3.81 m');
   await expect(selectionTile(page).locator('[data-selection-kind]')).toHaveText('Wall');
 

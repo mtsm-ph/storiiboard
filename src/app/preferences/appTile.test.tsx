@@ -26,7 +26,7 @@ describe('Settings → App', () => {
     setLocale('en');
     const html = render();
     expect(html).toContain('Plan units');
-    expect(html).toContain('Metres');
+    expect(html).toContain('Meters');
     expect(html).toContain('Feet and inches');
     setLocale('es');
     expect(render()).toContain('Unidades de la planta');

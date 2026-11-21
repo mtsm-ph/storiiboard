@@ -76,7 +76,7 @@ async function clickAt(page: Page, x: number, y: number) {
 
 test('a window’s sun: its facing and hours, changed by its wall; its sill and top, the room’s ceiling, each undone', async ({ page }) => {
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
   await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
   await toSection(page, 'Setup');

@@ -179,7 +179,7 @@ test('the Measurement system sets plan and weather units together, and reads Mix
   await plan.selectOption('metres');
   await expect(system).toHaveValue('mixed');
   await expect(app.locator('[data-measurement]')).toHaveAttribute('data-measurement', 'mixed');
-  await expect(app).toContainText('Mixed. Plans: Metres. Weather and distances: US (°F, mph, in).');
+  await expect(app).toContainText('Mixed. Plans: Meters. Weather and distances: US (°F, mph, in).');
   await discardButton(page).click();
   await expect(system).toHaveValue('us');
 
@@ -216,7 +216,7 @@ test('the m | ft switch by the plan’s scale bar sets Plan units at once and ne
   await planTile.getByRole('button', { name: 'New room' }).click();
   await expect(planTile.locator('[data-canvas]')).toBeVisible();
   const units = planTile.getByRole('group', { name: 'Plan units' });
-  const metres = units.getByRole('button', { name: 'm (metres)' });
+  const metres = units.getByRole('button', { name: 'm (meters)' });
   const feet = units.getByRole('button', { name: 'ft (feet)' });
   // By this computer's region (en-US here): feet.
   await expect(feet).toHaveAttribute('aria-pressed', 'true');

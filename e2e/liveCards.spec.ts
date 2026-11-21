@@ -200,7 +200,7 @@ test('a card whose frame is in the Trash says so and stays; opening it shows the
 test('a scene’s palette card reads the palette as it is now, copies a hex, and offers the editor when there is none', async ({ page, browserName }) => {
   await twoFrames(page);
   await frame(page, '1A').click();
-  await inspector(page).getByRole('textbox', { name: 'Add a colour' }).fill('#A35139');
+  await inspector(page).getByRole('textbox', { name: 'Add a color' }).fill('#A35139');
   await page.keyboard.press('Enter');
   await expect(inspector(page).getByRole('toolbar', { name: 'Palette for SC 01' }).getByRole('button')).toHaveCount(1);
   await openCamera(page);
@@ -214,7 +214,7 @@ test('a scene’s palette card reads the palette as it is now, copies a hex, and
   if (browserName === 'chromium') expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('#A35139');
   // The palette changes in the Storyboard; the card follows.
   await toStoryboard(page);
-  await inspector(page).getByRole('textbox', { name: 'Add a colour' }).fill('#1F2F4D');
+  await inspector(page).getByRole('textbox', { name: 'Add a color' }).fill('#1F2F4D');
   await page.keyboard.press('Enter');
   await toMoodboard(page);
   await expect.poll(async () => (await live(page))[0]?.colors).toEqual(['#A35139', '#1F2F4D']);
@@ -253,12 +253,12 @@ test('the brand kit of the project’s company shows its colours and fonts, and 
     await company.getByRole('textbox', { name: label, exact: true }).blur();
   }
   // Not a colour: refused, with the words, and nothing saved.
-  await company.getByRole('textbox', { name: 'Brand colours' }).fill('#DF5E27 nope');
-  await company.getByRole('textbox', { name: 'Brand colours' }).blur();
-  await expect(panel.getByRole('alert')).toContainText('“nope” isn’t a colour');
-  await company.getByRole('textbox', { name: 'Brand colours' }).fill('#df5e27 #16150F');
-  await company.getByRole('textbox', { name: 'Brand colours' }).blur();
-  await expect(company.getByRole('list', { name: 'Brand colours' }).getByRole('listitem')).toHaveText(['#DF5E27', '#16150F']);
+  await company.getByRole('textbox', { name: 'Brand colors' }).fill('#DF5E27 nope');
+  await company.getByRole('textbox', { name: 'Brand colors' }).blur();
+  await expect(panel.getByRole('alert')).toContainText('“nope” isn’t a color');
+  await company.getByRole('textbox', { name: 'Brand colors' }).fill('#df5e27 #16150F');
+  await company.getByRole('textbox', { name: 'Brand colors' }).blur();
+  await expect(company.getByRole('list', { name: 'Brand colors' }).getByRole('listitem')).toHaveText(['#DF5E27', '#16150F']);
   // One list of fonts serves every picker (a datalist): typed or picked, and only a font in the list is kept.
   await company.getByRole('combobox', { name: 'Brand font 1' }).fill('Not a font');
   await company.getByRole('combobox', { name: 'Brand font 1' }).blur();
@@ -296,8 +296,8 @@ test('the brand kit of the project’s company shows its colours and fonts, and 
   // The profile's kit changes: the project's copy stays until Update from profile.
   panel = await openSettings(page, 'App');
   const again = panel.getByRole('list', { name: 'Company profiles' }).getByRole('group').first();
-  await again.getByRole('textbox', { name: 'Brand colours' }).fill('#2C5F8A');
-  await again.getByRole('textbox', { name: 'Brand colours' }).blur();
+  await again.getByRole('textbox', { name: 'Brand colors' }).fill('#2C5F8A');
+  await again.getByRole('textbox', { name: 'Brand colors' }).blur();
   await page.getByRole('dialog', { name: 'Settings' }).getByRole('tab', { name: 'Project', exact: true }).click();
   panel = page.getByRole('dialog', { name: 'Settings' }).getByRole('tabpanel', { name: 'Project', exact: true });
   await expect(panel.locator('[data-brand-colors-copy]')).toHaveText('#DF5E27 #16150F');

@@ -13,7 +13,7 @@ export async function samplePixels(image: Blob): Promise<{ data: Uint8ClampedArr
     const height = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = new OffscreenCanvas(width, height);
     const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('This computer can’t read the image’s colours.');
+    if (!ctx) throw new Error('This computer can’t read the image’s colors.');
     // The best downscale the engine has, so WebKit and WebView2 read an image as nearly alike as they can.
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';

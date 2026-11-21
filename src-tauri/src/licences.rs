@@ -23,7 +23,7 @@ pub const NAMES: [&str; 11] = [
 ];
 
 const MISSING: &str =
-    "That licence isn't in this copy of Storiiboard. Reinstalling Storiiboard puts it back.";
+    "That license isn't in this copy of Storiiboard. Reinstalling Storiiboard puts it back.";
 
 /// The text of licence `name` in the folder `dir`; only a name on the list.
 fn read(dir: &Path, name: &str) -> Result<String, String> {

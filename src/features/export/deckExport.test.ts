@@ -148,8 +148,8 @@ describe('the notice after the export', () => {
         3,
       ),
     ).toEqual([
-      'Brand Sans: its licence doesn’t allow embedding, so Inter Tight was used.',
-      'Pixel: its licence allows only bitmap embedding, so Inter Tight was used.',
+      'Brand Sans: its license doesn’t allow embedding, so Inter Tight was used.',
+      'Pixel: its license allows only bitmap embedding, so Inter Tight was used.',
       'Gone Serif: this computer doesn’t have it, so Inter Tight was used.',
       'Torn: this computer couldn’t read it, so Inter Tight was used.',
       '3 pictures printed from the copy kept in the project, not their original files.',

@@ -38,7 +38,7 @@ describe('the m | ft switch', () => {
     expect(html).toContain('aria-label="Plan units"');
     expect(html).toContain('data-scale-units="feet"');
     // Named by what each shows, the word in full after it for a reader: "m (metres)", "ft (feet)".
-    expect(html).toMatch(/aria-pressed="false"[^>]*>m<span class="sr-only"> \(metres\)<\/span>/);
+    expect(html).toMatch(/aria-pressed="false"[^>]*>m<span class="sr-only"> \(meters\)<\/span>/);
     expect(html).toMatch(/aria-pressed="true"[^>]*>ft<span class="sr-only"> \(feet\)<\/span>/);
   });
 

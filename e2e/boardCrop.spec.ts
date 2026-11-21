@@ -375,8 +375,8 @@ test('a border in a colour and width of its own shows on the board and in the PD
   await width.press('Enter');
   await borderGroup(page).getByRole('button', { name: 'Thicker border' }).click();
   await expect.poll(async () => (await pictureOf(page)).borderWidth).toBe(10);
-  await borderGroup(page).getByRole('button', { name: /^Border colour:/ }).click();
-  const panel = borderGroup(page).getByRole('group', { name: 'Border colour' });
+  await borderGroup(page).getByRole('button', { name: /^Border color:/ }).click();
+  const panel = borderGroup(page).getByRole('group', { name: 'Border color' });
   const hex = panel.getByRole('textbox', { name: 'Hex' });
   await hex.fill('2c5f8a');
   await hex.press('Enter');
@@ -444,8 +444,8 @@ test('in the Dark view a default border is light and a chosen one keeps its colo
   await expect.poll(() => pixel(canvas, band.x, band.y)).toEqual(INK);
   await boardTile(page).getByRole('group', { name: 'Canvas view' }).getByRole('button', { name: 'Dark' }).click();
   await expect.poll(() => pixel(canvas, band.x, band.y)).toEqual(DARK_INK);
-  await borderGroup(page).getByRole('button', { name: /^Border colour:/ }).click();
-  const hex = borderGroup(page).getByRole('group', { name: 'Border colour' }).getByRole('textbox', { name: 'Hex' });
+  await borderGroup(page).getByRole('button', { name: /^Border color:/ }).click();
+  const hex = borderGroup(page).getByRole('group', { name: 'Border color' }).getByRole('textbox', { name: 'Hex' });
   await hex.fill('a35139');
   await hex.press('Enter');
   await page.keyboard.press('Escape');
@@ -455,14 +455,14 @@ test('in the Dark view a default border is light and a chosen one keeps its colo
 
   // Default takes the chosen colour off: the border is the ink again, light in Dark, and the control's swatch says so.
   await boardTile(page).getByRole('group', { name: 'Canvas view' }).getByRole('button', { name: 'Dark' }).click();
-  await borderGroup(page).getByRole('button', { name: /^Border colour:/ }).click();
-  const panel = borderGroup(page).getByRole('group', { name: 'Border colour' });
+  await borderGroup(page).getByRole('button', { name: /^Border color:/ }).click();
+  const panel = borderGroup(page).getByRole('group', { name: 'Border color' });
   await panel.getByRole('button', { name: 'Default' }).click();
   await expect.poll(async () => (await pictureOf(page)).borderColor).toBeNull();
   await expect(panel.getByRole('button', { name: 'Default' })).toHaveAttribute('aria-pressed', 'true');
   await page.keyboard.press('Escape');
   await expect.poll(() => pixel(canvas, band.x, band.y)).toEqual(DARK_INK);
-  const swatch = borderGroup(page).getByRole('button', { name: /^Border colour:/ }).locator('span').first();
+  const swatch = borderGroup(page).getByRole('button', { name: /^Border color:/ }).locator('span').first();
   await expect(swatch).toHaveCSS('background-color', 'rgb(238, 233, 223)');
 });
 

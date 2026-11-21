@@ -132,7 +132,7 @@ test('exports a scene’s swatches as an .ase and as a PNG strip, and reads both
   const png = await bytesOf(download);
   expect(String.fromCharCode(...png.slice(1, 4))).toBe('PNG');
   expect(new DataView(png.buffer, png.byteOffset).getUint32(16)).toBe(2400);
-  await expect(page.getByRole('status').getByText(`Exported ${String(count)} ${count === 1 ? 'colour' : 'colours'} to “SC 01 palette.png”.`)).toBeVisible();
+  await expect(page.getByRole('status').getByText(`Exported ${String(count)} ${count === 1 ? 'color' : 'colors'} to “SC 01 palette.png”.`)).toBeVisible();
 
   await inspector(page).getByRole('button', { name: 'Export swatches…' }).click();
   await dialog(page).getByRole('radio', { name: 'Swatches as .ase' }).click();
@@ -150,7 +150,7 @@ test('exports a scene’s swatches as an .ase and as a PNG strip, and reads both
 
 test('undo brings back the palette a scene had before, and a board linked to two scenes asks which', async ({ page }) => {
   await oneFrame(page);
-  await inspector(page).getByRole('textbox', { name: 'Add a colour' }).fill('#A35139');
+  await inspector(page).getByRole('textbox', { name: 'Add a color' }).fill('#A35139');
   await page.keyboard.press('Enter');
   await expect(swatches(page)).toHaveCount(1);
   // A second scene, so the board can be linked to both.
@@ -205,8 +205,8 @@ test('exports swatches from a palette card and from a brand card', async ({ page
   await panel.getByRole('button', { name: 'Add company' }).click();
   const company = panel.getByRole('list', { name: 'Company profiles' }).getByRole('group').first();
   await company.getByRole('textbox', { name: 'Name' }).fill('Zima Blue Pictures');
-  await company.getByRole('textbox', { name: 'Brand colours' }).fill('#DF5E27 #16150F');
-  await company.getByRole('textbox', { name: 'Brand colours' }).blur();
+  await company.getByRole('textbox', { name: 'Brand colors' }).fill('#DF5E27 #16150F');
+  await company.getByRole('textbox', { name: 'Brand colors' }).blur();
   await page.getByRole('dialog', { name: 'Settings' }).getByRole('tab', { name: 'Project', exact: true }).click();
   panel = page.getByRole('dialog', { name: 'Settings' }).getByRole('tabpanel', { name: 'Project', exact: true });
   await panel.getByRole('combobox', { name: 'Company', exact: true }).selectOption({ label: 'Zima Blue Pictures' });

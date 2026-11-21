@@ -820,7 +820,7 @@ mod this_computer {
         let h = Harness::new("licences");
         // A test build has no bundled resources, so even a listed licence answers as missing; never a file off the list.
         let missing =
-            "That licence isn't in this copy of Storiiboard. Reinstalling Storiiboard puts it back.";
+            "That license isn't in this copy of Storiiboard. Reinstalling Storiiboard puts it back.";
         for name in ["ffmpeg-LICENSE.txt", "../Cargo.toml", "tauri.conf.json"] {
             assert_eq!(
                 refused(h.call("licence_text", json!({ "name": name }))),

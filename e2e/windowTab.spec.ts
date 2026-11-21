@@ -51,10 +51,10 @@ test('a window opened from inside Settings keeps Tab to itself, and Settings doe
   await gear(page).click();
   const settings = settingsWindow(page);
   await settings.getByRole('tab', { name: 'Storage', exact: true }).click();
-  await settings.getByRole('button', { name: 'Licences…' }).click();
-  const licences = page.getByRole('dialog', { name: 'Licences' });
+  await settings.getByRole('button', { name: 'Licenses…' }).click();
+  const licences = page.getByRole('dialog', { name: 'Licenses' });
   await expect(licences).toBeVisible();
-  await staysInside(page, licences, 'Licences');
+  await staysInside(page, licences, 'Licenses');
   await page.keyboard.press('Escape');
   await expect(licences).toHaveCount(0);
   await expect(settings).toBeVisible();

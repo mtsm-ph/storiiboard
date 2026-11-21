@@ -76,7 +76,7 @@ async function clickAt(page: Page, x: number, y: number) {
 /** SC 01's Setup 1 in metres with its room: a wall drawn above the middle, then a sofa, a camera, a light and a mark. */
 async function buildPlan(page: Page) {
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();

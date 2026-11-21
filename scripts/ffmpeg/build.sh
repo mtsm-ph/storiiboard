@@ -148,7 +148,7 @@ script=$(git hash-object "$here/build.sh" 2>/dev/null || echo unknown)
 pins=$(git hash-object "$here/sources.sh" 2>/dev/null || echo unknown)
 {
   echo "Storiiboard includes ffmpeg and ffprobe from FFmpeg ${VERSION}, under the GNU Lesser General Public License"
-  echo "version 2.1 or later (ffmpeg-LICENSE.txt; FFmpeg's notes on its licences: ffmpeg-LICENSE.md). They run as"
+  echo "version 2.1 or later (ffmpeg-LICENSE.txt; FFmpeg's notes on its licenses: ffmpeg-LICENSE.md). They run as"
   echo "separate programs; Storiiboard doesn't link them."
   echo
   echo "Source: ffmpeg-${VERSION}.tar.xz, handed out beside these binaries, the same file as ${SOURCE_URL}"
@@ -166,7 +166,7 @@ pins=$(git hash-object "$here/sources.sh" 2>/dev/null || echo unknown)
   echo "- zimg ${ZIMG_VERSION} (https://github.com/sekrit-twc/zimg), under the WTFPL version 2 (zimg-LICENSE.txt)."
   echo "  Source: zimg-${ZIMG_VERSION}.tar.gz, beside these binaries, the same file as ${ZIMG_URL}"
   echo "  (SHA-256 ${ZIMG_SHA256})."
-  echo "- dav1d ${DAV1D_VERSION} (https://code.videolan.org/videolan/dav1d), under the BSD 2-Clause licence"
+  echo "- dav1d ${DAV1D_VERSION} (https://code.videolan.org/videolan/dav1d), under the BSD 2-Clause license"
   echo "  (dav1d-LICENSE.txt). Source: dav1d-${DAV1D_VERSION}.tar.xz, beside these binaries, the same file as"
   echo "  ${DAV1D_URL} (SHA-256 ${DAV1D_SHA256})."
 } > "$out/ffmpeg-SOURCE.txt"
@@ -210,7 +210,7 @@ case "$triple" in
     fi
     {
       echo
-      echo "The Windows build also links zlib (https://zlib.net, zlib licence), GCC's C++ runtime for zimg (GPL 3 with"
+      echo "The Windows build also links zlib (https://zlib.net, zlib license), GCC's C++ runtime for zimg (GPL 3 with"
       echo "the GCC Runtime Library Exception), and MinGW-w64's runtime and winpthreads, from these MSYS2 packages"
       echo "(sources at https://github.com/msys2/MINGW-packages):"
       if [ -n "$packages" ]; then echo "$packages"; else echo "  (MSYS2 couldn't say which packages; the build's own MINGW64 toolchain)"; fi
@@ -218,7 +218,7 @@ case "$triple" in
         found=$(find /mingw64/share/licenses -ipath "*${licence}*" -type f 2>/dev/null | head -n 1 || true)
         echo
         if [ -n "$found" ]; then
-          echo "The licence of MinGW-w64's ${licence} ($(basename "$(dirname "$found")")):"
+          echo "The license of MinGW-w64's ${licence} ($(basename "$(dirname "$found")")):"
           echo
           cat "$found"
         else

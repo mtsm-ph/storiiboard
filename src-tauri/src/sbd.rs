@@ -666,7 +666,7 @@ fn is_stamp(stamp: &str) -> bool {
 /// The door's refusal (6.27b), in the same words as the page's `error.pictureNotSaved` (src/core/storage/driver.ts has
 /// them as PICTURE_NOT_CLEAN), so the page says it in the person's language.
 pub const PICTURE_NOT_CLEAN: &str =
-    "The picture couldn’t be saved: it holds more than a picture and its colour profile.";
+    "The picture couldn’t be saved: it holds more than a picture and its color profile.";
 
 /// One piece of a statement, as the doors read it.
 #[derive(Debug, PartialEq)]

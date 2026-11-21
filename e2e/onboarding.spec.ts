@@ -155,7 +155,7 @@ test('Settings → Theme takes an accent by hand, shows what AA makes of it, and
   // Picked, then what's used in each mode after the AA fit.
   await expect(themeTile(page).getByText(/^#FF6600 → #[0-9A-F]{6} light, #[0-9A-F]{6} dark$/)).toBeVisible();
   await hex.fill('blue');
-  await expect(themeTile(page).getByText('A colour as six hex digits, #RRGGBB, or three, #RGB.')).toBeVisible();
+  await expect(themeTile(page).getByText('A color as six hex digits, #RRGGBB, or three, #RGB.')).toBeVisible();
   await expect(themeTile(page).getByRole('button', { name: 'Use this accent' })).toBeDisabled();
   await hex.fill('#1E6BD6');
   await hex.press('Enter');

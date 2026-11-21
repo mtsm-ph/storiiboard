@@ -91,7 +91,7 @@ async function placeLight(page: Page): Promise<string> {
 
 test('lights with their gear item’s watts, a height and a beam; a frame sized by name; the legend’s total; the gear check', async ({ page }) => {
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
 
   // A 1,200 W light in Gear.
@@ -202,7 +202,7 @@ async function screen(page: Page, x: number, y: number) {
 
 test('turns a standing flag with the rotate handle at 200%, its 5 cm depth kept (6.5 review)', async ({ page }) => {
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
@@ -238,7 +238,7 @@ test('turns a standing flag with the rotate handle at 200%, its 5 cm depth kept 
 /** A flag from the Library in a new room of SC 01's first setup, in metres: placed and selected. */
 async function placeFlag(page: Page): Promise<Item & { centre: { x: number; y: number } }> {
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();

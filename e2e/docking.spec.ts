@@ -246,7 +246,7 @@ test('docks along a window edge from the keyboard, after every tile, never on th
   await expect(said).toHaveText('The window’s left edge is the sidebar’s: pick top, right or bottom.');
   await expect(page.getByText('Dock along the right', { exact: true })).toBeVisible();
   await page.keyboard.press(' ');
-  await expect(said).toHaveText('The window has no centre: pick top, right or bottom.');
+  await expect(said).toHaveText('The window has no center: pick top, right or bottom.');
   await page.keyboard.press('ArrowDown');
   await expect(page.getByText('Dock along the bottom', { exact: true })).toBeVisible();
   await page.keyboard.press('Enter');

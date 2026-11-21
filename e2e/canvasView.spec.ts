@@ -174,7 +174,7 @@ const bytesOf = async (download: Download): Promise<Uint8Array> => new Uint8Arra
 /** The Setup workspace on SC 01's Setup 1, its room started, in metres, a 4 m wall across it from (-2 m, -1 m) to (2 m, -1 m). */
 async function planWithWall(page: Page) {
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();

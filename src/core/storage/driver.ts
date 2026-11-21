@@ -53,7 +53,7 @@ export function blobOf(value: unknown): Uint8Array | null {
  * sbd.rs's refusal of a stored picture that carries anything but its own data and colour profile (6.27b), in the same
  * words as `error.pictureNotSaved`'s English, so localizeError shows it in the person's language.
  */
-export const PICTURE_NOT_CLEAN = 'The picture couldn’t be saved: it holds more than a picture and its colour profile.';
+export const PICTURE_NOT_CLEAN = 'The picture couldn’t be saved: it holds more than a picture and its color profile.';
 
 /**
  * A statement read as SQLite lexes it (round 4): `named`, the text with every string literal emptied (names in quotes,

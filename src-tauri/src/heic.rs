@@ -37,7 +37,7 @@ const HDR: &str = "This is an HDR photo, which Storiiboard can't read on this co
 const TOO_SLOW: &str =
     "This HEIC photo took too long to read. Try again, or convert it to JPEG first.";
 const UNREAD: &str = "This HEIC photo couldn't be read. Convert it to JPEG first.";
-const PROFILE_TOO_BIG: &str = "This photo's colour profile is too large to keep, so its colours can't be shown as they are. Convert it to JPEG first.";
+const PROFILE_TOO_BIG: &str = "This photo's color profile is too large to keep, so its colors can't be shown as they are. Convert it to JPEG first.";
 /// A bug in the page, never something a person did (the same words as exif.rs's).
 const NOT_RAW: &str = "Expected the picture as raw bytes.";
 
