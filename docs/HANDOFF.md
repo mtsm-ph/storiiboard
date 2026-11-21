@@ -364,7 +364,22 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20, night; written at 22:30 EST)
+### Next session: start here (Nov 21, early; written at 23:15 EST Nov 20)
+
+**Merged on `checkpoint/nov21-a`** (run 44859089297, every job green: Linux 650, Mac WebKit 647, nothing flaky): #222
+(the scroll lane), #235 (the encoder's leftovers), #240 (History lines). `v2`'s code equals nov21-a's tree.
+
+**The launch stack** (#206 ← #213 ← #219 ← #223 ← #229): the check now goes on when this machine can't read a canvas
+back (strict except with the Mac job's flag); `checkpoint/launch-2` (run 44860042703) green on both systems, the Mac's
+accents read by the worker (image `macos-26-arm64` on launch-1, nov20-e, nov20-f and launch-2). It goes into nov21-b.
+
+**Item 8, first stack** (#241 ← #244 ← #245, v2 merged up through it): `checkpoint/baselines-nov20b` running on its tip
+(96e6c56, run 44864168261); then nov21-b = that tip + the launch stack. **Second stack:** #248 Settings (built, being
+reviewed); item 7 with `bring_back` building on `feat/undo-outline`; "Color" next. Briefs in `private/briefs/`:
+`undo-outline.md`, `rust-file-locks.md` (for Kevin to read; no build). Follow-up: #235's dead-destination words
+(Kevin's line, in his night note).
+
+### Earlier: start here (Nov 20, night; written at 22:30 EST)
 
 Kevin's night note (`private/NOV20_NIGHT_NOTE.md`) answers the list and sets the night's work, in order: (1)
 checkpoint/nov21-a = v2 + #222 + #235 + #240 (running, run 44859089297, eff0b45; v2 merged into each first); (2) the

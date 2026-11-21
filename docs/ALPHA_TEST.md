@@ -26,6 +26,21 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
   open (the lock file). (1.2)
 - [ ] With a synced project open on one computer, let a sync replace the file (an edit made on the other computer
   while this one was closed): the app stops writing and reopens the new version; nothing is lost. (1.2)
+- [ ] [Mac] [Windows] The workers' own policy (src-tauri/worker-csp.txt), in a debug build, which has the web
+  inspector (a release build has none): `npm run tauri build -- --debug`, then open the app it builds. Import script…
+  with a PDF screenplay, and choose a project's key image. In the inspector's Network panel (Edge DevTools on Windows,
+  Safari Web Inspector on the Mac), select `pdf.worker.min-*.mjs` and the theme's `worker-*.js`: each one's Response
+  Headers show `Content-Security-Policy: default-src 'none'; script-src 'self'; worker-src 'self'; base-uri 'none'`.
+  The PDF's scenes are still read, and the key image's colours are still offered. (`npm run tauri dev` serves the
+  page from Vite, not from the app, so it can't show the header.) The launch check reads the same header and runs
+  both workers in the app just built at every checkpoint (6.27l), so this is a second look by eye, no longer one only
+  Kevin can give. (worker CSP)
+- [ ] [Mac] [Kevin] The launch check, strict, on a real Mac, with no build tools: download a checkpoint's Mac
+  installer (the `storiiboard-macOS` artifact), clear its quarantine flag, mount it and start the app inside with
+  `STORIIBOARD_LAUNCH_CHECK=1` (the three Terminal lines are in the report of the run they belong to). It prints
+  eight lines and quits by itself. `launch check: accents ok` with nothing after it, then `launch check: passed`: the
+  accent reader's worker reads on a real GPU. `accents ok (by the page: …)`: the worker fails on a real Mac too and
+  the page stands in for it; send the line. (6.27r)
 
 ## Project, files, backups, History and Trash
 
@@ -67,6 +82,9 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
 
 - [ ] Import your real script as Fountain, Final Draft (.fdx) and PDF: the preview shows its scenes; scenes,
   locations and characters are made; scene numbers match the script. (1.17, 1.18)
+- [ ] [Mac] The PDF above on the Mac above all: before 6.27p the Mac app could not read any PDF (its webview lacks a
+  feature pdf.js used; every test passed because Playwright's WebKit has it). The launch check now reads a small PDF
+  in the built app at every checkpoint; a real screenplay is still worth one look. (6.27p)
 - [ ] A Spanish script: INT./EXT. headings in Spanish read as scenes. (P7)
 - [ ] [Kevin] The Phase 1 gate: board a real scene in one sitting, from script import to finished frames, and export
   it as a PDF. (Phase 1)
