@@ -1,6 +1,7 @@
 import { cameraFields, planFields } from '../model/plan';
 import { cameraSetupId, framesDiffering } from '../model/planCamera';
 import type { SbdRecord } from '../model/record';
+import { recordsOfType } from '../model/recordIndex';
 
 // The lens check (6.4; CLAUDE.md "MCP server: Checks": the storyboard lens differs from the camera lens in the
 // bird's-eye plan). A camera placed before it had a frame carries a typed focal length (`lens_mm`); once a frame shot
@@ -33,8 +34,9 @@ export function planLensDiffers(records: Records, projectId: string): PlanLensDi
   }
   const known = byProject.get(projectId);
   if (known) return known;
-  const cameras = Object.values(records)
-    .filter((r) => r.type === 'plan_item' && r.trashedAt === null && (cameraFields(r.props)?.lensMm ?? null) !== null)
+  // The plan items from the index every reader shares (6.21), in the order a pass over the records gives: not a scan.
+  const cameras = recordsOfType(records, 'plan_item')
+    .filter((r) => r.trashedAt === null && (cameraFields(r.props)?.lensMm ?? null) !== null)
     .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const found = cameras.flatMap((camera) => {
     const setupId = cameraSetupId(records, camera);

@@ -16,6 +16,7 @@ import { CalendarTile } from '../../features/schedule/CalendarTile';
 import { GearTile } from '../../features/gear/GearTile';
 import { NotificationsTile } from '../../features/notifications/NotificationsTile';
 import { CallSheetTile } from '../../features/callsheets/CallSheetTile';
+import { ChecksTile } from '../../features/checks/ChecksTile';
 import { AssetsTile } from '../../features/assets/AssetsTile';
 import { MoodboardTile } from '../../features/moodboards/MoodboardTile';
 import { SetupsTile } from '../../features/birdseye/SetupsTile';
@@ -46,6 +47,7 @@ export const TILE_CONTENT: Partial<Record<TileId, ComponentType>> = {
   notifications: NotificationsTile,
   assets: AssetsTile,
   sheet: CallSheetTile,
+  checks: ChecksTile,
   moodboard: MoodboardTile,
   setups: SetupsTile,
   plan: PlanTile,

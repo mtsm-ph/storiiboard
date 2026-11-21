@@ -73,7 +73,7 @@ export const dayPeopleChosen = (day: Pick<SbdRecord, 'props'>): boolean => dayPe
  * The live people on a day, in the order they were added: everyone live in Cast and crew while nobody has chosen. An
  * id of someone in the Trash or gone is skipped here, and stays in the list for a restore to bring back.
  */
-export function dayPeople(records: Records, projectId: string, day: Pick<SbdRecord, 'props'>): { record: SbdRecord; fields: PersonFields }[] {
+export function dayPeople(records: Records, projectId: string, day: Pick<SbdRecord, 'props'>): readonly { record: SbdRecord; fields: PersonFields }[] {
   const ids = dayPeopleIds(day.props);
   if (ids === null) return projectPeople(records, projectId);
   return ids.flatMap((id) => {

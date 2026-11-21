@@ -372,6 +372,35 @@ screen, the Suggestions tile (Layout menu → Open tile), shows them and decides
   on disk. (7.5)
 - [ ] Point the server at a project an older Storiiboard saved and never opened since: the assistant is told to open
   it in the app first, and the file is unchanged. (7.5)
+- [ ] In Cast and crew, mark a crew member unavailable for a week with a note ("Add dates…", From, To, Note), then a
+  single date: both show under Unavailable, the week as "Nov 24 – Nov 28", the single date alone. (7.3)
+- [ ] Pick the dates with the keyboard only (type them into the date fields, and with the browser's picker): the To
+  starts as the From; a To before the From is refused in words; Escape leaves without adding. (7.3)
+- [ ] Put that person on a shoot day inside the week: the call sheet's Checks strip names them, what they do, the day
+  and the dates; Show goes to them in "Who's on the day". Take them off the day: the finding goes. (7.3)
+- [ ] The Calendar marks the shoot day with ⊘ and a count of the people on it who are away, and a date with no shoot
+  with everyone away; picking a date lists them with their role and the note. In week view too. (7.3)
+- [ ] Remove the stretch, then ⌘Z and ⌘⇧Z: it comes back and goes again; History says "Marked … unavailable …" and
+  "Took off …’s unavailable dates …", never the note. In Spanish too. (7.3)
+- [ ] Send the person to the Trash and restore them: their dates come back with them, and while they're in the Trash
+  nothing marks the Calendar or the call sheet. (7.3)
+- [ ] On your own material, open Production: the Checks tile under the call sheet lists every problem over the whole
+  project, a count per check and per day at the top, the findings by day (undated days after, "No shoot day" last).
+  It catches a real scheduling or gear mistake. (7.4)
+- [ ] Each finding's Show: a frame's gear selects the frame on the storyboard; a plan's gear or a lens selects it on
+  the setup's plan; a location opens in Locations; the rest open the day's call sheet where its strip's Show goes.
+  Open day opens it in Shoot days. Fix one (a gear item on the day's list): its finding goes at once. (7.4)
+- [ ] An exterior day with no forecast fetched yet: the foot says "No forecast held for … on …", and the tile never
+  fetches one; open that day's call sheet, and once its forecast arrives the line goes. A forecast that doesn't reach
+  the day says so; a day with no date says what wasn't checked. (7.4)
+- [ ] The Day and Check filters, from the keyboard; the tile in light, dark and Spanish; closed from Production and
+  reopened from the Layout menu, it stays closed after a restart. A Production layout saved before 7.4 gets the tile
+  once. (7.4)
+- [ ] With the tile open on a big project, sketch a frame and drag a plan's lights: nothing slows. (7.4)
+- [ ] The tile is named "Project checks" ("Revisiones del proyecto") and a screen reader's landmarks list it once,
+  apart from the call sheet's Checks strip. Opened, its foot says "Reading…" for a moment, then only lines that stay.
+  An exterior at a location with no place on the map says "… has no place"; a forecast past its expiry says when it
+  was fetched; a day whose call or wrap the forecast doesn't reach says so. (7.4 round 2)
 
 ## Settings, presets, themes, Dark view and accessibility
 
