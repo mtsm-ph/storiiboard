@@ -277,6 +277,9 @@ const STILL_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub(crate) const TOO_SLOW: &str =
     "That video took too long to read. If it's on a network drive, copy it to this computer first.";
+/// A clip's folder that stopped answering after a stall (its question, or the next encoder's file made there): the
+/// clip was being saved, not read, so it says the place it was going to (`error.clipDestinationStalled`; Kevin, Nov 20).
+const DEST_TOO_SLOW: &str = "The folder this clip is being saved to stopped responding. If it's on a drive or a network share, check it's still connected, or save the clip somewhere else.";
 const CANT_READ: &str = "That file can't be read as a video.";
 /// A LUT named by anything but a SHA-256, in the page's words for a still and a clip (`error.lutUnreadableStill`,
 /// `error.lutUnreadableClip`): it names the LUT and what was being made, never the video (Kevin, Nov 19).
@@ -1579,7 +1582,7 @@ fn walk_encoders(
                 },
             ) {
                 Aside::Done(made) => made?,
-                Aside::Late => return Err(TOO_SLOW.into()),
+                Aside::Late => return Err(DEST_TOO_SLOW.into()),
                 Aside::Stopped => return Err(CLIP_CANCELLED.into()),
             }
         } else {
@@ -1662,8 +1665,8 @@ fn walk_encoders(
             // Read once a clip: once it answered, a later stall is the encoder's too. Its file goes once its ffmpeg
             // ends (`run_watched`). Then the clip's folder, after every stall: ffmpeg blocked on a write to a drive
             // that stopped answering (a NAS, a USB drive) stalls as well, and the source reads on; asked aside, under
-            // the check's quiet time, a folder that doesn't answer ends the clip at once in the drive's words, and the
-            // next encoder's file is never made there.
+            // the check's quiet time, a folder that doesn't answer ends the clip at once in the folder's own words (a
+            // save, not a read: `DEST_TOO_SLOW`), and the next encoder's file is never made there.
             Err(Unended::Stalled(reached)) => {
                 stalled = true;
                 if !answered {
@@ -1682,7 +1685,7 @@ fn walk_encoders(
                 let (ask, there) = (std::sync::Arc::clone(&watch.folder), folder.clone());
                 match aside(watch.check.quiet, watch.stop, move || ask(&there), |_| {}) {
                     Aside::Done(Ok(())) => {}
-                    Aside::Done(Err(_)) | Aside::Late => return Err(TOO_SLOW.into()),
+                    Aside::Done(Err(_)) | Aside::Late => return Err(DEST_TOO_SLOW.into()),
                     Aside::Stopped => return Err(CLIP_CANCELLED.into()),
                 }
                 said = crate::playback::ENCODER_STALLED.into();
@@ -3685,7 +3688,7 @@ mod tests {
         let started = Instant::now();
         assert_eq!(
             watched_clip(&take, (0, 249), &dest, 2, &watch).unwrap_err(),
-            TOO_SLOW
+            DEST_TOO_SLOW
         );
         assert!(
             started.elapsed() < Duration::from_secs(20),
@@ -3779,7 +3782,7 @@ mod tests {
         let started = Instant::now();
         assert_eq!(
             watched_clip(&take, (0, 249), &dest, 2, &watch).unwrap_err(),
-            TOO_SLOW
+            DEST_TOO_SLOW
         );
         assert!(
             started.elapsed() < Duration::from_secs(20),
