@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { list, setLocale, t } from '../i18n';
-import { ASSISTANT_SCOPE, SCOPE_ROWS, scopeField, scopeType, scopeWords } from './suggestionScope';
+import type { JsonValue, SbdRecord } from './record';
+import { ASSISTANT_SCOPE, SCOPE_ROWS, scopeField, scopeType, scopeWords, type FieldContext } from './suggestionScope';
 
 // The scope table (7.0, departments decision 5): one table of rows; the assistant's row is Phase 7's list, and its
 // words are made from the table, so they name every allowed field and nothing else.
@@ -37,6 +38,75 @@ describe('the assistant’s row', () => {
     const shot = scopeType(ASSISTANT_SCOPE, 'shot');
     expect(shot && scopeField(shot, '__proto__')).toBeNull();
     expect(shot && scopeField(shot, 'toString')).toBeNull();
+  });
+});
+
+describe('each field’s shape and stored bound (7.6 round 5)', () => {
+  const at = '2026-11-21T10:00:00.000Z';
+  const rec = (id: string, type: SbdRecord['type'], props: SbdRecord['props'], parentId = 'p'): SbdRecord => ({ id, type, parentId, sortKey: 'a', props, trashedAt: null, trashedBy: null, createdAt: at, updatedAt: at });
+  const lens = rec('lens', 'gear_item', { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70 });
+  const frame = rec('frame', 'shot', { number: '1A', lens_id: 'lens', gear_ids: 'not a list', size: 'CU' }, 'scene');
+  const sheet = rec('sheet', 'callsheet', { department_calls: 'late', person_times: { robin: 'early' } }, 'day');
+  const records: Record<string, SbdRecord> = { lens, frame, sheet, robin: rec('robin', 'person', { name: 'Robin Vale' }), gear: rec('gear', 'gear_item', { name: 'Sticks' }) };
+  const contexts: FieldContext[] = [
+    { records: {}, record: null },
+    { records, record: frame },
+    { records, record: sheet, day: rec('day', 'shoot_day', { people_ids: ['robin'] }) },
+  ];
+  const samples: JsonValue[] = [
+    null,
+    '',
+    'x',
+    'x'.repeat(201),
+    'x'.repeat(10_001),
+    'CU',
+    'INT',
+    'DAY',
+    '06:30',
+    '25:00',
+    85,
+    0,
+    -1,
+    2001,
+    4,
+    1.5,
+    true,
+    [],
+    ['gear'],
+    ['gear', 'gear'],
+    [1],
+    Array.from({ length: 501 }, (_, i) => `g${String(i)}`),
+    'x'.repeat(101),
+    {},
+    { sound: '06:30' },
+    { sound: 'late' },
+    { nobody: '06:30' },
+    { robin: null },
+    { robin: { call: '06:00' } },
+    { robin: { lunch: '12:00' } },
+    { robin: {} },
+    { stranger: { call: '06:00' } },
+  ];
+
+  it('refuses by its shape only what its full check refuses, in any project', () => {
+    for (const [type, entry] of Object.entries(ASSISTANT_SCOPE.types)) {
+      for (const [name, field] of Object.entries(entry.fields)) {
+        for (const value of samples) {
+          if (field.shape(value) === null) continue;
+          for (const context of contexts) expect(field.check(value, context), `${type}.${name} ${JSON.stringify(value).slice(0, 40)}`).not.toBeNull();
+        }
+      }
+    }
+  });
+
+  it('gives every field a stored bound no larger than the change file’s strings', () => {
+    for (const entry of Object.values(ASSISTANT_SCOPE.types)) {
+      for (const field of Object.values(entry.fields)) {
+        if (field.stored.kind === 'text') expect(field.stored.max).toBeLessThanOrEqual(10_000);
+        if (field.stored.kind === 'ids') expect(field.stored.most).toBeLessThanOrEqual(500);
+        expect(field.stored.kind === 'by_key', field.label).toBe(field.byKey === true);
+      }
+    }
   });
 });
 

@@ -428,9 +428,10 @@ const sheetTime = (value: JsonValue | undefined): JsonValue => (typeof value ===
 /**
  * What a person sees of a field, for changed since (7.0 round 2): a list's live records of its type, in order (what it
  * keeps that isn't one is left out); a call sheet's map, only the keys the suggestion names, each read as the sheet
- * reads it; any other field as stored. `named` is the suggested value.
+ * reads it; any other field as stored. `named` is the suggested value. Exported for 7.6's server, whose `before` for a
+ * call sheet's map is this (round 5).
  */
-function seen(records: Records, field: string, rule: ScopeField, value: JsonValue | undefined, named: JsonValue): JsonValue {
+export function seen(records: Records, field: string, rule: ScopeField, value: JsonValue | undefined, named: JsonValue): JsonValue {
   const type = rule.listOf;
   if (type !== undefined) return Array.isArray(value) ? value.filter((id) => liveOf(records, id, type)) : [];
   if (rule.byKey && isObject(named)) {
@@ -630,11 +631,28 @@ function liveSibling(records: Records, parentId: string, id: string | null, exce
 }
 
 /**
+ * How much a review works out (7.6 round 5): `full`, what Apply would write and every flag; `flags`, the flags alone,
+ * without the edits (no step per changed field, no copy of the records) and so without `no_change`, which only the
+ * edits can tell. A reader that never shows `no_change` (the assistant's own) takes `flags`, so its work never depends
+ * on whether a value equals the stored one.
+ */
+export type ReviewMode = 'full' | 'flags';
+
+/**
  * What a proposal would write under a scope row, and every flag on it, from the records as they are now. The writes
  * are the UI's own edits; nothing here writes. `slate` is the project's slate numbers (1.26), as the board passes them.
+ * In `flags` mode the writes are always [] (ReviewMode).
  */
-export function proposedChange(records: Records, projectId: string, proposal: Proposal, row: ScopeRow, slate: SlateNumbers = NO_SLATE_NUMBERS): ProposedChange {
+export function proposedChange(
+  records: Records,
+  projectId: string,
+  proposal: Proposal,
+  row: ScopeRow,
+  slate: SlateNumbers = NO_SLATE_NUMBERS,
+  mode: ReviewMode = 'full',
+): ProposedChange {
   const flags: SuggestionFlag[] = [];
+  const flagsOnly = (): ProposedChange => ({ flags, writes: [], createdId: null });
   const none = (): ProposedChange => ({ flags, writes: [], createdId: null });
   const entry = scopeType(row, proposal.targetType);
   if (!entry) {
@@ -665,6 +683,7 @@ export function proposedChange(records: Records, projectId: string, proposal: Pr
     if (!parent || !open(flags)) return none();
     const afterGone = data.afterId !== null && !liveSibling(records, parent.id, data.afterId, null);
     if (afterGone) flags.push({ kind: 'gone', what: 'after' });
+    if (mode === 'flags') return flagsOnly();
     const set = createdProps(entry, data.props);
     if (proposal.targetType === 'shot') {
       // Its number comes from the scene's own rule: no row lets a suggestion give one.
@@ -710,7 +729,7 @@ export function proposedChange(records: Records, projectId: string, proposal: Pr
       if (!same(now, then)) changed.push({ field, then, suggested: value, now });
     }
     if (changed.length > 0) flags.push({ kind: 'changed_since', fields: changed });
-    if (!open(flags)) return none();
+    if (!open(flags) || mode === 'flags') return none();
     const writes = foldEdits(records, isSheet ? sheetSteps(data.props, target.id) : updateSteps(entry, data.props, records, target));
     if (writes.length === 0) flags.push({ kind: 'no_change' });
     return { flags, writes, createdId: null };
@@ -719,6 +738,7 @@ export function proposedChange(records: Records, projectId: string, proposal: Pr
   if (newerThan(lastWritten(records, target), proposal.targetUpdatedAt)) flags.push({ kind: 'changed_since', fields: [] });
 
   if (data.kind === 'trash') {
+    if (mode === 'flags') return flagsOnly();
     const writes = target.type === 'shot' ? trashShot(records, projectId, target.id, slate) : target.type === 'scene' ? trashScene(records, target.id) : [{ kind: 'trash' as const, id: target.id }];
     return { flags, writes, createdId: null };
   }
@@ -735,6 +755,7 @@ export function proposedChange(records: Records, projectId: string, proposal: Pr
   if (!parent || !open(flags)) return none();
   const afterGone = data.afterId !== null && !liveSibling(records, parent.id, data.afterId, target.id);
   if (afterGone) flags.push({ kind: 'gone', what: 'after' });
+  if (mode === 'flags') return flagsOnly();
   // Already right after it among the scene's live frames and notes (or first, or last for an after_id gone): no move.
   if (target.parentId === parent.id) {
     const items = boardScene(records, parent).items.map((item) => (item.kind === 'shot' ? item.shot.record.id : item.note.record.id));
@@ -831,8 +852,18 @@ function ownFieldFlags(records: Records, targetType: string, data: Extract<Sugge
   return flags;
 }
 
-/** One suggestion against the project as it is now: what Apply would write, and every flag. Null for a record that isn't one. */
-export function reviewSuggestion(records: Records, projectId: string, suggestionId: string, slate: SlateNumbers = NO_SLATE_NUMBERS): SuggestionReview | null {
+/**
+ * One suggestion against the project as it is now: what Apply would write, and every flag. Null for a record that isn't
+ * one. In `flags` mode (ReviewMode), the flags alone: no `no_change`, no writes, and `canApply` is whether it is pending
+ * with every flag one a person may apply over.
+ */
+export function reviewSuggestion(
+  records: Records,
+  projectId: string,
+  suggestionId: string,
+  slate: SlateNumbers = NO_SLATE_NUMBERS,
+  mode: ReviewMode = 'full',
+): SuggestionReview | null {
   const record = recordOf(records, suggestionId);
   if (record?.type !== 'suggestion') return null;
   const suggestion = keptSuggestion(record);
@@ -877,11 +908,12 @@ export function reviewSuggestion(records: Records, projectId: string, suggestion
         { kind: suggestion.kind, targetId: suggestion.targetId, targetType: suggestion.targetType, targetUpdatedAt: suggestion.targetUpdatedAt, data },
         scopeRowFor(),
         slate,
+        mode,
       );
     } else if (data.kind === 'create') flags.push(...ownFieldFlags(records, suggestion.targetType, data, scopeRowFor()));
   }
   const all = [...flags, ...proposed.flags];
-  const canApply = suggestion.status === 'pending' && open(all) && (proposed.writes.length > 0 || all.some((f) => f.kind === 'no_change'));
+  const canApply = suggestion.status === 'pending' && open(all) && (mode === 'flags' || proposed.writes.length > 0 || all.some((f) => f.kind === 'no_change'));
   return { suggestion, flags: all, canApply, writes: canApply ? proposed.writes : [], createdId: canApply ? proposed.createdId : null };
 }
 

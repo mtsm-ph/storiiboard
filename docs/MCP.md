@@ -138,17 +138,29 @@ existing file.
 - **Checked before anything is written**, in this order (round 4). First what the call alone decides: every
   suggestion's kind, type and fields against the assistant's scope row (outside it is refused), then the free-text rule
   on every value and note (one that reads as a phone number, an email, coordinates or a map link is refused: contact
-  details are never suggested). Only then is the file built: its bytes read by the app's own change-file reader (7.1,
-  src/core/storage/changeFile.ts), within its bounds (5 MB, 2,000 suggestions), and every suggestion by the app's own
-  reader (`reviewSuggestion`, 7.0) under the assistant's scope row, beside the others of its file, against the project
-  as it is: one with a flag (a value its field doesn't take, a focal length outside the lens picked, a frame that can't
+  details are never suggested), then the row's checks that read no records (round 5: a value's length, its choices,
+  its range and shape, in 7.0's own words: "HUGE" for a size, 25:00 for a crew call). Then a stored value already past
+  its own row bound (an action longer than 10,000 characters, a gear list holding something that isn't an id) is
+  refused in fixed words, whatever was sent ("SC 12 · 12B: what the project holds in action is more than a suggestion
+  can carry. Change it in Storiiboard."). Then every size (round 5): the file as it would be with each `before` value at
+  a fixed reserve, the largest its field's row bound lets it be as UTF-8 JSON at its worst (`stored` in the scope row:
+  a text's characters at 6 bytes each, a list of ids at 500 UUIDs, a short value at 20 characters), read by the app's
+  own change-file reader (7.1, src/core/storage/changeFile.ts) within its bounds (5 MB, 256 KB a suggestion, 10,000
+  characters a string, 2,000 suggestions), so whether the call is too large is decided by what was sent and the
+  reserves alone. Only then is the real file built; it can only be smaller, and the server asserts that the same reader
+  passes it. A suggestion naming many long fields is counted at their reserves, so a call of more than about 80 changes
+  to a frame's action is refused as larger than 5 MB: suggest fewer at a time. Then every suggestion is read by the
+  app's own reader (`reviewSuggestion`, 7.0) under the assistant's scope row, beside the others of its file, against
+  the project as it is, for its flags alone (round 5: no edit worked out, so the work never depends on whether a value
+  equals the stored one): one with a flag (a value its field doesn't take, a focal length outside the lens picked, a frame that can't
   leave a locked scene) is refused, and so is the whole call. Two flags are let through: *waiting* on another
   suggestion of the same file (a new scene's frames, a frame after a new one), and *nothing to change* (round 4: the
   suggestion is written like any other; the review screen says the project already reads so, and Apply only marks it
   applied). A refusal says why in words and writes nothing, so the assistant can try again.
-- **The rule** (round 4): no answer, refusal, count or later listing depends on comparing what the assistant sent with
-  a value it can't see; a check may compare with what the read tools show it (the view and the guard), never with the
-  hidden stored text.
+- **The rule** (rounds 4 and 5): no answer, refusal, count, later listing or timing depends on comparing what the
+  assistant sent with a value it can't see; a check may compare with what the read tools show it (the view and the
+  guard), never with the hidden stored text. One residual the server can't close: once a person applies a suggestion,
+  what it sent is the project's own, and the read tools hide a stored contact in it as they hide any.
 - **No contact oracle** (rounds 2 and 3). Nothing the assistant sends is matched against the values the project
   stores: the guard keeps stored contacts out of what goes *to* the assistant, and what it sends it holds already, so
   a match would protect nothing and its trace (a replacement, a bound crossed after one) would say which guess was
@@ -172,7 +184,8 @@ existing file.
   `{ "id": "a", "name": <the client's own name>, "role": "assistant" }`: the name the assistant's app gave itself in
   the MCP initialize request (its `title`, else its `name`, such as "Claude Desktop"), as text, cleaned and at most
   100 characters. Each suggestion's `before` values come from the project as read, only for fields in the scope row
-  (round 4). Its name is
+  (round 4); a call sheet's calls and times only for the keys named, each as the sheet reads it (round 5: "HH:MM" or
+  null, what *changed since* compares, so their reserve is a function of the keys sent). Its name is
   `<YYYY-MM-DD HH-mm-ssZ> <client> <8 hex>.sbdchanges`: the time in UTC (round 2: never this computer's zone, which
   would say where it is), the client's name as the client names itself (Claude Desktop may say "claude-ai"), kept to
   letters, digits, spaces, dots, dashes and underscores (at most 40), and the first 8 hex digits of the file's id, so
@@ -198,7 +211,10 @@ existing file.
   log names (the app's own `everBroughtIn`, and each suggestion's `change_file_id`) and knows a file by the 8 hex of a
   name it wrote, or else by the file's own `id` (each read within the app's 5 MB, at most 50 MB read in all); a file it
   can't read counts as waiting. The app reads the files it hasn't brought in newest first, so a new one comes in even
-  when old ones fill what one pass reads.
+  when old ones fill what one pass reads. The new file counts at its reserve (round 5), never its real size, which holds
+  the stored `before` values; the files already waiting count at their real size. That is a residual: their sizes hold
+  earlier calls' `before` values, so it would take about 50 MB of waiting files, files a person sees in the folder and
+  in the status line, before the room's answer could turn on one.
 - **A late failure leaves nothing** (round 2): when the marker or the file can't be written after this call made the
   folder, the call takes that folder away again with the marker it wrote (only a folder it made, only once empty), and
   answers in words.
@@ -224,7 +240,12 @@ existing file.
   copy on a volume with no hard links. Round 4 adds the review's probes: a phone the free-text rule hides, and a value
   the guard hides (in a frame's action and in a call sheet's notes), sent back exactly and a character off, answered,
   written and listed alike; a name the guard hides finding no single item, guessed right or wrong; and a field outside
-  the scope row refused alike whatever is stored in it.
+  the scope row refused alike whatever is stored in it. Round 5 adds the review's probe of sizes: two projects whose
+  hidden addresses differ by one character, the call sized so the real suggestion is 256 KB in one and a byte over in
+  the other, answered alike; the real file within its reserve and passed by 7.1's reader for every tool; a stored value
+  past its bound refused in fixed words whatever was sent; the row's record-free checks run first; the new file counted
+  at its reserve in the room check; and the flags-only review giving the full review's flags but `no_change` on every
+  earlier round's case, with no copy of the records whether a value equals the stored one or not.
 
 ## What is never returned, and why
 
@@ -479,7 +500,10 @@ fields, flags: [{ kind, words }], can_apply, trashed? }`, its `label` made from 
 `fields` the names of its fields that are known props of the target's type, the rest counted. What the assistant sent
 it holds already; a value read back after the app stored it could say which of its guesses the project holds. For
 the same reason its `flags` never hold `no_change` (round 4): whether the project already reads as suggested would say
-what a hidden value is, and Apply stays open either way.
+what a hidden value is, and Apply stays open either way. Round 5: such a suggestion is reviewed for its flags alone
+(`reviewSuggestion`'s `flags` mode), without working out the edit Apply would make, so the flag is never made and the
+work done (and so the time taken) never depends on whether a value it sent is the one stored; `can_apply` is whether
+it is pending with every flag one a person may apply over, as the full review gives it.
 
 ### run_checks
 

@@ -30,8 +30,9 @@ export function writeProposal(context: ToolContext, proposal: Proposal, hooks: W
   try {
     if (!folder.made) {
       removeLeftovers(folder);
-      // Only files not yet brought in count, with this one (round 3).
-      checkRoom(folder, data.broughtIn ?? new Set(), built.bytes.byteLength);
+      // Only files not yet brought in count, with this one (round 3) at its reserve (round 5): its real size holds the
+      // stored `before` values, so it would make the room's answer depend on them. Earlier files count at their real size.
+      checkRoom(folder, data.broughtIn ?? new Set(), built.reserveBytes);
     }
     writeChangeFile(folder, built.name, built.bytes, hooks);
   } catch (error) {

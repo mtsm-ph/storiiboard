@@ -6,8 +6,8 @@ import { personFields, projectPeople } from '../../src/core/model/person';
 import type { JsonValue, SbdRecord } from '../../src/core/model/record';
 import { dayLabel, type ShootDay } from '../../src/core/model/shootDay';
 import { sceneFields, sceneLabel, shotFields } from '../../src/core/model/storyboard';
-import { cleanText, lastWritten, MAX_FIELDS, reviewFlagWords, reviewSuggestion, scopeRowFor, SUGGESTION_BOUNDS, type SuggestionFlag } from '../../src/core/model/suggestion';
-import { scopeField, scopeType } from '../../src/core/model/suggestionScope';
+import { cleanText, lastWritten, MAX_FIELDS, reviewFlagWords, reviewSuggestion, scopeRowFor, seen, SUGGESTION_BOUNDS, type SuggestionFlag } from '../../src/core/model/suggestion';
+import { ID_CHARS, scopeField, scopeType, SHORT_VALUE, type StoredBound } from '../../src/core/model/suggestionScope';
 import { boardScene } from '../../src/core/ops/storyboardEdits';
 import { MAX_CHANGE_FILE_BYTES, readChangeFile, refusalWords } from '../../src/core/storage/changeFile';
 import { buildChangeFile, type BuiltChangeFile, type FileSuggestion } from './changeFile';
@@ -42,6 +42,15 @@ import { boardScenes, dayOf, read, sceneByNumber, ToolError, type Read, type Too
 // applied); the free-text rule and the scope row run before anything is built or compared with the project; a name is
 // looked up as list_gear, list_people and list_locations give it, guard included; and `before` holds only fields of the
 // scope row, so a hidden field's length never decides a bound.
+//
+// Round 5, sizes and timing too: every size the file is checked for (one suggestion's 256 KB, the file's 5 MB, a
+// string's 10,000 characters) is decided before the build, from what was sent and a fixed reserve for each `before`
+// value: the largest its field's row bound lets it be, as UTF-8 JSON at its worst (`stored` in the scope row). The
+// checks of the row that read no records (lengths, choices, ranges: `shape`) run then too. A stored value already past
+// its bound is refused in fixed words, whatever was sent. The real file can only be smaller than the reserves allowed,
+// and 7.1's reader is asserted to pass it. A call sheet's map holds in `before` only the keys named, as the sheet reads
+// them (the review's own `seen`), so its reserve is a function of the keys sent. The review then works out flags alone
+// (ReviewMode `flags`): no edit, so its work never depends on whether a value equals the stored one.
 
 type Obj = { [key: string]: JsonValue };
 
@@ -235,14 +244,19 @@ function fieldsOf(r: Read, given: unknown, what: string): Obj {
 /**
  * What the project holds for each named field, as the suggester saw it: its `before`. Round 4: only fields of the scope
  * row for `type` (a field outside it is refused before anything is built), so a hidden field's stored value, and its
- * length, never reaches the file or a bound.
+ * length, never reaches the file or a bound. Round 5: a call sheet's map (`by_key`) only for the keys named, as the
+ * sheet reads them (the review's `seen`, which compares nothing else), so its size is a function of the keys sent.
  */
-function beforeOf(type: string, record: SbdRecord | null, fields: Obj): Obj {
+function beforeOf(r: Read, type: string, record: SbdRecord | null, fields: Obj): Obj {
   const out: Obj = {};
   const entry = scopeType(scopeRowFor(), type);
-  for (const field of Object.keys(fields)) {
-    if (!entry || !scopeField(entry, field)) continue;
-    Object.defineProperty(out, field, { value: record?.props[field] ?? null, enumerable: true, writable: true, configurable: true });
+  for (const [field, named] of Object.entries(fields)) {
+    const rule = entry ? scopeField(entry, field) : null;
+    if (!rule) continue;
+    const stored = record?.props[field];
+    // A map that isn't one is refused by its shape before the build; its before is never the stored map whole.
+    const value = rule.stored.kind !== 'by_key' ? (stored ?? null) : isObject(named) ? seen(r.data.records, field, rule, stored, named) : {};
+    Object.defineProperty(out, field, { value, enumerable: true, writable: true, configurable: true });
   }
   return out;
 }
@@ -271,7 +285,7 @@ export function suggestShotChanges(context: ToolContext, args: ShotChangesArgs):
     const { shot, scene } = frameByNumber(r, change.frame, change.scene === undefined ? undefined : sceneByNumber(r, change.scene));
     const label = frameLabel(scene, shot);
     const props = fieldsOf(r, change.fields, label);
-    suggestions.push({ id: newId(), kind: 'update', target: { id: shot.id, type: 'shot', label, updated_at: shot.updatedAt }, note: note(args.note), data: { props, before: beforeOf('shot', shot, props) } });
+    suggestions.push({ id: newId(), kind: 'update', target: { id: shot.id, type: 'shot', label, updated_at: shot.updatedAt }, note: note(args.note), data: { props, before: beforeOf(r, 'shot', shot, props) } });
     lines.push(`Change ${label}: ${fieldCount(props)}.`);
   }
   return { suggestions, lines };
@@ -456,14 +470,14 @@ export function suggestCallSheetNotes(context: ToolContext, args: CallSheetArgs)
   }
   if (Object.keys(props).length > 0) {
     const label = `Call sheet, ${dayName}`;
-    suggestions.push({ id: newId(), kind: 'update', target: { id: day.record.id, type: 'callsheet', label, updated_at: (sheet ?? day.record).updatedAt }, note: note(args.note), data: { props, before: beforeOf('callsheet', sheet, props) } });
+    suggestions.push({ id: newId(), kind: 'update', target: { id: day.record.id, type: 'callsheet', label, updated_at: (sheet ?? day.record).updatedAt }, note: note(args.note), data: { props, before: beforeOf(r, 'callsheet', sheet, props) } });
     lines.push(`Change the call sheet for ${dayName}: ${Object.keys(props).join(', ')}.`);
   }
   const dayProps: Obj = {};
   if (args.call_time !== undefined) Object.defineProperty(dayProps, 'call_time', { value: args.call_time, enumerable: true, writable: true, configurable: true });
   if (args.wrap_time !== undefined) Object.defineProperty(dayProps, 'wrap_time', { value: args.wrap_time, enumerable: true, writable: true, configurable: true });
   if (Object.keys(dayProps).length > 0) {
-    suggestions.push({ id: newId(), kind: 'update', target: { id: day.record.id, type: 'shoot_day', label: dayName, updated_at: day.record.updatedAt }, note: note(args.note), data: { props: dayProps, before: beforeOf('shoot_day', day.record, dayProps) } });
+    suggestions.push({ id: newId(), kind: 'update', target: { id: day.record.id, type: 'shoot_day', label: dayName, updated_at: day.record.updatedAt }, note: note(args.note), data: { props: dayProps, before: beforeOf(r, 'shoot_day', day.record, dayProps) } });
     lines.push(`Change ${dayName}’s ${Object.keys(dayProps).map((f) => (f === 'call_time' ? 'crew call' : 'wrap')).join(' and ')}.`);
   }
   if (suggestions.length === 0) throw new ToolError('suggest_call_sheet_notes: name notes, safety_notes, call_time, wrap_time, department_calls or person_times.');
@@ -518,17 +532,151 @@ const fieldsIn = (s: FileSuggestion): [string, JsonValue][] => {
 /** A flag refuses a suggestion unless it only waits on another suggestion of the same file (a new scene's frames). */
 const waits = (flag: SuggestionFlag): boolean => flag.kind === 'waiting' || flag.kind === 'waiting_after';
 
+/** A stored id in a list as the reserve counts it: letters, digits and dashes, at most a UUID's 36 (one byte each). */
+const STORED_ID = new RegExp(`^[0-9A-Za-z-]{0,${String(ID_CHARS)}}$`);
+
+/** A time as a call sheet's `before` holds it (the review's `seen`): none, or "HH:MM". */
+const sheetLeaf = (value: unknown): boolean => value === null || (typeof value === 'string' && value.length <= 5);
+
 /**
- * The suggestions built as the file and read as the app will read them: the bytes through 7.1's reader within its
- * bounds, then each suggestion by 7.0's reader against the project, beside the others of the file, under the
- * assistant's scope row. The problems in words, none when it can be written.
+ * Whether a `before` value is within its field's stored bound (round 5), so the reserve for it is never less than its
+ * real size. A value past it is refused in fixed words before the build, whatever was sent.
  */
-function reviewed(context: ToolContext, suggestions: readonly FileSuggestion[], at: Date): { built: BuiltChangeFile; problems: string[] } {
+function withinBound(bound: StoredBound, value: JsonValue): boolean {
+  switch (bound.kind) {
+    case 'text':
+      return value === null || (typeof value === 'string' && value.length <= bound.max);
+    case 'short':
+      return value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)) || (typeof value === 'string' && value.length <= SHORT_VALUE);
+    case 'ids':
+      return value === null || (Array.isArray(value) && value.length <= bound.most && value.every((id) => typeof id === 'string' && STORED_ID.test(id)));
+    case 'by_key':
+      // Made by beforeOf from the keys sent: a department's time, or a person's times by key.
+      return isObject(value) && Object.values(value).every((inner) => sheetLeaf(inner) || (isObject(inner) && Object.values(inner).every(sheetLeaf)));
+  }
+}
+
+/** What reads worst as UTF-8 JSON: a control character, written `\u0001`, 6 bytes for one character. */
+const WORST = '\u0001';
+
+/**
+ * The value a `before` is counted at (round 5): the largest its bound lets it be, as UTF-8 JSON at its worst, so the
+ * stand-in is never smaller than any value within the bound, in compact or indented JSON. A call sheet's map keeps the
+ * keys sent and counts each time at its worst.
+ */
+function reserveFor(bound: StoredBound, value: JsonValue): JsonValue {
+  switch (bound.kind) {
+    case 'text':
+      return WORST.repeat(bound.max);
+    case 'short':
+      return WORST.repeat(SHORT_VALUE);
+    case 'ids':
+      return Array.from({ length: bound.most }, () => 'x'.repeat(ID_CHARS));
+    case 'by_key': {
+      const leaf = WORST.repeat(5);
+      const out: Obj = {};
+      for (const [key, inner] of Object.entries(isObject(value) ? value : {})) {
+        const times: Obj = {};
+        if (isObject(inner)) for (const k of Object.keys(inner)) Object.defineProperty(times, k, { value: leaf, enumerable: true, writable: true, configurable: true });
+        Object.defineProperty(out, key, { value: isObject(inner) ? times : leaf, enumerable: true, writable: true, configurable: true });
+      }
+      return out;
+    }
+  }
+}
+
+/** A suggestion's `before`, as named values. */
+const beforeIn = (s: FileSuggestion): [string, JsonValue][] => {
+  const before = s.data.before;
+  return before !== undefined && before !== null && typeof before === 'object' && !Array.isArray(before) ? Object.entries(before) : [];
+};
+
+/** A `before` field's stored bound, by the scope row; null for one outside it (never written: beforeOf leaves it out). */
+const boundOf = (s: FileSuggestion, field: string): StoredBound | null => {
+  const entry = scopeType(scopeRowFor(), s.target.type);
+  return (entry ? scopeField(entry, field) : null)?.stored ?? null;
+};
+
+/**
+ * The row's checks that read no records (round 5: lengths, choices, ranges, shapes), on every field sent, before
+ * anything is built or read: a function of what was sent alone, in 7.0's own words.
+ */
+function shapeProblems(suggestions: readonly FileSuggestion[]): string[] {
+  const problems: string[] = [];
+  for (const s of suggestions) {
+    const entry = scopeType(scopeRowFor(), s.target.type);
+    if (!entry || (s.kind !== 'update' && s.kind !== 'create')) continue;
+    const flags: SuggestionFlag[] = [];
+    for (const [field, value] of fieldsIn(s)) {
+      const problem = scopeField(entry, field)?.shape(value) ?? null;
+      if (problem) flags.push({ kind: 'invalid', field, problem });
+    }
+    if (flags.length > 0) problems.push(`${s.target.label}: ${[...new Set(flags.map((flag) => reviewFlagWords(flag, s.target.type)))].join(' ')}`);
+  }
+  return problems;
+}
+
+/**
+ * A stored value past its own bound (round 5): a `before` past its field's, or a target's time past the format's. In
+ * fixed words naming the suggestion and the field, whatever was sent.
+ */
+function storedProblems(suggestions: readonly FileSuggestion[]): string[] {
+  const problems: string[] = [];
+  for (const s of suggestions) {
+    const fields = beforeIn(s).flatMap(([field, value]) => {
+      const bound = boundOf(s, field);
+      return bound && withinBound(bound, value) ? [] : [field];
+    });
+    const time = s.target.updated_at;
+    if (time !== undefined && time.length > SUGGESTION_BOUNDS.time) fields.push('its last change');
+    if (fields.length > 0) problems.push(`${s.target.label}: what the project holds in ${fields.join(', ')} is more than a suggestion can carry. Change it in Storiiboard.`);
+  }
+  return problems;
+}
+
+/** The suggestions with every `before` value and target time at its reserve: what the size checks read (round 5). */
+function atReserve(suggestions: readonly FileSuggestion[]): FileSuggestion[] {
+  return suggestions.map((s) => {
+    const target = s.target.updated_at === undefined ? s.target : { ...s.target, updated_at: WORST.repeat(SUGGESTION_BOUNDS.time) };
+    if (s.data.before === undefined) return { ...s, target };
+    const before: Obj = {};
+    for (const [field, value] of beforeIn(s)) {
+      const bound = boundOf(s, field);
+      // Checked by storedProblems first: every field has a bound.
+      if (bound) Object.defineProperty(before, field, { value: reserveFor(bound, value), enumerable: true, writable: true, configurable: true });
+    }
+    return { ...s, target, data: { ...s.data, before } };
+  });
+}
+
+/** A checked change file, and the size it was counted at: the room check counts the new file at this (round 5). */
+export interface CheckedChangeFile extends BuiltChangeFile {
+  reserveBytes: number;
+}
+
+/**
+ * The suggestions built as the file and read as the app will read them (round 5): first as they would be with every
+ * `before` at its reserve, through 7.1's reader within its bounds (5 MB, 256 KB a suggestion, 10,000 characters a
+ * string), a function of what was sent alone; then the real file, which can only be smaller, asserted to pass the same
+ * reader; then each suggestion by 7.0's reader against the project, beside the others of the file, under the
+ * assistant's scope row, for its flags alone. The problems in words, none when it can be written.
+ */
+function reviewed(context: ToolContext, suggestions: readonly FileSuggestion[], at: Date): { built: CheckedChangeFile; problems: string[] } {
   const { data } = context;
-  const built = buildChangeFile({ projectId: data.projectId, projectName: data.name, client: context.client ?? 'MCP client', suggestions, at });
-  if (built.bytes.byteLength > MAX_CHANGE_FILE_BYTES) return { built, problems: ['The change file would be larger than 5 MB. Suggest fewer at a time.'] };
-  const file = readChangeFile(built.bytes, data.projectId);
-  if (!file.ok) return { built, problems: [refusalWords(file.refusal)] };
+  const id = crypto.randomUUID();
+  const input = { projectId: data.projectId, projectName: data.name, client: context.client ?? 'MCP client', at, id };
+  const reserve = buildChangeFile({ ...input, suggestions: atReserve(suggestions) });
+  const counted = { ...reserve, reserveBytes: reserve.bytes.byteLength };
+  if (reserve.bytes.byteLength > MAX_CHANGE_FILE_BYTES) return { built: counted, problems: ['The change file would be larger than 5 MB. Suggest fewer at a time.'] };
+  const atMost = readChangeFile(reserve.bytes, data.projectId);
+  if (!atMost.ok) return { built: counted, problems: [refusalWords(atMost.refusal)] };
+
+  const real = buildChangeFile({ ...input, suggestions });
+  const built = { ...real, reserveBytes: reserve.bytes.byteLength };
+  const file = readChangeFile(real.bytes, data.projectId);
+  // Every bound was decided at the reserve, which no value within its bound can pass: a refusal here is a fault in this
+  // code, never an answer.
+  if (!file.ok || real.bytes.byteLength > reserve.bytes.byteLength) throw new Error('The change file was larger than its reserve.');
   const records: Record<string, SbdRecord> = { ...data.records };
   const stamp = at.toISOString();
   for (const s of file.file.suggestions) {
@@ -543,7 +691,9 @@ function reviewed(context: ToolContext, suggestions: readonly FileSuggestion[], 
   const problems: string[] = [];
   file.file.suggestions.forEach((s, i) => {
     const label = suggestions[i]?.target.label ?? `Suggestion ${String(i + 1)}`;
-    const review = reviewSuggestion(records, data.projectId, s.id, data.slate);
+    // Flags alone (round 5): no edit is worked out, so `no_change` is never made and the work never depends on whether
+    // a value sent equals the stored one.
+    const review = reviewSuggestion(records, data.projectId, s.id, data.slate, 'flags');
     if (!review) {
       problems.push(`${label}: it can't be read.`);
       return;
@@ -588,9 +738,10 @@ function scopeProblems(suggestions: readonly FileSuggestion[]): string[] {
  * "nothing to change" let through). Everything before the build is a function of what was sent alone, so a refusal for a
  * contact or a field never depends on anything stored. Throws a ToolError with every problem in words. Round 3: the
  * file built once is the file written, exactly as the assistant sent it; nothing in it is matched against what the
- * project stores.
+ * project stores. Round 5: then the row's checks that read no records, then a stored value past its bound (fixed words),
+ * and every size from the reserves (reviewed).
  */
-export function checkedChangeFile(context: ToolContext, proposal: Proposal, at: Date = new Date()): BuiltChangeFile {
+export function checkedChangeFile(context: ToolContext, proposal: Proposal, at: Date = new Date()): CheckedChangeFile {
   if (proposal.suggestions.length === 0) throw new ToolError('Nothing to suggest.');
   if (proposal.suggestions.length > MAX_PER_CALL) throw new ToolError(`One call makes at most ${String(MAX_PER_CALL)} suggestions: suggest fewer at a time.`);
   if (proposal.suggestions.some((s) => s.note.length > SUGGESTION_BOUNDS.note)) throw new ToolError(`Nothing was written. The note is longer than ${String(SUGGESTION_BOUNDS.note)} characters.`);
@@ -606,6 +757,11 @@ export function checkedChangeFile(context: ToolContext, proposal: Proposal, at: 
     if (showsContact(s.note)) problems.push(`${s.target.label}: the note holds ${CONTACT_WORDS}. Leave contact details out.`);
   }
   if (problems.length > 0) throw new ToolError(`Nothing was written. ${[...new Set(problems)].join(' ')}`);
+
+  const shapes = shapeProblems(proposal.suggestions);
+  if (shapes.length > 0) throw new ToolError(`Nothing was written. ${shapes.join(' ')}`);
+  const stored = storedProblems(proposal.suggestions);
+  if (stored.length > 0) throw new ToolError(`Nothing was written. ${stored.join(' ')}`);
 
   const first = reviewed(context, proposal.suggestions, at);
   if (first.problems.length > 0) throw new ToolError(`Nothing was written. ${first.problems.join(' ')}`);

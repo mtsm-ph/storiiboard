@@ -10,13 +10,14 @@ import type { SbdRecord } from '../../src/core/model/record';
 import { readSuggestion, reviewSuggestion } from '../../src/core/model/suggestion';
 import { apply, type Change } from '../../src/core/ops/ops';
 import { bringInChangeFile } from '../../src/core/ops/suggestions';
-import { readChangeFile } from '../../src/core/storage/changeFile';
+import { MAX_SUGGESTION_BYTES, readChangeFile, refusalWords } from '../../src/core/storage/changeFile';
 import { nodeDriver } from '../../src/core/storage/nodeDriver';
 import { openProject } from '../../src/core/storage/project';
 import { makeTestFolder } from '../../src/core/storage/testFolder';
-import { FolderRefused, MARKER_FORMAT, MARKER_NAME } from '../src/changeFolder';
-import { readProject } from '../src/project';
-import { checkedChangeFile, suggestGearForDay, suggestShotChanges, suggestTrash } from '../src/propose';
+import { buildChangeFile } from '../src/changeFile';
+import { FolderRefused, MARKER_FORMAT, MARKER_NAME, MAX_FOLDER_BYTES } from '../src/changeFolder';
+import { readProject, type ProjectData } from '../src/project';
+import { checkedChangeFile, suggestCallSheetNotes, suggestGearForDay, suggestNewShots, suggestReorder, suggestShotChanges, suggestTrash, type Proposal } from '../src/propose';
 import { writeProposal } from '../src/write';
 import { CONTACTS, IDS, writeHarborLights } from './fixture';
 
@@ -909,5 +910,231 @@ describe('the propose tools, round 4', () => {
     expect(large).toBe(refusal(withCustom('x')));
     expect(large).toMatch(/^Nothing was written\. SC 12 · 12B: /);
     expect(large).not.toContain('5 MB');
+  });
+});
+
+// Round 5: every size and the review's work decided by what was sent alone.
+
+/** What reads worst as UTF-8 JSON: 6 bytes for one character. */
+const WORST = '\u0001';
+
+type Context = { data: ProjectData; client: string };
+
+/** A proposal's file as the app brings it in: the project's records with its suggestions beside them, and their ids. */
+function broughtIn(context: Context, proposal: Proposal): { records: Record<string, SbdRecord>; ids: string[] } {
+  const { data } = context;
+  const built = buildChangeFile({ projectId: data.projectId, projectName: data.name, client: CLIENT, suggestions: proposal.suggestions, at: new Date() });
+  const read = readChangeFile(built.bytes, data.projectId);
+  if (!read.ok) throw new Error(`refused ${read.refusal.kind}`);
+  const records: Record<string, SbdRecord> = { ...data.records };
+  for (const s of read.file.suggestions) {
+    records[s.id] = { id: s.id, type: 'suggestion', parentId: data.projectId, sortKey: 'z', props: s.props, trashedAt: null, trashedBy: null, createdAt: '2026-11-21T10:00:00.000Z', updatedAt: '2026-11-21T10:00:00.000Z' };
+  }
+  return { records, ids: read.file.suggestions.map((s) => s.id) };
+}
+
+/** A context whose records are the fixture's with some records changed. */
+const withRecords = (data: ProjectData, changed: Record<string, SbdRecord>): Context => ({ data: { ...data, records: { ...data.records, ...changed } }, client: CLIENT });
+
+/** A record of the fixture with props changed. */
+const changedProps = (data: ProjectData, id: string, props: SbdRecord['props']): Record<string, SbdRecord> => {
+  const record = data.records[id] as SbdRecord;
+  return { [id]: { ...record, props: { ...record.props, ...props } } };
+};
+
+/** What checkedChangeFile says: the refusal's words, or "written". */
+function answerOf(context: Context, proposal: Proposal): string {
+  try {
+    checkedChangeFile(context, proposal);
+  } catch (error) {
+    return (error as Error).message;
+  }
+  return 'written';
+}
+
+/** Every propose tool's call of the round-1 test, and the other rounds' cases, as proposals on the fixture. */
+function fixtureProposals(context: Context): [string, Proposal][] {
+  return [
+    ['shot changes', suggestShotChanges(context, { changes: [{ frame: '12B', fields: { size: 'MCU', lens_mm: 85, t_stop: 4, action: 'Her hands, closer.' } }], note: 'Tighter for the count.' })],
+    ['new shots', suggestNewShots(context, { scene: '12', after: '12A', frames: [{ size: 'INSERT', action: 'The till drawer.' }, { size: 'CU', location: 'Pier 9' }] })],
+    ['new scene', suggestNewShots(context, { new_scene: { name: 'Pier at night', int_ext: 'EXT', day_night: 'NIGHT', location: 'Pier 9' }, frames: [{ size: 'WS' }, { size: 'MS' }] })],
+    ['reorder', suggestReorder(context, { moves: [{ frame: '12B', after: 'start' }, { scene: '12', note: 1, after: '12B' }] })],
+    ['reorder in place', suggestReorder(context, { moves: [{ frame: '12B', after: '12A' }] })],
+    ['gear for day', suggestGearForDay(context, { day: '2026-11-18', add: ['Boom kit Sennheiser'], remove: ['SkyPanel S60'] })],
+    [
+      'call sheet',
+      suggestCallSheetNotes(context, { day: '1', notes: 'Breakfast from 05:00.', call_time: '05:30', department_calls: { sound: '06:30' }, person_times: { 'Sam Ortiz': { hmu_ready: '05:45' } } }),
+    ],
+    ['trash', suggestTrash(context, { items: [{ frame: '12B' }, { scene: '12', note: 1 }] })],
+    ['a size already held', suggestShotChanges(context, { changes: [{ frame: '12B', fields: { size: 'CU' } }] })],
+    ['a lens outside the one picked', suggestShotChanges(context, { changes: [{ frame: '12A', fields: { lens_mm: 50 } }] })],
+    ['a value stored or not (rounds 2 and 3)', suggestShotChanges(context, { changes: [{ frame: '12B', fields: { action: 'Mark at 40.8677.' } }], note: 'Mark at 40.8677.' })],
+  ];
+}
+
+/** Round 4's probes: an action and a call sheet's notes holding the pier's address, sent back exactly and a character off. */
+function roundFourProposals(data: ProjectData): [string, Context, Proposal][] {
+  const off = `${CONTACTS.address.slice(0, -1)}x`;
+  const action = withRecords(data, changedProps(data, IDS.shotB, { action: CONTACTS.address }));
+  const notes = withRecords(data, changedProps(data, IDS.sheet, { notes: CONTACTS.address }));
+  return [
+    ['action, exact', action, suggestShotChanges(action, { changes: [{ frame: '12B', fields: { action: CONTACTS.address } }] })],
+    ['action, off', action, suggestShotChanges(action, { changes: [{ frame: '12B', fields: { action: off } }] })],
+    ['notes, exact', notes, suggestCallSheetNotes(notes, { day: '1', notes: CONTACTS.address })],
+    ['notes, off', notes, suggestCallSheetNotes(notes, { day: '1', notes: off })],
+  ];
+}
+
+describe('the propose tools, round 5', () => {
+  it('decides the 256 KB of a suggestion from what was sent: two hidden addresses a character apart, straddling it, answered alike', async () => {
+    const data = await readProject(original);
+    const p = data.projectId;
+    const shot = data.records[IDS.shotB] as SbdRecord;
+    // 50 stands in the catalogue, and a frame whose gear list holds them and 450 ids no record has.
+    const stands = Array.from({ length: 50 }, (_, i) => `50000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    const storedGear = [...stands, ...Array.from({ length: 450 }, (_, i) => `60000000-0000-4000-8000-${String(i).padStart(12, '0')}`)];
+    const gear: Record<string, SbdRecord> = Object.fromEntries(
+      stands.map((id, i): [string, SbdRecord] => [id, { ...shot, id, type: 'gear_item', parentId: p, sortKey: `g${String(i).padStart(3, '0')}`, props: { name: `Stand ${String(i)}`, department: 'grip-electric' } }]),
+    );
+    // The pier's address, which the guard hides, held in the frame's action at the end of 10,000 characters; the
+    // other context's address is a character off, one byte longer in UTF-8.
+    const contexts = [CONTACTS.address, `${CONTACTS.address.slice(0, -1)}ë`].map((address) =>
+      withRecords(data, {
+        ...gear,
+        ...changedProps(data, IDS.pier, { address }),
+        ...changedProps(data, IDS.shotB, { action: WORST.repeat(10_000 - address.length) + address, dialogue: WORST.repeat(10_000), title: WORST.repeat(200), gear_ids: storedGear }),
+      }),
+    );
+    const [first, second] = contexts;
+    if (!first || !second) throw new Error('no context');
+    const proposalOf = (context: Context, action: string) => suggestShotChanges(context, { changes: [{ frame: '12B', fields: { title: WORST.repeat(200), dialogue: WORST.repeat(10_000), gear: stands, action } }] });
+    /** One suggestion's size as 7.1's reader counts it, built from the real values. */
+    const realSize = (context: Context, action: string) => {
+      const built = buildChangeFile({ projectId: p, projectName: data.name, client: CLIENT, suggestions: proposalOf(context, action).suggestions, at: new Date() });
+      const parsed = JSON.parse(new TextDecoder().decode(built.bytes)) as { suggestions: unknown[] };
+      return new TextEncoder().encode(JSON.stringify(parsed.suggestions[0])).byteLength;
+    };
+    // The action sent, sized so that the first context's real suggestion is exactly 256 KB: the second's is a byte over.
+    const room = MAX_SUGGESTION_BYTES - realSize(first, '');
+    expect(room).toBeGreaterThan(0);
+    const action = WORST.repeat(Math.floor(room / 6)) + 'x'.repeat(room % 6);
+    expect(action.length).toBeLessThanOrEqual(10_000);
+    expect(realSize(first, action)).toBe(MAX_SUGGESTION_BYTES);
+    expect(realSize(second, action)).toBe(MAX_SUGGESTION_BYTES + 1);
+    // Counted at the reserves, both are past it, in the same words.
+    const one = answerOf(first, proposalOf(first, action));
+    expect(one).toBe(`Nothing was written. ${refusalWords({ kind: 'suggestion_too_large', position: 1 })}`);
+    expect(answerOf(second, proposalOf(second, action))).toBe(one);
+  });
+
+  it('counts the real file no larger than its reserve, which 7.1’s reader passes, for every propose tool', async () => {
+    const data = await readProject(original);
+    const context = { data, client: CLIENT };
+    let written = 0;
+    for (const [name, proposal] of fixtureProposals(context)) {
+      if (answerOf(context, proposal) !== 'written') continue;
+      const checked = checkedChangeFile(context, proposal);
+      expect(checked.reserveBytes, name).toBeGreaterThanOrEqual(checked.bytes.byteLength);
+      expect(readChangeFile(checked.bytes, data.projectId).ok, name).toBe(true);
+      written += 1;
+    }
+    expect(written).toBeGreaterThanOrEqual(9);
+  });
+
+  it('refuses a stored value past its own bound in fixed words, whatever was sent', async () => {
+    const data = await readProject(original);
+    const context = withRecords(data, changedProps(data, IDS.shotB, { action: 'x'.repeat(10_001) }));
+    const words = 'Nothing was written. SC 12 · 12B: what the project holds in action is more than a suggestion can carry. Change it in Storiiboard.';
+    expect(answerOf(context, suggestShotChanges(context, { changes: [{ frame: '12B', fields: { action: 'Short.' } }] }))).toBe(words);
+    expect(answerOf(context, suggestShotChanges(context, { changes: [{ frame: '12B', fields: { action: 'y'.repeat(10_000) } }] }))).toBe(words);
+    // A gear list holding something that isn't an id, likewise.
+    const gearContext = withRecords(data, changedProps(data, IDS.shotB, { gear_ids: [IDS.body, { not: 'an id' }] }));
+    expect(answerOf(gearContext, suggestShotChanges(gearContext, { changes: [{ frame: '12B', fields: { gear: [IDS.body] } }] }))).toBe(
+      'Nothing was written. SC 12 · 12B: what the project holds in gear_ids is more than a suggestion can carry. Change it in Storiiboard.',
+    );
+    // A field the call doesn't name is no matter.
+    expect(answerOf(context, suggestShotChanges(context, { changes: [{ frame: '12B', fields: { size: 'MCU' } }] }))).toBe('written');
+  });
+
+  it('runs the row’s checks that read no records before the build, before any stored bound', async () => {
+    const data = await readProject(original);
+    const over = withRecords(data, changedProps(data, IDS.shotB, { action: 'x'.repeat(10_001) }));
+    const fresh = { data, client: CLIENT };
+    const sized = (context: Context) => answerOf(context, suggestShotChanges(context, { changes: [{ frame: '12B', fields: { size: 'HUGE', action: 'Short.' } }] }));
+    expect(sized(over)).toBe(sized(fresh));
+    expect(sized(fresh)).toMatch(/^Nothing was written\. SC 12 · 12B: /);
+    expect(sized(fresh)).not.toContain('more than a suggestion can carry');
+    // A day time and a focal length past their own ranges, likewise.
+    expect(answerOf(fresh, suggestCallSheetNotes(fresh, { day: '1', call_time: '25:00' }))).toMatch(/^Nothing was written\. Day 1/);
+    expect(answerOf(fresh, suggestShotChanges(fresh, { changes: [{ frame: '12B', fields: { lens_mm: 2001 } }] }))).toMatch(/^Nothing was written\. SC 12 · 12B: /);
+  });
+
+  it('counts the new file at its reserve in the room check, earlier files at their real size', async () => {
+    const { dir, path } = freshProject();
+    const data = await readProject(path);
+    const context = { data, client: CLIENT };
+    const checked = checkedChangeFile(context, suggestTrash(context, { items: [{ frame: '12B' }] }));
+    expect(checked.reserveBytes).toBeGreaterThan(checked.bytes.byteLength);
+    const suggestionsDir = join(dir, SUGGESTIONS);
+    mkdirSync(suggestionsDir);
+    writeFileSync(join(suggestionsDir, MARKER_NAME), JSON.stringify({ format: MARKER_FORMAT, project_id: data.projectId, project_name: 'Harbor Lights' }));
+    // Room for the real file, not for its reserve.
+    writeFileSync(join(suggestionsDir, 'large.sbdchanges'), '');
+    truncateSync(join(suggestionsDir, 'large.sbdchanges'), MAX_FOLDER_BYTES - checked.bytes.byteLength);
+    expect(() => writeProposal(context, suggestTrash(context, { items: [{ frame: '12B' }] }))).toThrow(
+      new FolderRefused(`50 MB of change files are waiting in ${SUGGESTIONS}: bring them in (Bring in, in the status line) or move some out of the folder.`),
+    );
+    // Room for the reserve: written.
+    truncateSync(join(suggestionsDir, 'large.sbdchanges'), MAX_FOLDER_BYTES - checked.reserveBytes);
+    expect(writeProposal(context, suggestTrash(context, { items: [{ frame: '12B' }] }))).toMatchObject({ written: { suggestions: 1 } });
+  });
+
+  it('reviews for the flags alone the same flags as the full review, “nothing to change” aside, on every earlier round’s case', async () => {
+    const data = await readProject(original);
+    const context = { data, client: CLIENT };
+    let noChange = 0;
+    let reviewed = 0;
+    const cases: [string, Context, Proposal][] = [...fixtureProposals(context).map(([name, proposal]): [string, Context, Proposal] => [name, context, proposal]), ...roundFourProposals(data)];
+    for (const [name, caseContext, proposal] of cases) {
+      const { records, ids } = broughtIn(caseContext, proposal);
+      // The fixture's own suggestions too (an assistant's lens change, a web reviewer's phone).
+      for (const id of [...ids, IDS.lensSuggestion, IDS.phoneSuggestion]) {
+        const full = reviewSuggestion(records, data.projectId, id, data.slate);
+        const flags = reviewSuggestion(records, data.projectId, id, data.slate, 'flags');
+        if (!full || !flags) throw new Error(`${name}: not read`);
+        expect(flags.flags, name).toEqual(full.flags.filter((flag) => flag.kind !== 'no_change'));
+        expect(flags.canApply, name).toBe(full.canApply);
+        expect(flags.writes, name).toEqual([]);
+        if (full.flags.some((flag) => flag.kind === 'no_change')) noChange += 1;
+        reviewed += 1;
+      }
+    }
+    // The cases reach "nothing to change", so the mode is shown leaving it out.
+    expect(noChange).toBeGreaterThanOrEqual(3);
+    expect(reviewed).toBeGreaterThan(30);
+  });
+
+  it('does the same work in the flags-only review whether a value equals the stored one: no copy of the records', async () => {
+    const data = await readProject(original);
+    const context = { data, client: CLIENT };
+    const copiesFor = (size: string, mode: 'full' | 'flags') => {
+      const { records, ids } = broughtIn(context, suggestShotChanges(context, { changes: [{ frame: '12B', fields: { size } }] }));
+      // Each copy of the records (a spread, a listing) reads all their keys once.
+      let copies = 0;
+      const proxy = new Proxy(records, {
+        ownKeys(target) {
+          copies += 1;
+          return Reflect.ownKeys(target);
+        },
+      });
+      reviewSuggestion(proxy, data.projectId, ids[0] ?? '', data.slate, mode);
+      return copies;
+    };
+    // 12B is a CU: the same size, and another.
+    expect(copiesFor('CU', 'flags')).toBe(0);
+    expect(copiesFor('MCU', 'flags')).toBe(0);
+    // The full review copies them to work out the edit only when there is one: the difference the mode takes away.
+    expect(copiesFor('CU', 'full')).toBe(0);
+    expect(copiesFor('MCU', 'full')).toBeGreaterThan(0);
   });
 });

@@ -29,7 +29,7 @@ import { sceneSetups, frameSetup, type Setup } from '../../src/core/model/setup'
 import { dayFrames, dayLabel, dayTotals, frameDayId, projectShootDays, setupMinutes, unscheduledFrames, type ShootDay } from '../../src/core/model/shootDay';
 import { lightReferenceOf } from '../../src/core/model/scoutPhoto';
 import { pagesText, projectStoryboard, sceneFields, sceneLabel, shotFields } from '../../src/core/model/storyboard';
-import { reviewFlagWords, reviewSuggestion } from '../../src/core/model/suggestion';
+import { keptSuggestion, reviewFlagWords, reviewSuggestion } from '../../src/core/model/suggestion';
 import { sunReadingOf, type SunReadingOf } from '../../src/core/model/sunSources';
 import { windowSunsOf } from '../../src/core/model/windowSun';
 import type { ProjectData, Records } from './project';
@@ -768,15 +768,19 @@ export function listSuggestions(context: ToolContext, args: { status?: 'pending'
     .filter((s) => s.type === 'suggestion')
     .sort(bySortKey)
     .flatMap((record): Obj[] => {
-      // The project's own reader of a suggestion, flags and all (7.0), on the records the assistant may see.
-      const review = reviewSuggestion(r.scoped, r.projectId, record.id, r.data.slate);
+      // The project's own reader of a suggestion, flags and all (7.0), on the records the assistant may see. An
+      // assistant's own is read for its flags alone (round 5): no edit is worked out, so `no_change`, which this list
+      // never shows, can't be told, and the work done never depends on whether a value it sent is the one stored.
+      const mode = keptSuggestion(record).source === 'mcp' ? 'flags' : 'full';
+      const review = reviewSuggestion(r.scoped, r.projectId, record.id, r.data.slate, mode);
       if (!review) return [];
       const s = review.suggestion;
       if (wanted !== 'all' && s.status !== wanted) return [];
       const flags = review.flags.map((flag) => ({ kind: flag.kind, words: reviewFlagWords(flag, s.targetType) }));
       if (s.source === 'mcp') {
-        // Round 4: never "nothing to change" here. The reader compares the value sent with the stored one, hidden or not,
-        // and whether they match would say what a hidden value is. Apply stays open either way, so `can_apply` says nothing.
+        // Round 4: never "nothing to change" here. The full reader compares the value sent with the stored one, hidden or
+        // not, and whether they match would say what a hidden value is. Apply stays open either way, so `can_apply` says
+        // nothing. Round 5: the flags-only review never makes the flag; the filter stays as a second guard.
         const shown = flags.filter((flag) => flag.kind !== 'no_change');
         return [
           {
