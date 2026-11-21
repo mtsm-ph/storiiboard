@@ -1,6 +1,7 @@
 import { DEPARTMENTS, type Department } from './department';
 import { approverRoles, ROLE_DEPARTMENTS, type ProjectRole } from './departmentStatus';
 import type { JsonValue, Props, SbdRecord } from './record';
+import { keptFor, recordsOfType } from './recordIndex';
 import { isRole, type Role } from './role';
 
 // A person on the production (3.5): cast or crew, named once and, from 3.7 on, called on shoot days and listed on call
@@ -63,12 +64,17 @@ export function contactOnSheet(fields: Pick<PersonFields, 'departments' | 'role'
   return fields.contactOnSheet ?? !isCastOnly(fields);
 }
 
-/** The live people in the project, by name (an unnamed one last). */
-export function projectPeople(records: Readonly<Record<string, SbdRecord>>, projectId: string): { record: SbdRecord; fields: PersonFields }[] {
-  return Object.values(records)
-    .filter((r) => r.type === 'person' && r.parentId === projectId && r.trashedAt === null)
-    .map((record) => ({ record, fields: personFields(record.props) }))
-    .sort((a, b) => (a.fields.name === '' ? 1 : b.fields.name === '' ? -1 : a.fields.name.localeCompare(b.fields.name)));
+/**
+ * The live people in the project, by name (an unnamed one last). Kept per records object (7.4 round 2: every day's
+ * sheet reads it on every edit while the Checks tile is open), so the list is shared: its callers never change it.
+ */
+export function projectPeople(records: Readonly<Record<string, SbdRecord>>, projectId: string): readonly { record: SbdRecord; fields: PersonFields }[] {
+  return keptFor(records, `person.project:${projectId}`, () =>
+    recordsOfType(records, 'person')
+      .filter((r) => r.parentId === projectId && r.trashedAt === null)
+      .map((record) => ({ record, fields: personFields(record.props) }))
+      .sort((a, b) => (a.fields.name === '' ? 1 : b.fields.name === '' ? -1 : a.fields.name.localeCompare(b.fields.name))),
+  );
 }
 
 /** The custom field names the project's live people use (3.5), as frames' and locations' are worked out. */

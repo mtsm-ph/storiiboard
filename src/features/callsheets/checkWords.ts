@@ -3,6 +3,7 @@ import type { CallSheetFinding } from '../../core/checks';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { locationFields } from '../../core/model/location';
 import { stretchLabel } from '../../core/model/availability';
+import type { CallSheet } from '../../core/model/callsheet';
 import { personFields } from '../../core/model/person';
 import { ROLE_LABELS } from '../../core/model/role';
 import { dayDateLabel } from '../../core/model/shootDay';
@@ -70,6 +71,15 @@ export function findingWords(finding: CallSheetFinding, records: Records, units:
         ? t('callSheet.check.rainAmount', { scene: sceneName(records, finding.sceneId), amount: precipitationText(finding.mm, units) })
         : t('callSheet.check.rainConditions', { scene: sceneName(records, finding.sceneId), conditions: finding.conditions ? t(finding.conditions).toLocaleLowerCase() : '' });
   }
+}
+
+/**
+ * Whether "Who's on the day" has someone to add (where a missing department is fixed): someone left off a chosen list,
+ * or a day nobody has chosen for whose list can be read. The strip and the Checks tile's Show (7.4) both ask this.
+ */
+export function canAddPeople(sheet: Pick<CallSheet, 'peopleChosen' | 'notOnDay' | 'peopleOdd'> | null): boolean {
+  if (!sheet) return false;
+  return sheet.peopleChosen ? sheet.notOnDay.length > 0 : !sheet.peopleOdd;
 }
 
 /**

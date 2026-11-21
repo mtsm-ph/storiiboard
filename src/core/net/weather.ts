@@ -293,6 +293,18 @@ export function precipitationBetween(entries: readonly ForecastEntry[], from: nu
   return Math.round(total * 1000) / 1000;
 }
 
+/**
+ * Whether the forecast's precipitation runs from `from` to `to` (ms) without a gap at either end: a forecast that
+ * covers a date but starts after the call or stops before the wrap can't say the hours are dry (7.4 round 2).
+ */
+export function precipitationCovers(entries: readonly ForecastEntry[], from: number, to: number): boolean {
+  const { rain } = spansOf(entries);
+  if (rain.length === 0) return false;
+  const start = Math.min(...rain.map((s) => s.start));
+  const end = Math.max(...rain.map((s) => s.end));
+  return start <= from && end >= to;
+}
+
 /** HH:MM in a zone for an ISO time (the fetch time, the expiry), or '' for a time or zone that can't be read. */
 export function clockIn(iso: string, zone: string): string {
   return hhmm(Date.parse(iso), zone);

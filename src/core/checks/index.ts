@@ -1,5 +1,6 @@
 import type { SbdRecord } from '../model/record';
-import { callSheetChecks, type CallSheetCheckResult, type CallSheetFinding, type SkippedCheck } from './callSheetChecks';
+import { allChecks, allChecksMade, CHECK_KINDS, type AllChecksResult, type AnyFinding, type CheckFinding, type CheckKind, type CheckSkip, type CheckTarget, type HeldForChecks, type OldForecast } from './allChecks';
+import { callSheetChecks, dayForecastNotes, type CallSheetCheckResult, type DayForecastNotes, type CallSheetFinding, type SkippedCheck } from './callSheetChecks';
 import { checkContext, type CheckContext } from './context';
 import { departmentMissing, type DepartmentMissing } from './departmentMissing';
 import { exteriorRain, RAIN_MM, type ExteriorRain, type HeldForecasts } from './exteriorRain';
@@ -17,15 +18,21 @@ import { unavailableOnDay, unavailableOnSheet, type UnavailableOnDay } from './u
 
 export type Finding = GearNotOnDay | PlanLensDiffers | UnavailableOnDay;
 
-/** Every project-wide check's findings for a project. */
+/**
+ * The project-wide checks alone (gear, lens, unavailable dates), without ids, targets or a day's call sheet checks:
+ * partial, kept for the tests that read it. Every check over the project, the call sheet's per day included, with ids, targets and what was skipped, is
+ * allChecks (allChecks.ts), the one the Checks tile and 7.5's `run_checks` read.
+ */
 export function runChecks(records: Readonly<Record<string, SbdRecord>>, projectId: string): Finding[] {
   return [...gearNotOnDay(records, projectId), ...planLensDiffers(records, projectId), ...unavailableOnDay(records, projectId)];
 }
 
 export { gearNotOnDay, planLensDiffers, unavailableOnDay, type GearNotOnDay, type PlanLensDiffers, type UnavailableOnDay };
+export { allChecks, allChecksMade, CHECK_KINDS, type AllChecksResult, type AnyFinding, type CheckFinding, type CheckKind, type CheckSkip, type CheckTarget, type HeldForChecks, type OldForecast };
 export {
   callSheetChecks,
   checkContext,
+  dayForecastNotes,
   departmentMissing,
   exteriorRain,
   goldenHourMidday,
@@ -36,6 +43,7 @@ export {
   type CallSheetCheckResult,
   type CallSheetFinding,
   type CheckContext,
+  type DayForecastNotes,
   type DepartmentMissing,
   type ExteriorRain,
   type GoldenHourMidday,
