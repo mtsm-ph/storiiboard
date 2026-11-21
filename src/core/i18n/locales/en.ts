@@ -1260,6 +1260,7 @@ export const en = {
   'history.restoredStrokesOn': 'Restored {strokes} on {frame}',
   'history.movedCount': 'Moved {things}',
   'history.movedLost': 'Moved an item, since deleted for good',
+  'history.movedSomeLost': 'Moved items, some since deleted for good',
   'history.moved': 'Moved {name}',
   'history.movedAfter': 'Moved {name} to after {after}',
   'history.movedToStart': 'Moved {name} to the start of {place}',

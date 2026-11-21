@@ -965,13 +965,17 @@ export function opsOfRecord(file: ProjectFile, recordId: string): Promise<Logged
   return opsOfRecords(file, [recordId]);
 }
 
-/** Every write to some records, oldest first: a frame's history with its sketch and picture. */
-export async function opsOfRecords(file: ProjectFile, recordIds: readonly string[]): Promise<LoggedOp[]> {
+/**
+ * Every write to some records, oldest first: a frame's history with its sketch and picture. With `before`, only the
+ * writes before that seq: History asks what records were like at its steps, never what came after the newest of them.
+ */
+export async function opsOfRecords(file: ProjectFile, recordIds: readonly string[], before?: number): Promise<LoggedOp[]> {
   if (recordIds.length === 0) return [];
+  const ids = JSON.stringify(recordIds);
   const rows = await file.query(
     `SELECT ${LOGGED_COLUMNS} FROM ops o
-      JOIN op_groups g ON g.id = o.group_id WHERE o.record_id IN (SELECT value FROM json_each(?)) ORDER BY o.seq`,
-    [JSON.stringify(recordIds)],
+      JOIN op_groups g ON g.id = o.group_id WHERE o.record_id IN (SELECT value FROM json_each(?))${before === undefined ? '' : ' AND o.seq < ?'} ORDER BY o.seq`,
+    before === undefined ? [ids] : [ids, before],
   );
   return rows.map(loggedOp);
 }

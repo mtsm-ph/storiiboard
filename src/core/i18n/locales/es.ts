@@ -1262,6 +1262,7 @@ export const es: Messages = {
   'history.restoredStrokesOn': 'Restaurado en {frame}: {strokes}',
   'history.movedCount': 'Movido: {things}',
   'history.movedLost': 'Se movió un elemento, borrado para siempre después',
+  'history.movedSomeLost': 'Se movieron elementos, algunos borrados para siempre después',
   'history.moved': 'Se movió {name}',
   'history.movedAfter': 'Se movió {name} después de {after}',
   'history.movedToStart': 'Se movió {name} al principio de {place}',

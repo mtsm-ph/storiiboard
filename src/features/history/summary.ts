@@ -1590,6 +1590,35 @@ function asLeft(ops: readonly LoggedOp[]): (record: SbdRecord) => SbdRecord {
 }
 
 /**
+ * Whether a step's moves wrote a whole place afresh (6.23): several, all readable, under one parent, and every record
+ * the place held then among them (the Trash's too); else the person moved them all. A deck's items written afresh
+ * with a page are all its items, not only its pages.
+ */
+function rekeyedPlace(moves: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): boolean {
+  const target = moveTarget(moves);
+  const kind = movesKind(moves);
+  if (moves.length < 2 || target === null || kind === null || moves.some(purged)) return false;
+  const ids = new Set(moves.map((op) => op.recordId));
+  const rekeyed = deckRekey(moves);
+  const held = [...around.values()].filter(
+    (r) => r.parentId === target && (kind === 'frame' ? r.type === 'shot' || r.type === 'note' : rekeyed ? r.type === 'board_item' : neighbourOf(kind)(r)),
+  );
+  return held.every((r) => ids.has(r.id));
+}
+
+/**
+ * A step's moves without those of records then in the Trash and since deleted for good (`trashed`, steps.ts), when the
+ * rest wrote their whole place afresh: a re-key (6.23) writes the Trash's records too, and a record in the Trash can't
+ * be what the person dragged. Otherwise all of them, the emptied ones kept, so the line neither counts nor places them
+ * as known (movedLine).
+ */
+function withoutTrashed(moves: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>, trashed: ReadonlySet<string>): readonly LoggedOp[] {
+  if (trashed.size === 0) return moves;
+  const rest = moves.filter((op) => !(purged(op) && trashed.has(op.recordId)));
+  return rest.length < moves.length && rekeyedPlace(rest, around) ? rest : moves;
+}
+
+/**
  * What the person moved, of a step's moves. A drag in a file whose sort keys couldn't be read (6.23) writes every
  * record of its scene afresh in the same step (board.ts, `rekeys`), so the moves are all of them: then the re-keyed
  * ones keep their order among themselves, and what moved is what changed place among them (the first written when
@@ -1597,16 +1626,7 @@ function asLeft(ops: readonly LoggedOp[]): (record: SbdRecord) => SbdRecord {
  */
 function personMoves(moves: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): readonly LoggedOp[] {
   const target = moveTarget(moves);
-  const kind = movesKind(moves);
-  if (moves.length < 2 || target === null || kind === null || moves.some(purged)) return moves;
-  const ids = new Set(moves.map((op) => op.recordId));
-  // Re-keyed: every record the place held is in the step (the Trash's too); else the person moved them all. A deck's
-  // items written afresh with a page are all its items, not only its pages.
-  const rekeyed = deckRekey(moves);
-  const held = [...around.values()].filter(
-    (r) => r.parentId === target && (kind === 'frame' ? r.type === 'shot' || r.type === 'note' : rekeyed ? r.type === 'board_item' : neighbourOf(kind)(r)),
-  );
-  if (held.some((r) => !ids.has(r.id))) return moves;
+  if (target === null || !rekeyedPlace(moves, around)) return moves;
   const stayed = moves.flatMap((op) => (op.before?.parentId === target && op.after ? [{ op, before: op.before, after: op.after }] : []));
   const others = moves.filter((op) => op.before?.parentId !== target);
   const was = [...stayed].sort((a, b) => byKey(a.before, b.before)).map((s) => s.op.recordId);
@@ -1646,7 +1666,8 @@ function personMoves(moves: readonly LoggedOp[], around: ReadonlyMap<string, Sbd
  * numbers follow the board, the step left every live frame lettered by its place, so the first moved frame's letter
  * counts the live frames before it. Its count of the known ones before it the same: none is missing there. And the
  * known live frames after it carry the next letters in order, so the step did re-letter the scene: a move that didn't
- * (an older version's file, a step not made by moveItem) keeps its old letter, which proves nothing.
+ * (an older version's file, a step not made by moveItem) keeps its old letter, which proves nothing. So the step must
+ * have written the moved frame's letter itself, or every frame after its new place may be gone and prove nothing.
  */
 function placeProven(first: SbdRecord, before: readonly SbdRecord[], target: string, ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): boolean {
   if (first.type !== 'shot') return false;
@@ -1657,6 +1678,9 @@ function placeProven(first: SbdRecord, before: readonly SbdRecord[], target: str
   const sceneNumber = sceneFields(scene.props).number;
   const letters = lettersOf(shotFields(left(first).props).number, sceneNumber);
   if (letters === null) return false;
+  // The step wrote the moved frame's letter: one it kept from before says where it was, not where it went.
+  const lettered = ops.some((op) => op.recordId === first.id && op.before?.type === 'shot' && op.after?.type === 'shot' && shotFields(op.before.props).number !== shotFields(op.after.props).number);
+  if (!lettered) return false;
   // The frames after it as the step left them: the step's own (the other frames it moved) and the known ones.
   const records = new Map<string, SbdRecord>();
   for (const r of around.values()) records.set(r.id, left(r));
@@ -1692,7 +1716,8 @@ function moveWhere(
 ): MovedWhere | null {
   const target = moveTarget(moves);
   const kind = movedKind(moves[0]?.after);
-  if (target === null || kind === null) return null;
+  // A move among them since emptied (Empty Trash) is a record whose place then can't be read: no place is said.
+  if (target === null || kind === null || moves.some(purged)) return null;
   const written = ops.find((op) => op.recordId === target);
   // A scene's place is the project, whose words are fixed: its record isn't needed (nor in the log, ensureProjectRecord).
   const parent = (written ? (written.after ?? written.before) : null) ?? around.get(target);
@@ -1751,6 +1776,8 @@ function movedLine(all: readonly LoggedOp[], ops: readonly LoggedOp[], around: R
   const n = new Set(moves.map((op) => op.recordId)).size;
   const moved = moves[0];
   if (n > 1 || !moved) {
+    // Some of them since deleted for good and not known to be the Trash's: how many the person moved isn't known.
+    if (moves.some(purged)) return [t('history.movedSomeLost')];
     const things = movedThings(moves, n);
     if (!where) return [t('history.movedCount', { things })];
     if ('after' in where) return line('history.movedCountAfter', { after: where.after }, { things });
@@ -1839,8 +1866,16 @@ function wholeSceneOnDay(updates: readonly LoggedOp[], day: string, around: Read
  * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
  * names without writing them (a sketch's frame, a scene's location), as they were then. `unsure`: a record of the
  * project then has since been deleted for good (steps.ts), so a place read from `around` says only what it can prove.
+ * `trashed`: the records the step wrote while they were in the Trash, since deleted for good (steps.ts).
  */
-export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<string>, around: ReadonlyMap<string, SbdRecord> = new Map(), unit: PlanUnit = planUnitNow(), unsure = false): Line {
+export function describeEdit(
+  opsIn: readonly LoggedOp[],
+  stored: ReadonlySet<string>,
+  around: ReadonlyMap<string, SbdRecord> = new Map(),
+  unit: PlanUnit = planUnitNow(),
+  unsure = false,
+  trashed: ReadonlySet<string> = new Set(),
+): Line {
   if (opsIn.length === 0) return [t('history.noChange')];
   // A call sheet made with its first note reads as that note being set, not as a call sheet added (4.1): its create
   // is read as an update from a record with no props.
@@ -1992,7 +2027,7 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     const lost = ops.filter((op) => op.kind === kind && purged(op));
     if (lost.length > 0) return [t(LOST[kind], { items: items(lost.length), tag })];
   }
-  const moves = of('move');
+  const moves = withoutTrashed(of('move'), around, trashed);
   const moved = moves[0];
   if (moved) {
     // One page moved to another place in the deck (5.5), after the page before it.
@@ -2207,10 +2242,11 @@ export function describeGroup(
   around: ReadonlyMap<string, SbdRecord> = new Map(),
   unit: PlanUnit = planUnitNow(),
   unsure = false,
+  trashed: ReadonlySet<string> = new Set(),
 ): Line {
   switch (group.kind) {
     case 'edit':
-      return describeEdit(ops, stored, around, unit, unsure);
+      return describeEdit(ops, stored, around, unit, unsure, trashed);
     case 'undo':
       return [t('history.undid'), ...(titles.get(group.targetGroupId ?? '') ?? [t('history.aStep')])];
     case 'redo':

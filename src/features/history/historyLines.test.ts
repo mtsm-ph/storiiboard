@@ -3,14 +3,14 @@ import { createProjectStore } from '../../app/projectStore';
 import { setLocale } from '../../core/i18n';
 import { dayDateLabel } from '../../core/model/shootDay';
 import type { Props, SbdRecord } from '../../core/model/record';
-import { log, opsOfRecord, type Change, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { log, opsOfGroups, opsOfRecord, type Change, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { addShot, moveItem, trashShot } from '../storyboard/board';
 import { reorderChanges } from '../moodboards/items';
 import { movePageChanges } from '../moodboards/pages';
-import { loadSteps } from './steps';
+import { loadSteps, stepRecords } from './steps';
 import { describeEdit, frameRows, lineText } from './summary';
 
 // History's lines name what changed and where (Kevin, Nov 18): a move by the place it went, several records changed
@@ -110,6 +110,13 @@ describe('a move names where it went', () => {
     setLocale('es');
     expect(say([moved(a4, 'sc3', 'cm')], new Map())).toBe('Se movió 4A');
     expect(say([op('move', null, null, 'gone')])).toBe('Se movió un elemento, borrado para siempre después');
+  });
+
+  it('neither counts nor places moves when one of them is deleted for good and not known to be the Trash’s', () => {
+    const steps = [moved(a4, 'sc3', 'cm'), op('move', null, null, 'gone'), moved(b4, 'sc3', 'cn')];
+    expect(say(steps)).toBe('Moved items, some since deleted for good');
+    setLocale('es');
+    expect(say(steps)).toBe('Se movieron elementos, algunos borrados para siempre después');
   });
 
   it('a scene to the start of the project, with the project’s own words in Spanish, its record known or not', () => {
@@ -257,6 +264,14 @@ describe('a frame’s place proven by its letter (a record of the project then g
     setLocale('es');
     expect(unsure([moved(b4, 'sc4', 'cm')], near(project, sc4, a4, d4))).toBe('Se movió 4B');
     expect(unsure(steps, near(project, sc4, a4, c4))).toBe('Se movió 4B después de 4C');
+  });
+
+  it('proves nothing when the step didn’t write the moved frame’s letter, though no frame is left after it', () => {
+    // Scene 4 held A, B and C; B moved to the end by a step that wrote no renumber, so it keeps "4B"; C was deleted for
+    // good since: one known frame before it and none after, yet B went after 4C, not after 4A.
+    expect(unsure([moved(b4, 'sc4', 'cm')], near(project, sc4, a4))).toBe('Moved 4B');
+    setLocale('es');
+    expect(unsure([moved(b4, 'sc4', 'cm')], near(project, sc4, a4))).toBe('Se movió 4B');
   });
 });
 
@@ -561,6 +576,63 @@ describe('History as read from the file', () => {
     expect(await lines()).toContain(`Moved ${last} to after 4H`);
     setLocale('es');
     expect(await lines()).toContain(`Se movió ${last} después de 4H`);
+  });
+
+  it('a page dragged in a deck whose keys couldn’t be read keeps its line once an item it re-keyed in the Trash is gone for good', async () => {
+    const item = (id: string, sortKey: string, props: Props) => ({ kind: 'create' as const, record: { id, type: 'board_item' as const, parentId: 'deck', sortKey, props } });
+    const page = (id: string, sortKey: string) => item(id, sortKey, { kind: 'page', x: 0, y: 0, width: 1920, height: 1080, format: '16:9', orientation: 'landscape', name: '' });
+    const rect = (id: string, sortKey: string) => item(id, sortKey, { kind: 'rect', x: 0, y: 0, width: 100, height: 100, rotation: 0 });
+    // Keys keyBetween can't read (an odd imported file's), so the drag writes every item of the deck afresh, the
+    // rectangle in the Trash among them.
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'deck', type: 'board', parentId: file.projectId, sortKey: 'X', props: { kind: 'deck', name: 'Pitch' } } },
+      page('P1', '~a'),
+      page('P2', '~b'),
+      page('P3', '~c'),
+      rect('R1', '~d'),
+      rect('T', '~e'),
+    ]);
+    await store.getState().apply([{ kind: 'trash', id: 'T' }]);
+    const changes = movePageChanges(store.getState().records, 'deck', 'P3', 0);
+    expect(changes.map((c) => c.kind === 'move' && c.id).sort()).toEqual(['P1', 'P2', 'P3', 'R1', 'T']);
+    await store.getState().apply(changes);
+    expect((await lines(1))[0]).toBe('Moved page 3 to the start of deck Pitch');
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    expect((await lines(2))[1]).toBe('Moved page 3 to the start of deck Pitch');
+    setLocale('es');
+    expect((await lines(2))[1]).toBe('Se movió la página 3 al principio de la presentación Pitch');
+  });
+
+  it('a frame dragged in a scene whose keys couldn’t be read keeps its line once a frame it re-keyed in the Trash is gone for good', async () => {
+    const make = (id: string, sortKey: string, number: string) => ({ kind: 'create' as const, record: { id, type: 'shot' as const, parentId: 'sc4', sortKey, props: { number } } });
+    await store.getState().apply([make('A', 'b', '4A'), make('B', '~', '4B'), make('C', '~c', '4C'), make('X', '~cx', '4X'), make('D', '~d', '4D')]);
+    await store.getState().apply([{ kind: 'trash', id: 'X' }]);
+    // 4D before 4B, so after 4A: the scene's frames written afresh, X in the Trash among them.
+    const changes = moveItem(store.getState().records, file.projectId, 'D', 'sc4', 'B');
+    expect(changes.filter((c) => c.kind === 'move').map((c) => c.id).sort()).toEqual(['A', 'B', 'C', 'D', 'X']);
+    await store.getState().apply(changes);
+    expect((await lines(1))[0]).toBe('Moved 4D to after 4A');
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    expect((await lines(2))[1]).toBe('Moved 4D to after 4A');
+    setLocale('es');
+    expect((await lines(2))[1]).toBe('Se movió 4D después de 4A');
+  });
+
+  it('a step that restores a record then in the Trash counts it as there once it is gone for good', async () => {
+    // A hand-made step: 4A deleted, then one step brings it back and moves SC 03 after SC 04; 4A deleted for good since.
+    const a = await frame('sc4');
+    await store.getState().apply([{ kind: 'trash', id: a }]);
+    await store.getState().apply([
+      { kind: 'restore', id: a },
+      { kind: 'move', id: 'sc3', parentId: file.projectId, sortKey: 'Vm' },
+    ]);
+    const step = await lastGroup();
+    await store.getState().apply([{ kind: 'trash', id: a }]);
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    const ops = await opsOfGroups(file.file, [step.id]);
+    const { unsure, trashed } = await stepRecords(file.file, new Map([[step.id, ops]]));
+    expect(unsure.has(step.id)).toBe(true);
+    expect(trashed.get(step.id)).toBeUndefined();
   });
 
   it('an undo, a redo and a restore name their target’s own line though it’s older than the page', async () => {
