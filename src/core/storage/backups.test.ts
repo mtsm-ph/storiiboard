@@ -12,9 +12,11 @@ import {
   newestBackupAt,
   parseBackupFileName,
   startBackups,
+  type HandBackup,
 } from './backups';
 import type { ProjectFile } from './driver';
 import { nodeDriver } from './nodeDriver';
+import { createProject } from './project';
 import { makeTestFolder, type TestFolder } from './testFolder';
 
 describe('backup names', () => {
@@ -491,5 +493,170 @@ describe('a backup asked for by hand (Ctrl+S, Back up now; Kevin, Nov 18)', () =
     clock = at(1);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(await names()).toEqual([name(0)]);
+  });
+
+  /**
+   * The review's chain (#244, round 2): the 5-minute ticks, and an edit then a press at each of these times, as minutes
+   * and seconds. Without presses, the same edits with the ticks alone. Returns the copies left and what each press did.
+   */
+  async function chain(where: TestFolder, presses: boolean) {
+    const of = await nodeDriver.create(where.path('Bey.sbd'));
+    await of.tx([{ sql: 'CREATE TABLE shots (id TEXT)' }]);
+    const schedule = await startBackups(of, { now: () => clock });
+    const startAt = at(0).getTime();
+    let elapsed = 0;
+    // Step by step through every tick on the way, each with its own time on the clock.
+    const until = async (ms: number) => {
+      for (let tick = (Math.floor(elapsed / BACKUP_INTERVAL_MS) + 1) * BACKUP_INTERVAL_MS; tick <= ms; tick += BACKUP_INTERVAL_MS) {
+        clock = new Date(startAt + tick);
+        await vi.advanceTimersByTimeAsync(tick - elapsed);
+        elapsed = tick;
+      }
+      clock = new Date(startAt + ms);
+      await vi.advanceTimersByTimeAsync(ms - elapsed);
+      elapsed = ms;
+    };
+    const results: HandBackup['kind'][] = [];
+    for (const [minutes, seconds] of [[4, 10], [6, 10], [8, 10], [10, 30], [12, 30], [16, 10]] as const) {
+      const pressAt = (minutes * 60 + seconds) * 1000;
+      await until(pressAt - 10_000);
+      await of.tx([{ sql: 'INSERT INTO shots VALUES (?)', params: [String(pressAt)] }]);
+      await until(pressAt);
+      if (presses) results.push((await schedule.backUpByHand()).kind);
+    }
+    // And the tick at 20 minutes.
+    await until(20 * 60 * 1000);
+    schedule.stop();
+    const left = byNewest('Bey', (await of.listBackups()).map((backup) => backup.name)).reverse();
+    await of.close();
+    return { left, results };
+  }
+
+  it('keeps a copy for every 5 minutes when presses come every two, never fewer than the ticks alone', async () => {
+    const other = makeTestFolder();
+    const pressed = await chain(other, true);
+    other.remove();
+    const alone = makeTestFolder();
+    const timed = await chain(alone, false);
+    alone.remove();
+    expect(timed.left).toEqual([name(5), name(10), name(15), name(20)]);
+    // A press in the same 5 minutes replaces; the tick after a press finds nothing new, and the press's copy is its.
+    expect(pressed.results).toEqual(['created', 'created', 'replaced', 'created', 'replaced', 'created']);
+    expect(pressed.left).toEqual([backupFileName('Bey', at(4)), name(8), name(12), name(16)]);
+    expect(pressed.left.length).toBeGreaterThanOrEqual(timed.left.length);
+  });
+
+  it('still replaces a press’s copy with the next press in the same 5 minutes, after a tick that wrote nothing', async () => {
+    const schedule = await start({ intervalMs: BACKUP_INTERVAL_MS });
+    await edit('1A');
+    clock = at(4);
+    await schedule.backUpByHand();
+    // The tick at 5 minutes finds nothing new: the 4-minute copy is its own now.
+    clock = at(5);
+    await vi.advanceTimersByTimeAsync(BACKUP_INTERVAL_MS);
+    await edit('1B');
+    clock = at(6);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'created', created: name(6), deleted: [] });
+    await edit('1C');
+    clock = at(8);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'replaced', created: name(8), replaced: name(6), deleted: [] });
+    expect(await names()).toEqual([name(4), name(8)]);
+    schedule.stop();
+  });
+
+  it('counts a replaced copy deleted by hand meanwhile as gone: no error, and pruning still runs', async () => {
+    // A copy from before this session, for pruning to take once the numbers allow only one.
+    const older = backupFileName('Bey', new Date(2026, 10, 2, 8, 50));
+    await file.backup('scheduled', older);
+    let keep = { recent: 2, days: 0 };
+    const schedule = await startBackups(
+      {
+        ...watched(),
+        backup: async (kind, backup) => {
+          await file.backup(kind, backup);
+          // Someone short of space deletes the old copy while the new one is being written.
+          if (backup === name(2)) await file.deleteBackup(name(0));
+        },
+      },
+      { intervalMs: 3_600_000, now: () => clock, keep: () => keep },
+    );
+    await edit('1A');
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'created', created: name(0), deleted: [] });
+    keep = { recent: 1, days: 0 };
+    await edit('1B');
+    clock = at(2);
+    // The old copy is gone already: the press still answers as a replacement, and pruning takes the older copy.
+    await expect(schedule.backUpByHand()).resolves.toEqual({
+      kind: 'replaced',
+      created: name(2),
+      replaced: name(0),
+      deleted: [older],
+    });
+    expect(await names()).toEqual([name(2)]);
+    schedule.stop();
+  });
+
+  it('tells its listeners of a press’s copy only once the replaced one is gone', async () => {
+    const schedule = await start();
+    const heardAfter: string[][] = [];
+    schedule.onBackup(() => heardAfter.push([...calls]));
+    await edit('1A');
+    await schedule.backUpByHand();
+    await edit('1B');
+    clock = at(2);
+    await schedule.backUpByHand();
+    expect(heardAfter).toHaveLength(2);
+    expect(heardAfter[1]?.at(-1)).toBe(`delete ${name(0)}`);
+    schedule.stop();
+  });
+
+  it('makes the queued one at once when the project closes, and none when nothing is queued', async () => {
+    const schedule = await start();
+    await edit('1A');
+    await schedule.backUpByHand();
+    await edit('1B');
+    clock = at(0, 20);
+    await expect(schedule.backUpByHand()).resolves.toMatchObject({ kind: 'queued' });
+    await schedule.flushQueued();
+    // Under 5 minutes after a hand copy, so it replaces it, as it would have at the minute.
+    expect(await names()).toEqual([backupFileName('Bey', at(0), 2)]);
+    schedule.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    await schedule.flushQueued();
+    expect(await names()).toEqual([backupFileName('Bey', at(0), 2)]);
+  });
+});
+
+describe('closing a project with a hand backup queued', () => {
+  let folder: TestFolder;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
+    folder = makeTestFolder();
+  });
+
+  afterEach(() => {
+    folder.remove();
+    vi.useRealTimers();
+  });
+
+  it('makes it before the project closes', async () => {
+    let clock = new Date(2026, 10, 2, 9, 0);
+    const project = await createProject(folder.path('Bey.sbd'), { driver: nodeDriver, now: () => clock });
+    const schedule = project.backups;
+    expect(schedule).not.toBeNull();
+    await project.file.tx([{ sql: 'CREATE TABLE shots (id TEXT)' }]);
+    await project.file.tx([{ sql: 'INSERT INTO shots VALUES (?)', params: ['1A'] }]);
+    await expect(schedule?.backUpByHand()).resolves.toMatchObject({ kind: 'created' });
+    await project.file.tx([{ sql: 'INSERT INTO shots VALUES (?)', params: ['1B'] }]);
+    clock = new Date(2026, 10, 2, 9, 0, 30);
+    await expect(schedule?.backUpByHand()).resolves.toMatchObject({ kind: 'queued' });
+    const listed = async (of: ProjectFile) => (await of.listBackups()).map((backup) => backup.name);
+    expect(await listed(project.file)).toEqual(['Bey 2026-11-02 09-00.sbd']);
+    await project.close();
+    // Made at the close, in place of the hand copy before it (under 5 minutes old), as it would have been at the minute.
+    const reopened = await nodeDriver.open(folder.path('Bey.sbd'));
+    expect(await listed(reopened)).toEqual(['Bey 2026-11-02 09-00 (2).sbd']);
+    await reopened.close();
   });
 });

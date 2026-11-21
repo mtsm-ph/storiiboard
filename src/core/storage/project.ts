@@ -98,6 +98,8 @@ async function start(path: string, options: ProjectOptions, isNew: boolean): Pro
     migration,
     backups: schedule,
     close: async () => {
+      // A hand backup waiting for its minute is made now (if anything changed): the sign said one would be.
+      await schedule?.flushQueued();
       schedule?.stop();
       clearInterval(lockTimer);
       await file.close();

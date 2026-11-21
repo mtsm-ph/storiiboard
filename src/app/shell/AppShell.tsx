@@ -106,7 +106,8 @@ export function AppShell() {
   useEffect(() => {
     const mac = isMac();
     // ⌘S (Ctrl+S): in the capture phase, so the browser's or WebView's save dialog never opens, whatever has focus; its
-    // default only is prevented, and every other listener still hears the key.
+    // default only is prevented, and every other listener still hears the key. Between a press's blur and its refocus
+    // it takes every key, so none acts on the page meanwhile (saveShortcut.ts).
     const onKeyDown = (event: KeyboardEvent) => {
       onSaveKey(event, mac);
     };

@@ -206,6 +206,11 @@ export interface BackupSchedule {
    */
   backUpByHand(): Promise<HandBackup>;
   /**
+   * Makes the queued hand backup now, if one is waiting and anything changed, so closing or switching the project
+   * never drops the copy the sign said would be made. A failure goes to `onError`; it never stops the close.
+   */
+  flushQueued(): Promise<void>;
+  /**
    * Calls `listener` with the time in a backup's name each time this schedule writes one (the 5-minute run, Back up
    * now, Compact's), so the status bar's sign (6.5.4) learns of it without reading the disk. Returns the unsubscribe.
    */
@@ -287,7 +292,12 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
 
   const backUp = async (): Promise<BackupRun> => {
     const changes = await changeCount(file);
-    if (changes <= backedUpAt) return { created: null, deleted: [] };
+    if (changes <= backedUpAt) {
+      // A hand copy took in this run's changes, so it stands for this run: from now on it's the run's, never replaced.
+      // Otherwise a press every few minutes would replace its last copy forever, leaving one backup for a session.
+      latestReplaceable = false;
+      return { created: null, deleted: [] };
+    }
     const at = now();
     // A second run in the same minute (a timed one right after a hand one) is that minute's next copy.
     const name = await freshBackupName(file, at);
@@ -296,12 +306,26 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     latest = name;
     latestAt = at;
     latestReplaceable = true;
-    tell(at);
-    return { created: name, deleted: await prune(name, at) };
+    try {
+      return { created: name, deleted: await prune(name, at) };
+    } finally {
+      // Told once pruning is done, so a list read on hearing it never shows a copy about to go.
+      tell(at);
+    }
   };
 
-  const byHand = async (): Promise<HandBackup> => {
-    if (queued) return { kind: 'queued', at: queued.at, deleted: [] };
+  /** A copy the person can't see go: deleted by hand meanwhile counts as gone already. */
+  const deleteReplaced = async (old: string): Promise<void> => {
+    try {
+      await file.deleteBackup(old);
+    } catch (error) {
+      if ((await file.listBackups()).some((b) => b.name === old)) throw error;
+    }
+  };
+
+  /** The hand rule; `wait` false makes the copy now, for the queued one a close can't leave waiting. */
+  const byHand = async (wait = true): Promise<HandBackup> => {
+    if (wait && queued) return { kind: 'queued', at: queued.at, deleted: [] };
     const changes = await changeCount(file);
     // With no copy written this session, the newest on disk counts, by the time in its name.
     const newestAt = latestAt ?? (await newestBackupAt(file));
@@ -309,7 +333,7 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     const at = now();
     // A clock that went back makes the age negative: that copy is no guide, and a new one is made.
     const age = newestAt === null ? null : at.getTime() - newestAt.getTime();
-    if (newestAt !== null && age !== null && age >= 0 && age < HAND_WAIT_MS) {
+    if (wait && newestAt !== null && age !== null && age >= 0 && age < HAND_WAIT_MS) {
       const due = new Date(newestAt.getTime() + HAND_WAIT_MS);
       const timer = setTimeout(() => {
         queued = null;
@@ -336,15 +360,32 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     latest = name;
     latestAt = at;
     latestReplaceable = true;
-    tell(at);
-    if (old !== null) await file.deleteBackup(old);
-    const deleted = (await prune(name, at)).filter((gone) => gone !== old);
-    return old !== null ? { kind: 'replaced', created: name, replaced: old, deleted } : { kind: 'created', created: name, deleted };
+    try {
+      if (old !== null) await deleteReplaced(old);
+      const deleted = (await prune(name, at)).filter((gone) => gone !== old);
+      return old !== null
+        ? { kind: 'replaced', created: name, replaced: old, deleted }
+        : { kind: 'created', created: name, deleted };
+    } finally {
+      // After the old copy and pruning are done, so a list read on hearing it never shows a replaced file.
+      tell(at);
+    }
   };
 
   const backUpByHand = (): Promise<HandBackup> =>
     // A press while one is queued answers at once, without waiting for a copy in progress.
-    queued ? Promise.resolve({ kind: 'queued', at: queued.at, deleted: [] }) : inTurn(byHand);
+    queued ? Promise.resolve({ kind: 'queued', at: queued.at, deleted: [] }) : inTurn(() => byHand());
+
+  const flushQueued = async (): Promise<void> => {
+    if (!queued || stopped) return;
+    clearTimeout(queued.timer);
+    queued = null;
+    try {
+      await inTurn(() => byHand(false));
+    } catch (error) {
+      options.onError?.(error);
+    }
+  };
 
   // One run at a time: a slow disk must not start a second copy over the first.
   const runNow = () => {
@@ -385,6 +426,7 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     runNow,
     backUpThen,
     backUpByHand,
+    flushQueued,
     onBackup: (listener) => {
       listeners.add(listener);
       return () => {

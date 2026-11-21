@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { commitAndStay, isSaveShortcut, onSaveKey, pressSave } from './saveShortcut';
+import { commitAndStay, isSaveShortcut, onSaveKey, pressSave, typedBy } from './saveShortcut';
+import { isTextEntry } from './workspaces';
 
 // Ctrl+S, ⌘S on a Mac (Kevin, Nov 18): the key is caught for the whole window, text fields included, so the browser's
 // or WebView's save dialog never opens; e2e/ctrlS.spec.ts presses it in the app.
@@ -40,6 +41,8 @@ describe('the save key', () => {
   it('prevents the default in a text field too, presses once for a held key, and leaves every other key alone', () => {
     const press = vi.fn();
     const inField = { ...key('s', { ctrlKey: true }), target: { tagName: 'INPUT', type: 'text' }, repeat: false, preventDefault: vi.fn() };
+    // A text field by the app's own test, the one that lets typing through every other shortcut.
+    expect(isTextEntry(inField.target as unknown as EventTarget)).toBe(true);
     expect(onSaveKey(inField, false, press)).toBe(true);
     expect(inField.preventDefault).toHaveBeenCalledTimes(1);
     expect(press).toHaveBeenCalledTimes(1);
@@ -109,7 +112,7 @@ describe('committing the field being typed in', () => {
     const old = fakeField(doc, 'Action');
     const fresh = fakeField(doc, 'Action');
     const neighbour = fakeField(doc, 'Dialogue');
-    const holder = { isConnected: true, parentElement: null, querySelectorAll: () => [neighbour, fresh] };
+    const holder = { isConnected: true, parentElement: null, getAttribute: () => null, querySelectorAll: () => [neighbour, fresh] };
     old.parentElement = holder;
     doc.activeElement = old;
     await commitAndStay(() => {
@@ -140,5 +143,115 @@ describe('committing the field being typed in', () => {
     await commitAndStay(settled, doc as unknown as Document);
     expect(button.blur).not.toHaveBeenCalled();
     expect(settled).not.toHaveBeenCalled();
+  });
+
+  it('never takes a field drawn anew with another value, nor one outside its tile', async () => {
+    const doc = { activeElement: null as unknown, body: {} };
+    const old = fakeField(doc, 'Action');
+    // Same label, another value: another record's field.
+    const other = fakeField(doc, 'Action', 'Close on the boat');
+    const holder = { isConnected: true, parentElement: null, getAttribute: () => null, querySelectorAll: () => [other] };
+    old.parentElement = holder;
+    doc.activeElement = old;
+    await commitAndStay(() => {
+      old.isConnected = false;
+      return Promise.resolve();
+    }, doc as unknown as Document);
+    expect(other.focus).not.toHaveBeenCalled();
+
+    // Its tile went with it: the climb stops at the tile, so a field like it in another tile is never taken.
+    const again = fakeField(doc, 'Action');
+    const elsewhere = fakeField(doc, 'Action');
+    const outside = { isConnected: true, parentElement: null, getAttribute: () => null, querySelectorAll: () => [elsewhere] };
+    const tile = { isConnected: false, parentElement: outside, getAttribute: (name: string) => (name === 'data-stack-id' ? 's1' : null), querySelectorAll: () => [] };
+    again.parentElement = tile;
+    doc.activeElement = again;
+    await commitAndStay(() => {
+      again.isConnected = false;
+      return Promise.resolve();
+    }, doc as unknown as Document);
+    expect(elsewhere.focus).not.toHaveBeenCalled();
+  });
+});
+
+describe('keys pressed between the blur and the refocus', () => {
+  /** A keydown as the window's capture listener gets it. */
+  const down = (letter: string, mods: Parameters<typeof key>[1] = {}) => ({
+    ...key(letter, mods),
+    repeat: false,
+    preventDefault: vi.fn(),
+    stopImmediatePropagation: vi.fn(),
+  });
+
+  it('takes every key from everyone, then types the typed ones at the caret once the field is back', async () => {
+    const doc = { activeElement: null as unknown, body: {}, execCommand: vi.fn(() => true) };
+    const field = fakeField(doc, 'Action');
+    doc.activeElement = field;
+    const press = vi.fn();
+    const pressed: ReturnType<typeof down>[] = [];
+    await commitAndStay(() => {
+      // Typed at once after the press, an undo among them, and the key again: none acts, nothing presses again.
+      for (const event of [down('x'), down('z', { ctrlKey: true }), down('y'), down('s', { ctrlKey: true }), down('Enter'), down('z')]) {
+        pressed.push(event);
+        onSaveKey(event, false, press);
+      }
+      expect(doc.execCommand).not.toHaveBeenCalled();
+      return Promise.resolve();
+    }, doc as unknown as Document);
+    for (const event of pressed) {
+      expect(event.preventDefault).toHaveBeenCalledTimes(1);
+      expect(event.stopImmediatePropagation).toHaveBeenCalledTimes(1);
+    }
+    expect(press).not.toHaveBeenCalled();
+    expect(doc.activeElement).toBe(field);
+    // After the caret went back, so the letters go where it was.
+    expect(field.setSelectionRange).toHaveBeenCalledWith(4, 8, 'backward');
+    expect(doc.execCommand).toHaveBeenCalledWith('insertText', false, 'xyz');
+
+    // The gap is over: keys are the page's again.
+    const after = down('q');
+    expect(onSaveKey(after, false, press)).toBe(false);
+    expect(after.preventDefault).not.toHaveBeenCalled();
+    expect(after.stopImmediatePropagation).not.toHaveBeenCalled();
+  });
+
+  it('drops them when the field doesn’t come back, and takes none once the person clicked elsewhere', async () => {
+    const doc = { activeElement: null as unknown, body: {}, execCommand: vi.fn(() => true) };
+    const field = fakeField(doc, 'Action');
+    doc.activeElement = field;
+    await commitAndStay(() => {
+      onSaveKey(down('x'), false, vi.fn());
+      // Its editor closed with the blur, as leaving it does.
+      field.isConnected = false;
+      return Promise.resolve();
+    }, doc as unknown as Document);
+    expect(doc.execCommand).not.toHaveBeenCalled();
+
+    const kept = fakeField(doc, 'Action');
+    doc.activeElement = kept;
+    const clicked = {};
+    let late: ReturnType<typeof down> | null = null;
+    await commitAndStay(() => {
+      doc.activeElement = clicked;
+      late = down('x');
+      onSaveKey(late, false, vi.fn());
+      return Promise.resolve();
+    }, doc as unknown as Document);
+    expect(late).not.toBeNull();
+    expect((late as unknown as ReturnType<typeof down>).preventDefault).not.toHaveBeenCalled();
+    expect(doc.execCommand).not.toHaveBeenCalled();
+  });
+
+  it('keeps only keys that type: AltGr and Option letters yes, Alt+1 off a Mac and shortcuts no', () => {
+    expect(typedBy(key('x'), false)).toBe('x');
+    expect(typedBy(key('X', { shiftKey: true }), false)).toBe('X');
+    expect(typedBy(key('@', { ctrlKey: true, altKey: true }), false)).toBe('@');
+    expect(typedBy(key('1', { altKey: true }, 'Digit1'), false)).toBeNull();
+    expect(typedBy(key('å', { altKey: true }, 'KeyA'), true)).toBe('å');
+    expect(typedBy(key('z', { ctrlKey: true }), false)).toBeNull();
+    expect(typedBy(key('z', { metaKey: true }), true)).toBeNull();
+    expect(typedBy(key('`', {}, 'Backquote'), false)).toBe('`');
+    expect(typedBy(key('ArrowLeft', {}, 'ArrowLeft'), false)).toBeNull();
+    expect(typedBy(key('Dead', {}, 'Quote'), false)).toBeNull();
   });
 });

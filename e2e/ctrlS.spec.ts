@@ -79,6 +79,56 @@ test('commits the field, keeps the caret in it, backs up, and a second press wit
   await expect(backupList(page)).toHaveCount(1);
 });
 
+test('keys typed at once after the press go into the field in order, and none acts on the page meanwhile', async ({ page }) => {
+  await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
+  await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await board(page).locator('[data-shot-id]').first().click();
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
+  await expect(history(page)).toBeVisible();
+
+  const action = inspector(page).getByRole('textbox', { name: 'Action', exact: true });
+  await action.click();
+  await action.pressSequentially('Wide');
+  const before = await steps(page).count();
+
+  // The gap between the blur and the refocus waits for a drawn frame: held to 300 ms here, so every key below lands in
+  // it whatever the machine's speed. A listener after the app's own records what reaches the page.
+  await page.evaluate(() => {
+    const raf = window.requestAnimationFrame.bind(window);
+    const held = window as unknown as { restoreFrames: () => void; heardKeys: string[] };
+    held.restoreFrames = () => {
+      window.requestAnimationFrame = raf;
+    };
+    window.requestAnimationFrame = (callback) => window.setTimeout(() => raf(callback), 300);
+    held.heardKeys = [];
+    window.addEventListener('keydown', (event) => {
+      held.heardKeys.push(event.key);
+    });
+  });
+  const key = await saveKey(page);
+  await page.keyboard.press(key);
+  await page.keyboard.type('x');
+  // An undo in the gap would take back the step just committed.
+  await page.keyboard.press(`${key.split('+')[0] ?? 'Control'}+z`);
+  await page.keyboard.type('yz');
+
+  await expect(action).toHaveValue('Widexyz');
+  await expect(action).toBeFocused();
+  // The press itself reached it; nothing typed or pressed after it did.
+  expect(await page.evaluate(() => (window as unknown as { heardKeys: string[] }).heardKeys)).toEqual([key.split('+')[0], 's']);
+  await page.evaluate(() => {
+    (window as unknown as { restoreFrames: () => void }).restoreFrames();
+  });
+  // One step for the commit, none for the undo.
+  await expect(steps(page)).toHaveCount(before + 1);
+  await expect(steps(page).first()).toContainText('1A: action — → Wide');
+
+  // The typing is the field's next commit, as leaving it makes.
+  await page.keyboard.press('Tab');
+  await expect(steps(page)).toHaveCount(before + 2);
+  await expect(steps(page).first()).toContainText('1A: action Wide → Widexyz');
+});
+
 test('Back up now twice within the minute makes one backup, and says when the next one will be made', async ({ page }) => {
   await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();
   let backups = await openSettings(page, 'Backups');
