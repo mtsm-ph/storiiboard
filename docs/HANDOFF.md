@@ -14,6 +14,13 @@ the small ones, then Phase 7 from 7.0. Still his:
   Unblocks: the tile accent.
 - **The Rust file-locks brief** (`private/briefs/rust-file-locks.md`): he is reading it, no build. Unblocks: the build.
 - **His Mac, the HDR HEIF, the two folders** he will delete himself (the Nov 19 scratch folder, `private/samples/.probe`).
+- **The Mac installer's launch check on GitHub's canvas-less Macs, red for the same cause on nov21-d, nov21-f and
+  nov21-g (both attempts)**: `accents` fails when neither the worker (no answer in 15 s) nor the page (`The object is in
+  an invalid state.`) can read a canvas back; #255's times show it spends ~30 s there (pdf-text ok at 4.1 s, accents
+  failed at 34 to 36 s). The canvas rule passes only when the page reads. The session's recommendation: on the Mac
+  installer job only (the one given `--accents-by-page-ok`), a run where both reads fail at the canvas is "can't be
+  checked on this machine", said in the log and not red; Windows and a real Mac stay strict. Until he answers, PRs that
+  touch nothing the step runs merge past it (nov21-g did). Unblocks: green Mac installer jobs.
 - Standing, for him alone: any format or schema change he hasn't answered, a dependency he hasn't approved, any change to
   the tool list, anything on main, anything that deletes, a screenshot change no item explains, a red job the session
   can't explain.
@@ -361,7 +368,26 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 21, midday; written at 08:30 EST)
+### Next session: start here (Nov 21, afternoon; written at 13:00 EST)
+
+**Merged on `checkpoint/nov21-g`** (run 44923836382): #261 7.0 suggestions in the model, #262 7.1 change files in, #264
+7.2 the review screen, #265 planUnderlay split (6.41). Linux 693 and Mac WebKit 690, nothing failed or flaky; the Mac
+installer red only at the launch check's `accents` (GitHub's canvas-less Mac; under Only Kevin), merged past by the rule.
+`v2` equals nov21-g's tree.
+
+**nov21-f** (run 44911881925, not merged on): its red was real once: `e2e/exportWork.spec.ts` wrapped `board()` at its old
+path after 7.0 moved it into `src/core/ops/storyboardEdits.ts`; fixed on 7.0's branch (a2a5604). planUnderlay:132 timed
+out the second checkpoint running: split (#265).
+
+**Open, stacked:** #266 7.3 unavailable dates and the seventh check (two rounds, reviewed; branch
+`feat/7.3-availability`), #267 7.4 the Checks tile (round 2 under way, `private/briefs/7.4-checks-tile-2.md`: the fold in
+7.0's `foldEdits` gets a fresh records object per step, the cost per edit stops growing with days). Next: 7.5, the MCP
+server (reading), the first milestone needing the approved SDK dependency; then a checkpoint for 7.3 to 7.5.
+
+**Follow-ups:** a board with a 2,000-frame scene costs 523 ms per edit (Apply the rest on 2,000 creates took 281 s in the
+dev build: the storyboard redraw, not the tile); sbd.rs and nodeDriver's fingerprint after a write (from #260's review).
+
+### Earlier: start here (Nov 21, midday; written at 08:30 EST)
 
 **Merged on `checkpoint/nov21-e`** (run 44899830311, green on attempt 2): #258 a day's history narrowed (6.38), #259
 the frame-to-day lines and Kevin's Spanish words (6.39), #260 the switchBackup flake's two causes (6.40). `v2` equals
