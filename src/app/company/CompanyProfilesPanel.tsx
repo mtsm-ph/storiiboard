@@ -1,5 +1,5 @@
-import { useEffect, useId, useState } from 'react';
-import { t } from '../../core/i18n';
+import { useEffect, useId, useRef, useState } from 'react';
+import { localizeError, t } from '../../core/i18n';
 import { COMPANY_FIELDS, MAX_BRAND_COLORS, MAX_BRAND_FONTS, MAX_COMPANIES, type CompanyField, type CompanyProfile } from '../../core/model/company';
 import { familiesOf, loadSystemFonts, useFonts } from '../../features/moodboards/fonts';
 import { Button } from '../../ui/Button';
@@ -75,6 +75,9 @@ export function CompanyProfilesPanel() {
 
 function CompanyEditor({ company, index, fontListId, onSaved }: { company: CompanyProfile; index: number; fontListId: string; onSaved: (problem: CompanyProblem | null, words?: string) => void }) {
   const groupId = useId();
+  // A ref, not state, so a second click that lands before the re-render picks nothing; the state shows it.
+  const reading = useRef(false);
+  const [readingLogo, setReadingLogo] = useState(false);
   const title = company.name || t('company.untitled', { n: index + 1 });
   return (
     <fieldset aria-labelledby={groupId} className="flex flex-col gap-3 border border-text p-3">
@@ -105,21 +108,38 @@ function CompanyEditor({ company, index, fontListId, onSaved }: { company: Compa
         ) : (
           <span className="text-[12px] text-text-muted">{t('company.noLogo')}</span>
         )}
+        {/* Not disabled while it reads: focus stays on it, and it looks off (dashed) the whole time, which is what
+            says a slow read (a HEIC Rust decodes, on Windows) is under way. */}
         <Button
+          aria-disabled={readingLogo}
+          aria-busy={readingLogo}
           onClick={() => {
+            if (reading.current) return;
             void (async () => {
               const [picked] = await choosePictures(false);
               if (!picked) return;
-              const made = await logoFromPicture(await picked.read());
-              if (made === 'unreadable') {
-                onSaved('notSaved', t('company.logoUnreadable', { name: picked.name }));
-                return;
+              reading.current = true;
+              setReadingLogo(true);
+              try {
+                const made = await logoFromPicture(await picked.read());
+                if (made === 'unreadable') {
+                  onSaved('notSaved', t('company.logoUnreadable', { name: picked.name }));
+                  return;
+                }
+                if (made === 'notSaved' || made === 'pictureUnreadable') {
+                  onSaved('notSaved', t(made === 'notSaved' ? 'error.pictureNotSaved' : 'error.pictureUnreadable'));
+                  return;
+                }
+                // The decoder's refusal (a HEIC too large, HDR, too slow…), in the words every other way in shows.
+                if ('refused' in made) {
+                  onSaved('notSaved', localizeError(made.refused));
+                  return;
+                }
+                onSaved(saveCompany({ ...company, logo: made.logo }));
+              } finally {
+                reading.current = false;
+                setReadingLogo(false);
               }
-              if (made === 'notSaved' || made === 'pictureUnreadable') {
-                onSaved('notSaved', t(made === 'notSaved' ? 'error.pictureNotSaved' : 'error.pictureUnreadable'));
-                return;
-              }
-              onSaved(saveCompany({ ...company, logo: made.logo }));
             })();
           }}
         >

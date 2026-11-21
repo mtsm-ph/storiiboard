@@ -19,6 +19,7 @@ import {
 import type { SbdRecord } from '../../core/model/record';
 import { sceneFields, sceneLabel, shotFields } from '../../core/model/storyboard';
 import { Button } from '../../ui/Button';
+import { useScrollLane } from '../../ui/scrollLane';
 import { cx } from '../../ui/cx';
 import { Select, TextArea, TextField } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
@@ -103,6 +104,8 @@ export function LocationsTile() {
       observer.disconnect();
     };
   }, [box]);
+  const list = useRef<HTMLUListElement>(null);
+  useScrollLane(list);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('locations.noProject')}</p>;
   const projectId = project.projectId;
   const all = projectLocations(records, projectId);
@@ -140,7 +143,7 @@ export function LocationsTile() {
         {all.length === 0 ? (
           <p className="p-3 text-[13px] text-text-muted">{t('locations.none')}</p>
         ) : (
-          <ul id={listId} aria-label={t('locations.list')} className="min-h-0 flex-1 overflow-y-auto">
+          <ul ref={list} id={listId} aria-label={t('locations.list')} className="min-h-0 flex-1 overflow-y-auto">
             {all.map(({ record, fields, scenes, frames }) => {
               const current = record.id === selected?.record.id;
               return (
@@ -233,6 +236,7 @@ interface LocationEditorProps {
 
 function LocationEditor({ id, props, knownFields, fields, scenes, frames, nameField, onTimeZone, onChange, onDelete }: LocationEditorProps) {
   const editor = useRef<HTMLElement>(null);
+  useScrollLane(editor);
   const headingId = useId();
   const text = (prop: 'name' | LocationTextField, label: string, long = false, type?: string) => {
     const value = fields[prop];

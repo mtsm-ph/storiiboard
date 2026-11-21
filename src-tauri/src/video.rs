@@ -320,9 +320,94 @@ enum StopEnd {
     Later,
 }
 
+/// What ended the last watched run's stall watch on this thread, for the tests: the clip's index rewrite heard
+/// starting, or the last frame reported.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum WatchEnd {
+    Rewrite,
+    LastFrame,
+}
+
 #[cfg(test)]
 thread_local! {
     static STOP_END: std::cell::Cell<Option<StopEnd>> = const { std::cell::Cell::new(None) };
+    static WATCH_END: std::cell::Cell<Option<WatchEnd>> = const { std::cell::Cell::new(None) };
+    /// Whether the last run that ended by itself on this thread said its index rewrite was starting (`SECOND_PASS`).
+    static REWRITE_HEARD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// The log level a clip's ffmpeg runs at: info, each line tagged with its level, so the one info line the stall watch
+/// needs (`SECOND_PASS`) can be heard while the errors are kept exactly as `-loglevel error` gives them (`Errors`).
+const CLIP_LOG: &str = "level+info";
+
+/// What MP4's muxer says at info level just before `+faststart` rewrites the whole file to move its index to the front:
+/// the last word before a silence that can outlast the stall time on a slow share. ffmpeg's own `-progress` says
+/// nothing in time: its blocks come from the main loop only, and the one with the last frame comes after the rewrite.
+const SECOND_PASS: &str = "Starting second pass: moving the moov atom to the beginning of the file";
+
+/// ffmpeg's level names, as `level` tags its lines with them, and the ones `-loglevel error` would print.
+const LEVELS: [&str; 9] = [
+    "quiet", "panic", "fatal", "error", "warning", "info", "verbose", "debug", "trace",
+];
+const ERROR_LEVELS: [&str; 3] = ["panic", "fatal", "error"];
+
+/// A line of ffmpeg's error output at `CLIP_LOG`: the line without its level tag, the level, and the message after the
+/// prefixes. The tag follows the line's `[name @ 0x…] ` prefixes, if any; a line with none (one message carried over
+/// several lines, "Last message repeated") has no level of its own.
+fn level_of(line: &str) -> (String, Option<&str>, &str) {
+    let mut at = 0;
+    while let Some(end) = line[at..]
+        .strip_prefix('[')
+        .and_then(|rest| rest.find("] "))
+    {
+        let name = &line[at + 1..at + 1 + end];
+        let after = at + end + 3;
+        if LEVELS.contains(&name) {
+            return (
+                format!("{}{}", &line[..at], &line[after..]),
+                Some(name),
+                &line[after..],
+            );
+        }
+        if !name.contains(" @ ") {
+            break;
+        }
+        at = after;
+    }
+    (line.to_owned(), None, &line[at..])
+}
+
+/// A clip's ffmpeg's error output heard line by line as it runs: the errors kept as `-loglevel error` would give them
+/// (a line with no level of its own goes with the one before it), so `read_failed_in` and the words it leads to read
+/// them as before, and whether the index rewrite has begun. Without tags (another log level) every line is kept.
+struct Errors {
+    kept: Vec<u8>,
+    keeping: bool,
+    rewriting: bool,
+}
+
+impl Errors {
+    fn new() -> Self {
+        Self {
+            kept: Vec::new(),
+            keeping: true,
+            rewriting: false,
+        }
+    }
+
+    fn hear(&mut self, line: &str) {
+        let (untagged, level, message) = level_of(line);
+        if let Some(level) = level {
+            self.keeping = ERROR_LEVELS.contains(&level);
+        }
+        if message.trim_end() == SECOND_PASS {
+            self.rewriting = true;
+        }
+        if self.keeping {
+            self.kept.extend_from_slice(untagged.as_bytes());
+        }
+    }
 }
 
 /// `run_heard`, stopped as soon as `stop` is set (a Cancel, the app quitting): `CLIP_CANCELLED`. `leftover`, a file
@@ -330,12 +415,53 @@ thread_local! {
 /// process still has open, and on a Mac a sidecar told to stop as the app quits would otherwise finish it alone.
 /// heic.rs runs its two sidecars through this too (6.27n), with its temp file as the leftover.
 pub(crate) fn run_stoppable(
-    mut command: Command,
+    command: Command,
     timeout: Duration,
     errors: bool,
     stop: Option<&std::sync::atomic::AtomicBool>,
     leftover: Option<&Path>,
 ) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), String> {
+    run_watched(command, timeout, errors, stop, leftover, None).map_err(|ended| match ended {
+        Unended::Said(said) => said,
+        // Only a watched run stalls.
+        Unended::Stalled(_) => TOO_SLOW.into(),
+    })
+}
+
+/// Why a run didn't end by itself.
+#[derive(Debug, PartialEq)]
+enum Unended {
+    /// Cancelled, too slow, or the sidecar couldn't be started or waited for: in these words.
+    Said(String),
+    /// Watched, it moved no further for the stall time: the last frame it reported.
+    Stalled(f64),
+}
+
+/// How a run is watched for a stall: no count going further for `time`, until it has reported its last frame of
+/// `frames`.
+#[derive(Clone, Copy)]
+struct Stall {
+    time: Duration,
+    frames: u64,
+}
+
+/// `run_stoppable`, and with `stall` watched as a playback copy's encode is (playback.rs `encode`): its output is
+/// ffmpeg's `-progress`, and a run whose counts go no further for the stall time has stalled, wherever it is. Watched,
+/// the time limit no longer cuts a stall short: past it, a run still moving ends as too slow the next time it's heard
+/// (within half a second, as ffmpeg reports), while a quiet one is left to the stall, so it can be told an encoder's
+/// hang. Once its error output says the index rewrite is starting (`SECOND_PASS`, heard as `Errors` hears it), or the
+/// last frame has been reported, the watch ends and the time limit alone holds: a clip's `+faststart` rewrites the
+/// whole file then without a word, which on a slow share can outlast the stall time. A run lasts at most `timeout`
+/// plus the stall time.
+fn run_watched(
+    mut command: Command,
+    timeout: Duration,
+    errors: bool,
+    stop: Option<&std::sync::atomic::AtomicBool>,
+    leftover: Option<&Path>,
+    stall: Option<Stall>,
+) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), Unended> {
+    use std::sync::atomic::{AtomicU64, Ordering};
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(if errors {
@@ -345,11 +471,14 @@ pub(crate) fn run_stoppable(
         })
         .spawn()
         .map_err(|_| {
-            "Storiiboard's video reader couldn't start. Reinstalling Storiiboard puts it back."
-                .to_string()
+            Unended::Said(
+                "Storiiboard's video reader couldn't start. Reinstalling Storiiboard puts it back."
+                    .to_string(),
+            )
         })?;
     // On Windows it ends with the app, crash or not (os.rs). These runs end on their own within their timeout.
     crate::os::keep_with_app(&child);
+    let started = Instant::now();
     let read_all = |pipe: Option<Box<dyn Read + Send>>| {
         std::thread::spawn(move || {
             let mut bytes = Vec::new();
@@ -359,18 +488,67 @@ pub(crate) fn run_stoppable(
             }
         })
     };
-    let stdout = read_all(
-        child
-            .stdout
-            .take()
-            .map(|p| Box::new(p) as Box<dyn Read + Send>),
-    );
-    let stderr = read_all(
-        child
-            .stderr
-            .take()
-            .map(|p| Box::new(p) as Box<dyn Read + Send>),
-    );
+    // Watched: when a count last went up (milliseconds from the start) and the last frame reported, from ffmpeg's
+    // progress, read as the copies' encode reads it (playback.rs `MOVING_ON`).
+    let heard = std::sync::Arc::new(AtomicU64::new(0));
+    let reached = std::sync::Arc::new(AtomicU64::new(0f64.to_bits()));
+    let pipe = child
+        .stdout
+        .take()
+        .map(|p| Box::new(p) as Box<dyn Read + Send>);
+    let stdout = match (stall, pipe) {
+        (Some(_), Some(pipe)) => {
+            let (heard, reached) = (
+                std::sync::Arc::clone(&heard),
+                std::sync::Arc::clone(&reached),
+            );
+            std::thread::spawn(move || {
+                let mut last: [String; 3] = Default::default();
+                crate::playback::for_each_line(pipe, |line| {
+                    let line = line.trim_end();
+                    for (i, key) in crate::playback::MOVING_ON.iter().enumerate() {
+                        if let Some(value) = line.strip_prefix(key) {
+                            if value != last[i] {
+                                last[i] = value.to_owned();
+                                heard.store(started.elapsed().as_millis() as u64, Ordering::SeqCst);
+                            }
+                        }
+                    }
+                    if let Some(frame) = line
+                        .strip_prefix("frame=")
+                        .and_then(|n| n.trim().parse::<f64>().ok())
+                    {
+                        reached.store(frame.to_bits(), Ordering::SeqCst);
+                    }
+                });
+                Ok(Vec::new())
+            })
+        }
+        (_, pipe) => read_all(pipe),
+    };
+    // Watched, the error output is heard as it comes, on its own thread and to its end as the progress is: the rewrite
+    // starting ends the watch, and only the errors are kept.
+    let rewriting = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pipe = child
+        .stderr
+        .take()
+        .map(|p| Box::new(p) as Box<dyn Read + Send>);
+    let stderr = match (stall, pipe) {
+        (Some(_), Some(pipe)) => {
+            let rewriting = std::sync::Arc::clone(&rewriting);
+            std::thread::spawn(move || {
+                let mut errors = Errors::new();
+                crate::playback::for_each_line(pipe, |line| {
+                    errors.hear(line);
+                    if errors.rewriting {
+                        rewriting.store(true, Ordering::SeqCst);
+                    }
+                });
+                Ok(errors.kept)
+            })
+        }
+        (_, pipe) => read_all(pipe),
+    };
     let leftover = leftover.map(Path::to_path_buf);
     // Windows can refuse to delete a file for a moment after the process that wrote it has gone (the system, or a virus
     // scanner, still has it open), so the delete is tried again for up to a second.
@@ -413,25 +591,67 @@ pub(crate) fn run_stoppable(
             }
         });
     };
-    let started = Instant::now();
+    #[cfg(test)]
+    {
+        WATCH_END.with(|end| end.set(None));
+        REWRITE_HEARD.with(|heard| heard.set(false));
+    }
+    let mut last_tick = Instant::now();
     let status = loop {
-        let stopped = stop.is_some_and(|stop| stop.load(std::sync::atomic::Ordering::SeqCst));
+        let stopped = stop.is_some_and(|stop| stop.load(Ordering::SeqCst));
+        // Watched: a look that comes this late means the computer slept, which is no stall (as in the copies' watch).
+        if stall.is_some() && last_tick.elapsed() > crate::playback::SLEPT {
+            heard.store(started.elapsed().as_millis() as u64, Ordering::SeqCst);
+        }
+        last_tick = Instant::now();
+        let now = started.elapsed();
+        let moved = Duration::from_millis(heard.load(Ordering::SeqCst));
+        // The index rewrite begun, or every frame reported: what's left is writing the file out, watched by the time
+        // limit alone. The rewrite is what's heard in practice; the last frame rarely comes before it (`SECOND_PASS`).
+        let rewrite = rewriting.load(Ordering::SeqCst);
+        let last_frame = stall.is_some_and(|stall| {
+            f64::from_bits(reached.load(Ordering::SeqCst)) >= stall.frames as f64
+        });
+        let done = stall.is_some() && (rewrite || last_frame);
+        #[cfg(test)]
+        if done {
+            WATCH_END.with(|end| {
+                if end.get().is_none() {
+                    end.set(Some(if rewrite {
+                        WatchEnd::Rewrite
+                    } else {
+                        WatchEnd::LastFrame
+                    }));
+                }
+            });
+        }
+        let late = match stall {
+            None => now >= timeout,
+            Some(_) if done => now >= timeout,
+            // Past the limit and heard moving since: too slow. Past it and quiet: left to the stall.
+            Some(_) => now >= timeout && moved >= timeout,
+        };
+        let stuck = !done && stall.is_some_and(|stall| now.saturating_sub(moved) > stall.time);
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if stopped => {
                 end(child, Duration::from_secs(2));
-                return Err(CLIP_CANCELLED.into());
+                return Err(Unended::Said(CLIP_CANCELLED.into()));
             }
-            Ok(None) if started.elapsed() < timeout => {
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Ok(None) => {
-                // A read stuck on a share that stopped answering can hold the kill back until it returns, so the
-                // wait for the process happens on a thread of its own, never here.
+            // A read stuck on a share that stopped answering can hold the kill back until it returns, so the wait for
+            // the process happens on a thread of its own, never here.
+            Ok(None) if stuck => {
                 end(child, Duration::ZERO);
-                return Err(TOO_SLOW.into());
+                return Err(Unended::Stalled(f64::from_bits(
+                    reached.load(Ordering::SeqCst),
+                )));
             }
-            Err(_) => return Err(CANT_READ.into()),
+            Ok(None) if late => {
+                end(child, Duration::ZERO);
+                return Err(Unended::Said(TOO_SLOW.into()));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(_) => return Err(Unended::Said(CANT_READ.into())),
         }
     };
     let all = |reader: std::thread::JoinHandle<std::io::Result<Vec<u8>>>| {
@@ -439,9 +659,13 @@ pub(crate) fn run_stoppable(
             .join()
             .ok()
             .and_then(Result::ok)
-            .ok_or_else(|| CANT_READ.to_string())
+            .ok_or_else(|| Unended::Said(CANT_READ.to_string()))
     };
-    Ok((status, all(stdout)?, all(stderr)?))
+    let (stdout, stderr) = (all(stdout)?, all(stderr)?);
+    // A rewrite quicker than a look (a local drive) can be over before the watch sees it: whether it was heard at all.
+    #[cfg(test)]
+    REWRITE_HEARD.with(|heard| heard.set(rewriting.load(Ordering::SeqCst)));
+    Ok((status, stdout, stderr))
 }
 
 /// Runs ffprobe on a file. The path is one argument of the list, after `-i`, never part of a shell string, and ffprobe
@@ -1012,8 +1236,8 @@ impl ClipBusy {
 
 /// `CLIP_CANCELLED` once a Cancel has been asked for: looked at between the steps before ffmpeg starts (each probe
 /// can take a while on a share) and before the finished clip is put in place.
-fn clip_stopped() -> Result<(), String> {
-    if CLIP_STOP.load(std::sync::atomic::Ordering::SeqCst) {
+fn clip_stopped(stop: &std::sync::atomic::AtomicBool) -> Result<(), String> {
+    if stop.load(std::sync::atomic::Ordering::SeqCst) {
         Err(CLIP_CANCELLED.into())
     } else {
         Ok(())
@@ -1068,6 +1292,77 @@ fn clip_partial(dest: &Path) -> Result<PathBuf, String> {
     Err(CLIP_NOT_SAVED.into())
 }
 
+/// What a step run off the calling thread came to.
+#[derive(Debug)]
+enum Aside<T> {
+    Done(T),
+    /// No answer within the limit (or the step's thread died): the drive is taken for stuck.
+    Late,
+    Stopped,
+}
+
+/// Runs `step` on a thread of its own and waits for it at most `limit`, or until `stop` is set: a folder on a drive
+/// that stopped answering can hold a call up for good, and the person's Cancel must still end the clip at once. A
+/// step given up on is left to end by itself, and what it made then is handed to `undo` (a partial made late is
+/// removed). A look that comes later than `SLEPT` means the computer slept, which is no hang: the wait starts over.
+fn aside<T: Send + 'static>(
+    limit: Duration,
+    stop: &std::sync::atomic::AtomicBool,
+    step: impl FnOnce() -> T + Send + 'static,
+    undo: impl Fn(T) + Send + Sync + 'static,
+) -> Aside<T> {
+    use std::sync::atomic::Ordering;
+    let (sent, heard) = std::sync::mpsc::channel();
+    let undo = std::sync::Arc::new(undo);
+    // Set once the wait is over: a step that ends after it undoes what it made, as nobody will take it. Its answer is
+    // sent under the same lock, so it's either in the channel when the wait gives up, or undone there.
+    let gone = std::sync::Arc::new(Mutex::new(false));
+    {
+        let (gone, undo) = (std::sync::Arc::clone(&gone), std::sync::Arc::clone(&undo));
+        std::thread::spawn(move || {
+            let made = step();
+            let gone = gone
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if *gone {
+                undo(made);
+            } else {
+                let _ = sent.send(made);
+            }
+        });
+    }
+    let mut started = Instant::now();
+    let mut looked = started;
+    let tick = Duration::from_millis(20);
+    loop {
+        match heard.recv_timeout(tick) {
+            Ok(made) => return Aside::Done(made),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Aside::Late,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        let now = Instant::now();
+        if now.saturating_duration_since(looked) > crate::playback::SLEPT {
+            started = now;
+        }
+        looked = now;
+        let outcome = if stop.load(Ordering::SeqCst) {
+            Aside::Stopped
+        } else if started.elapsed() >= limit {
+            Aside::Late
+        } else {
+            continue;
+        };
+        *gone
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+        // Answered just before: undone here rather than lost with the channel.
+        if let Ok(made) = heard.try_recv() {
+            undo(made);
+        }
+        return outcome;
+    }
+}
+
 /// Whether a clip may be saved at `dest`: where nothing is, or over a clip Storiiboard saved (the same slate name,
 /// saved again), never over the file it's made from. Not over any other file, whatever the Save dialog asked: a
 /// camera original beside it, even one that can't be read now (a card pulled mid-take, a share that's slow), is
@@ -1116,7 +1411,9 @@ fn clip_filter(
     format!("{picture},setpts=PTS-{zero:.6}/TB")
 }
 
-/// How long a clip's encode may take before it's given up on: generous, as an 8K original decodes slowly.
+/// How long a clip's encode may take before it's given up on: generous, as an 8K original decodes slowly. Each encoder
+/// tried gets it whole (one that stalled says nothing of how long the next needs), and a stall is caught past it too
+/// (`run_watched`). Once the index rewrite starts it alone ends a rewrite that never finishes.
 fn clip_timeout(frames: u64, fps_num: u32, fps_den: u32) -> Duration {
     let seconds = frames as f64 * f64::from(fps_den) / f64::from(fps_num.max(1));
     Duration::from_secs_f64(60.0 + seconds * 8.0)
@@ -1141,7 +1438,47 @@ pub fn save_clip(
         (window, lut),
         dest,
         &crate::playback::encoders(),
+        &ClipWatch::default(),
     )
+}
+
+/// Asks a clip's folder something small, to tell whether its drive still answers.
+type AskFolder = std::sync::Arc<dyn Fn(&Path) -> std::io::Result<()> + Send + Sync>;
+/// Makes an encoder's own file beside a clip (`clip_partial`).
+type MakePartial = std::sync::Arc<dyn Fn(&Path) -> Result<PathBuf, String> + Send + Sync>;
+
+/// How a clip's encoders are watched: the Cancel that stops it, the stall time and the check after a stall, the
+/// copies' own (playback.rs `STALL`, `ReadCheck`), and the clip's folder after a stall: `folder` asks it something
+/// small, `partial` makes the next encoder's file there. Tests shorten them, give a stop of their own (so a test's
+/// Cancel never reaches another test's clip), a folder that stops answering and a shim's environment for ffmpeg, and
+/// count the encodes started.
+struct ClipWatch {
+    stop: &'static std::sync::atomic::AtomicBool,
+    stall: Duration,
+    check: crate::playback::ReadCheck,
+    folder: AskFolder,
+    partial: MakePartial,
+    #[cfg(test)]
+    env: Vec<(String, String)>,
+    #[cfg(test)]
+    attempts: std::sync::atomic::AtomicU64,
+}
+
+impl Default for ClipWatch {
+    fn default() -> Self {
+        Self {
+            stop: &CLIP_STOP,
+            stall: crate::playback::STALL,
+            check: crate::playback::ReadCheck::default(),
+            // The folder's own metadata: the smallest question, and nothing left on the drive if it hangs.
+            folder: std::sync::Arc::new(|folder: &Path| std::fs::metadata(folder).map(|_| ())),
+            partial: std::sync::Arc::new(clip_partial),
+            #[cfg(test)]
+            env: Vec::new(),
+            #[cfg(test)]
+            attempts: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
 }
 
 /// `save_clip` with these encoders, tried in turn: the computer's in the app; in tests, FFmpeg's own MPEG-4, as the
@@ -1150,11 +1487,33 @@ pub fn save_clip(
 /// the encoder, whose own tests are the copies'.
 fn save_clip_with(
     path: &Path,
+    frames: (u64, u64),
+    rate: (u32, u32),
+    picture: (ClipWindow, Option<&crate::playback::Lut>),
+    dest: &Path,
+    encoders: &[Vec<&'static str>],
+    watch: &ClipWatch,
+) -> Result<(), String> {
+    let saved = walk_encoders(path, frames, rate, picture, dest, encoders, watch);
+    // The stop looked at one last time, as a copy ends (playback.rs `make_asked`): a Cancel that lands just after the
+    // last stall or failure is the clip's outcome, never the encoder's words.
+    match saved {
+        Err(_) if watch.stop.load(std::sync::atomic::Ordering::SeqCst) => {
+            Err(CLIP_CANCELLED.into())
+        }
+        saved => saved,
+    }
+}
+
+/// `save_clip_with`, but for the last look at the stop.
+fn walk_encoders(
+    path: &Path,
     (in_frame, out_frame): (u64, u64),
     (fps_num, fps_den): (u32, u32),
     (window, lut): (ClipWindow, Option<&crate::playback::Lut>),
     dest: &Path,
     encoders: &[Vec<&'static str>],
+    watch: &ClipWatch,
 ) -> Result<(), String> {
     if fps_num == 0 || fps_den == 0 {
         return Err("That video's frame rate can't be read.".into());
@@ -1165,11 +1524,14 @@ fn save_clip_with(
     if lut.is_some_and(|lut| !crate::playback::is_lut_name(&lut.sha256)) {
         return Err(CLIP_LUT_UNREADABLE.into());
     }
-    clip_stopped()?;
+    clip_stopped(watch.stop)?;
     let facts = facts(path)?;
-    clip_stopped()?;
+    clip_stopped(watch.stop)?;
+    let probed = probe(path)?;
+    // The take's length in frames, for where the check after a stall starts reading.
+    let total = probed.duration_frames;
     // The sound only if it plays: a track ffmpeg can't decode would fail the whole clip (the copy drops it too).
-    let has_audio = probe(path)?.has_audio && matches!(sound_plays(path), Ok(true));
+    let has_audio = probed.has_audio && matches!(sound_plays(path), Ok(true));
     let (early, at) = still_times(&facts, in_frame, fps_num, fps_den);
     // The in frame's own time on the file's clock, where the picture and the sound both start.
     let zero = facts.stream_start + in_frame as f64 * f64::from(fps_den) / f64::from(fps_num);
@@ -1189,19 +1551,47 @@ fn save_clip_with(
         window,
         grade.is_some(),
     );
-    let partial = clip_partial(dest)?;
     let mut said = String::from(CANT_READ);
+    // The original kept answering when read past a stall: the encoder hung, not the drive.
+    let mut answered = false;
+    // A stall has been seen: the clip's folder is on a drive that may stop answering, so it's only reached aside.
+    let mut stalled = false;
+    let folder = dest
+        .parent()
+        .filter(|folder| !folder.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
     for encoder in encoders {
-        if let Err(stopped) = clip_stopped() {
-            let _ = std::fs::remove_file(&partial);
-            return Err(stopped);
-        }
+        clip_stopped(watch.stop)?;
+        // A file of its own for each encoder: one stalled may still hold its file until it ends, and then removes it.
+        // After a stall it's made aside, under the check's quiet time (the folder answered just before, so a slow
+        // drive waking up isn't in question) and cancellable; the first is made here, as it always was.
+        let partial = if stalled {
+            let (make, there) = (std::sync::Arc::clone(&watch.partial), dest.to_path_buf());
+            match aside(
+                watch.check.quiet,
+                watch.stop,
+                move || make(&there),
+                |made: Result<PathBuf, String>| {
+                    if let Ok(partial) = made {
+                        let _ = std::fs::remove_file(partial);
+                    }
+                },
+            ) {
+                Aside::Done(made) => made?,
+                Aside::Late => return Err(TOO_SLOW.into()),
+                Aside::Stopped => return Err(CLIP_CANCELLED.into()),
+            }
+        } else {
+            (watch.partial)(dest)?
+        };
         let mut command = command("ffmpeg");
         if let Some(grade) = &grade {
             command.current_dir(&grade.folder);
         }
+        // At info, tagged, for the one line that says the index rewrite is starting; only the errors are kept (`Errors`).
         command
-            .args(["-hide_banner", "-loglevel", "error", "-y", "-copyts"])
+            .args(["-hide_banner", "-loglevel", CLIP_LOG, "-y", "-copyts"])
             .args(["-protocol_whitelist", "file", "-ss"])
             .arg(format!("{early:.6}"))
             .arg("-i")
@@ -1222,23 +1612,41 @@ fn save_clip_with(
                 ))
                 .args(["-c:a", "aac", "-b:a", "192k", "-ac", "2"]);
         }
+        // Its progress, for the stall watch: said on its own pipe, it changes nothing in the clip.
         command
             .arg("-t")
             .arg(format!("{seconds:.6}"))
             .args(["-metadata", &format!("comment={CLIP_MARK}")])
             .args(["-movflags", "+faststart", "-f", "mp4"])
+            .args(["-progress", "pipe:1", "-nostats"])
             .arg(&partial);
-        let outcome = run_stoppable(
+        #[cfg(test)]
+        {
+            for (key, value) in &watch.env {
+                command.env(key, value);
+            }
+            watch
+                .attempts
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        // Each encoder under the clip's own limit, and a stall past it (`run_watched`): a clip lasts at most the
+        // encoders' limits and stalls, and a check after each stall, however it goes.
+        // The watch ends as the index rewrite starts: `+faststart` then rewrites the whole file without a word.
+        let outcome = run_watched(
             command,
             clip_timeout(frames, fps_num, fps_den),
             true,
-            Some(&CLIP_STOP),
+            Some(watch.stop),
             Some(&partial),
+            Some(Stall {
+                time: watch.stall,
+                frames,
+            }),
         );
         match outcome {
             Ok((status, _, _)) if status.success() => {
                 // Cancelled as it finished: nothing is put in place, nor anything there replaced.
-                if let Err(stopped) = clip_stopped() {
+                if let Err(stopped) = clip_stopped(watch.stop) {
                     let _ = std::fs::remove_file(&partial);
                     return Err(stopped);
                 }
@@ -1247,22 +1655,57 @@ fn save_clip_with(
                     CLIP_NOT_SAVED.to_string()
                 });
             }
-            // Cancelled, or too slow: no other encoder would do better, and trying one would double the wait.
-            Err(error) => {
+            // Stalled, as a copy does (playback.rs `make_asked`): the original read on past where this encode had got
+            // to (the frame reached, from the in frame on). Still answering, the encoder hung, and the next is tried;
+            // with none left, the encoder's words, a copy's own. Hung or failing, the drive's words, as a clip gives
+            // them for a read that takes too long, and at once: another encoder would only wait out a second stall.
+            // Read once a clip: once it answered, a later stall is the encoder's too. Its file goes once its ffmpeg
+            // ends (`run_watched`). Then the clip's folder, after every stall: ffmpeg blocked on a write to a drive
+            // that stopped answering (a NAS, a USB drive) stalls as well, and the source reads on; asked aside, under
+            // the check's quiet time, a folder that doesn't answer ends the clip at once in the drive's words, and the
+            // next encoder's file is never made there.
+            Err(Unended::Stalled(reached)) => {
+                stalled = true;
+                if !answered {
+                    match crate::playback::reads_past(
+                        &watch.check,
+                        path,
+                        in_frame as f64 + reached,
+                        total,
+                        || watch.stop.load(std::sync::atomic::Ordering::SeqCst),
+                    ) {
+                        crate::playback::Reading::Answers => answered = true,
+                        crate::playback::Reading::Hangs => return Err(TOO_SLOW.into()),
+                        crate::playback::Reading::Stopped => return Err(CLIP_CANCELLED.into()),
+                    }
+                }
+                let (ask, there) = (std::sync::Arc::clone(&watch.folder), folder.clone());
+                match aside(watch.check.quiet, watch.stop, move || ask(&there), |_| {}) {
+                    Aside::Done(Ok(())) => {}
+                    Aside::Done(Err(_)) | Aside::Late => return Err(TOO_SLOW.into()),
+                    Aside::Stopped => return Err(CLIP_CANCELLED.into()),
+                }
+                said = crate::playback::ENCODER_STALLED.into();
+            }
+            // Cancelled, or too slow while moving: no other encoder would do better, and trying one would double the
+            // wait.
+            Err(Unended::Said(error)) => {
                 let _ = std::fs::remove_file(&partial);
                 return Err(error);
             }
-            // Failed: the source unreadable says so; else the next encoder (a hardware one that wouldn't open).
+            // Failed: the source unreadable says so; else the next encoder (a hardware one that wouldn't open). After
+            // a stall, the stall says why, as a copy's does.
             Ok((_, _, errors)) => {
+                let _ = std::fs::remove_file(&partial);
                 if read_failed_in(&String::from_utf8_lossy(&errors), path) {
-                    let _ = std::fs::remove_file(&partial);
                     return Err(CANT_READ.into());
                 }
-                said = CLIP_NOT_SAVED.into();
+                if !answered {
+                    said = CLIP_NOT_SAVED.into();
+                }
             }
         }
     }
-    let _ = std::fs::remove_file(&partial);
     Err(said)
 }
 
@@ -2442,6 +2885,127 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// A clip's ffmpeg 8.1 error output at `CLIP_LOG`, as recorded on Windows (Nov 20) for a take cut short partway,
+    /// with made-up names: the info lines around the encode, the decoder's errors, and the muxer's line just before
+    /// `+faststart` rewrites the file.
+    const RECORDED_CLIP_LOG: &str = concat!(
+        "[info] Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'C:/Users/robin/Takes/A001_C004.mp4':\r\n",
+        "[info]   Metadata:\r\n",
+        "[info]     major_brand     : isom\r\n",
+        "[info]   Duration: 00:01:00.00, start: 0.000000, bitrate: 4000 kb/s\r\n",
+        "[info]   Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 1920x1080 ",
+        "[SAR 1:1 DAR 16:9], 7913 kb/s, 25 fps, 25 tbr, 12800 tbn (default)\r\n",
+        "[info] Stream mapping:\r\n",
+        "[info]   Stream #0:0 -> #0:0 (h264 (native) -> h264 (h264_mf))\r\n",
+        "[info] Press [q] to stop, [?] for help\r\n",
+        "[h264_mf @ 0000021a9a9f08c0] [info] MFT name: 'H264 Encoder MFT'\r\n",
+        "[info] Output #0, mp4, to '.SC012_12K.mp4.1-0.part':\r\n",
+        "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0000021a9a500000] [warning] Packet corrupt (stream = 0, dts = 378880).\r\n",
+        "[h264 @ 0000021a9a5d8740] [error] Invalid NAL unit size (38962 > 5331).\r\n",
+        "[h264 @ 0000021a9a5d8740] [error] missing picture in access unit with size 5341\r\n",
+        "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0000021a9a4ffd00] [warning] corrupt input packet in stream 0\r\n",
+        "[vist#0:0/h264 @ 0000021a98c799c0] [dec:h264 @ 0000021a9a506640] [error] Decoding error: Invalid data found ",
+        "when processing input\r\n",
+        "[mp4 @ 0000021a98c7e6c0] [info] Starting second pass: moving the moov atom to the beginning of the file\r\n",
+        "[out#0/mp4 @ 0000021a98c77cc0] [info] video:36450KiB audio:694KiB subtitle:0KiB other streams:0KiB global ",
+        "headers:0KiB muxing overhead: 0.047916%\r\n",
+        "[info] frame=  740 fps=346 q=-0.0 Lsize=   37162KiB time=00:00:24.14 bitrate=12606.0kbits/s speed=11.3x ",
+        "elapsed=0:00:02.13    \r\n",
+        "[aac @ 0000021a9a6bbc80] [info] Qavg: 64174.227\r\n",
+    );
+
+    fn heard(said: &str) -> Errors {
+        let mut errors = Errors::new();
+        for line in said.split_inclusive('\n') {
+            errors.hear(line);
+        }
+        errors
+    }
+
+    #[test]
+    fn hears_the_index_rewrite_start_and_keeps_only_the_errors_as_loglevel_error_gives_them() {
+        let errors = heard(RECORDED_CLIP_LOG);
+        assert!(errors.rewriting, "the second pass was heard");
+        assert_eq!(
+            String::from_utf8(errors.kept).unwrap(),
+            concat!(
+                "[h264 @ 0000021a9a5d8740] Invalid NAL unit size (38962 > 5331).\r\n",
+                "[h264 @ 0000021a9a5d8740] missing picture in access unit with size 5341\r\n",
+                "[vist#0:0/h264 @ 0000021a98c799c0] [dec:h264 @ 0000021a9a506640] Decoding error: Invalid data found ",
+                "when processing input\r\n",
+            ),
+            "the warnings and the info lines left out, the errors untagged"
+        );
+        // Without the second pass's line, nothing says the rewrite started; nor does the line said by anything but
+        // the muxer's message itself.
+        let before: String = RECORDED_CLIP_LOG
+            .split_inclusive('\n')
+            .filter(|line| !line.contains("Starting second pass"))
+            .collect();
+        assert!(!heard(&before).rewriting);
+        assert!(
+            !heard(
+                "[info] Output #0, mp4, to 'Starting second pass: moving the moov atom.mp4':\r\n"
+            )
+            .rewriting
+        );
+        // A line with no level of its own goes with the one before it.
+        let carried = heard(
+            "[h264 @ 0x1] [error] one error\n    Last message repeated 3 times\n[info] x\n  more\n",
+        );
+        assert_eq!(
+            String::from_utf8(carried.kept).unwrap(),
+            "[h264 @ 0x1] one error\n    Last message repeated 3 times\n"
+        );
+        // Untagged throughout (another log level): every line kept, as before.
+        let plain = "[in#0 @ 0x1] moov atom not found\nError opening input file x.mov.\n";
+        assert_eq!(String::from_utf8(heard(plain).kept).unwrap(), plain);
+    }
+
+    #[test]
+    fn a_failed_read_is_still_recognised_among_a_clips_info_lines() {
+        let dir = temp_dir("clip-log-read");
+        let take = dir.join("A001_C004.mp4");
+        fs::write(&take, vec![0u8; 4096]).unwrap();
+        // The recorded output with each of ffmpeg's words for a read that failed partway put in among it, tagged as
+        // ffmpeg tags its errors (after the line's prefixes).
+        let (head, tail) = RECORDED_CLIP_LOG.split_at(RECORDED_CLIP_LOG.find("[mp4 @").unwrap());
+        for failed in [
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0000021a9a500000] [error] Error during demuxing: Input/output error\r\n",
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0000021a9a500000] [error] stream 1, offset 0x200: partial file\r\n",
+        ] {
+            let errors = heard(&format!("{head}{failed}{tail}"));
+            let said = String::from_utf8(errors.kept).unwrap();
+            assert!(read_failed_in(&said, &take), "{said}");
+            assert!(errors.rewriting);
+        }
+        // Damaged data alone, as recorded, is no failed read, as at `-loglevel error`.
+        let said = String::from_utf8(heard(RECORDED_CLIP_LOG).kept).unwrap();
+        assert!(!read_failed_in(&said, &take), "{said}");
+        // Nor is an info line that merely mentions a demuxing error, left out as `-loglevel error` leaves it out.
+        let info = "[info]   Metadata: title : Error during demuxing: Input/output error\r\n";
+        let said = String::from_utf8(heard(info).kept).unwrap();
+        assert!(!read_failed_in(&said, &take), "{said}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_clip_says_its_index_rewrite_is_starting() {
+        static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let dir = temp_dir("clip-second-pass");
+        let take = crate::playback::tests::long_clip(&dir);
+        let dest = dir.join("SC012_12M.mp4");
+        let watch = watch_with(&STOP, crate::playback::STALL);
+        watched_clip(&take, (0, 49), &dest, 1, &watch).unwrap();
+        // The real ffmpeg's own words, heard from the clip's encode as it ran.
+        assert!(
+            REWRITE_HEARD.with(std::cell::Cell::get),
+            "the second pass was heard"
+        );
+        assert!(is_saved_clip(&dest));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     /// A one-second 10-bit ProRes clip of one flat grey, its code value `luma` (10-bit, limited range), its frames
     /// tagged with `tags` (setparams' own, as an encoder takes its colour from the frames).
     fn flat_10_bit(dir: &Path, name: &str, luma: u32, tags: &str) -> PathBuf {
@@ -2691,7 +3255,15 @@ mod tests {
         dest: &Path,
     ) -> Result<(), String> {
         let light = vec!["-c:v", "mpeg4", "-q:v", "3", "-pix_fmt", "yuv420p"];
-        save_clip_with(take, frames, (25, 1), (window, lut), dest, &[light])
+        save_clip_with(
+            take,
+            frames,
+            (25, 1),
+            (window, lut),
+            dest,
+            &[light],
+            &ClipWatch::default(),
+        )
     }
 
     #[test]
@@ -2896,6 +3468,461 @@ mod tests {
             !partial.exists(),
             "the unfinished file is gone once it's stopped"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A clip's watch for a test: a stop of its own (a Cancel here never reaches another test's clip) and this stall
+    /// time; the check as the app's unless the test changes it.
+    fn watch_with(stop: &'static std::sync::atomic::AtomicBool, stall: Duration) -> ClipWatch {
+        ClipWatch {
+            stop,
+            stall,
+            ..ClipWatch::default()
+        }
+    }
+
+    /// The whole picture of a 25 fps take, saved with `encoders` light encoders (see `light_clip`).
+    fn watched_clip(
+        take: &Path,
+        frames: (u64, u64),
+        dest: &Path,
+        encoders: usize,
+        watch: &ClipWatch,
+    ) -> Result<(), String> {
+        let light = vec!["-c:v", "mpeg4", "-q:v", "3", "-pix_fmt", "yuv420p"];
+        let whole = ClipWindow {
+            left: 0.0,
+            top: 0.0,
+            width: 1.0,
+            height: 1.0,
+        };
+        save_clip_with(
+            take,
+            frames,
+            (25, 1),
+            (whole, None),
+            dest,
+            &vec![light; encoders],
+            watch,
+        )
+    }
+
+    /// No unfinished clip file left in `dir`, once the ffmpegs given up on have ended (each removes its own).
+    fn no_partials_in(dir: &Path) -> bool {
+        let started = Instant::now();
+        loop {
+            let left = fs::read_dir(dir)
+                .unwrap()
+                .filter_map(Result::ok)
+                .any(|entry| entry.file_name().to_string_lossy().ends_with(".part"));
+            if !left {
+                return true;
+            }
+            if started.elapsed() > Duration::from_secs(10) {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    #[test]
+    fn a_clip_whose_every_encoder_stalls_on_a_readable_file_says_the_encoder_stopped() {
+        static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let dir = temp_dir("clip-stall-every");
+        let take = crate::playback::tests::long_clip(&dir);
+        let dest = dir.join("SC012_12A.mp4");
+        // Shorter than ffmpeg takes to say anything at all: every encoder stalls, and the file reads on.
+        let watch = watch_with(&STOP, Duration::from_millis(1));
+        assert_eq!(
+            watched_clip(&take, (0, 249), &dest, 2, &watch).unwrap_err(),
+            crate::playback::ENCODER_STALLED
+        );
+        assert_eq!(
+            watch.attempts.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "both encoders tried"
+        );
+        assert!(!dest.exists());
+        assert!(no_partials_in(&dir), "nothing half-made");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_file_is_read_for_a_clips_check_once_and_never_for_a_clip_made() {
+        use std::io::{Seek, SeekFrom};
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+        static STOP: AtomicBool = AtomicBool::new(false);
+        let dir = temp_dir("clip-check-count");
+        let take = crate::playback::tests::long_clip(&dir);
+        let opened = std::sync::Arc::new(AtomicU64::new(0));
+        let mut watch = watch_with(&STOP, Duration::from_millis(1));
+        {
+            let opened = std::sync::Arc::clone(&opened);
+            watch.check.open = std::sync::Arc::new(move |path: &Path, from: u64| {
+                opened.fetch_add(1, Ordering::SeqCst);
+                let mut file = fs::File::open(path)?;
+                file.seek(SeekFrom::Start(from))?;
+                Ok(Box::new(file) as Box<dyn Read + Send>)
+            });
+        }
+        let stalled = dir.join("SC012_12B.mp4");
+        assert_eq!(
+            watched_clip(&take, (0, 249), &stalled, 2, &watch).unwrap_err(),
+            crate::playback::ENCODER_STALLED
+        );
+        assert_eq!(
+            opened.load(Ordering::SeqCst),
+            1,
+            "once: the first stall's read answered for the second"
+        );
+        watch.stall = crate::playback::STALL;
+        let made = dir.join("SC012_12C.mp4");
+        watched_clip(&take, (0, 24), &made, 2, &watch).unwrap();
+        assert_eq!(probe(&made).unwrap().duration_frames, 25);
+        assert_eq!(opened.load(Ordering::SeqCst), 1, "never for a clip made");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_read_that_hangs_after_a_clips_stall_says_the_drives_words_without_another_encoder() {
+        static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let dir = temp_dir("clip-stall-hang");
+        let take = crate::playback::tests::long_clip(&dir);
+        let dest = dir.join("SC012_12D.mp4");
+        let mut watch = watch_with(&STOP, Duration::from_millis(1));
+        // The share stopped answering for the app's own read too.
+        watch.check.open = std::sync::Arc::new(|_: &Path, _: u64| {
+            Ok(Box::new(crate::playback::tests::Stuck) as Box<dyn Read + Send>)
+        });
+        watch.check.quiet = Duration::from_millis(300);
+        let started = Instant::now();
+        assert_eq!(
+            watched_clip(&take, (0, 249), &dest, 2, &watch).unwrap_err(),
+            TOO_SLOW
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            watch.attempts.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "no second encoder started"
+        );
+        assert!(!dest.exists());
+        assert!(no_partials_in(&dir), "nothing half-made");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cancel_during_a_clips_check_ends_it_at_once() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static STOP: AtomicBool = AtomicBool::new(false);
+        let dir = temp_dir("clip-check-cancel");
+        let take = crate::playback::tests::long_clip(&dir);
+        let dest = dir.join("SC012_12E.mp4");
+        let opened = std::sync::Arc::new(AtomicBool::new(false));
+        let mut watch = watch_with(&STOP, Duration::from_millis(1));
+        {
+            let opened = std::sync::Arc::clone(&opened);
+            watch.check.open = std::sync::Arc::new(move |_: &Path, _: u64| {
+                opened.store(true, Ordering::SeqCst);
+                Ok(Box::new(crate::playback::tests::Stuck) as Box<dyn Read + Send>)
+            });
+        }
+        std::thread::scope(|scope| {
+            let cancelling = scope.spawn(|| {
+                let waited = Instant::now();
+                while !opened.load(Ordering::SeqCst) {
+                    assert!(
+                        waited.elapsed() < Duration::from_secs(60),
+                        "the check never started"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                let at = Instant::now();
+                STOP.store(true, Ordering::SeqCst);
+                at
+            });
+            let saved = watched_clip(&take, (0, 249), &dest, 2, &watch);
+            let ended = Instant::now();
+            let cancelled_at = cancelling.join().unwrap();
+            assert_eq!(saved.unwrap_err(), CLIP_CANCELLED);
+            assert!(
+                ended.duration_since(cancelled_at) < Duration::from_secs(2),
+                "well inside the check's quiet time"
+            );
+        });
+        assert_eq!(
+            watch.attempts.load(Ordering::SeqCst),
+            1,
+            "nothing started after it"
+        );
+        assert!(!dest.exists());
+        assert!(no_partials_in(&dir), "nothing half-made");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A folder on a drive that stopped answering: the question never returns. Its thread is left parked for good.
+    fn never_answers() -> ! {
+        loop {
+            std::thread::park();
+        }
+    }
+
+    #[test]
+    fn a_clips_folder_that_stops_answering_after_a_stall_says_the_drives_words() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static STOP: AtomicBool = AtomicBool::new(false);
+        let dir = temp_dir("clip-folder-hang");
+        let take = crate::playback::tests::long_clip(&dir);
+        let dest = dir.join("SC012_12H.mp4");
+        // ffmpeg blocked on its write to a NAS stalls; the source reads on, and the clip's folder doesn't answer.
+        let mut watch = watch_with(&STOP, Duration::from_millis(1));
+        watch.folder = std::sync::Arc::new(|_: &Path| never_answers());
+        watch.check.quiet = Duration::from_millis(300);
+        let started = Instant::now();
+        assert_eq!(
+            watched_clip(&take, (0, 249), &dest, 2, &watch).unwrap_err(),
+            TOO_SLOW
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            watch.attempts.load(Ordering::SeqCst),
+            1,
+            "no second encoder, nor its file, on the dead drive"
+        );
+        assert!(!dest.exists());
+        assert!(no_partials_in(&dir), "nothing half-made");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cancel_while_a_clips_folder_is_asked_ends_it_at_once() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static STOP: AtomicBool = AtomicBool::new(false);
+        let dir = temp_dir("clip-folder-cancel");
+        let take = crate::playback::tests::long_clip(&dir);
+        let dest = dir.join("SC012_12J.mp4");
+        let asked = std::sync::Arc::new(AtomicBool::new(false));
+        // The folder's question under the app's own quiet time: a Cancel ends it well inside.
+        let mut watch = watch_with(&STOP, Duration::from_millis(1));
+        {
+            let asked = std::sync::Arc::clone(&asked);
+            watch.folder = std::sync::Arc::new(move |_: &Path| {
+                asked.store(true, Ordering::SeqCst);
+                never_answers()
+            });
+        }
+        std::thread::scope(|scope| {
+            let cancelling = scope.spawn(|| {
+                let waited = Instant::now();
+                while !asked.load(Ordering::SeqCst) {
+                    assert!(
+                        waited.elapsed() < Duration::from_secs(60),
+                        "the folder was never asked"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                let at = Instant::now();
+                STOP.store(true, Ordering::SeqCst);
+                at
+            });
+            let saved = watched_clip(&take, (0, 249), &dest, 2, &watch);
+            let ended = Instant::now();
+            let cancelled_at = cancelling.join().unwrap();
+            assert_eq!(saved.unwrap_err(), CLIP_CANCELLED);
+            assert!(
+                ended.duration_since(cancelled_at) < Duration::from_secs(2),
+                "well inside the folder's quiet time"
+            );
+        });
+        assert_eq!(
+            watch.attempts.load(Ordering::SeqCst),
+            1,
+            "nothing started after it"
+        );
+        assert!(!dest.exists());
+        assert!(no_partials_in(&dir), "nothing half-made");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_next_encoders_file_is_made_aside_after_a_stall_and_one_made_too_late_is_removed() {
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+        static STOP: AtomicBool = AtomicBool::new(false);
+        let dir = temp_dir("clip-partial-late");
+        let take = crate::playback::tests::long_clip(&dir);
+        let dest = dir.join("SC012_12K.mp4");
+        let made = std::sync::Arc::new(AtomicU64::new(0));
+        let late = std::sync::Arc::new(AtomicBool::new(false));
+        // The folder answers its question, then making the next encoder's file there takes longer than the limit.
+        let mut watch = watch_with(&STOP, Duration::from_millis(1));
+        watch.check.quiet = Duration::from_millis(300);
+        {
+            let (made, late) = (std::sync::Arc::clone(&made), std::sync::Arc::clone(&late));
+            watch.partial = std::sync::Arc::new(move |dest: &Path| {
+                if made.fetch_add(1, Ordering::SeqCst) == 0 {
+                    return clip_partial(dest);
+                }
+                std::thread::sleep(Duration::from_millis(900));
+                let partial = clip_partial(dest);
+                late.store(true, Ordering::SeqCst);
+                partial
+            });
+        }
+        let started = Instant::now();
+        assert_eq!(
+            watched_clip(&take, (0, 249), &dest, 2, &watch).unwrap_err(),
+            TOO_SLOW
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            made.load(Ordering::SeqCst),
+            2,
+            "the second file was asked for"
+        );
+        assert_eq!(
+            watch.attempts.load(Ordering::SeqCst),
+            1,
+            "no second encoder started"
+        );
+        assert!(!dest.exists());
+        // The late file, made once the clip had given up on it, is removed by the step that made it.
+        let waited = Instant::now();
+        while !late.load(Ordering::SeqCst) {
+            assert!(
+                waited.elapsed() < Duration::from_secs(10),
+                "the late file was made"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(no_partials_in(&dir), "nothing left beside it");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The encodes' reads of the "cutme" take go through playback.rs's read shim, as `mode` says, past half the file.
+    #[cfg(target_os = "linux")]
+    fn through_shim(watch: &mut ClipWatch, shim: &Path, mode: &str, take: &Path) {
+        watch.env = vec![
+            ("LD_PRELOAD".into(), shim.to_string_lossy().into_owned()),
+            ("CUT_MODE".into(), mode.into()),
+            (
+                "CUT_AT".into(),
+                (fs::metadata(take).unwrap().len() / 2).to_string(),
+            ),
+        ];
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_clip_whose_first_encoder_stalls_is_made_whole_by_the_next() {
+        static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let dir = temp_dir("clip-stall-once");
+        let shim = crate::playback::tests::read_shim(&dir);
+        let take = crate::playback::tests::cutme_mov(&dir);
+        let dest = dir.join("SC012_12F.mp4");
+        // The first encode hangs halfway, as an encoder hung in its driver; the next reads on.
+        let mut watch = watch_with(&STOP, Duration::from_secs(2));
+        through_shim(&mut watch, &shim, "once", &take);
+        watched_clip(&take, (0, 199), &dest, 2, &watch).unwrap();
+        assert_eq!(
+            watch.attempts.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "the next encoder made it"
+        );
+        let saved = probe(&dest).unwrap();
+        assert_eq!(saved.duration_frames, 200, "whole");
+        assert!(saved.has_audio, "with its sound");
+        assert!(is_saved_clip(&dest));
+        assert!(no_partials_in(&dir), "nothing half-made beside it");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_clip_stalled_on_a_read_that_hangs_ends_after_one_stall_time() {
+        static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let dir = temp_dir("clip-stall-dead");
+        let shim = crate::playback::tests::read_shim(&dir);
+        let take = crate::playback::tests::cutme_mov(&dir);
+        let dest = dir.join("SC012_12G.mp4");
+        // A share that stops answering halfway, for ffmpeg and for the app's own read past the stall alike.
+        let mut watch = watch_with(&STOP, Duration::from_secs(2));
+        through_shim(&mut watch, &shim, "hang", &take);
+        watch.check.open = std::sync::Arc::new(|_: &Path, _: u64| {
+            Ok(Box::new(crate::playback::tests::Stuck) as Box<dyn Read + Send>)
+        });
+        watch.check.quiet = Duration::from_millis(500);
+        let started = Instant::now();
+        assert_eq!(
+            watched_clip(&take, (0, 199), &dest, 2, &watch).unwrap_err(),
+            TOO_SLOW
+        );
+        let took = started.elapsed();
+        assert!(
+            took >= watch.stall + watch.check.quiet,
+            "a stall, then the check's quiet time: {took:?}"
+        );
+        assert_eq!(
+            watch.attempts.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "never a second encoder, nor a second stall"
+        );
+        assert!(!dest.exists());
+        assert!(no_partials_in(&dir), "nothing half-made");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_clip_whose_index_rewrite_outlasts_the_stall_time_is_saved_by_its_first_encoder() {
+        static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let dir = temp_dir("clip-rewrite");
+        let shim = crate::playback::tests::read_shim(&dir);
+        let take = crate::playback::tests::cutme_mov(&dir);
+        // A share that moves slowly: the frames are encoded at once, then `+faststart` reads the clip's own file back
+        // to move its index to the front, saying nothing, and every read of it waits.
+        let dest = dir.join("SC012_12L slowrewrite.mp4");
+        let mut watch = watch_with(&STOP, Duration::from_secs(2));
+        watch.env = vec![
+            ("LD_PRELOAD".into(), shim.to_string_lossy().into_owned()),
+            ("CUT_NAME".into(), "slowrewrite".into()),
+            ("CUT_MODE".into(), "slow".into()),
+            ("CUT_AT".into(), "0".into()),
+            // The clip holds 8 s of 192 kb/s sound alone, so the rewrite reads at least seven 32 KiB blocks: quiet for
+            // longer than the stall time, and well inside the clip's own limit.
+            ("CUT_SLOW_MS".into(), "400".into()),
+        ];
+        let started = Instant::now();
+        watched_clip(&take, (0, 199), &dest, 2, &watch).unwrap();
+        let took = started.elapsed();
+        // Saved for the right reason: the watch ended on ffmpeg's word that the rewrite was starting.
+        assert_eq!(
+            WATCH_END.with(std::cell::Cell::get),
+            Some(WatchEnd::Rewrite),
+            "the second pass was heard before the rewrite"
+        );
+        assert!(took > watch.stall, "slower than the stall time: {took:?}");
+        assert_eq!(
+            watch.attempts.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "one attempt"
+        );
+        let saved = probe(&dest).unwrap();
+        assert_eq!(saved.duration_frames, 200, "whole");
+        assert!(saved.has_audio, "with its sound");
+        assert!(is_saved_clip(&dest));
+        assert!(no_partials_in(&dir), "nothing half-made beside it");
         let _ = fs::remove_dir_all(&dir);
     }
 
