@@ -18,14 +18,19 @@ export type OpKind = 'create' | 'update' | 'move' | 'retype' | 'trash' | 'restor
 /** Ids to delete for good together with a purge, given every record and the ids being purged. */
 export type AlsoPurge = (records: readonly SbdRecord[], purgedIds: readonly string[]) => Iterable<string>;
 
-/** What one op group was: an edit, or one of the three ways of going back and forth through the log. */
-export type GroupKind = 'edit' | 'undo' | 'redo' | 'restore' | 'empty_trash';
+/**
+ * What one op group was: an edit, or one of the ways of going back and forth through the log. `bring_back` (item 7,
+ * Kevin, Nov 20) takes back one undo run or one restore from History, as an edit would (bringBack). A file can hold a
+ * kind this version doesn't know (a later one's): undo and redo read only ops and the stack pointers, so they work on
+ * any kind, and History words it "a step".
+ */
+export type GroupKind = 'edit' | 'undo' | 'redo' | 'restore' | 'empty_trash' | 'bring_back';
 
 export interface OpGroup {
   id: string;
   seq: number;
   kind: GroupKind;
-  /** For undo and redo: the group undone or redone. */
+  /** For undo and redo: the group undone or redone. For bring_back: the newest undo of the run, or the restore, it takes back. */
   targetGroupId: string | null;
   /** For restore: the group whose end state the project went back to, or null for the project as created. */
   restoreTo: string | null;
@@ -302,8 +307,8 @@ async function commit(
         group.targetGroupId ?? null,
         group.restoreTo ?? null,
         group.stackBelow,
-        // An edit or restore becomes the top of the undo stack itself; its id only exists here.
-        group.kind === 'edit' || group.kind === 'restore' ? groupId : group.undoTop,
+        // An edit, restore or bring_back becomes the top of the undo stack itself; its id only exists here.
+        group.kind === 'edit' || group.kind === 'restore' || group.kind === 'bring_back' ? groupId : group.undoTop,
         group.redoTop,
         author,
         at,
@@ -563,6 +568,201 @@ export async function restoreTo(file: ProjectFile, groupId: string | null, optio
     await stepTime(file, now),
   );
   return touchedBy(ops);
+}
+
+/**
+ * The run a group ends (item 7, Kevin, Nov 18), read from the log alone (`groups` oldest first, as `log` reads them):
+ * for an undo, it and the undos immediately before it, with no edit, redo, restore or anything else between them (⌘Z
+ * pressed five times is one run); a restore is a run of its own. Oldest first. Null for any other kind, or for an undo
+ * that isn't the newest of its run (the next group is an undo too).
+ */
+export function undoRun<G extends Pick<OpGroup, 'id' | 'kind'>>(groups: readonly G[], index: number): G[] | null {
+  const group = groups[index];
+  if (!group) return null;
+  if (group.kind === 'restore') return [group];
+  if (group.kind !== 'undo' || groups[index + 1]?.kind === 'undo') return null;
+  let start = index;
+  while (groups[start - 1]?.kind === 'undo') start -= 1;
+  return groups.slice(start, index + 1);
+}
+
+/** A field a bring_back left as a later step made it, by the record (as it is now) and the prop; null prop: the record as a whole. */
+export interface KeptEdit {
+  record: SbdRecord;
+  prop: string | null;
+}
+
+/** What bringBack did: the records it wrote, how many, and what it kept as later steps made it. */
+export interface BroughtBack {
+  touched: Touched;
+  written: number;
+  kept: KeptEdit[];
+}
+
+/** A record as it stands, without the time it was last written: two records the same in all else are the same here. */
+const sameAs = (a: SbdRecord | null, b: SbdRecord | null): boolean =>
+  snapshot(a && { ...a, updatedAt: '' }) === snapshot(b && { ...b, updatedAt: '' });
+
+/**
+ * Bring back what was undone (item 7, Kevin, Nov 18 and 20): takes back one undo run (undoRun) or one restore, as one
+ * new `bring_back` group pointing at the run's newest undo, or at the restore. Its ops are ordinary ones writing what the
+ * undone steps had made, field by field, except where a later step changed a field since: that keeps the later edit,
+ * and is listed in `kept`. A record the run took away comes back only if what it sits under is there; one the run
+ * brought back (a restore's) goes only if nothing is under it now. On the stacks it is an edit: ⌘Z undoes it, and it
+ * empties ⌘⇧Z's stack. Null when the group isn't the newest of a run or was brought back already; nothing is written
+ * when every field already reads as it would (`written` 0).
+ */
+export async function bringBack(file: ProjectFile, targetGroupId: string, options: OpOptions = {}): Promise<BroughtBack | null> {
+  const { author = 'local', now = () => new Date() } = options;
+  const groups = await log(file);
+  const run = undoRun(groups, groups.findIndex((g) => g.id === targetGroupId));
+  if (!run || groups.some((g) => g.kind === 'bring_back' && g.targetGroupId === targetGroupId)) return null;
+  const at = await stepTime(file, now);
+  // Each record as it was before the run (its first op's before) and as the run left it (its last op's after).
+  const wanted = new Map<string, SbdRecord | null>();
+  const undone = new Map<string, { record: SbdRecord | null; kind: OpKind }>();
+  for (const group of run) {
+    for (const op of await groupOps(file, group.id)) {
+      if (!wanted.has(op.recordId)) wanted.set(op.recordId, op.before);
+      undone.set(op.recordId, { record: op.after, kind: op.kind });
+    }
+  }
+  const ids = [...wanted.keys()];
+  const current = new Map(
+    (await file.query(`SELECT ${RECORD_COLUMNS} FROM records WHERE id IN (SELECT value FROM json_each(?))`, [JSON.stringify(ids)])).map((row) => {
+      const record = fromRow(row);
+      return [record.id, record] as const;
+    }),
+  );
+  const final = new Map<string, SbdRecord | null>();
+  const kinds = new Map<string, OpKind>();
+  const kept: KeptEdit[] = [];
+  const keepWhole = (id: string, shown: SbdRecord | null) => {
+    if (shown && !kept.some((k) => k.record.id === id && k.prop === null)) kept.push({ record: shown, prop: null });
+  };
+  for (const id of ids) {
+    const was = wanted.get(id) ?? null;
+    const left = undone.get(id);
+    const then = left?.record ?? null;
+    const is = current.get(id) ?? null;
+    if (sameAs(was, then) || sameAs(is, was)) continue;
+    // A restore's own ops are reverts, and so are the ones that take it back.
+    const revert = left?.kind === 'revert';
+    if (was === null) {
+      // The run brought it in (an undone restore's revert): it goes again, unless a later step changed it.
+      if (is === null) continue;
+      if (sameAs(is, then)) {
+        final.set(id, null);
+        kinds.set(id, left?.kind ?? 'revert');
+      } else keepWhole(id, is);
+      continue;
+    }
+    if (is === null) {
+      // The run took it away (an undone add): it comes back, as it was, unless a later step made and took it again.
+      if (then !== null) {
+        keepWhole(id, was);
+        continue;
+      }
+      final.set(id, { ...was, updatedAt: at });
+      kinds.set(id, revert ? 'revert' : 'create');
+      continue;
+    }
+    if (then === null) {
+      // Taken away by the run and made again since: as it is now.
+      keepWhole(id, is);
+      continue;
+    }
+    let next: SbdRecord = { ...is, props: { ...is.props }, updatedAt: at };
+    // Props the run's state before didn't have: taken out once every field is settled.
+    const unset = new Set<string>();
+    const fields: (string | null)[] = [];
+    // A field the run changed comes back where it still reads as the run left it; one already back is left alone, and
+    // one a later step changed keeps that change.
+    const step = (want: unknown, runLeft: unknown, reads: unknown, put: () => void, prop: string | null) => {
+      const w = JSON.stringify(want);
+      const n = JSON.stringify(reads);
+      if (w === JSON.stringify(runLeft) || n === w) return;
+      if (n === JSON.stringify(runLeft)) put();
+      else if (!fields.includes(prop)) fields.push(prop);
+    };
+    for (const prop of new Set([...Object.keys(was.props), ...Object.keys(then.props)])) {
+      step(was.props[prop], then.props[prop], is.props[prop], () => {
+        const value = was.props[prop];
+        if (value === undefined) unset.add(prop);
+        else next.props[prop] = value;
+      }, prop);
+    }
+    step([was.parentId, was.sortKey], [then.parentId, then.sortKey], [is.parentId, is.sortKey], () => {
+      next.parentId = was.parentId;
+      next.sortKey = was.sortKey;
+    }, null);
+    step(was.type, then.type, is.type, () => {
+      next.type = was.type;
+    }, null);
+    step([was.trashedAt, was.trashedBy], [then.trashedAt, then.trashedBy], [is.trashedAt, is.trashedBy], () => {
+      next.trashedAt = was.trashedAt;
+      next.trashedBy = was.trashedBy;
+    }, null);
+    if (unset.size > 0) next = { ...next, props: Object.fromEntries(Object.entries(next.props).filter(([prop]) => !unset.has(prop))) };
+    for (const prop of fields) {
+      if (prop === null) keepWhole(id, is);
+      else kept.push({ record: is, prop });
+    }
+    if (sameAs(next, is)) continue;
+    final.set(id, next);
+    kinds.set(
+      id,
+      revert
+        ? 'revert'
+        : next.trashedAt !== is.trashedAt
+          ? next.trashedAt === null
+            ? 'restore'
+            : 'trash'
+          : next.parentId !== is.parentId || next.sortKey !== is.sortKey
+            ? 'move'
+            : next.type !== is.type
+              ? 'retype'
+              : 'update',
+    );
+  }
+  // Nothing is written under a record that won't be there, nor is a record taken from under one that stays: either
+  // stays as it is now, said as kept. Each pass only drops writes, so this ends.
+  const existsNow = new Map<string, boolean>();
+  const exists = async (id: string): Promise<boolean> => {
+    if (final.has(id)) return final.get(id) !== null;
+    if (!existsNow.has(id)) existsNow.set(id, (await getRecord(file, id)) !== null);
+    return existsNow.get(id) === true;
+  };
+  const drop = (id: string) => {
+    keepWhole(id, current.get(id) ?? wanted.get(id) ?? null);
+    final.delete(id);
+    kinds.delete(id);
+  };
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const [id, record] of [...final]) {
+      if (record?.parentId && !(await exists(record.parentId))) {
+        drop(id);
+        changed = true;
+      }
+    }
+    const going = [...final].filter(([, record]) => record === null).map(([id]) => id);
+    if (going.length === 0) continue;
+    const under = await file.query('SELECT id, parent_id FROM records WHERE parent_id IN (SELECT value FROM json_each(?))', [JSON.stringify(going)]);
+    for (const row of under) {
+      const child = String(row.id);
+      const parent = String(row.parent_id);
+      if (final.has(parent) && !(final.has(child) && final.get(child) === null)) {
+        drop(parent);
+        changed = true;
+      }
+    }
+  }
+  const ops: PendingOp[] = [...final].map(([recordId, after]) => ({ recordId, kind: kinds.get(recordId) ?? 'update', before: current.get(recordId) ?? null, after }));
+  if (ops.length === 0) return { touched: new Map(), written: 0, kept };
+  const { undoTop } = await tops(file);
+  await commit(file, { kind: 'bring_back', targetGroupId, stackBelow: undoTop, undoTop: null, redoTop: null }, ops, author, at);
+  return { touched: touchedBy(ops), written: ops.length, kept };
 }
 
 /**
@@ -1219,7 +1419,7 @@ export async function placesBefore(
     id: String(row.id),
     first: Number(row.first),
     last: Number(row.last),
-    made: row.kind === 'create' && (row.group_kind === 'edit' || row.group_kind === 'redo'),
+    made: row.kind === 'create' && (row.group_kind === 'edit' || row.group_kind === 'redo' || row.group_kind === 'bring_back'),
   }));
   return { children, gone };
 }
@@ -1283,6 +1483,12 @@ export async function log(file: ProjectFile): Promise<OpGroup[]> {
 export async function logOf(file: ProjectFile, ids: readonly string[]): Promise<OpGroup[]> {
   if (ids.length === 0) return [];
   return groupRows(file, 'WHERE g.id IN (SELECT value FROM json_each(?))', [JSON.stringify(ids)]);
+}
+
+/** The op groups at these places in the log, oldest first: the step just before a restore, which a bring_back of it names. */
+export async function logAtSeqs(file: ProjectFile, seqs: readonly number[]): Promise<OpGroup[]> {
+  if (seqs.length === 0) return [];
+  return groupRows(file, 'WHERE g.seq IN (SELECT value FROM json_each(?))', [JSON.stringify(seqs)]);
 }
 
 async function groupRows(file: ProjectFile, where: string, params: readonly SqlValue[] = []): Promise<OpGroup[]> {

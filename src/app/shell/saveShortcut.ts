@@ -3,6 +3,7 @@ import { createStore } from 'zustand/vanilla';
 import type { HandBackup } from '../../core/storage/backups';
 import { showNotice } from '../notice';
 import { projectStore } from '../projectStore';
+import { settleUndone } from '../undoSettle';
 import { commitTyping } from './undoRedoPress';
 import { isTextEntry } from './workspaces';
 
@@ -313,6 +314,9 @@ export async function pressSave(): Promise<void> {
   if (!project) return;
   await commitAndStay(editsDrawn);
   // The edit just committed counts as a change, so the backup comes after it has been written.
+  if (projectStore.getState().project !== project) return;
+  // The press settles History's undo outline (item 7): every step so far, the one just committed included.
+  await settleUndone(project.file).catch(() => undefined);
   if (projectStore.getState().project !== project) return;
   const schedule = project.backups;
   if (!schedule) {

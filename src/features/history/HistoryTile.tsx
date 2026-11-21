@@ -19,7 +19,7 @@ import { useHistoryDay } from './historyDay';
 import { ItemHistory } from './ItemHistory';
 import { LineText } from './LineText';
 import { putBackProblem, putBackStep } from './putBack';
-import { loadSteps, moreItemLog, PAGE, readItemLog, restoreNotice, type ItemLog, type Steps } from './steps';
+import { broughtBackNotice, loadSteps, moreItemLog, PAGE, readItemLog, restoreNotice, type ItemLog, type Steps } from './steps';
 import { lineText, namedById, who, type FieldChange } from './summary';
 import { nameThisPoint, removeNamedVersion } from './versionWrites';
 import { createWriteGate } from './writeGate';
@@ -27,6 +27,9 @@ import { t, type MessageKey } from '../../core/i18n';
 import { Trans } from '../../ui/Trans';
 import { useLocale } from '../../ui/useLocale';
 import { usePlanUnit } from '../../app/planUnits';
+import { settledThrough, useUndoSettle } from '../../app/undoSettle';
+import { shownRun } from './undone';
+import { cx } from '../../ui/cx';
 
 // The History tile (1.22, CLAUDE.md: History): every step, undos and redos included, newest first, each with what it
 // did, who and when, and Restore to here. Named versions (1.23) are named here and opened as separate projects.
@@ -64,6 +67,8 @@ export function HistoryTile() {
   const shotId = useSelection((s) => s.shotId);
   const noteId = useSelection((s) => s.noteId);
   const sceneId = useSelection((s) => s.sceneId);
+  // Ctrl+S or an open moves where History's undo outline has settled (item 7): read so the tile draws again.
+  useUndoSettle();
   const historyDayId = useHistoryDay((s) => s.dayId);
   const onlyDay = useHistoryDay((s) => s.only);
   const [count, setCount] = useState(PAGE);
@@ -221,6 +226,30 @@ export function HistoryTile() {
     }
   };
 
+  // Bring back what was undone (item 7): one write at a time with Restore to here, through the same gate, since it
+  // adds a step at the top too.
+  const bringBack = (target: string) => {
+    if (projectStore.getState().restoring || !gate.take('steps', projectStore.getState().records)) return;
+    void projectStore
+      .getState()
+      .bringBack(target)
+      .then(
+        (done) => {
+          gate.written(done !== null && done.written > 0);
+          if (done) showInfo(broughtBackNotice(done, unit), { step: true });
+        },
+        () => {
+          gate.written(false);
+        },
+      );
+  };
+  // The newest undo run or restore while it hasn't settled, and the rows its outline goes round on this page: from the
+  // newest step it undid to the oldest, as one box.
+  const run = loaded ? shownRun(loaded.undone, settledThrough(project.file)) : null;
+  const outlined = (loaded?.steps ?? []).flatMap((step, i) => (run?.undone.has(step.group.id) ? [i] : []));
+  const boxFrom = outlined[0] ?? -1;
+  const boxTo = outlined.at(-1) ?? -1;
+
   const named = item ? itemName(item) : null;
   // Named by its date, as History's lines name a day.
   const dayName = day ? dayDateLabel(shootDayFields(day.props).date) || t('history.undatedDay') : null;
@@ -370,51 +399,107 @@ export function HistoryTile() {
         )
       ) : (
         <>
+          {run !== null && (
+            <div className="border-b border-border p-3">
+              {/* Pulses slowly (theme.css: sb-pulse), still and solid under reduced motion. */}
+              <Button
+                className="sb-pulse"
+                data-bring-back=""
+                // Not disabled, which would drop focus from the button pressed: it stays, and takes no clicks.
+                aria-disabled={restoring || undefined}
+                onClick={() => {
+                  bringBack(run.target);
+                }}
+              >
+                {t('history.bringBack')}
+              </Button>
+            </div>
+          )}
           {loaded === null ? (
             <p className="p-3 text-[13px] text-text-muted">{t('historyTile.readingHistory')}</p>
           ) : loaded.steps.length === 0 ? (
             <p className="p-3 text-[13px] text-text-muted">{t('historyTile.noStepsYetEveryChange')}</p>
           ) : (
             <ol ref={list} tabIndex={-1} aria-label={t('historyTile.stepsNewestFirst')} aria-busy={restoring} className="flex flex-col">
-              {loaded.steps.map(({ group, line }, index) => (
-                <li key={group.id} className="flex items-center gap-3 border-b border-border px-3 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px]">
-                      <LineText line={line} />
-                      {(versionsAt.get(group.id) ?? []).map((version) => (
-                        <span key={version.id} className="sb-label ml-2 border border-text px-1">
-                          {version.name}
-                        </span>
-                      ))}
-                    </p>
-                    <p className="font-mono text-[11px] text-text-muted">
-                      {/* Who, in the UI's type (a name isn't a technical value), then when; an edit from before names were
-                          kept says only when. */}
-                      {/* bdi: a right-to-left name keeps to itself, so the time after it still reads in order. */}
-                      {who(group.author) !== '' && (
-                        <>
-                          <bdi className="font-sans wrap-anywhere">{who(group.author)}</bdi>
-                          {' · '}
-                        </>
+              {loaded.steps.map(({ group, line }, index) => {
+                const undone = run?.undone.has(group.id) === true;
+                const boxed = index >= boxFrom && index <= boxTo && boxFrom >= 0;
+                // The restore this step was current just before: its mark stays for good; its link waits while that
+                // restore's own outline and button show, the button being the way back then.
+                const markOf = loaded.undone.marks.get(group.id);
+                const goBack = markOf !== undefined && run?.restore !== markOf && group.kind !== 'empty_trash';
+                return (
+                  <li
+                    key={group.id}
+                    data-undone={undone ? '' : undefined}
+                    data-before-restoring={markOf !== undefined ? '' : undefined}
+                    className={cx(
+                      'flex items-center gap-3 px-3 py-2',
+                      // One Truffle outline round the run (DESIGN.md: a rule, never a fill): its sides on every row in
+                      // it, its top on the first, its bottom on the last.
+                      boxed ? 'border-x-[1.5px] border-x-warning' : '',
+                      boxed && index === boxFrom ? 'border-t-[1.5px] border-t-warning' : '',
+                      boxed && index === boxTo ? 'border-b-[1.5px] border-b-warning' : 'border-b border-border',
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px]">
+                        <LineText line={line} />
+                        {(versionsAt.get(group.id) ?? []).map((version) => (
+                          <span key={version.id} className="sb-label ml-2 border border-text px-1">
+                            {version.name}
+                          </span>
+                        ))}
+                      </p>
+                      <p className="font-mono text-[11px] text-text-muted">
+                        {/* Who, in the UI's type (a name isn't a technical value), then when; an edit from before names were
+                            kept says only when. */}
+                        {/* bdi: a right-to-left name keeps to itself, so the time after it still reads in order. */}
+                        {who(group.author) !== '' && (
+                          <>
+                            <bdi className="font-sans wrap-anywhere">{who(group.author)}</bdi>
+                            {' · '}
+                          </>
+                        )}
+                        {localDateTime(new Date(group.timestamp))}
+                        {undone && <span className="sb-label ml-2 text-warning dark:text-text">{t('history.undone')}</span>}
+                      </p>
+                      {markOf !== undefined && (
+                        <p className="flex flex-wrap items-baseline gap-2 text-[11px]">
+                          <span className="sb-label border border-text px-1">{t('history.beforeRestoring')}</span>
+                          {goBack && (
+                            <button
+                              type="button"
+                              className="font-semibold underline underline-offset-2"
+                              aria-label={t('history.goBackHereLabel', { step: lineText(line) })}
+                              // Not disabled, which would drop focus from the button pressed: it stays, and takes no clicks.
+                              aria-disabled={restoring || undefined}
+                              onClick={() => {
+                                restore(group);
+                              }}
+                            >
+                              {t('history.goBackHere')}
+                            </button>
+                          )}
+                        </p>
                       )}
-                      {localDateTime(new Date(group.timestamp))}
-                    </p>
-                  </div>
-                  {/* The newest step is how the project is now: nothing to go back to. */}
-                  {index > 0 && group.kind !== 'empty_trash' && (
-                    <Button
-                      aria-label={t('history.restoreToLabel', { step: lineText(line) })}
-                      // Not disabled, which would drop focus from the button pressed: it stays, and takes no clicks.
-                      aria-disabled={restoring || undefined}
-                      onClick={() => {
-                        restore(group);
-                      }}
-                    >
-                      {t('historyTile.restoreToHere')}
-                    </Button>
-                  )}
-                </li>
-              ))}
+                    </div>
+                    {/* The newest step is how the project is now: nothing to go back to. */}
+                    {index > 0 && group.kind !== 'empty_trash' && (
+                      <Button
+                        aria-label={t('history.restoreToLabel', { step: lineText(line) })}
+                        // Not disabled, which would drop focus from the button pressed: it stays, and takes no clicks.
+                        aria-disabled={restoring || undefined}
+                        onClick={() => {
+                          restore(group);
+                        }}
+                      >
+                        {t('historyTile.restoreToHere')}
+                      </Button>
+                    )}
+                  </li>
+                );
+              })}
             </ol>
           )}
           {loaded?.more && (

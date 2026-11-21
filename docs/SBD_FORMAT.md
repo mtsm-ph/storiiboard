@@ -75,21 +75,21 @@ Indexes: `ops_by_group (group_id)` for undo, and `ops_by_record (record_id, seq)
 
 ### op_groups (schema 2)
 
-One row per op group: one user action, or one undo, redo or restore.
+One row per op group: one user action, or one undo, redo, restore or bring_back.
 
 | Column | Type | Notes |
 |---|---|---|
 | seq | integer, unique | Order of the groups |
-| kind | text | `edit`, `undo`, `redo`, `restore` or `empty_trash` (1.21) |
-| target_group_id | text, null | For `undo` and `redo`: the group undone or redone |
+| kind | text | `edit`, `undo`, `redo`, `restore`, `empty_trash` (1.21) or `bring_back` (item 7, Nov 20). The column has no CHECK, so a later kind needs no migration (below: a kind a version doesn't know) |
+| target_group_id | text, null | For `undo` and `redo`: the group undone or redone. For `bring_back`: the newest `undo` of the run it takes back, or the `restore` |
 | restore_to | text, null | For `restore`: the group whose end state the project went back to; null for the project as created |
-| stack_below | text, null | On `edit` and `restore`: the group ⌘Z takes once this one is undone. On `undo`: the group ⌘⇧Z takes once the undone group is redone. Null on `redo` |
+| stack_below | text, null | On `edit`, `restore` and `bring_back`: the group ⌘Z takes once this one is undone. On `undo`: the group ⌘⇧Z takes once the undone group is redone. Null on `redo` |
 | undo_top, redo_top | text, null | The next group ⌘Z and ⌘⇧Z would take, as of the end of this group. Null when that stack is empty |
 | author | text | Who made it, as their profile on that computer named them: their name, or their initials if they chose that or gave no name (Settings → Profile). `local` means no name (a person named exactly "local" reads the same): every edit before names were kept (Nov 5), and any made with an empty profile. Free text, never an id: two people can share a name, and a renamed person's older edits keep the old one |
 | timestamp | text | When it happened. Since 6.24 strictly later than every earlier group's in the file, so two steps never share a time, and it can be later than the wall clock (a clock that went back, or a file from a computer whose clock was ahead). A file upgraded from v1 may hold backfilled groups sharing a time |
 
 Index: `op_groups_by_target (target_group_id, seq)`, for redo. `target_group_id`, `restore_to`, `stack_below`,
-`undo_top` and `redo_top` all point at op_groups rows; an edit's or restore's `undo_top` is the row itself.
+`undo_top` and `redo_top` all point at op_groups rows; an edit's, restore's or bring_back's `undo_top` is the row itself.
 `stack_below`, `undo_top` and `redo_top` are worked out from the log as each group is written: they thread the undo and
 redo stacks through it, so ⌘Z reads two rows instead of replaying every group.
 
@@ -110,6 +110,27 @@ The log is append-only: no op or op_groups row is ever changed or deleted, excep
   that already match are left out, and a restore with nothing to change writes no group. Undo reverses a restore like
   any edit.
 - The project record is written with the file, not as an op, so neither undo nor a restore to the start can remove it.
+- Bring back what was undone (item 7, Kevin, Nov 18 and 20) is a new `bring_back` group. It takes back one run: an
+  `undo` and the `undo` groups immediately before it, with no other group between them (⌘Z pressed five times is
+  one run), or one `restore`, a run of its own. `target_group_id` is the run's newest undo, or the restore; a run a
+  `bring_back` already points at can't be brought back again. Its ops are ordinary ones (`update`, `create`,
+  `trash`, `restore`, `move`, `retype`, and `revert` for a restore's records), written as any edit's: for each
+  record the run touched, its state before the run, field by field (each prop, its place, its type, its Trash state),
+  except a field a later group changed since the run, which keeps that later value. A record the run took away comes
+  back only under a parent that's there; one the run brought in goes only if nothing is under it now. On the stacks it
+  is an edit: `stack_below` is the undo top before it, `undo_top` itself, `redo_top` null, so ⌘Z undoes it like
+  any edit (its ops swapped) and it empties ⌘⇧Z's stack. When every field already reads as it would, no group is
+  written.
+- History shows it as "Brought back: " and the step the run's newest undo undid, or, for a restore, the step that was
+  current just before it. What History draws around it is worked out from the log and never stored: the newest run of
+  undos, or the newest restore, is outlined until it settles (Ctrl+S, three further groups, a project switch or a
+  reopen; kept in memory), and the group just before each `restore` (by `seq`) carries "Before restoring" for good,
+  a `bring_back` of that restore included.
+- A kind a version doesn't know (a later version's): undo and redo read only ops and the stack pointers, so they work
+  on any kind, and History words it "a step". Neither door checks a group's kind: the JSON import (the page) writes
+  `op_groups` rows as they are, and a file opened through Rust (sbd.rs) or the node driver is read as it is; History
+  is the only reader that words kinds. A Full archive export writes `op_groups` rows as they are, so a `bring_back`
+  round-trips exactly; Project data leaves History out, as for every other kind.
 
 The ops and op_groups tables are the project's History. It's kept for the life of the project: undo, the History panel, named versions
 and notifications all read it. Media that any op refers to is kept too, so undo and named versions can bring an old

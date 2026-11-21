@@ -1,10 +1,11 @@
 import type { PlanUnit } from '../../core/model/length';
 import type { SbdRecord } from '../../core/model/record';
-import { childrenInLog, dayOpsSince, lastOpSeq, log, logOf, NO_DAY_RECORDS, opsOfGroups, opsOfRecords, opsSince, placesBefore, projectAt, purgedSince, recordsBefore, storedPictures, undoTops, type DayRecords, type GoneRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { childrenInLog, dayOpsSince, lastOpSeq, log, logAtSeqs, logOf, NO_DAY_RECORDS, opsOfGroups, opsOfRecords, opsSince, placesBefore, projectAt, purgedSince, recordsBefore, storedPictures, undoTops, type BroughtBack, type DayRecords, type GoneRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
 import { listVersions, type NamedVersion } from '../../core/storage/versions';
-import { byStep, describeGroup, lineText, moveTarget, peopleDiff, scheduledScene, stepPictures, stepScene, type Line } from './summary';
-import { t } from '../../core/i18n';
+import { byStep, describeGroup, keptText, lineText, moveTarget, peopleDiff, scheduledScene, stepPictures, stepScene, type Line } from './summary';
+import { t, tn } from '../../core/i18n';
+import { undoneFacts, type UndoneFacts } from './undone';
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -22,6 +23,8 @@ export interface Steps {
   versions: NamedVersion[];
   /** Each version's step, in words, by version id. */
   versionLines: Map<string, Line>;
+  /** The newest undo run or restore, and every restore's mark (item 7), as the log says before settling. */
+  undone: UndoneFacts;
 }
 
 /** The newest `count` steps, each with its line, and the named versions with theirs; a plan's lengths in `unit`. */
@@ -31,6 +34,7 @@ export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUni
   // Undo, redo and restore name the step they point at, which may be older than the page, and may itself point at
   // another (an undone restore names its point): followed until every line has what it names.
   const byId = new Map(groups.map((g) => [g.id, g]));
+  const bySeq = new Map(groups.map((g) => [g.seq, g]));
   const wanted = new Set<string>();
   // A version's step may be older than the page too.
   const pending: (string | null)[] = [...shown.map((g) => g.id), ...versions.map((v) => v.opGroupId)];
@@ -40,6 +44,9 @@ export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUni
     if (!group || wanted.has(group.id)) continue;
     wanted.add(group.id);
     pending.push(group.targetGroupId, group.restoreTo);
+    // A bring_back of a restore names the step that was current just before it.
+    const target = group.kind === 'bring_back' ? byId.get(group.targetGroupId ?? '') : undefined;
+    if (target?.kind === 'restore') pending.push(bySeq.get(target.seq - 1)?.id ?? null);
   }
   const { titles, byGroup } = await describeSteps(file, groups.filter((g) => wanted.has(g.id)), unit);
   return {
@@ -52,7 +59,33 @@ export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUni
     newest: groups.at(-1)?.id ?? null,
     versions,
     versionLines: new Map(versions.map((v) => [v.id, titles.get(v.opGroupId) ?? ['a step']])),
+    undone: undoneFacts(groups),
   };
+}
+
+/**
+ * These groups, and every step one of them names, read by `logOf` until none is missing: an undo's or redo's target,
+ * a restore's point, and for a bring_back of a restore the step just before that restore. Only those steps are read,
+ * never the whole log.
+ */
+async function withNamed(file: ProjectFile, ids: readonly string[]): Promise<OpGroup[]> {
+  const found = new Map<string, OpGroup>();
+  // The restores whose step before has been asked for already.
+  const asked = new Set<string>();
+  let pending = [...ids];
+  while (pending.length > 0) {
+    const read = await logOf(file, pending);
+    for (const group of read) found.set(group.id, group);
+    const restores = [...found.values()]
+      .filter((g) => g.kind === 'bring_back')
+      .map((g) => found.get(g.targetGroupId ?? ''))
+      .filter((g): g is OpGroup => g?.kind === 'restore' && !asked.has(g.id));
+    for (const restore of restores) asked.add(restore.id);
+    const before = (await logAtSeqs(file, restores.map((g) => g.seq - 1))).filter((g) => !found.has(g.id));
+    for (const group of before) found.set(group.id, group);
+    pending = [...new Set([...read, ...before].flatMap((g) => [g.targetGroupId, g.restoreTo]))].filter((id): id is string => id !== null && !found.has(id));
+  }
+  return [...found.values()].sort((a, b) => a.seq - b.seq);
 }
 
 /**
@@ -80,8 +113,19 @@ async function describeSteps(
   const { around, unsure, trashed } = await stepRecords(file, new Map([...byGroup].filter(([id]) => kinds.get(id) === 'edit')));
   // Oldest first, so the step an undo, redo or restore names already has its line.
   const titles = new Map<string, Line>();
+  const byId = new Map(groups.map((g) => [g.id, g]));
+  const bySeq = new Map(groups.map((g) => [g.seq, g]));
+  // What a bring_back brought back: the step its undo undid, or the step that was current just before its restore.
+  const brought = (group: OpGroup): string | null => {
+    const target = group.kind === 'bring_back' ? byId.get(group.targetGroupId ?? '') : undefined;
+    if (target?.kind === 'undo') return target.targetGroupId;
+    return target?.kind === 'restore' ? (bySeq.get(target.seq - 1)?.id ?? null) : null;
+  };
   for (const group of groups) {
-    titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id), unit, unsure.has(group.id), trashed.get(group.id)));
+    titles.set(
+      group.id,
+      describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id), unit, unsure.has(group.id), trashed.get(group.id), brought(group)),
+    );
   }
   return { titles, byGroup };
 }
@@ -100,14 +144,8 @@ export interface UndoRedoLines {
  */
 export async function undoRedoLines(file: ProjectFile, unit?: PlanUnit): Promise<UndoRedoLines> {
   const { undoTop, redoTop } = await undoTops(file);
-  const found = new Map<string, OpGroup>();
-  let pending = [undoTop, redoTop].filter((id): id is string => id !== null);
-  while (pending.length > 0) {
-    const read = await logOf(file, pending);
-    for (const group of read) found.set(group.id, group);
-    pending = [...new Set(read.flatMap((g) => [g.targetGroupId, g.restoreTo]))].filter((id): id is string => id !== null && !found.has(id));
-  }
-  const { titles } = await describeSteps(file, [...found.values()].sort((a, b) => a.seq - b.seq), unit, { everyOp: false });
+  const found = await withNamed(file, [undoTop, redoTop].filter((id): id is string => id !== null));
+  const { titles } = await describeSteps(file, found, unit, { everyOp: false });
   const line = (id: string | null): Line | null => (id === null ? null : (titles.get(id) ?? [t('history.aStep')]));
   return { undo: line(undoTop), redo: line(redoTop) };
 }
@@ -265,7 +303,7 @@ export async function stepRecords(
     }
     const last = list[lo - 1];
     if (!last) return false;
-    return (last.kind === 'trash' && (last.groupKind === 'edit' || last.groupKind === 'redo')) || (last.kind === 'restore' && last.groupKind === 'undo');
+    return (last.kind === 'trash' && (last.groupKind === 'edit' || last.groupKind === 'redo' || last.groupKind === 'bring_back')) || (last.kind === 'restore' && last.groupKind === 'undo');
   };
   for (const { group, start } of reads) {
     const ops = byGroup.get(group) ?? [];
@@ -277,7 +315,7 @@ export async function stepRecords(
       ops
         .filter(
           (op) =>
-            (op.kind === 'restore' && (op.groupKind === 'edit' || op.groupKind === 'redo')) ||
+            (op.kind === 'restore' && (op.groupKind === 'edit' || op.groupKind === 'redo' || op.groupKind === 'bring_back')) ||
             (op.kind === 'trash' && op.groupKind === 'undo') ||
             op.kind === 'revert' ||
             op.kind === 'create',
@@ -413,21 +451,25 @@ async function dayLines(file: ProjectFile, ops: readonly LoggedOp[], have: Reado
   const ids = [...new Set(ops.map((op) => op.groupId))].filter((id) => !have.has(id));
   if (ids.length === 0) return [];
   // The steps, and every step an undo, redo or restore among them names (and those name), for their lines.
-  const found = new Map<string, OpGroup>();
-  let pending = ids;
-  while (pending.length > 0) {
-    const read = await logOf(file, pending);
-    for (const group of read) found.set(group.id, group);
-    pending = [...new Set(read.flatMap((g) => [g.targetGroupId, g.restoreTo]))].filter((id): id is string => id !== null && !found.has(id));
-  }
+  const named = await withNamed(file, ids);
+  const found = new Map(named.map((g) => [g.id, g]));
   // Only an edit's own ops are read, as the top bar's lines read them: an undo or a restore is named by the step it
   // names, and a Restore to here can hold about 125k ops (#241).
-  const { titles } = await describeSteps(file, [...found.values()].sort((a, b) => a.seq - b.seq), unit, { everyOp: false });
+  const { titles } = await describeSteps(file, named, unit, { everyOp: false });
   return ids
     .map((id) => found.get(id))
     .filter((group): group is OpGroup => group !== undefined)
     .sort((a, b) => b.seq - a.seq)
     .map((group) => ({ group, line: titles.get(group.id) ?? [t('history.aStep')] }));
+}
+
+/**
+ * What the tile says after Bring back what was undone (item 7): how many changes came back, and each field a later
+ * step had changed since, which kept that edit ("Brought back 3 changes. 4A’s lens kept its later edit.").
+ */
+export function broughtBackNotice(done: Pick<BroughtBack, 'written' | 'kept'>, unit?: PlanUnit): string {
+  const said = done.written > 0 ? tn('history.broughtBackNotice', done.written) : t('history.nothingBroughtBack');
+  return done.kept.length > 0 ? `${said} ${keptText(done.kept, unit)}` : said;
 }
 
 /**

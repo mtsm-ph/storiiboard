@@ -24,7 +24,7 @@ import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, projectStoryboard, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
 import { letterIndex, lettersOf } from '../../core/model/shotNumbers';
-import type { GroupKind, LoggedOp, OpGroup } from '../../core/ops/ops';
+import type { GroupKind, KeptEdit, LoggedOp, OpGroup } from '../../core/ops/ops';
 import { POSITION_LABEL, POSITIONS } from '../export/watermark';
 import { formatNumber, getLocale, labels, t, tn, type MessageKey, type Params, type PluralBase } from '../../core/i18n';
 
@@ -2252,8 +2252,13 @@ export function describeGroup(
   unit: PlanUnit = planUnitNow(),
   unsure = false,
   trashed: ReadonlySet<string> = new Set(),
+  brought: string | null = null,
 ): Line {
   switch (group.kind) {
+    case 'bring_back':
+      // Named by what it brought back (`brought`, describeSteps): the step the run's newest undo undid, or the step
+      // that was current just before the restore.
+      return [t('history.broughtBack'), ...(titles.get(brought ?? '') ?? [t('history.aStep')])];
     case 'edit':
       return describeEdit(ops, stored, around, unit, unsure, trashed);
     case 'undo':
@@ -2267,7 +2272,21 @@ export function describeGroup(
     case 'empty_trash':
       // The log's own count of the group's ops (the same rows), so a reader that names it needn't read them all.
       return [t('history.emptiedTrash', { items: tn('count.items', group.opCount) })];
+    default:
+      // A kind a later version adds, read from its file: this version can't word it, but undo and redo still work on it.
+      return [t('history.aStep')];
   }
+}
+
+/** "4A’s lens kept its later edit.": what a bring_back left as a later step made it, a sentence each. */
+export function keptText(kept: readonly KeptEdit[], unit: PlanUnit = planUnitNow()): string {
+  const SHOWN = 3;
+  const said = kept.slice(0, SHOWN).map(({ record, prop }) => {
+    const item = lineText([nameOf(record, new Map(), unit)]);
+    return prop === null ? t('history.keptItem', { item }) : t('history.keptField', { item, field: changeLabel({ prop, before: undefined, after: undefined }) });
+  });
+  if (kept.length > SHOWN) said.push(tn('history.keptMore', kept.length - SHOWN));
+  return said.join(' ');
 }
 
 /** Who a step is by: the name the edit carried, or nothing for one without (every edit before names were kept). */
@@ -2302,7 +2321,16 @@ const FIELD_HOW: Readonly<Record<GroupKind, MessageKey>> = {
   redo: 'history.how.redo',
   restore: 'history.how.restore',
   empty_trash: 'history.how.edit',
+  bring_back: 'history.how.broughtBack',
 };
+
+/** A step's own wording of a whole-record change, by the way it went through History; a kind a later version adds reads as an edit's. */
+function byWay(groupKind: GroupKind, base: string): string {
+  if (groupKind === 'undo') return t('history.undidStep', { step: base });
+  if (groupKind === 'redo') return t('history.redidStep', { step: base });
+  if (groupKind === 'bring_back') return t('history.broughtBackStep', { step: base });
+  return base;
+}
 
 /** What Restore to here did to a record as a whole: its op is a `revert` whatever it changed. */
 function revertLine(before: SbdRecord | null, after: SbdRecord | null): string | null {
@@ -2320,12 +2348,13 @@ function stepLine(op: LoggedOp): string | null {
     const line = revertLine(op.before, op.after);
     // An undone restore's ops are reverts too: worded as the restore they take back, not what it did.
     if (op.groupKind === 'restore' || line === null) return line;
+    // A bring_back of a restore writes reverts too: "Brought back: Restore to here".
+    if (op.groupKind === 'bring_back') return t('history.broughtBackStep', { step: KIND_LINE.revert });
     return t(op.groupKind === 'undo' ? 'history.undidStep' : 'history.redidStep', { step: KIND_LINE.revert });
   }
   if (op.kind === 'update') return null;
   // Undo and redo ops keep the kind they reverse (src/core/ops/ops.ts), so the group says which way it went.
-  const base = KIND_LINE[op.kind];
-  return op.groupKind === 'undo' ? t('history.undidStep', { step: base }) : op.groupKind === 'redo' ? t('history.redidStep', { step: base }) : base;
+  return byWay(op.groupKind, KIND_LINE[op.kind]);
 }
 
 /** What a step did to a frame's sketch or picture, which are records of their own under it. */
@@ -2388,7 +2417,7 @@ export function frameRows(ops: readonly LoggedOp[], itemId: string): FrameRow[] 
       const type = (first.after ?? first.before)?.type;
       const same = group.filter((o) => o.kind === first.kind && (o.after ?? o.before)?.type === type).length;
       const base = childLine(type, first.kind, same);
-      const change = op.groupKind === 'undo' ? t('history.undidStep', { step: base }) : op.groupKind === 'redo' ? t('history.redidStep', { step: base }) : base;
+      const change = byWay(op.groupKind, base);
       return [{ key: `${op.groupId}:children`, op, change, field: null }];
     }
     const rows: FrameRow[] = [];
@@ -2401,7 +2430,8 @@ export function frameRows(ops: readonly LoggedOp[], itemId: string): FrameRow[] 
         const name = field.prop === 'media_id' ? pictureChange(field) : changeLabel(field);
         if (field.key === undefined && named.has(name)) continue;
         named.add(name);
-        rows.push({ key: `${op.id}:${field.prop}:${field.key ?? ''}`, op, change: t(FIELD_HOW[op.groupKind], { field: name }), field });
+        // A kind a later version adds (read from its file) has no wording here: its fields read as an edit's.
+        rows.push({ key: `${op.id}:${field.prop}:${field.key ?? ''}`, op, change: t((FIELD_HOW as Partial<Record<string, MessageKey>>)[op.groupKind] ?? 'history.how.edit', { field: name }), field });
       }
     }
     // An update that changed nothing a person sees still happened: say so rather than drop it.
