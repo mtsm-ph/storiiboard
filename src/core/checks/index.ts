@@ -1,4 +1,5 @@
 import type { SbdRecord } from '../model/record';
+import { allChecks, allChecksMade, CHECK_KINDS, type AllChecksResult, type AnyFinding, type CheckFinding, type CheckKind, type CheckSkip, type CheckTarget, type HeldForChecks } from './allChecks';
 import { callSheetChecks, type CallSheetCheckResult, type CallSheetFinding, type SkippedCheck } from './callSheetChecks';
 import { checkContext, type CheckContext } from './context';
 import { departmentMissing, type DepartmentMissing } from './departmentMissing';
@@ -23,6 +24,7 @@ export function runChecks(records: Readonly<Record<string, SbdRecord>>, projectI
 }
 
 export { gearNotOnDay, planLensDiffers, unavailableOnDay, type GearNotOnDay, type PlanLensDiffers, type UnavailableOnDay };
+export { allChecks, allChecksMade, CHECK_KINDS, type AllChecksResult, type AnyFinding, type CheckFinding, type CheckKind, type CheckSkip, type CheckTarget, type HeldForChecks };
 export {
   callSheetChecks,
   checkContext,

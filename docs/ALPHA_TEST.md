@@ -367,6 +367,19 @@ screen, the Suggestions tile (Layout menu → Open tile), shows them and decides
   "Took off …’s unavailable dates …", never the note. In Spanish too. (7.3)
 - [ ] Send the person to the Trash and restore them: their dates come back with them, and while they're in the Trash
   nothing marks the Calendar or the call sheet. (7.3)
+- [ ] On your own material, open Production: the Checks tile under the call sheet lists every problem over the whole
+  project, a count per check and per day at the top, the findings by day (undated days after, "No shoot day" last).
+  It catches a real scheduling or gear mistake. (7.4)
+- [ ] Each finding's Show: a frame's gear selects the frame on the storyboard; a plan's gear or a lens selects it on
+  the setup's plan; a location opens in Locations; the rest open the day's call sheet where its strip's Show goes.
+  Open day opens it in Shoot days. Fix one (a gear item on the day's list): its finding goes at once. (7.4)
+- [ ] An exterior day with no forecast fetched yet: the foot says "No forecast held for … on …", and the tile never
+  fetches one; open that day's call sheet, and once its forecast arrives the line goes. A forecast that doesn't reach
+  the day says so; a day with no date says what wasn't checked. (7.4)
+- [ ] The Day and Check filters, from the keyboard; the tile in light, dark and Spanish; closed from Production and
+  reopened from the Layout menu, it stays closed after a restart. A Production layout saved before 7.4 gets the tile
+  once. (7.4)
+- [ ] With the tile open on a big project, sketch a frame and drag a plan's lights: nothing slows. (7.4)
 
 ## Settings, presets, themes, Dark view and accessibility
 

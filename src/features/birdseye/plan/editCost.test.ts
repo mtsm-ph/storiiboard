@@ -3,6 +3,7 @@ import { createProjectStore } from '../../../app/projectStore';
 import { signMinute } from '../../../app/shell/savedSign';
 import { setLocale } from '../../../core/i18n';
 import { scenesOf } from '../../../app/shell/sidebar/scenes';
+import { allChecks, allChecksMade } from '../../../core/checks';
 import { projectGear } from '../../../core/model/gear';
 import { shownFields, shownItems, shownItemsMade, startRoomChanges, wallsAlong, sceneRoomId } from '../../../core/model/plan';
 import { blockingReadingsMade, PLAIN_MARK_SIZE, placeMarkChanges, viewBlocking } from '../../../core/model/planBlocking';
@@ -408,5 +409,74 @@ describe('the Saved sign’s time, to the minute (6.26)', () => {
   it('leaves no time and a time that can’t be read as they are', () => {
     expect(signMinute(null)).toBeNull();
     expect(signMinute('not a time')).toBe('not a time');
+  });
+});
+
+describe('the Checks tile open beside (7.4)', () => {
+  // The tile reads allChecks on every draw (ChecksTile.tsx); its result is kept by a token of the records the checks read
+  // (allChecks.ts's CHECK_TYPES and CHECK_ITEMS), so an edit to anything else runs no check and reads nothing whole.
+  const record = (id: string, type: SbdRecord['type'], parentId: string | null, props: SbdRecord['props'], sortKey = id): SbdRecord => ({
+    id,
+    type,
+    parentId,
+    sortKey,
+    props,
+    trashedAt: null,
+    trashedBy: null,
+    createdAt: '',
+    updatedAt: '',
+  });
+
+  it('runs no check when a light that isn’t gear is turned on the 300-item plan, and reads the records whole once', async () => {
+    const { view, roomId, light } = await plan300();
+    const read = setupWorkspaceReader(view, roomId, project.projectId, [light]);
+    read(records());
+    allChecks(records(), project.projectId);
+    await store.getState().apply(turnChanges(records(), [light], 5));
+    const now = records();
+    const made = allChecksMade();
+    const scans = scansOf(now, () => {
+      read(now);
+      allChecks(now, project.projectId);
+      allChecks(now, project.projectId);
+    });
+    expect(scans).toBe(1);
+    expect(allChecksMade() - made).toBe(0);
+  });
+
+  it('on a 300-frame project, runs every check once for a frame’s edit and none for a sketch’s stroke, which reads nothing whole but the shared index', () => {
+    // "Harbor Lights": 30 scenes of 10 frames over 10 dated days, 30 people, a stroke on each frame and a frame needing gear.
+    const list: SbdRecord[] = [
+      record('p', 'project', null, { title: 'Harbor Lights' }),
+      record('pier', 'location', 'p', { name: 'Harbor Pier', latitude: 40.7128, longitude: -74.006, time_zone: 'America/New_York' }),
+      record('slider', 'gear_item', 'p', { name: 'Slider' }),
+    ];
+    for (let d = 0; d < 10; d += 1) list.push(record(`d${String(d)}`, 'shoot_day', 'p', { date: `2030-11-${String(10 + d)}`, call_time: '07:00', wrap_time: '19:00' }));
+    for (let i = 0; i < 30; i += 1) list.push(record(`person${String(i)}`, 'person', 'p', { name: `Crew ${String(i)}`, departments: [i % 2 === 0 ? 'camera' : 'sound'] }));
+    for (let s = 0; s < 30; s += 1) {
+      list.push(record(`s${String(s)}`, 'scene', 'p', { number: String(s + 1), int_ext: s % 3 === 0 ? 'EXT' : 'INT', day_night: s % 5 === 0 ? 'DUSK' : 'DAY', location_id: 'pier' }, String(s).padStart(3, '0')));
+      for (let f = 0; f < 10; f += 1) {
+        const id = `f${String(s)}_${String(f)}`;
+        list.push(record(id, 'shot', `s${String(s)}`, { number: `${String(s + 1)}${'ABCDEFGHIJ'.charAt(f)}`, status: 'need', shoot_day_id: `d${String(s % 10)}`, gear_ids: f === 0 ? ['slider'] : [], lens_mm: 35 }, String(f)));
+        list.push(record(`${id}_k`, 'stroke', id, { points: [0, 0, 1, 1] }));
+      }
+    }
+    const base: Records = Object.fromEntries(list.map((r) => [r.id, r]));
+    const first = allChecks(base, 'p');
+    expect(first.findings.filter((f) => f.kind === 'gear-not-on-day')).toHaveLength(30);
+    const frame = base.f3_3 as SbdRecord;
+    const lensed: Records = { ...base, f3_3: { ...frame, props: { ...frame.props, lens_mm: 50 } } };
+    let made = allChecksMade();
+    // A frame's edit is read: every check runs once. The type index is the one pass every reader shares; each of the 10
+    // days' call sheets (callSheetChecks, the strip's own) still reads its record and its people (twice: who is on the
+    // day, and who isn't) by a pass of their own, as the Call sheet tile does for its day. Pinned, so one more shows here.
+    expect(scansOf(lensed, () => allChecks(lensed, 'p'))).toBe(1 + 3 * 10);
+    expect(allChecksMade() - made).toBe(1);
+    const sketched: Records = { ...lensed, extra: record('extra', 'stroke', 'f3_3', { points: [1, 1, 2, 2] }) };
+    made = allChecksMade();
+    let kept = first;
+    expect(scansOf(sketched, () => (kept = allChecks(sketched, 'p')))).toBe(1);
+    expect(allChecksMade() - made).toBe(0);
+    expect(kept).toBe(allChecks(lensed, 'p'));
   });
 });

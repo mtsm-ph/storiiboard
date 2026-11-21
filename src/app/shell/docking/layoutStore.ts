@@ -135,6 +135,26 @@ export const TILES_ADDED: readonly {
       maximized: null,
     }),
   },
+  // 7.4: the Checks tile, under the call sheet in the middle column, about a quarter of it.
+  {
+    tile: 'checks',
+    workspace: 'production',
+    near: 'sheet',
+    zone: 'bottom',
+    share: 220 / 808,
+    previousDefault: () => ({
+      root: split(
+        'row',
+        [
+          split('column', [stack(['days']), stack(['calendar'])], [404, 404]),
+          stack(['sheet']),
+          split('column', [stack(['locations']), stack(['gear']), stack(['people'])], [270, 269, 269]),
+        ],
+        [400, 680, 336],
+      ),
+      maximized: null,
+    }),
+  },
 ];
 
 /**

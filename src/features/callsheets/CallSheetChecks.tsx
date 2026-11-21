@@ -12,8 +12,8 @@ import { findingTarget, findingWords } from './checkWords';
 
 const TIME = /(\d{2}:\d{2})(?: ([+−])1)?/g;
 
-/** A finding's words with each time in mono, as every technical value is; a time on another day carries +1 or −1 as the sheet's do. */
-function Words({ text }: { text: string }) {
+/** A finding's words with each time in mono, as every technical value is; a time on another day carries +1 or −1 as the sheet's do. The Checks tile (7.4) draws them the same way. */
+export function Words({ text }: { text: string }) {
   const parts: React.ReactNode[] = [];
   let last = 0;
   for (const match of text.matchAll(TIME)) {
