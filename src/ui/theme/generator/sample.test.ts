@@ -81,7 +81,7 @@ describe('samplePixels’ stages (6.27q)', () => {
     }
     vi.stubGlobal('OffscreenCanvas', NoContext);
     const thrown: unknown = await samplePixels(new Blob()).catch((caught: unknown) => caught);
-    expect((thrown as Error).message).toBe('This computer can’t read the image’s colours.');
+    expect((thrown as Error).message).toBe('This computer can’t read the image’s colors.');
     expect(stageOf(thrown)).toBe('canvas');
   });
 

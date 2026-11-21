@@ -170,7 +170,7 @@ describe('extractAccents when the worker reports an error (6.27r)', () => {
     }
     vi.stubGlobal('OffscreenCanvas', NoContext);
     const thrown: unknown = await extractAccents(new Blob()).catch((caught: unknown) => caught);
-    expect((thrown as Error).message).toBe('This computer can’t read the image’s colours.');
+    expect((thrown as Error).message).toBe('This computer can’t read the image’s colors.');
     expect(stageOf(thrown)).toBe('canvas');
   });
 
