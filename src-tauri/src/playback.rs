@@ -71,7 +71,7 @@ const TICK: Duration = Duration::from_millis(100);
 /// ffmpeg was quiet starts over, so a copy isn't taken for stalled when the lid opens.
 pub(crate) const SLEPT: Duration = Duration::from_secs(5);
 
-const CANCELLED: &str = "The playback copy was cancelled.";
+const CANCELLED: &str = "The playback copy was canceled.";
 const FAILED: &str = "That video couldn't be made into a playback copy.";
 const SHORT: &str =
     "The playback copy came out shorter than the video. If it's on a card or a drive, check it's still connected.";

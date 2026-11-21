@@ -74,10 +74,10 @@ describe('the Player tile (2.4)', () => {
     expect(html).toMatch(/<label[^>]*>Framing<\/label>/);
     expect(html).toMatch(/max="400"[^>]*value="100"/);
     // Centred: nothing for Centre to do.
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Centre</);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Center</);
     const zoomed = framed({ x: 0.3, y: 0.6, zoom: 2 });
     expect(zoomed).toContain('zoom 200%');
-    expect(zoomed).not.toMatch(/<button[^>]*disabled=""[^>]*>Centre</);
+    expect(zoomed).not.toMatch(/<button[^>]*disabled=""[^>]*>Center</);
     // Without framing (a frame that can't be framed yet), the picture alone.
     expect(render()).not.toContain('data-frame-window');
   });

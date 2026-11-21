@@ -84,7 +84,7 @@ async function dragIcon(page: Page, id: string, to: { x: number; y: number }) {
   await page.mouse.up();
 }
 
-async function setUnits(page: Page, label: 'Metres' | 'Feet and inches') {
+async function setUnits(page: Page, label: 'Meters' | 'Feet and inches') {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label });
   await closeSettings(page, 'apply');
@@ -92,7 +92,7 @@ async function setUnits(page: Page, label: 'Metres' | 'Feet and inches') {
 
 /** The Setup workspace on SC 01's Setup 1, its room started. */
 async function startRoom(page: Page) {
-  await setUnits(page, 'Metres');
+  await setUnits(page, 'Meters');
   await toSection(page, 'Setup');
   await expect(libraryTile(page).locator('[data-library-says]')).toHaveText('Pick a setup, or a scene’s heading, in the Setups tile to place items on its plan.');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();

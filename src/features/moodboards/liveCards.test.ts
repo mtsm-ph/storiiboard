@@ -213,7 +213,7 @@ describe('a palette card', () => {
     expect(dataOf(card ?? '')).toMatchObject({ colors: ['#1F2F4D'] });
     // The card has no colours of its own.
     expect(JSON.stringify(records()[card ?? '']?.props)).not.toContain('1F2F4D');
-    expect(liveLabel(dataOf(card ?? ''))).toBe('Palette card SC 04 INT. KITCHEN — NIGHT, 1 colour');
+    expect(liveLabel(dataOf(card ?? ''))).toBe('Palette card SC 04 INT. KITCHEN — NIGHT, 1 color');
   });
 
   it('is drawn at scale 1 whether the palette has 1 colour or 16: the box never depends on the content', async () => {

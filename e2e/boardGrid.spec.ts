@@ -433,8 +433,8 @@ test('a sticky in a colour of its own: typed as a hex, drawn in it with paper wo
 
   // Typed as a hex, as a text box's colour is: taken on Enter, the panel left open.
   const properties = boardTile(page).getByRole('group', { name: 'Properties of the selection' });
-  await properties.getByRole('button', { name: /^Sticky colour:/ }).click();
-  const panel = properties.getByRole('group', { name: 'Sticky colour' });
+  await properties.getByRole('button', { name: /^Sticky color:/ }).click();
+  const panel = properties.getByRole('group', { name: 'Sticky color' });
   const hex = panel.getByRole('textbox', { name: 'Hex' });
   await hex.fill('1b2632');
   await hex.press('Enter');
@@ -471,7 +471,7 @@ test('a sticky in a colour of its own: typed as a hex, drawn in it with paper wo
   await expect.poll(() => pixel(deck, fillAt.x, fillAt.y)).toEqual([255, 233, 122]);
   await page.keyboard.press(`${await mod(page)}+Shift+z`);
   await expect.poll(colour).toBe('#1B2632');
-  await properties.getByRole('button', { name: /^Sticky colour:/ }).click();
+  await properties.getByRole('button', { name: /^Sticky color:/ }).click();
   await panel.getByRole('button', { name: 'Blue', exact: true }).click();
   await expect.poll(colour).toBe('#B5DDF5');
   await expect(panel).toBeHidden();

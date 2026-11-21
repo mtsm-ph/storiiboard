@@ -203,14 +203,14 @@ test('a sticky’s colour is chosen by a swatch whose press sends focus to the w
   await page.keyboard.press('Escape');
   await expect.poll(colour).toBe('#FFE97A');
   const properties = tile.getByRole('group', { name: 'Properties of the selection' });
-  const trigger = properties.getByRole('button', { name: /^Sticky colour:/ });
+  const trigger = properties.getByRole('button', { name: /^Sticky color:/ });
   await trigger.click();
   // The clicked button took focus (src/ui/clickFocus.ts): the press on a swatch moves it to the workspace panel, as
   // WebKit's does, and the panel stays open for the swatch's click (src/features/moodboards/ColourControl.tsx).
   await expect(trigger).toBeFocused();
-  await properties.getByRole('group', { name: 'Sticky colour' }).getByRole('button', { name: 'Peach', exact: true }).click();
+  await properties.getByRole('group', { name: 'Sticky color' }).getByRole('button', { name: 'Peach', exact: true }).click();
   await expect.poll(colour).toBe('#FFC9A8');
-  await expect(properties.getByRole('group', { name: 'Sticky colour' })).toBeHidden();
+  await expect(properties.getByRole('group', { name: 'Sticky color' })).toBeHidden();
   await expect(trigger).toBeFocused();
 });
 
@@ -228,9 +228,9 @@ async function stickyColourPanel(page: Page) {
   await page.keyboard.type('Rain cover?');
   await page.keyboard.press('Escape');
   const properties = tile.getByRole('group', { name: 'Properties of the selection' });
-  const trigger = properties.getByRole('button', { name: /^Sticky colour:/ });
+  const trigger = properties.getByRole('button', { name: /^Sticky color:/ });
   await trigger.click();
-  const panel = properties.getByRole('group', { name: 'Sticky colour' });
+  const panel = properties.getByRole('group', { name: 'Sticky color' });
   await expect(panel).toBeVisible();
   await expect(trigger).toBeFocused();
   return { trigger, panel };
@@ -253,7 +253,7 @@ test('a press on the colour panel’s padding leaves it open with focus back in 
 test('Tab from the colour panel’s last control to outside it closes the panel (6.19b review)', async ({ page }) => {
   const { panel } = await stickyColourPanel(page);
   // The panel's last control is the system picker, after the six swatches and the Hex field (6.5.7a).
-  await panel.getByLabel('System colour picker').focus();
+  await panel.getByLabel('System color picker').focus();
   await page.keyboard.press('Tab');
   await expect(panel).toBeHidden();
 });
@@ -269,7 +269,7 @@ test('Tab from the Hex field to outside the colour panel closes it, where the He
   // test's time on a Mac). Where Tab does reach the picker (Chromium), it is the next stop, still inside; the Tab after
   // it leaves. Read from the page as it is now: no picker, or one without the focus, is the panel left already.
   const onPicker =
-    (await panel.getByLabel('System colour picker').count()) > 0 &&
+    (await panel.getByLabel('System color picker').count()) > 0 &&
     (await page.evaluate(() => document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'color'));
   if (onPicker) {
     await expect(panel).toBeVisible();

@@ -178,7 +178,7 @@ describe('a frame’s clip saved as a file (2.8b)', () => {
       if (name === 'export_choose_file') return Promise.resolve('/Exports/SC004_4A.mp4');
       if (name === 'clip_save') return new Promise((resolve) => (finish = resolve));
       if (name === 'clip_cancel') {
-        finish(Promise.reject(new Error('Saving the clip was cancelled.')));
+        finish(Promise.reject(new Error('Saving the clip was canceled.')));
         return Promise.resolve(true);
       }
       return Promise.resolve(null);
@@ -194,7 +194,7 @@ describe('a frame’s clip saved as a file (2.8b)', () => {
     await cancelSaveClip();
     expect(await first).toBe(false);
     // Said as what happened, as information, and the next save may start.
-    expect(notices.said.at(-1)).toBe('Saving the clip was cancelled.');
+    expect(notices.said.at(-1)).toBe('Saving the clip was canceled.');
     expect(clipSaving.getState()).toEqual({ shotId: null, cancelled: false });
   });
 
@@ -208,7 +208,7 @@ describe('a frame’s clip saved as a file (2.8b)', () => {
         asked += 1;
         // Not started yet the first time; the second time it's stopped.
         if (asked === 1) return Promise.resolve(false);
-        finish(Promise.reject(new Error('Saving the clip was cancelled.')));
+        finish(Promise.reject(new Error('Saving the clip was canceled.')));
         return Promise.resolve(true);
       }
       return Promise.resolve(null);

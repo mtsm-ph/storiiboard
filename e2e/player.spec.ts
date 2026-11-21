@@ -296,11 +296,11 @@ test('frames the clip over the take: the window zooms and moves by keys and by h
   // Centre is off once it's there.
   for (let i = 0; i < 7; i += 1) await page.keyboard.press(`${await command(page)}+z`);
   await expect.poll(box).toEqual({ left: 0, top: 0, width: 100 });
-  await expect(player(page).getByRole('button', { name: 'Centre' })).toBeDisabled();
+  await expect(player(page).getByRole('button', { name: 'Center' })).toBeDisabled();
   // Redone, and taken back to the centre with Centre in one step.
   await page.keyboard.press(`${await command(page)}+Shift+z`);
   await expect.poll(async () => (await box()).width).toBeCloseTo(100 / 1.1, 1);
-  await player(page).getByRole('button', { name: 'Centre' }).click();
+  await player(page).getByRole('button', { name: 'Center' }).click();
   await expect.poll(box).toEqual({ left: 0, top: 0, width: 100 });
 });
 

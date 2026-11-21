@@ -177,7 +177,7 @@ describe('the queue of playback copies', () => {
     makeCopy('a');
     expect(state('a')).toEqual({ kind: 'queued' });
     expect(copiesStore.getState().waiting).toEqual(['b', 'a']);
-    first.reject('The playback copy was cancelled.');
+    first.reject('The playback copy was canceled.');
     await settle();
     // b being made, a waiting behind it, and saying so: not "none", which would offer Make and queue it twice.
     expect(copiesStore.getState().making).toBe('b');
@@ -234,7 +234,7 @@ describe('the queue of playback copies', () => {
     cancelCopy('a');
     expect(driver.cancel).toHaveBeenCalledWith({ videoId: 'a', path: folder.path('Footage/C0042.MP4'), lut: null });
     expect(state('a')).toEqual({ kind: 'none' });
-    first.reject('The playback copy was cancelled.');
+    first.reject('The playback copy was canceled.');
     await settle();
     expect(state('a')).toEqual({ kind: 'none' });
     // The next one goes ahead.
@@ -386,7 +386,7 @@ describe('the queue of playback copies', () => {
     const [stopped] = driver.cancel.mock.calls.at(-1) as [{ videoId: string; lut: { sha256: string } | null }];
     // The text is the file's own here (nothing to leave out), so its hash is the file's.
     expect([stopped.videoId, stopped.lut?.sha256]).toEqual(['c', prepared.lut.sha256]);
-    copy.reject('The playback copy was cancelled.');
+    copy.reject('The playback copy was canceled.');
     await vi.waitFor(() => {
       expect(copiesStore.getState().making).toBeNull();
     });

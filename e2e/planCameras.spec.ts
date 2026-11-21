@@ -112,7 +112,7 @@ async function gearAndFrames(page: Page) {
   await project.getByLabel('Aspect ratio').selectOption('2.39:1');
   await closeSettings(page);
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
   await toSection(page, 'Production');
   await newItem(page, 'FX3', 'Camera body');

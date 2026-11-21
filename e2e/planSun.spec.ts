@@ -85,7 +85,7 @@ async function selectSun(page: Page): Promise<string> {
 
 test('the sun path over New York: what it lacks, north placed and turned, the sun at 13:00, its time stepped, undo, redo and a reload', async ({ page }) => {
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
 
   // A scene at the Diner, and its frame.
@@ -247,7 +247,7 @@ test.describe('on a computer in Madrid', () => {
 
   test('no stand-in zone; Open Shoot days, Place north and Open Locations open their tiles on the right thing', async ({ page }) => {
     const app = await openSettings(page, 'App');
-    await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+    await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
     await closeSettings(page, 'apply');
     expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe('Europe/Madrid');
 

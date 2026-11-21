@@ -341,14 +341,14 @@ test('Watermark Settings saves one edit, and the Export dialog says the PDF and 
   await projectMenu(page, 'Watermark Settings…');
   const settings = dialog(page, 'Watermark Settings');
   await settings.getByLabel('Text').fill('DRAFT');
-  await settings.getByRole('combobox', { name: /^Position/ }).selectOption({ label: 'Centre' });
+  await settings.getByRole('combobox', { name: /^Position/ }).selectOption({ label: 'Center' });
   await settings.getByRole('button', { name: 'Save' }).click();
   await expect(settings).toHaveCount(0);
 
   await projectMenu(page, 'Export Project…');
-  await expect(dialog(page, 'Export')).toContainText('Watermark “DRAFT”, centre.');
+  await expect(dialog(page, 'Export')).toContainText('Watermark “DRAFT”, center.');
   await dialog(page, 'Export').getByRole('radio', { name: 'Frames (PNG)' }).check();
-  await expect(dialog(page, 'Export')).toContainText('Watermark “DRAFT”, centre.');
+  await expect(dialog(page, 'Export')).toContainText('Watermark “DRAFT”, center.');
   // The CSV is a report: it carries none.
   await dialog(page, 'Export').getByRole('radio', { name: 'Shot list (CSV)' }).check();
   await expect(dialog(page, 'Export')).toContainText('No watermark.');
@@ -666,7 +666,7 @@ test('a PNG frame is framed as on the board, and its watermark reads over a dark
   const framing = inspector.getByRole('application', { name: /^Framing/ });
   for (const down of [44, 39, 33, 28]) {
     await framing.press('Shift+ArrowDown');
-    await expect(inspector.getByText(`Zoom 100%, centred 50% across and ${String(down)}% down.`)).toBeAttached();
+    await expect(inspector.getByText(`Zoom 100%, centered 50% across and ${String(down)}% down.`)).toBeAttached();
   }
   // The watermark where it lands on the dark, at the strength it starts at.
   await projectMenu(page, 'Watermark Settings…');

@@ -119,7 +119,7 @@ test('keeps a locked colour in its place when the rest are generated again, and 
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
   await board(page).locator('[data-shot-id]').nth(1).click();
   await choosePicture(page, 'p3-red.jpg');
-  await inspector(page).getByLabel('Colours').selectOption('1');
+  await inspector(page).getByLabel('Colors').selectOption('1');
   await inspector(page).getByRole('button', { name: 'Generate palette' }).click();
   await expect(swatches(page)).toHaveCount(1);
 
@@ -128,15 +128,15 @@ test('keeps a locked colour in its place when the rest are generated again, and 
   const keptHex = /#[0-9A-F]{6}/.exec(kept)?.[0] ?? '';
   await swatches(page).first().click();
   await inspector(page).getByRole('button', { name: 'Lock', exact: true }).click();
-  await inspector(page).getByLabel('Colours').selectOption('4');
+  await inspector(page).getByLabel('Colors').selectOption('4');
   await inspector(page).getByRole('button', { name: 'Regenerate' }).click();
   await expect(swatches(page)).not.toHaveCount(1);
-  await expect(swatches(page).first()).toHaveAccessibleName(new RegExp(`^Colour 1 of [0-9]+, ${keptHex}, locked$`));
+  await expect(swatches(page).first()).toHaveAccessibleName(new RegExp(`^Color 1 of [0-9]+, ${keptHex}, locked$`));
 
   // ⌘ (Ctrl) with an arrow moves a colour, and focus goes with it.
   await swatches(page).first().focus();
   await page.keyboard.press(`${(await page.evaluate(() => /Mac/i.test(navigator.userAgent))) ? 'Meta' : 'Control'}+ArrowRight`);
-  await expect(swatches(page).nth(1)).toHaveAccessibleName(new RegExp(`^Colour 2 of [0-9]+, ${keptHex}, locked$`));
+  await expect(swatches(page).nth(1)).toHaveAccessibleName(new RegExp(`^Color 2 of [0-9]+, ${keptHex}, locked$`));
   await expect(swatches(page).nth(1)).toBeFocused();
 });
 
@@ -180,14 +180,14 @@ test('the eyedropper adds the colour under the pointer from any frame’s pictur
   await board(page).locator('[data-shot-id]').first().click();
 
   // The keyboard's way: a typed hex.
-  const field = inspector(page).getByLabel('Add a colour');
+  const field = inspector(page).getByLabel('Add a color');
   await field.fill('nope');
   await field.press('Enter');
-  await expect(inspector(page).getByRole('alert')).toHaveText('A colour as six hex digits, such as #A35139.');
+  await expect(inspector(page).getByRole('alert')).toHaveText('A color as six hex digits, such as #A35139.');
   await field.fill('1f2f4d');
   await field.press('Enter');
   await expect(swatches(page)).toHaveCount(2);
-  await expect(swatches(page).nth(1)).toHaveAccessibleName('Colour 2 of 2, #1F2F4D');
+  await expect(swatches(page).nth(1)).toHaveAccessibleName('Color 2 of 2, #1F2F4D');
   await expect(swatches(page).nth(1)).toBeFocused();
 });
 
@@ -213,9 +213,9 @@ test('the Color script lists every scene’s palette in script order, and opens 
   await expect(rows.nth(1)).toContainText('No palette');
 
   await board(page).locator('[data-shot-id]').first().click();
-  await inspector(page).getByLabel('Add a colour').fill('#A35139');
-  await inspector(page).getByLabel('Add a colour').press('Enter');
-  await expect(rows.first()).toContainText('1 colour: #A35139');
+  await inspector(page).getByLabel('Add a color').fill('#A35139');
+  await inspector(page).getByLabel('Add a color').press('Enter');
+  await expect(rows.first()).toContainText('1 color: #A35139');
   await rows.nth(1).click();
   await expect(rows.nth(1)).toHaveAttribute('aria-current', 'true');
 });

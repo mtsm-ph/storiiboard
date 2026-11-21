@@ -120,7 +120,7 @@ describe('Settings → Storage: playback copies (2.3b)', () => {
     const none = render({ known: 0 });
     expect(none).toContain('No videos remembered.');
     expect(none).toMatch(/<button[^>]*disabled=""[^>]*>Forget remembered videos…/);
-    expect(render()).toContain('Licences…');
+    expect(render()).toContain('Licenses…');
     expect(render()).toContain('GNU LGPL 2.1 or later');
   });
 });

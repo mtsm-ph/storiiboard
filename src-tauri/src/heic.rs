@@ -45,7 +45,7 @@ const HDR: &str = "This is an HDR photo, which Storiiboard can't read on this co
 const TOO_SLOW: &str =
     "This HEIC photo took too long to read. Try again, or convert it to JPEG first.";
 const UNREAD: &str = "This HEIC photo couldn't be read. Convert it to JPEG first.";
-const PROFILE_TOO_BIG: &str = "This photo's colour profile is too large to keep, so its colours can't be shown as they are. Convert it to JPEG first.";
+const PROFILE_TOO_BIG: &str = "This photo's color profile is too large to keep, so its colors can't be shown as they are. Convert it to JPEG first.";
 /// Kevin, Nov 20: a few kilobytes of HEIC can describe gigabytes of pixels, so the size is read before any decode.
 const TOO_MANY_PIXELS: &str =
     "This HEIC photo is too large to read (over 120 megapixels). Convert it to JPEG first.";

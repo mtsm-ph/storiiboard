@@ -77,7 +77,7 @@ test('only the director or the DP approves a scene, with who, and a change shows
   await approved.focus();
   await page.keyboard.press('Space');
   await expect(approved).toHaveAttribute('aria-checked', 'false');
-  await expect(inspector(page)).toContainText('Only the director or the DP can tick Approved.');
+  await expect(inspector(page)).toContainText('Only the director or the DP can check Approved.');
 
   // A usual role that doesn't approve, and a role on this project that does.
   const profile = await openSettings(page, 'Profile');

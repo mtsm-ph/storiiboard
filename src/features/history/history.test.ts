@@ -182,7 +182,7 @@ describe('History', () => {
       'Removed the watermark “NOT FOR AIR”',
     ]);
     expect(valueLabel('watermark', mark('DRAFT', 0.35))).toBe('“DRAFT”, bottom right, 35%');
-    expect(valueLabel('watermark', { ...mark('DRAFT', 0.5), position: 'center' })).toBe('“DRAFT”, centre, 50%');
+    expect(valueLabel('watermark', { ...mark('DRAFT', 0.5), position: 'center' })).toBe('“DRAFT”, center, 50%');
   });
 
   it('names a video’s LUT change in words, never by its row’s id (2.5)', async () => {

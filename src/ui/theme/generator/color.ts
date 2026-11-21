@@ -85,7 +85,7 @@ export function hex([r, g, b]: Rgb): string {
 export function parseHex(text: string): Rgb {
   const value = text.trim().replace(/^#/, '');
   const full = /^[0-9a-f]{3}$/i.test(value) ? value.replace(/./g, (digit) => digit.repeat(2)) : value;
-  if (!/^[0-9a-f]{6}$/i.test(full)) throw new Error(`Not a colour: ${text}`);
+  if (!/^[0-9a-f]{6}$/i.test(full)) throw new Error(`Not a color: ${text}`);
   return [parseInt(full.slice(0, 2), 16), parseInt(full.slice(2, 4), 16), parseInt(full.slice(4, 6), 16)];
 }
 

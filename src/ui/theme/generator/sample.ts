@@ -57,7 +57,7 @@ export async function samplePixels(image: Blob): Promise<{ data: Uint8ClampedArr
     // makeCanvas throws here, the worker reports it, and the page does the work (extract.ts).
     const ctx = at('canvas', () => {
       const context = makeCanvas(width, height).ctx;
-      if (!context) throw new Error('This computer can’t read the image’s colours.');
+      if (!context) throw new Error('This computer can’t read the image’s colors.');
       return context;
     });
     // The best downscale the engine has, so WebKit and WebView2 read an image as nearly alike as they can.

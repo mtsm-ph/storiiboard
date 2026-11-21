@@ -1187,7 +1187,7 @@ pub struct ClipWindow {
 /// The long edge a saved clip is made at, at most: a reference to send or cut with, not a master.
 const CLIP_LONG_EDGE: u32 = 1920;
 
-pub(crate) const CLIP_CANCELLED: &str = "Saving the clip was cancelled.";
+pub(crate) const CLIP_CANCELLED: &str = "Saving the clip was canceled.";
 const CLIP_NOT_SAVED: &str = "The clip couldn't be saved there.";
 const CLIP_OVER_VIDEO: &str =
     "A clip is only saved over a clip Storiiboard saved. Choose another name.";

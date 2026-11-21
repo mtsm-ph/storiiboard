@@ -89,7 +89,7 @@ async function pick(page: Page, id: string) {
 /** The Setup workspace in metres on SC 01, two setups, Setup 1 shown, its room started. */
 async function setUp(page: Page) {
   const app = await openSettings(page, 'App');
-  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
+  await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Meters' });
   await closeSettings(page, 'apply');
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
