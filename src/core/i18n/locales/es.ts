@@ -347,7 +347,10 @@ export const es: Messages = {
   'savedSign.backupAt': 'Último respaldo a las {time}.',
   'savedSign.backupOn': 'Último respaldo el {day} a las {time}.',
   'savedSign.noBackupLabel': 'Aún no hay respaldo.',
+  'savedSign.nextBackupAt': 'Próximo respaldo a las {time}.',
+  'savedSign.nextBackupOn': 'Próximo respaldo el {day} a las {time}.',
   'savedSign.label': '{saved} {backup}',
+  'savedSign.labelNext': '{label} {next}',
   'savedSign.description': '{label} {how}',
   'savedSign.how': 'Cada cambio se guarda al instante; se hace un respaldo cada 5 minutos si el proyecto cambió.',
   // src/app/confirm.ts
@@ -364,6 +367,7 @@ export const es: Messages = {
   // src/app/project/BackupsPanel.tsx
   'backups.backedUpAt': 'Respaldado a las {time}.',
   'backups.nothingChanged': 'No cambió nada desde el último respaldo.',
+  'backups.queued': 'Se hizo un respaldo hace menos de un minuto. El próximo se hará a las {time}.',
   // src/app/project/BackupsView.tsx
   'backups.placeLocal': 'Se guardan en una carpeta Backups junto al proyecto.',
   'backups.placeSyncedNext': 'Este proyecto está en {service}; sus respaldos están junto a él y se sincronizan con él.',

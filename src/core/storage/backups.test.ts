@@ -280,3 +280,216 @@ describe('the 5-minute schedule', () => {
     schedule.stop();
   });
 });
+
+describe('a backup asked for by hand (Ctrl+S, Back up now; Kevin, Nov 18)', () => {
+  let folder: TestFolder;
+  let file: ProjectFile;
+  let clock: Date;
+  /** What the file was asked to do, in order: a copy's start and end, and each delete. */
+  let calls: string[];
+  let failNext: boolean;
+
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] });
+    folder = makeTestFolder();
+    file = await nodeDriver.create(folder.path('Bey.sbd'));
+    await file.tx([{ sql: 'CREATE TABLE shots (id TEXT)' }]);
+    clock = new Date(2026, 10, 2, 9, 0);
+    calls = [];
+    failNext = false;
+  });
+
+  afterEach(async () => {
+    await file.close();
+    folder.remove();
+    vi.useRealTimers();
+  });
+
+  const edit = (id: string) => file.tx([{ sql: 'INSERT INTO shots VALUES (?)', params: [id] }]);
+  const names = async () => (await file.listBackups()).map((backup) => backup.name).sort();
+  const at = (minutes: number, seconds = 0) => new Date(2026, 10, 2, 9, minutes, seconds);
+  const name = (minutes: number) => backupFileName('Bey', at(minutes));
+  /** The file, with every copy and delete recorded, and the next copy refused when `failNext` is set. */
+  const watched = (): ProjectFile => ({
+    ...file,
+    backup: async (kind, backup) => {
+      if (failNext) {
+        failNext = false;
+        throw new Error('The disk is full.');
+      }
+      calls.push(`copy ${backup}`);
+      await file.backup(kind, backup);
+      calls.push(`copied ${backup}`);
+    },
+    deleteBackup: async (backup) => {
+      calls.push(`delete ${backup}`);
+      await file.deleteBackup(backup);
+    },
+  });
+  const start = (options: Parameters<typeof startBackups>[1] = {}) =>
+    startBackups(watched(), { intervalMs: 3_600_000, now: () => clock, ...options });
+
+  it('makes none when nothing changed, and says when the newest was made', async () => {
+    const schedule = await start();
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'nothing', newestAt: null, deleted: [] });
+    await edit('1A');
+    clock = at(0, 20);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'created', created: name(0), deleted: [] });
+    clock = at(3);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'nothing', newestAt: at(0, 20), deleted: [] });
+    expect(await names()).toEqual([name(0)]);
+    schedule.stop();
+  });
+
+  it('under a minute after the newest, queues one for the minute (one at most), which then replaces it', async () => {
+    const schedule = await start();
+    const heard: Date[] = [];
+    schedule.onBackup((when) => heard.push(when));
+    await edit('1A');
+    await schedule.backUpByHand();
+    await edit('1B');
+    clock = at(0, 30);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'queued', at: at(1), deleted: [] });
+    const timers = vi.getTimerCount();
+    // A second press answers with the same time and queues nothing more.
+    await edit('1C');
+    clock = at(0, 45);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'queued', at: at(1), deleted: [] });
+    expect(vi.getTimerCount()).toBe(timers);
+    expect(await names()).toEqual([name(0)]);
+
+    clock = at(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.waitFor(async () => {
+      expect(await names()).toEqual([name(1)]);
+    });
+    expect(heard).toEqual([at(0), at(1)]);
+    expect(vi.getTimerCount()).toBe(timers - 1);
+    schedule.stop();
+  });
+
+  it('replaces a timed backup under 5 minutes old, the new copy complete before the old is deleted', async () => {
+    const schedule = await start();
+    await edit('1A');
+    clock = at(5);
+    await schedule.runNow();
+    await edit('1B');
+    clock = at(7);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'replaced', created: name(7), replaced: name(5), deleted: [] });
+    expect(calls).toEqual([`copy ${name(5)}`, `copied ${name(5)}`, `copy ${name(7)}`, `copied ${name(7)}`, `delete ${name(5)}`]);
+    expect(await names()).toEqual([name(7)]);
+    schedule.stop();
+  });
+
+  it('replaces a hand backup under 5 minutes old, and the timed run after it still adds its own', async () => {
+    const schedule = await start();
+    await edit('1A');
+    await schedule.backUpByHand();
+    await edit('1B');
+    clock = at(4, 59);
+    await expect(schedule.backUpByHand()).resolves.toMatchObject({ kind: 'replaced', created: name(4), replaced: name(0) });
+    await edit('1C');
+    clock = at(5, 30);
+    await expect(schedule.runNow()).resolves.toEqual({ created: name(5), deleted: [] });
+    expect(await names()).toEqual([name(4), name(5)]);
+    schedule.stop();
+  });
+
+  it('never replaces the copy Compact made or adopted', async () => {
+    const schedule = await start();
+    await edit('1A');
+    const made = await schedule.backUpThen(() => Promise.resolve(null));
+    expect(made.backup).toBe(name(0));
+    await edit('1B');
+    clock = at(2);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'created', created: name(2), deleted: [] });
+    expect(await names()).toEqual([name(0), name(2)]);
+
+    // Nothing changed since the hand copy: Compact adopts it, and from then on it's Compact's.
+    clock = at(3);
+    const adopted = await schedule.backUpThen(() => Promise.resolve(null));
+    expect(adopted.backup).toBe(name(2));
+    await edit('1C');
+    clock = at(4);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'created', created: name(4), deleted: [] });
+    expect(await names()).toEqual([name(0), name(2), name(4)]);
+    expect(calls.filter((call) => call.startsWith('delete'))).toEqual([]);
+    schedule.stop();
+  });
+
+  it('never replaces a copy from before this session; the time in its name counts for the minute', async () => {
+    await file.backup('scheduled', name(0));
+    const schedule = await start();
+    await edit('1A');
+    clock = at(0, 40);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'queued', at: at(1), deleted: [] });
+    clock = at(1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.waitFor(async () => {
+      expect(await names()).toEqual([name(0), name(1)]);
+    });
+    expect(calls).toEqual([`copy ${name(1)}`, `copied ${name(1)}`]);
+    schedule.stop();
+  });
+
+  it('makes a new copy once the newest is 5 minutes old', async () => {
+    const schedule = await start();
+    await edit('1A');
+    await schedule.backUpByHand();
+    await edit('1B');
+    clock = at(5);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'created', created: name(5), deleted: [] });
+    expect(await names()).toEqual([name(0), name(5)]);
+    schedule.stop();
+  });
+
+  it('keeps the old copy when the new one fails, and replaces it on the next press', async () => {
+    const schedule = await start();
+    await edit('1A');
+    await schedule.backUpByHand();
+    await edit('1B');
+    clock = at(2);
+    failNext = true;
+    await expect(schedule.backUpByHand()).rejects.toThrow('The disk is full.');
+    expect(await names()).toEqual([name(0)]);
+    clock = at(3);
+    await expect(schedule.backUpByHand()).resolves.toMatchObject({ kind: 'replaced', created: name(3), replaced: name(0) });
+    expect(await names()).toEqual([name(3)]);
+    schedule.stop();
+  });
+
+  it('prunes by the keep numbers and the cap as every run does, never the copy just made', async () => {
+    const schedule = await start({ keep: { recent: 2, days: 0 } });
+    for (const minutes of [0, 6, 12]) {
+      await edit(`1${String(minutes)}`);
+      clock = at(minutes);
+      await schedule.backUpByHand();
+    }
+    expect(await names()).toEqual([name(6), name(12)]);
+    schedule.stop();
+
+    const capped = await start({ capBytes: 1 });
+    for (const minutes of [18, 24, 30, 36]) {
+      await edit(`2${String(minutes)}`);
+      clock = at(minutes);
+      await capped.backUpByHand();
+    }
+    // Every copy is over a 1-byte cap, so only the newest three stay.
+    expect(await names()).toEqual([name(24), name(30), name(36)]);
+    capped.stop();
+  });
+
+  it('drops the queued one when it stops', async () => {
+    const schedule = await start();
+    await edit('1A');
+    await schedule.backUpByHand();
+    await edit('1B');
+    clock = at(0, 10);
+    await expect(schedule.backUpByHand()).resolves.toMatchObject({ kind: 'queued' });
+    schedule.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    clock = at(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(await names()).toEqual([name(0)]);
+  });
+});

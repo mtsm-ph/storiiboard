@@ -162,6 +162,22 @@ export interface BackupRun {
   deleted: string[];
 }
 
+/**
+ * What a backup asked for by hand did (Ctrl+S, ⌘S, or Settings → Backups → Back up now; Kevin, Nov 18): nothing, as
+ * nothing changed since the newest backup; queued for `at`, when the newest is a minute old; a new copy in place of a
+ * timed or hand one under 5 minutes old; or a new copy. `deleted` is what pruning took, as in BackupRun.
+ */
+export type HandBackup =
+  | { kind: 'nothing'; newestAt: Date | null; deleted: string[] }
+  | { kind: 'queued'; at: Date; deleted: string[] }
+  | { kind: 'replaced'; created: string; replaced: string; deleted: string[] }
+  | { kind: 'created'; created: string; deleted: string[] };
+
+/** A hand backup under this old waits: one is queued for when the minute is up. */
+export const HAND_WAIT_MS = 60 * 1000;
+/** A timed or hand backup this schedule wrote under this long ago is replaced by a hand backup, not added to. */
+export const HAND_REPLACE_MS = 5 * 60 * 1000;
+
 export interface BackupOptions {
   intervalMs?: number;
   /** A function is read at every run, so a change in Settings applies without reopening the project. */
@@ -182,6 +198,13 @@ export interface BackupSchedule {
    * the backup's name and what `then` returned.
    */
   backUpThen<T>(then: () => Promise<T>): Promise<{ backup: string; result: T }>;
+  /**
+   * A backup asked for by hand, one rule for Ctrl+S and Back up now, so pressing after every edit never pushes the timed
+   * backups out of the last 12: nothing when nothing changed; under a minute after the newest, one is queued for when
+   * the minute is up (at most one); under 5 minutes after a timed or hand backup this schedule wrote, the new copy
+   * replaces it, written first and the old one deleted after; otherwise a new copy. Prunes as every run does.
+   */
+  backUpByHand(): Promise<HandBackup>;
   /**
    * Calls `listener` with the time in a backup's name each time this schedule writes one (the 5-minute run, Back up
    * now, Compact's), so the status bar's sign (6.5.4) learns of it without reading the disk. Returns the unsubscribe.
@@ -215,6 +238,15 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
   let backedUpAt = await changeCount(file);
   /** The newest backup this schedule made, which stands for the file while nothing has changed since. */
   let latest: string | null = null;
+  /** When this schedule wrote `latest`, to the millisecond: a hand backup's minute and 5 minutes count from it. */
+  let latestAt: Date | null = null;
+  /**
+   * Whether a hand backup may replace `latest`: only a timed or hand copy. One Compact made or adopted is its safety
+   * copy and never replaced. Kept in memory only, so a copy from before this session is never replaceable.
+   */
+  let latestReplaceable = false;
+  /** The one hand backup waiting for its minute, if any. */
+  let queued: { at: Date; timer: ReturnType<typeof setTimeout> } | null = null;
   let running: Promise<BackupRun> | null = null;
   let stopped = false;
   const listeners = new Set<(at: Date) => void>();
@@ -236,16 +268,8 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     return next;
   };
 
-  const backUp = async (): Promise<BackupRun> => {
-    const changes = await changeCount(file);
-    if (changes <= backedUpAt) return { created: null, deleted: [] };
-    const at = now();
-    // A second run in the same minute (a manual one right after a scheduled one) is that minute's next copy.
-    const name = await freshBackupName(file, at);
-    await file.backup('scheduled', name);
-    backedUpAt = changes;
-    latest = name;
-    tell(at);
+  /** Pruning after a copy, by the keep rule then the cap. */
+  const prune = async (name: string, at: Date): Promise<string[]> => {
     // Listed again for the new backup's size.
     const backups = await file.listBackups();
     const byAge = backupsToDelete(
@@ -258,8 +282,69 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     // Never the copy just made: after the clock goes back (a time zone, a fix), it can sort as the oldest.
     const deleted = [...byAge, ...backupsOverCap(left, stem, capBytes)].filter((old) => old !== name);
     for (const old of deleted) await file.deleteBackup(old);
-    return { created: name, deleted };
+    return deleted;
   };
+
+  const backUp = async (): Promise<BackupRun> => {
+    const changes = await changeCount(file);
+    if (changes <= backedUpAt) return { created: null, deleted: [] };
+    const at = now();
+    // A second run in the same minute (a timed one right after a hand one) is that minute's next copy.
+    const name = await freshBackupName(file, at);
+    await file.backup('scheduled', name);
+    backedUpAt = changes;
+    latest = name;
+    latestAt = at;
+    latestReplaceable = true;
+    tell(at);
+    return { created: name, deleted: await prune(name, at) };
+  };
+
+  const byHand = async (): Promise<HandBackup> => {
+    if (queued) return { kind: 'queued', at: queued.at, deleted: [] };
+    const changes = await changeCount(file);
+    // With no copy written this session, the newest on disk counts, by the time in its name.
+    const newestAt = latestAt ?? (await newestBackupAt(file));
+    if (changes <= backedUpAt) return { kind: 'nothing', newestAt, deleted: [] };
+    const at = now();
+    // A clock that went back makes the age negative: that copy is no guide, and a new one is made.
+    const age = newestAt === null ? null : at.getTime() - newestAt.getTime();
+    if (newestAt !== null && age !== null && age >= 0 && age < HAND_WAIT_MS) {
+      const due = new Date(newestAt.getTime() + HAND_WAIT_MS);
+      const timer = setTimeout(() => {
+        queued = null;
+        if (stopped) return;
+        backUpByHand().catch((error: unknown) => {
+          if (!stopped) options.onError?.(error);
+        });
+      }, HAND_WAIT_MS - age);
+      queued = { at: due, timer };
+      return { kind: 'queued', at: due, deleted: [] };
+    }
+    // Only a timed or hand copy this schedule wrote, under 5 minutes old and still on disk (someone short of space may
+    // have deleted it by hand).
+    const old =
+      latest !== null && latestReplaceable && age !== null && age >= 0 && age < HAND_REPLACE_MS
+        ? (await file.listBackups()).some((b) => b.name === latest)
+          ? latest
+          : null
+        : null;
+    const name = await freshBackupName(file, at);
+    // The new copy is complete before the old one goes: a failed write leaves the old one as it was.
+    await file.backup('scheduled', name);
+    backedUpAt = changes;
+    latest = name;
+    latestAt = at;
+    latestReplaceable = true;
+    tell(at);
+    if (old !== null) await file.deleteBackup(old);
+    const deleted = (await prune(name, at)).filter((gone) => gone !== old);
+    return old !== null ? { kind: 'replaced', created: name, replaced: old, deleted } : { kind: 'created', created: name, deleted };
+  };
+
+  const backUpByHand = (): Promise<HandBackup> =>
+    // A press while one is queued answers at once, without waiting for a copy in progress.
+    queued ? Promise.resolve({ kind: 'queued', at: queued.at, deleted: [] }) : inTurn(byHand);
 
   // One run at a time: a slow disk must not start a second copy over the first.
   const runNow = () => {
@@ -281,8 +366,11 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
         await file.backup('scheduled', backup);
         backedUpAt = changes;
         latest = backup;
+        latestAt = at;
         tell(at);
       }
+      // Made or adopted, it's Compact's safety copy from now on: a hand backup never replaces it.
+      latestReplaceable = false;
       return { backup, result: await then() };
     });
 
@@ -296,6 +384,7 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
   return {
     runNow,
     backUpThen,
+    backUpByHand,
     onBackup: (listener) => {
       listeners.add(listener);
       return () => {
@@ -305,6 +394,8 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     stop: () => {
       stopped = true;
       clearInterval(timer);
+      if (queued) clearTimeout(queued.timer);
+      queued = null;
     },
   };
 }

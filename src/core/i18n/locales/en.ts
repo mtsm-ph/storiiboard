@@ -346,7 +346,10 @@ export const en = {
   'savedSign.backupAt': 'Last backup at {time}.',
   'savedSign.backupOn': 'Last backup on {day} at {time}.',
   'savedSign.noBackupLabel': 'No backup yet.',
+  'savedSign.nextBackupAt': 'Next backup at {time}.',
+  'savedSign.nextBackupOn': 'Next backup on {day} at {time}.',
   'savedSign.label': '{saved} {backup}',
+  'savedSign.labelNext': '{label} {next}',
   'savedSign.description': '{label} {how}',
   'savedSign.how': 'Every change is saved at once; a backup is made every 5 minutes when the project has changed.',
   // src/app/confirm.ts
@@ -363,6 +366,7 @@ export const en = {
   // src/app/project/BackupsPanel.tsx
   'backups.backedUpAt': 'Backed up at {time}.',
   'backups.nothingChanged': 'Nothing has changed since the last backup.',
+  'backups.queued': 'A backup was made less than a minute ago. The next one will be made at {time}.',
   // src/app/project/BackupsView.tsx
   'backups.placeLocal': 'Kept in a Backups folder next to the project.',
   'backups.placeSyncedNext': 'This project is in {service}; its backups are next to it and sync with it.',

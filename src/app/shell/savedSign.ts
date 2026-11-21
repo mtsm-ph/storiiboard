@@ -80,6 +80,11 @@ const sentence = (at: Date, now: Date, atKey: MessageKey, onKey: MessageKey): Ph
     ? { key: atKey, params: { time: clockTime(at) } }
     : { key: onKey, params: { day: shortDay(at), time: clockTime(at) } };
 
+/** "Next backup at 14:41.": a hand backup queued by Ctrl+S (⌘S), for its minute. */
+export function nextBackupSentence(at: Date, now = new Date()): Phrase {
+  return sentence(at, now, 'savedSign.nextBackupAt', 'savedSign.nextBackupOn');
+}
+
 export function savedSignText({ savedAt, backupAt, saveFailed, changedOnDisk }: SavedSignState, now = new Date()): SavedSignText {
   // Known (6.24): a stored time can be ahead of this computer's clock (a file from a computer whose clock was ahead, or
   // steps whose times ran ahead of a clock that went back, a millisecond each). It is shown as it is, never corrected.

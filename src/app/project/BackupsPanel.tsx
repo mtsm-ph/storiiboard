@@ -64,10 +64,17 @@ export function BackupsPanel() {
       onBackUpNow={() => {
         const schedule = project?.backups;
         if (!schedule) return;
+        // The hand-backup rule (Kevin, Nov 18), one with Ctrl+S: a press a minute after the last waits its minute.
         schedule
-          .runNow()
+          .backUpByHand()
           .then((run) => {
-            setStatus(run.created ? t('backups.backedUpAt', { time: localDateTime(new Date()) }) : t('backups.nothingChanged'));
+            setStatus(
+              run.kind === 'nothing'
+                ? t('backups.nothingChanged')
+                : run.kind === 'queued'
+                  ? t('backups.queued', { time: localDateTime(run.at) })
+                  : t('backups.backedUpAt', { time: localDateTime(new Date()) }),
+            );
             setGeneration((n) => n + 1);
           })
           .catch(showNotice);
