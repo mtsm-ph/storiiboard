@@ -1992,8 +1992,8 @@ A file is refused whole, nothing stored, with words that say why (never a stack 
   `person_id`); `created_by` and a person's name 100; a Team role, a kind and a target's type 40; a target's label 200;
   a time 40; a note 2,000; any other string, `data` and unknown fields included, 10,000; any key 100;
 - holding a suggestion larger than 256 KB (262,144 bytes) as JSON in UTF-8 (7.1 round 3): a bound chosen, not one 7.0
-  implies, set to fit two full 10,000-character fields with their `before` in any script (four strings of 10,000
-  UTF-16 units take at most 120,000 bytes in UTF-8, with room left for the rest);
+  implies, set to fit two full 10,000-character fields with their `before`: 120,000 bytes of text in any script;
+  240,000 at worst as escaped JSON, with room left for the rest;
 - holding a suggestion that isn't an object, has no lowercase UUID `id`, or shares its `id` with another in the file; a
   person with no `id` or one shared; or a suggestion field named as one of the record's own props (`status`, `source`,
   `change_file_id`, `target_id`, `target_type`, `target_label`, `target_updated_at`, `suggested_at`, `decided_by`,

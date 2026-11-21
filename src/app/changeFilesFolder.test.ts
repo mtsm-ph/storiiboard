@@ -29,6 +29,8 @@ interface FakeFile {
   listed?: number;
   /** Its read fails, as a file locked or gone between the listing and the read would. */
   fails?: boolean;
+  /** Its read held until the test lets it go. */
+  hold?: Promise<void>;
 }
 
 interface FakeFolder {
@@ -42,6 +44,8 @@ interface FakeFolder {
   hold: Promise<void> | null;
   /** The listing fails, after its hold. */
   listFails: boolean;
+  /** A rename held until the test lets it go. */
+  renameHold?: Promise<void>;
 }
 
 const folders = new Map<number, FakeFolder>();
@@ -76,10 +80,12 @@ invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => 
     const file = folder.files.get(String(args.name));
     if (!file) throw new Error('Storiiboard couldn’t read that change file.');
     reads.push(String(args.name));
+    if (file.hold) await file.hold;
     if (file.fails) throw new Error('Storiiboard couldn’t read that change file.');
     return file.bytes.slice().buffer;
   }
   if (cmd === 'changes_folder_rename') {
+    if (folder.renameHold) await folder.renameHold;
     folder.renameFrom = null;
     folder.state = 'read';
     return null;
@@ -462,5 +468,116 @@ describe('the suggestions folder, round 3: two budgets, one line, nothing left b
       // The pass listed once, and the find after it once more: none lost.
       expect(listings() - before).toBe(2);
     }
+  });
+});
+
+describe('the suggestions folder, round 4: the last lows', () => {
+  const held = () => {
+    const made: { promise: Promise<void>; release: () => void } = { promise: Promise.resolve(), release: () => {} };
+    made.promise = new Promise<void>((resolve) => {
+      made.release = resolve;
+    });
+    return made;
+  };
+
+  it('says no refusal into another project when a switch comes while a file is read', async () => {
+    const read = held();
+    disk.files.set('1.sbdchanges', { bytes: new TextEncoder().encode('not a change file'), modified: 1, hold: read.promise });
+    await openAs(project, 7);
+    const first = bringInFolder();
+    await vi.waitFor(() => {
+      expect(reads).toEqual(['1.sbdchanges']);
+    });
+    const other = await createProject(folder.path('Saltmarsh.sbd'), { driver: nodeDriver, backups: false });
+    fakeFolder(8, 'Saltmarsh Suggestions');
+    await openAs(other, 8);
+    const second = bringInFolder();
+    read.release();
+    await first;
+    await second;
+    expect(notice().message).toBeNull();
+  });
+
+  it('says nothing of a rename into another project when a switch comes while the folder is renamed', async () => {
+    const rename = held();
+    disk.state = 'none';
+    disk.renameFrom = 'Old Name Suggestions';
+    disk.renameHold = rename.promise;
+    askMock.mockResolvedValue('rename');
+    await openAs(project, 7);
+    const first = bringInFolder();
+    await vi.waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('changes_folder_rename', { handle: 7, from: 'Old Name Suggestions' });
+    });
+    const other = await createProject(folder.path('Saltmarsh.sbd'), { driver: nodeDriver, backups: false });
+    fakeFolder(8, 'Saltmarsh Suggestions');
+    await openAs(other, 8);
+    const second = bringInFolder();
+    rename.release();
+    await first;
+    await second;
+    expect(notice().message).toBeNull();
+  });
+
+  it('goes past a file too large for what’s left of 10 MB, so one already in never blocks a small new one', async () => {
+    const MB = 1024 * 1024;
+    disk.files.set('c.sbdchanges', { bytes: changeFile(project.projectId, 3), modified: 1, listed: 2 * MB });
+    await openAs(project, 7);
+    await bringInFolder();
+    expect(suggestions()).toHaveLength(1);
+    await projectStore.getState().close();
+
+    // 5 MB new, 4 MB new, 2 MB already in, 10 KB new, in name order: the 2 MB one waits unread; the 10 KB one comes in.
+    disk.files.set('a.sbdchanges', { bytes: changeFile(project.projectId, 1), modified: 1, listed: 5 * MB });
+    disk.files.set('b.sbdchanges', { bytes: changeFile(project.projectId, 2), modified: 1, listed: 4 * MB });
+    disk.files.set('d.sbdchanges', { bytes: changeFile(project.projectId, 4), modified: 1, listed: 10 * 1024 });
+    project = await openAs(await openProject(folder.path('Harbor Lights.sbd'), { driver: nodeDriver, backups: false }), 7);
+    reads.length = 0;
+    await bringInFolder();
+    expect(reads).toEqual(['a.sbdchanges', 'b.sbdchanges', 'd.sbdchanges']);
+    expect(suggestions()).toHaveLength(4);
+    expect(notice().message).toBe('Brought in 3 suggestions from 3 change files. 1 change file not looked at yet in Harbor Lights Suggestions.');
+  });
+
+  it('keeps what a bring-in by hand wrote while the log was first read, so its undo stays undone', async () => {
+    const bytes = changeFile(project.projectId, 1);
+    disk.files.set('1.sbdchanges', { bytes, modified: 1 });
+    await openAs(project, 7);
+    // The log's answer is read before the by-hand bring-in commits, and handed back only after it and its undo.
+    const original = project.file.query.bind(project.file);
+    const answer = held();
+    const begun = held();
+    let first = true;
+    const query = vi.spyOn(project.file, 'query').mockImplementation(async (...args: Parameters<typeof original>) => {
+      const rows = await original(...args);
+      if (first && args[0].includes('change_file_id')) {
+        first = false;
+        begun.release();
+        await answer.promise;
+      }
+      return rows;
+    });
+    const pass = bringInFolder();
+    await begun.promise;
+    expect((await bringInBytes(project, bytes)).kind).toBe('added');
+    await projectStore.getState().undo();
+    expect(suggestions()).toHaveLength(0);
+    answer.release();
+    await pass;
+    query.mockRestore();
+    expect(reads).toEqual(['1.sbdchanges']);
+    expect(suggestions()).toHaveLength(0);
+  });
+
+  it('takes a pass’s line with files that couldn’t be read away on ⌘Z, as it does without them', async () => {
+    disk.files.set('1.sbdchanges', { bytes: changeFile(project.projectId, 1), modified: 1 });
+    disk.files.set('2.sbdchanges', { bytes: changeFile(project.projectId, 2), modified: 1, fails: true });
+    await openAs(project, 7);
+    await bringInFolder();
+    expect(notice().message).toBe('Brought in 1 suggestion from Robin Vale. 1 change file in Harbor Lights Suggestions couldn’t be read.');
+    expect(notice().kind).toBe('warning');
+    expect(notice().step).toBe(true);
+    await projectStore.getState().undo();
+    expect(notice().message).toBeNull();
   });
 });

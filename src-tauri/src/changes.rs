@@ -455,23 +455,27 @@ fn rename_new(from: &Path, to: &Path) -> io::Result<()> {
             }
         },
         || fs::rename(from, to),
-        libc::ENOTSUP,
+        &[libc::ENOTSUP, libc::EOPNOTSUPP],
     )
 }
 
 /// The exclusive rename, or, on a volume that can't do one (`unsupported`: a Mac's exFAT, FAT and some SMB shares answer
-/// ENOTSUP to RENAME_EXCL), the plain rename after the caller's check that nothing of the name is there. That plain
+/// ENOTSUP or EOPNOTSUPP to RENAME_EXCL, two numbers on macOS), the plain rename after the caller's check that nothing of the name is there. That plain
 /// rename leaves the gap the exclusive one closes: a folder made in the moment between would be replaced, only if it
 /// is empty (a rename never replaces a folder that holds anything). Any other error stops it.
 #[cfg(any(target_os = "macos", test))]
 fn excl_or_plain(
     excl: impl FnOnce() -> io::Result<()>,
     plain: impl FnOnce() -> io::Result<()>,
-    unsupported: i32,
+    unsupported: &[i32],
 ) -> io::Result<()> {
-    match excl() {
-        Err(error) if error.raw_os_error() == Some(unsupported) => plain(),
-        done => done,
+    let error = match excl() {
+        Err(error) => error,
+        done => return done,
+    };
+    match error.raw_os_error() {
+        Some(code) if unsupported.contains(&code) => plain(),
+        _ => Err(error),
     }
 }
 
@@ -1084,20 +1088,23 @@ mod tests {
 
     #[test]
     fn a_volume_without_an_exclusive_rename_falls_back_to_the_checked_plain_one() {
-        // Round 3: as renamex_np's ENOTSUP on exFAT, FAT or some SMB shares, played here by a made-up error number.
-        const UNSUPPORTED: i32 = 45;
+        // Round 3: as renamex_np's ENOTSUP on exFAT, FAT or some SMB shares, played here by made-up error numbers; round 4:
+        // EOPNOTSUPP, macOS's other number for it, falls back too.
+        const UNSUPPORTED: &[i32] = &[45, 102];
         let plain_ran = std::cell::Cell::new(false);
-        let plain = || {
-            plain_ran.set(true);
-            Ok(())
-        };
-        excl_or_plain(
-            || Err(io::Error::from_raw_os_error(UNSUPPORTED)),
-            plain,
-            UNSUPPORTED,
-        )
-        .unwrap();
-        assert!(plain_ran.get());
+        for &code in UNSUPPORTED {
+            plain_ran.set(false);
+            excl_or_plain(
+                || Err(io::Error::from_raw_os_error(code)),
+                || {
+                    plain_ran.set(true);
+                    Ok(())
+                },
+                UNSUPPORTED,
+            )
+            .unwrap();
+            assert!(plain_ran.get());
+        }
         // Any other error stops it: an existing target is never replaced by the fallback.
         plain_ran.set(false);
         let other = excl_or_plain(

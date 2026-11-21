@@ -25,7 +25,8 @@ export const MAX_KEY = 100;
 
 /**
  * The largest one suggestion may be, as JSON in UTF-8 (7.1 round 3): a bound chosen, not one 7.0 implies, to fit two
- * full 10,000-character fields with their `before` in any script (four such strings take at most 120,000 bytes).
+ * full 10,000-character fields with their `before`: 120,000 bytes of text in any script; 240,000 at worst as escaped
+ * JSON (7.1 round 4).
  */
 export const MAX_SUGGESTION_BYTES = 256 * 1024;
 
