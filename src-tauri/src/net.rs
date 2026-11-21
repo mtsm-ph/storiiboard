@@ -52,9 +52,16 @@ pub(crate) fn allowed(url: &Url) -> bool {
     allowed_with(url, None)
 }
 
-/// As `allowed`, with one more host (the person's own tile server, for tiles only).
+/// As `allowed`, with one more host (the person's own tile server, for tiles only). The one gate every request passes,
+/// before it is sent and after a redirect: while the launch check runs (launch_check.rs), it refuses everything.
 pub(crate) fn allowed_with(url: &Url, extra_host: Option<&str>) -> bool {
-    url.scheme() == "https"
+    gate(url, extra_host, crate::launch_check::running())
+}
+
+/// The gate's rule, with whether the launch check runs passed in, so its test needs no environment.
+fn gate(url: &Url, extra_host: Option<&str>, launch_check: bool) -> bool {
+    !launch_check
+        && url.scheme() == "https"
         && url.port().is_none()
         && url.username().is_empty()
         && url.password().is_none()
@@ -425,6 +432,26 @@ mod tests {
         ));
         // The listed hosts stay allowed.
         assert!(allowed_with(&url("https://api.met.no/x"), own));
+    }
+
+    #[test]
+    fn the_launch_check_refuses_every_address_allowed_otherwise() {
+        let own = Some("tiles.example.org");
+        for (address, extra) in [
+            ("https://nominatim.openstreetmap.org/search?q=x", None),
+            ("https://api.met.no/weatherapi/", None),
+            (
+                "https://raw.githubusercontent.com/mtsm-ph/storiiboard/main/services.json",
+                None,
+            ),
+            ("https://tile.openstreetmap.org/16/1/2.png", None),
+            ("https://tiles.example.org/1/2/3.png", own),
+        ] {
+            assert!(gate(&url(address), extra, false), "{address}");
+            assert!(!gate(&url(address), extra, true), "{address}");
+        }
+        // The tests never run the launch check, so the gate is the rule alone here.
+        assert!(allowed(&url("https://api.met.no/x")));
     }
 
     #[test]

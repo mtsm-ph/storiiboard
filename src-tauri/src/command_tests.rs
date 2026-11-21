@@ -1125,6 +1125,120 @@ mod online_without_the_network {
     }
 }
 
+/// The launch check's one command (launch_check.rs, 6.27l), as src/app/launchCheck/launchCheck.ts calls it. The mode is
+/// never switched on from the environment here (tests share one process): its state is handed to the app, as run()
+/// does, with a finisher that notes the verdict instead of ending the process.
+mod launch_check_step {
+    use super::*;
+    use crate::launch_check::{LaunchCheck, Reporter, Verdict};
+    use std::sync::{Arc, Mutex};
+
+    type Noted<T> = Arc<Mutex<Vec<T>>>;
+
+    /// The check's state on the harness's app, with what it says and what it decides noted.
+    fn running(h: &Harness) -> (Noted<String>, Noted<Verdict>) {
+        let lines: Noted<String> = Arc::default();
+        let verdicts: Noted<Verdict> = Arc::default();
+        let (said, decided) = (Arc::clone(&lines), Arc::clone(&verdicts));
+        assert!(h.app.manage(LaunchCheck::<MockRuntime>::new(
+            Box::new(move |line| said.lock().unwrap().push(line.to_owned())),
+            Box::new(move |_, verdict| decided.lock().unwrap().push(verdict.clone())),
+        )));
+        (lines, verdicts)
+    }
+
+    fn step(h: &Harness, step: &str, ok: bool, detail: &str) -> Result<Json, Json> {
+        h.call(
+            "launch_check_step",
+            json!({ "step": step, "ok": ok, "detail": detail }),
+        )
+    }
+
+    const PAGE_STEPS: [&str; 6] = [
+        "page",
+        "policy-watch",
+        "pdf-text",
+        "accents",
+        "worker-policy",
+        "no-violation",
+    ];
+
+    #[test]
+    fn is_refused_and_records_nothing_when_the_check_is_not_running() {
+        let h = Harness::new("launch-off");
+        for name in PAGE_STEPS {
+            assert_eq!(
+                refused(step(&h, name, true, "")),
+                "the launch check is not running"
+            );
+        }
+        assert_eq!(
+            refused(step(&h, "pdf-text", false, "x")),
+            "the launch check is not running"
+        );
+        // Nothing made the check's state: only run() does, in the mode.
+        assert!(h.app.try_state::<LaunchCheck<MockRuntime>>().is_none());
+    }
+
+    #[test]
+    fn records_the_pages_six_steps_and_hands_the_pass_to_the_finisher() {
+        let h = Harness::new("launch-pass");
+        let (lines, verdicts) = running(&h);
+        let check = h.app.state::<LaunchCheck<MockRuntime>>();
+        check
+            .report(h.app.handle(), Reporter::Rust, "window", true, "")
+            .unwrap();
+        check
+            .report(h.app.handle(), Reporter::Rust, "loaded", true, "")
+            .unwrap();
+        // The app's own steps can't come from the page, nor a step that isn't one.
+        for name in ["window", "loaded", "passed"] {
+            assert!(step(&h, name, true, "").is_err(), "{name}");
+        }
+        for name in PAGE_STEPS {
+            assert_eq!(step(&h, name, true, ""), Ok(Json::Null), "{name}");
+        }
+        assert_eq!(*verdicts.lock().unwrap(), vec![Verdict::Passed]);
+        // A report after the verdict changes nothing.
+        assert_eq!(step(&h, "page", false, "late"), Ok(Json::Null));
+        assert_eq!(*verdicts.lock().unwrap(), vec![Verdict::Passed]);
+        assert!(check.decided());
+        let said = lines.lock().unwrap().clone();
+        let mut expected: Vec<String> = crate::launch_check::STEPS
+            .iter()
+            .map(|name| format!("launch check: {name} ok"))
+            .collect();
+        expected.push("launch check: passed".to_owned());
+        assert_eq!(said, expected);
+    }
+
+    #[test]
+    fn a_failed_page_step_is_the_verdict_with_its_code_and_its_cleaned_reason() {
+        let h = Harness::new("launch-fail");
+        let (lines, verdicts) = running(&h);
+        assert_eq!(step(&h, "page", true, ""), Ok(Json::Null));
+        assert_eq!(
+            step(&h, "accents", false, "the worker gave\nno answer"),
+            Ok(Json::Null)
+        );
+        let failed = Verdict::Failed {
+            step: "accents",
+            code: 16,
+            why: "the worker gave no answer".to_owned(),
+        };
+        assert_eq!(*verdicts.lock().unwrap(), vec![failed]);
+        assert_eq!(
+            lines.lock().unwrap().last().map(String::as_str),
+            Some("launch check: FAILED at accents: the worker gave no answer")
+        );
+        // Decided: a later pass of every step is ignored.
+        for name in PAGE_STEPS {
+            assert_eq!(step(&h, name, true, ""), Ok(Json::Null), "{name}");
+        }
+        assert_eq!(verdicts.lock().unwrap().len(), 1);
+    }
+}
+
 /// The capability files (capabilities/default.json) as the mock runtime checks them, built from the real config.
 mod permissions {
     use super::*;
