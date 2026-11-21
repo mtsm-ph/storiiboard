@@ -48,6 +48,17 @@ export function clearNotice(): void {
   noticeStore.setState({ message: null });
 }
 
+/** How many notices have been shown so far, for `clearNoticeFrom`. */
+export const noticeCount = (): number => noticeStore.getState().seq;
+
+/**
+ * After an action that worked: the notice from before it goes, but not one the action itself showed (#244 round 4:
+ * "the backup of … is still being made", or a backup that failed at that project's last close).
+ */
+export function clearNoticeFrom(count: number): void {
+  if (noticeStore.getState().seq === count) clearNotice();
+}
+
 export function useNotice(): { message: string | null; kind: NoticeKind; seq: number; copy: string | null } {
   return useStore(noticeStore, useShallow((s) => ({ message: s.message, kind: s.kind, seq: s.seq, copy: s.copy })));
 }

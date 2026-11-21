@@ -2,7 +2,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEffect } from 'react';
 import { command } from '../../core/storage/tauriDriver';
-import { clearNotice, showNotice } from '../notice';
+import { clearNoticeFrom, noticeCount, showNotice } from '../notice';
 import { openProjectFile } from '../openFiles';
 import { files } from '../projects/actions';
 
@@ -17,9 +17,11 @@ export function useOpenedFiles(): void {
     const take = async () => {
       const last = (await command<string[]>('opened_files_take', {})).at(-1);
       if (last === undefined) return;
+      const shown = noticeCount();
       try {
         await openProjectFile(last, files);
-        clearNotice();
+        // A notice the open itself showed stays (a backup still being made, or one that failed at its last close).
+        clearNoticeFrom(shown);
       } catch (error) {
         showNotice(error);
       }

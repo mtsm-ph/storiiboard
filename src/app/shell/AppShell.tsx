@@ -21,6 +21,7 @@ import { toggleSidebar, useSidebarHidden } from './sidebar/sidebarStore';
 import { useOpenedFiles } from './useOpenedFiles';
 import { TopBar } from './TopBar';
 import { isMac, undoCommandFor } from './undoShortcuts';
+import { onGapPointer, onSaveKey } from './saveShortcut';
 import { inModalDialog, sectionId, TILES, WORKSPACE_PANEL_ID, WORKSPACES, workspaceById, workspaceForShortcut, type WorkspaceId } from './workspaces';
 import { showWorkspace, useWorkspaceState } from './workspaceStore';
 import { SketchHost } from '../../features/storyboard/sketch/SketchHost';
@@ -99,6 +100,22 @@ export function AppShell() {
     window.addEventListener('keydown', onKeyDown);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    const mac = isMac();
+    // ⌘S (Ctrl+S): in the capture phase, so the browser's or WebView's save dialog never opens, whatever has focus; its
+    // default only is prevented, and every other listener still hears the key. Between a press's blur and its refocus
+    // it takes every key, so none acts on the page meanwhile (saveShortcut.ts); a pointerdown anywhere ends that gap.
+    const onKeyDown = (event: KeyboardEvent) => {
+      onSaveKey(event, mac);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('pointerdown', onGapPointer, true);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('pointerdown', onGapPointer, true);
     };
   }, []);
 

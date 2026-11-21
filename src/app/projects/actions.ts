@@ -11,7 +11,7 @@ import { setRecentState } from '../../core/storage/recent';
 import { loadSettings } from '../../core/storage/settings';
 import { appData, appDriver, isTauriApp } from '../fileAccess';
 import { fileStem } from '../../core/storage/paths';
-import { clearNotice, showInfo, showNotice } from '../notice';
+import { clearNoticeFrom, noticeCount, showInfo, showNotice } from '../notice';
 import { createProjectFile, openProjectFile, reopenProjectFile, type OpenFileOptions } from '../openFiles';
 import { openVersionCopy } from '../openVersion';
 import { whileOpeningProject } from '../openingProject';
@@ -61,18 +61,20 @@ export async function reopenChangedProject(): Promise<void> {
     // stay disabled until it has (src/app/openingProject.ts), with no gap between the reopen's end and the close.
     await whileOpeningProject(async () => {
       try {
-        if (!(await reopenProjectFile(path, files))) {
+        // The old connection is on a file that's no longer the project: it closes with no backup made of it.
+        if (!(await reopenProjectFile(path, files, { flush: false }))) {
           // Not opened (Cancel at "open on another computer"): the one open is on a replaced file and can't be saved
-          // to, so it closes rather than refuse every edit without a word.
-          await projectStore.getState().close();
+          // to, so it closes rather than refuse every edit without a word. No queued backup is made of a file that's
+          // no longer the project.
+          await projectStore.getState().close({ flush: false });
           showNotice(t('open.changedNotReopened'));
           return;
         }
         showNotice(t('open.changedReopened'));
       } catch (error) {
         // The open project is on a file that's been replaced, so it can't be saved to: it closes, and the notice says
-        // why.
-        await projectStore.getState().close();
+        // why. No queued backup of it, as above.
+        await projectStore.getState().close({ flush: false });
         showNotice(error);
       }
     });
@@ -88,9 +90,11 @@ export async function reopenChangedProject(): Promise<void> {
  */
 async function attempt(action: () => Promise<void>): Promise<boolean> {
   let worked = false;
+  const shown = noticeCount();
   try {
     await action();
-    clearNotice();
+    // A notice the action showed (an open's "still being made") stays.
+    clearNoticeFrom(shown);
     worked = true;
   } catch (error) {
     showNotice(error);

@@ -6,6 +6,7 @@ import {
   CANVAS_VIEW_KEY,
   canvasViewsOf,
   cleanProfileText,
+  CLOSE_BACKUP_FAILED_KEY,
   customWorkspacesOf,
   departmentWorkspacesOf,
   isThemePreference,
@@ -116,6 +117,7 @@ export const NOT_A_SETTING: Readonly<Record<string, string>> = {
   [SETTINGS_KEY]: 'The settings object itself: its keys are walked one by one.',
   'storiiboard.app-data': 'The browser build’s stand-in for app data files: recent projects, never in a preset.',
   'storiiboard.memory-files': 'Projects kept in the page by the dev-only memory build.',
+  [CLOSE_BACKUP_FAILED_KEY]: 'A failed backup at a project’s close, said once when that project next opens: a note.',
 };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);

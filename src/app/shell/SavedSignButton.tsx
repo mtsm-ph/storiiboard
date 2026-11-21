@@ -4,7 +4,8 @@ import { openSettings } from '../settings/settingsStore';
 import { t } from '../../core/i18n';
 import { cx } from '../../ui/cx';
 import { Trans } from '../../ui/Trans';
-import { savedSignText, say, signMinute, type Phrase } from './savedSign';
+import { nextBackupSentence, savedSignText, say, signMinute, type Phrase } from './savedSign';
+import { useSaveAnswer } from './saveShortcut';
 
 // The status bar's "Saved 14:32 · Backup 14:30" (6.5.4). A button: it opens Settings → Backups. Its name is what it
 // shows, so a person using voice control can say it (WCAG 2.5.3, axe's label-content-name-mismatch), and its
@@ -50,6 +51,30 @@ export function SavedSign() {
   const [tip, setTip] = useState(false);
   const howId = useId();
   const sign = savedSignText({ savedAt, backupAt, saveFailed, changedOnDisk }, now);
+  // Ctrl+S's answer (saveShortcut.ts): its tip shows from the press until the next key, click or pointer move, with no
+  // timer. A press from before this sign was drawn is never shown.
+  const pressed = useSaveAnswer();
+  const [seenPress, setSeenPress] = useState(pressed.press);
+  const pressTip = pressed.press > seenPress;
+  const next = pressed.nextAt === null ? null : nextBackupSentence(new Date(pressed.nextAt), now);
+  const [said, setSaid] = useState<{ press: number; text: string } | null>(null);
+  if (pressed.press > seenPress && said?.press !== pressed.press) {
+    setSaid({ press: pressed.press, text: next ? t('savedSign.labelNext', { label: sign.label, next: say(next) }) : sign.label });
+  }
+  const sentences = <Trans k="savedSign.label" parts={{ saved: <Words phrase={sign.savedSentence} />, backup: <Words phrase={sign.backupSentence} /> }} />;
+  useEffect(() => {
+    if (!pressTip) return;
+    const hide = (event: Event) => {
+      // A held key (Ctrl kept down after the S) repeats; only a new key puts the tip away.
+      if (event instanceof KeyboardEvent && event.repeat) return;
+      setSeenPress(pressed.press);
+    };
+    const kinds = ['keydown', 'pointerdown', 'pointermove', 'click'] as const;
+    for (const kind of kinds) window.addEventListener(kind, hide, true);
+    return () => {
+      for (const kind of kinds) window.removeEventListener(kind, hide, true);
+    };
+  }, [pressTip, pressed.press]);
   useEffect(() => {
     if (!tip) return;
     const onKey = (event: KeyboardEvent) => {
@@ -97,19 +122,25 @@ export function SavedSign() {
       <span id={howId} hidden>
         {sign.description}
       </span>
-      {tip && (
-        // The button's name and description already say all this to a screen reader, so the box is for the eye only.
+      {(tip || pressTip) && (
+        // The button's name and description already say all this to a screen reader, so the box is for the eye only;
+        // a press's answer goes to the live region below.
         <span
           aria-hidden="true"
           data-saved-tip=""
           className="pointer-events-none absolute right-0 bottom-full z-30 mb-2 block w-72 border-[1.5px] border-text bg-surface px-2 py-1 text-[12px] text-text"
         >
           <span className="block font-semibold">
-            <Trans k="savedSign.label" parts={{ saved: <Words phrase={sign.savedSentence} />, backup: <Words phrase={sign.backupSentence} /> }} />
+            {pressTip && next ? <Trans k="savedSign.labelNext" parts={{ label: sentences, next: <Words phrase={next} /> }} /> : sentences}
           </span>
           <span className="block">{t('savedSign.how')}</span>
         </span>
       )}
+      {/* Once per press: a new child each time, so the same words are said again for a second press, and kept as they
+          were at the press, so a later backup doesn't say them again. */}
+      <span aria-live="polite" data-saved-said="" className="sr-only">
+        {said && <span key={said.press}>{said.text}</span>}
+      </span>
     </div>
   );
 }

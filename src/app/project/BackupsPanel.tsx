@@ -7,7 +7,7 @@ import { showNotice } from '../notice';
 import { isTauriApp } from '../fileAccess';
 import { openBackup } from '../projects/actions';
 import { syncServiceOf } from '../projects/synced';
-import { useProject } from '../projectStore';
+import { projectStore, useProject } from '../projectStore';
 import { BackupsView, type BackupEntry } from './BackupsView';
 import { t } from '../../core/i18n';
 
@@ -17,7 +17,7 @@ export function BackupsPanel() {
   const [nextToProject, setNextToProject] = useState(() => loadSettings().backupsNextToProject);
   const [found, setFound] = useState<{ folder: string; names: readonly string[]; synced: string | null } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  // Bumped after Back up now or a change of folder, so the list is read again.
+  // Bumped after Back up now, a change of folder or any backup landing, so the list is read again.
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
@@ -33,6 +33,16 @@ export function BackupsPanel() {
       current = false;
     };
   }, [project, generation]);
+
+  // Any backup landing (the 5-minute run, a queued hand one, Ctrl+S) reads the list again. The schedule tells it once
+  // the copy it replaced and pruning's are gone, so the list never shows a file just deleted.
+  useEffect(() => {
+    const schedule = project?.backups;
+    if (!schedule) return;
+    return schedule.onBackup(() => {
+      setGeneration((n) => n + 1);
+    });
+  }, [project]);
 
   const entries: BackupEntry[] =
     project && found
@@ -63,14 +73,27 @@ export function BackupsPanel() {
       status={status}
       onBackUpNow={() => {
         const schedule = project?.backups;
-        if (!schedule) return;
+        if (!project || !schedule) return;
+        // The answer is this project's: one switched to meanwhile never shows it, as with Ctrl+S (pressSave).
+        const stillOpen = () => projectStore.getState().project === project;
+        // The hand-backup rule (Kevin, Nov 18), one with Ctrl+S: a press under a minute after the newest backup waits
+        // until that minute is up.
         schedule
-          .runNow()
+          .backUpByHand()
           .then((run) => {
-            setStatus(run.created ? t('backups.backedUpAt', { time: localDateTime(new Date()) }) : t('backups.nothingChanged'));
+            if (!stillOpen()) return;
+            setStatus(
+              run.kind === 'nothing'
+                ? t('backups.nothingChanged')
+                : run.kind === 'queued'
+                  ? t('backups.queued', { time: localDateTime(run.at) })
+                  : t('backups.backedUpAt', { time: localDateTime(new Date()) }),
+            );
             setGeneration((n) => n + 1);
           })
-          .catch(showNotice);
+          .catch((error: unknown) => {
+            if (stillOpen()) showNotice(error);
+          });
       }}
       onShowBackups={() => {
         project?.file.showBackups().catch(showNotice);
