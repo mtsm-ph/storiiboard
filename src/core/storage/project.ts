@@ -18,8 +18,19 @@ export interface Project {
   readonly migration: MigrationResult;
   /** Null when backups were turned off for this open. */
   readonly backups: BackupSchedule | null;
-  close(): Promise<void>;
+  /**
+   * Closes the file and its lock. A hand backup still queued is made first (`flush`, on unless set false): not for a
+   * file a sync replaced, which is no longer the project (#244 round 3).
+   */
+  close(options?: { flush?: boolean }): Promise<void>;
 }
+
+/**
+ * Files still closing, by path: a close that makes a queued backup first can run on after a switch (projectStore's
+ * `open`), and the same file opened again meanwhile waits for it, so the old connection's close never takes the lock
+ * file the new one wrote.
+ */
+const closing = new Map<string, Promise<void>>();
 
 export const LOCK_REFRESH_MS = 60 * 1000;
 
@@ -58,6 +69,7 @@ async function start(path: string, options: ProjectOptions, isNew: boolean): Pro
     backupsNextToProject = false,
     now = () => new Date(),
   } = options;
+  await closing.get(path);
   const file = isNew ? await driver.create(path) : await driver.open(path);
 
   const name = fileStem(path);
@@ -97,12 +109,23 @@ async function start(path: string, options: ProjectOptions, isNew: boolean): Pro
     name,
     migration,
     backups: schedule,
-    close: async () => {
-      // A hand backup waiting for its minute is made now (if anything changed): the sign said one would be.
-      await schedule?.flushQueued();
-      schedule?.stop();
-      clearInterval(lockTimer);
-      await file.close();
+    close: (closeOptions) => {
+      const done = (async () => {
+        // A hand backup waiting for its minute is made now (if anything changed): the sign said one would be.
+        if (closeOptions?.flush !== false) await schedule?.flushQueued();
+        schedule?.stop();
+        clearInterval(lockTimer);
+        await file.close();
+      })();
+      const settled = done.then(
+        () => undefined,
+        () => undefined,
+      );
+      closing.set(path, settled);
+      void settled.then(() => {
+        if (closing.get(path) === settled) closing.delete(path);
+      });
+      return done;
     },
   };
 }

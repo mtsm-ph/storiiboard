@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { commitAndStay, isSaveShortcut, onSaveKey, pressSave, typedBy } from './saveShortcut';
+import { commitAndStay, isSaveShortcut, onGapPointer, onSaveKey, pressSave, typedBy } from './saveShortcut';
 import { isTextEntry } from './workspaces';
 
 // Ctrl+S, ⌘S on a Mac (Kevin, Nov 18): the key is caught for the whole window, text fields included, so the browser's
@@ -253,5 +253,102 @@ describe('keys pressed between the blur and the refocus', () => {
     expect(typedBy(key('`', {}, 'Backquote'), false)).toBe('`');
     expect(typedBy(key('ArrowLeft', {}, 'ArrowLeft'), false)).toBeNull();
     expect(typedBy(key('Dead', {}, 'Quote'), false)).toBeNull();
+  });
+
+  it('counts Ctrl and Alt together as AltGr only when the engine says AltGraph is down', () => {
+    const altGr = (letter: string, on: boolean) => ({ ...key(letter, { ctrlKey: true, altKey: true }), getModifierState: (k: string) => on && k === 'AltGraph' });
+    expect(typedBy(altGr('@', true), false)).toBe('@');
+    // Ctrl+Alt+letter held down, no AltGr: a shortcut, not typing.
+    expect(typedBy(altGr('e', false), false)).toBeNull();
+    // Alt alone stays a shortcut, whatever the engine says.
+    expect(typedBy({ ...key('1', { altKey: true }, 'Digit1'), getModifierState: () => false }, false)).toBeNull();
+  });
+
+  /** A press's gap with these keys pressed in it, the field coming back; what the document was asked to do. */
+  async function gapWith(events: ReturnType<typeof down>[], tagName = 'INPUT') {
+    const doc = { activeElement: null as unknown, body: {}, execCommand: vi.fn(() => true) };
+    const field = { ...fakeField(doc, 'Action'), tagName };
+    field.focus = vi.fn(() => {
+      doc.activeElement = field;
+    });
+    doc.activeElement = field;
+    await commitAndStay(() => {
+      for (const event of events) onSaveKey(event, false, vi.fn());
+      return Promise.resolve();
+    }, doc as unknown as Document);
+    return { doc, field, events };
+  }
+
+  it('replays Backspace and Delete in order among the letters, and Enter in a textarea as a line break', async () => {
+    const { doc } = await gapWith([down('a'), down('b'), down('Backspace'), down('c'), down('Delete'), down('d')]);
+    expect(doc.execCommand.mock.calls).toEqual([
+      ['insertText', false, 'ab'],
+      ['delete', false],
+      ['insertText', false, 'c'],
+      ['forwardDelete', false],
+      ['insertText', false, 'd'],
+    ]);
+
+    const lines = await gapWith([down('a'), down('Enter'), down('b')], 'TEXTAREA');
+    expect(lines.doc.execCommand.mock.calls).toEqual([['insertText', false, 'a\nb']]);
+  });
+
+  it('stops at a key that moves on (Tab, an arrow, Escape): what came before goes in, what follows is dropped', async () => {
+    for (const leave of ['Tab', 'ArrowDown', 'Escape']) {
+      const { doc, events } = await gapWith([down('a'), down(leave), down('b'), down('Backspace')]);
+      expect(doc.execCommand.mock.calls).toEqual([['insertText', false, 'a']]);
+      // Every key is still taken from the page.
+      for (const event of events) expect(event.stopImmediatePropagation).toHaveBeenCalledTimes(1);
+    }
+    // Shift held for a capital is no such key.
+    const { doc } = await gapWith([down('Shift', { shiftKey: true }), down('A', { shiftKey: true })]);
+    expect(doc.execCommand.mock.calls).toEqual([['insertText', false, 'A']]);
+  });
+
+  it('ends at a pointerdown: the field isn’t focused again and nothing typed goes in', async () => {
+    const doc = { activeElement: null as unknown, body: {}, execCommand: vi.fn(() => true) };
+    const field = fakeField(doc, 'Action');
+    doc.activeElement = field;
+    await commitAndStay(() => {
+      onSaveKey(down('x'), false, vi.fn());
+      // A click elsewhere, which in WebKit on a Mac moves no focus.
+      onGapPointer();
+      const after = down('y');
+      expect(onSaveKey(after, false, vi.fn())).toBe(false);
+      expect(after.preventDefault).not.toHaveBeenCalled();
+      return Promise.resolve();
+    }, doc as unknown as Document);
+    expect(field.focus).not.toHaveBeenCalled();
+    expect(doc.execCommand).not.toHaveBeenCalled();
+    expect(doc.activeElement).toBe(doc.body);
+  });
+});
+
+describe('a field drawn anew whose commit tidied its value', () => {
+  it('is found by its value as the commit leaves it, in any case and trimmed, only when exactly one matches', async () => {
+    const doc = { activeElement: null as unknown, body: {} };
+    const old = fakeField(doc, 'Scene number', ' 12a ');
+    const fresh = fakeField(doc, 'Scene number', '12A');
+    const holder = { isConnected: true, parentElement: null, getAttribute: () => null, querySelectorAll: () => [fresh] };
+    old.parentElement = holder;
+    doc.activeElement = old;
+    await commitAndStay(() => {
+      old.isConnected = false;
+      return Promise.resolve();
+    }, doc as unknown as Document);
+    expect(fresh.focus).toHaveBeenCalledWith({ preventScroll: true });
+
+    // Two that match: neither is taken.
+    const again = fakeField(doc, 'Scene number', '12a');
+    const one = fakeField(doc, 'Scene number', '12A');
+    const two = fakeField(doc, 'Scene number', '12A ');
+    again.parentElement = { isConnected: true, parentElement: null, getAttribute: () => null, querySelectorAll: () => [one, two] };
+    doc.activeElement = again;
+    await commitAndStay(() => {
+      again.isConnected = false;
+      return Promise.resolve();
+    }, doc as unknown as Document);
+    expect(one.focus).not.toHaveBeenCalled();
+    expect(two.focus).not.toHaveBeenCalled();
   });
 });

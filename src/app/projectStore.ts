@@ -82,7 +82,8 @@ export interface ProjectState {
    */
   backupAt: string | null;
   open: (project: Project) => Promise<void>;
-  close: () => Promise<void>;
+  /** `flush: false` when the file was replaced on disk (the reopen path): its queued hand backup isn't made. */
+  close: (options?: { flush?: boolean }) => Promise<void>;
   /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
   apply: (changes: readonly Change[], options?: Pick<OpOptions, 'alsoWrite'>) => Promise<void>;
   /**
@@ -265,18 +266,29 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
               if (get().project === project) set({ backupAt: at.toISOString() });
             }) ?? noop;
           if (before && before !== project) {
+            // The same file opened again is the reopen after a sync replaced it (openProjectFile never reopens the
+            // file open now): the old connection is on a file that's no longer the project, so no backup of it.
+            const replaced = before.file.path === project.file.path;
+            // Read before the close begins, which takes the queued one off the schedule at once.
+            const copyFirst = !replaced && before.backups?.pending() === true;
             // Closing the old one can only fail to tidy its lock, which another computer then counts stale.
-            await before.close().catch(() => undefined);
+            const closed = before.close({ flush: !replaced }).catch(() => undefined);
+            // With a hand backup still to make, the old project closes on its own, outside this queue, so the new
+            // one's edits never wait for its copy (a large project's full copy, a share that stalls: #244 round 3).
+            // Its schedule tells nobody of it (unsubscribed above) and drops its failures (flushQueued), so none
+            // lands on the project open now; project.ts holds back a reopen of that file until it's closed.
+            if (!copyFirst) await closed;
             forgetDecoded();
             await releaseImageUrls(before.file);
           }
         }),
-      close: () =>
+      close: (options) =>
         enqueue(async () => {
           const { project } = get();
           try {
             if (project) {
-              await project.close();
+              // A queued hand backup is made first, unless the caller says the file is no longer the project.
+              await project.close({ flush: options?.flush !== false });
               forgetDecoded();
               await releaseImageUrls(project.file);
             }

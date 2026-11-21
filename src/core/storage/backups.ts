@@ -206,10 +206,14 @@ export interface BackupSchedule {
    */
   backUpByHand(): Promise<HandBackup>;
   /**
-   * Makes the queued hand backup now, if one is waiting and anything changed, so closing or switching the project
-   * never drops the copy the sign said would be made. A failure goes to `onError`; it never stops the close.
+   * For a close: makes the queued hand backup now, if one is waiting and anything changed, so closing or switching the
+   * project never drops the copy the sign said would be made; one whose minute came and is being made is waited for.
+   * Resolves once it's on disk or failed. A failure never goes to `onError`, nor does any later one: the project is
+   * closing, and another may be open by the time it ends (#244 round 3), so a failure can't be told on its sign.
    */
   flushQueued(): Promise<void>;
+  /** Whether a hand backup is queued, or the queued one is being made: a close then has a copy to make first. */
+  pending(): boolean;
   /**
    * Calls `listener` with the time in a backup's name each time this schedule writes one (the 5-minute run, Back up
    * now, Compact's), so the status bar's sign (6.5.4) learns of it without reading the disk. Returns the unsubscribe.
@@ -252,8 +256,15 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
   let latestReplaceable = false;
   /** The one hand backup waiting for its minute, if any. */
   let queued: { at: Date; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** The queued one once its minute came, while it's being made: a close waits for it before the file goes. */
+  let queuedRun: Promise<void> | null = null;
   let running: Promise<BackupRun> | null = null;
   let stopped = false;
+  /** Set when a close begins (`flushQueued`): from then on no failure is told, as after `stop()`. */
+  let closing = false;
+  const report = (error: unknown) => {
+    if (!stopped && !closing) options.onError?.(error);
+  };
   const listeners = new Set<(at: Date) => void>();
   const tell = (at: Date) => {
     // A listener that throws never fails the backup it hears of: the copy is on disk either way.
@@ -338,8 +349,15 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
       const timer = setTimeout(() => {
         queued = null;
         if (stopped) return;
-        backUpByHand().catch((error: unknown) => {
-          if (!stopped) options.onError?.(error);
+        const run: Promise<void> = backUpByHand().then(
+          () => undefined,
+          (error: unknown) => {
+            report(error);
+          },
+        );
+        queuedRun = run;
+        void run.finally(() => {
+          if (queuedRun === run) queuedRun = null;
         });
       }, HAND_WAIT_MS - age);
       queued = { at: due, timer };
@@ -377,13 +395,18 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     queued ? Promise.resolve({ kind: 'queued', at: queued.at, deleted: [] }) : inTurn(() => byHand());
 
   const flushQueued = async (): Promise<void> => {
-    if (!queued || stopped) return;
+    if (stopped) return;
+    closing = true;
+    // Its minute came already and the copy is under way: the file closes only once it's done, in its turn.
+    if (queuedRun) await queuedRun;
+    if (!queued) return;
     clearTimeout(queued.timer);
     queued = null;
     try {
       await inTurn(() => byHand(false));
-    } catch (error) {
-      options.onError?.(error);
+    } catch {
+      // Not told (see flushQueued's note): the project is closing, and another may be open by now. The copies made
+      // before it are on disk as they were.
     }
   };
 
@@ -416,10 +439,8 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     });
 
   const timer = setInterval(() => {
-    runNow().catch((error: unknown) => {
-      // A copy cut off by closing the project isn't a failure to tell anyone about.
-      if (!stopped) options.onError?.(error);
-    });
+    // A copy cut off by closing the project isn't a failure to tell anyone about.
+    runNow().catch(report);
   }, intervalMs);
 
   return {
@@ -427,6 +448,7 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     backUpThen,
     backUpByHand,
     flushQueued,
+    pending: () => queued !== null || queuedRun !== null,
     onBackup: (listener) => {
       listeners.add(listener);
       return () => {
