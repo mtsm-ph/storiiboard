@@ -1,12 +1,14 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { makeTestFolder } from '../src/core/storage/testFolder';
 import {
   cargoTreeCrates,
   classify,
   compareVersions,
   findingLine,
   lockPackages,
+  main,
   markdown,
   mergeAdvisories,
   npmAuditAdvisories,
@@ -223,6 +225,55 @@ describe('the Advisories job', () => {
     expect(ctx.lock['mcp/node_modules/zustand']?.version).toBe('4.0.0');
     expect(ctx.lock['node_modules/zustand']?.version).toBe('5.0.15');
     expect(prefixedLock(mcpLock, 'mcp/')).not.toHaveProperty('mcp/');
+  });
+
+  it('runs the job’s step with --npm-mcp and --lock-mcp: the server’s finding is red, named in mcp/', () => {
+    const folder = makeTestFolder();
+    const logs: string[] = [];
+    const log = vi.spyOn(console, 'log').mockImplementation((line: unknown) => {
+      logs.push(String(line));
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    // Never into a real job's summary when this runs in CI.
+    vi.stubEnv('GITHUB_STEP_SUMMARY', '');
+    try {
+      const write = (name: string, value: unknown) => {
+        writeFileSync(folder.path(name), typeof value === 'string' ? value : JSON.stringify(value));
+        return folder.path(name);
+      };
+      const files = {
+        osv: write('osv.json', osvReport([], [])),
+        npm: write('npm-audit.json', { auditReportVersion: 2, vulnerabilities: {} }),
+        lock: write('package-lock.json', { name: 'storiiboard', lockfileVersion: 3, packages: { '': { name: 'storiiboard' }, 'node_modules/zustand': { version: '5.0.15' } } }),
+        treeWindows: write('tree-windows.txt', 'storiiboard v0.1.0 (C:\\Users\\robin\\storiiboard\\src-tauri)\n'),
+        treeMac: write('tree-mac.txt', 'storiiboard v0.1.0 (/Users/robin/storiiboard/src-tauri)\n'),
+        config: write('osv-scanner.toml', ''),
+        npmMcp: write('npm-audit-mcp.json', {
+          auditReportVersion: 2,
+          vulnerabilities: { express: npmEntry('express', ['node_modules/express'], 'GHSA-xxxx-yyyy-zzzz', 'A made-up flaw in a server') },
+        }),
+        lockMcp: write('mcp-package-lock.json', { name: 'storiiboard-mcp', lockfileVersion: 3, packages: { '': { name: 'storiiboard-mcp' }, 'node_modules/express': { version: '5.2.1' } } }),
+      };
+      const base = ['--osv', files.osv, '--npm', files.npm, '--lock', files.lock, '--tree-windows', files.treeWindows, '--tree-mac', files.treeMac, '--config', files.config];
+      expect(main([...base, '--npm-mcp', files.npmMcp, '--lock-mcp', files.lockMcp])).toBe(1);
+      const finding = logs.find((line) => line.includes('express'));
+      expect(finding).toMatch(/^RED {2}ships/);
+      expect(finding).toContain('npm express 5.2.1');
+      expect(finding).toContain('in mcp/ (the MCP server)');
+      expect(logs.at(-1)).toBe('1 finding, 1 red (1 shipped, 0 malware); 0 ignored, 0 dev only, 0 Linux or build only, 0 unmaintained.');
+      // Without --npm-mcp, the server's audit isn't read at all.
+      logs.length = 0;
+      expect(main(base)).toBe(0);
+      expect(logs.some((line) => line.includes('express'))).toBe(false);
+      // A --lock-mcp that isn't there is an error, never a pass.
+      expect(main([...base, '--npm-mcp', files.npmMcp, '--lock-mcp', folder.path('missing.json')])).toBe(1);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("Can't read"));
+    } finally {
+      log.mockRestore();
+      error.mockRestore();
+      vi.unstubAllEnvs();
+      folder.remove();
+    }
   });
 
   it('applies an ignore only before its date, by an alias too', () => {

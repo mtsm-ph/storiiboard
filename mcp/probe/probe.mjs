@@ -2,23 +2,56 @@
 // does its node:sqlite open a file read-only? One tool, `node_check`. It needs no package, so it packs into a bundle
 // (.mcpb) with manifest.json alone and runs on the Node Claude Desktop brings: the MCP's few messages it needs (stdio,
 // one JSON message a line) are answered here by hand, the way the SDK would.
+import { mkdtempSync, rmdirSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
+// An error by its codes only, never its message (a message can name a path): node:sqlite's SQLite code, else Node's.
+const codeOf = (error) => {
+  if (error && typeof error === 'object') {
+    if (typeof error.errcode === 'number') return `SQLite ${String(error.errcode)}`;
+    if (typeof error.code === 'string') return error.code;
+  }
+  return 'unknown';
+};
+
 function nodeCheck() {
-  const check = { node: process.version, electron: process.versions.electron ?? null, sqlite: 'not loaded' };
+  // The server needs Node 22.16 or later: setReturnArrays and columns on a statement came in 22.16 (docs/MCP.md).
+  const check = { node: process.version, electron: process.versions.electron ?? null, sqlite: 'not loaded', set_return_arrays: null, columns: null, read_only_option: null };
+  let folder = null;
+  let path = null;
   try {
     const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
-    // A small file in the system's temp folder: made once, then opened read-only.
-    const path = join(tmpdir(), 'storiiboard-probe.sqlite');
-    new DatabaseSync(path).close();
+    // A small file in a fresh folder of the system's temp space: made once, opened read-only, then deleted with it.
+    folder = mkdtempSync(join(tmpdir(), 'storiiboard-probe-'));
+    path = join(folder, 'probe.sqlite');
+    const make = new DatabaseSync(path);
+    make.exec('CREATE TABLE t (x)');
+    make.close();
     const db = new DatabaseSync(path, { readOnly: true });
-    check.sqlite = `opened read-only, SQLite ${String(db.prepare('SELECT sqlite_version() AS v').get().v)}`;
+    const statement = db.prepare('SELECT sqlite_version() AS v');
+    check.set_return_arrays = typeof statement.setReturnArrays;
+    check.columns = typeof statement.columns;
+    check.sqlite = `opened read-only, SQLite ${String(statement.get().v)}`;
+    // Whether the readOnly option holds: a write on this connection must be refused.
+    try {
+      db.exec('INSERT INTO t VALUES (1)');
+      check.read_only_option = 'ignored: a write went through';
+    } catch (error) {
+      check.read_only_option = `honoured: a write is refused (${codeOf(error)})`;
+    }
     db.close();
   } catch (error) {
-    check.sqlite = `failed: ${error instanceof Error ? error.message : String(error)}`;
+    check.sqlite = `failed: ${codeOf(error)}`;
+  } finally {
+    try {
+      if (path) unlinkSync(path);
+      if (folder) rmdirSync(folder);
+    } catch {
+      // Left in the temp folder, which the system empties.
+    }
   }
   return check;
 }

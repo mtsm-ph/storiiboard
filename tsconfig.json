@@ -20,5 +20,5 @@
     "tsBuildInfoFile": "node_modules/.cache/tsc/tsconfig.tsbuildinfo",
     "types": ["node", "vite/client"]
   },
-  "include": ["src", "e2e", "scripts", "mcp/src", "mcp/test", "mcp/vite.config.ts", "vite.config.ts", "playwright.config.ts"]
+  "include": ["src", "e2e", "scripts", "vite.config.ts", "playwright.config.ts"]
 }

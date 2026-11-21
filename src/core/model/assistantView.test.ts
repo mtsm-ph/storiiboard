@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ASSISTANT_PROPS, assistantView, contactValues, givenProps, TAKEN_OUT, withoutContacts } from './assistantView';
+import { ASSISTANT_PROPS, assistantView, contactGuard, contactIn, givenProps, suggestionFieldsLeftOut, TAKEN_OUT, withoutContacts } from './assistantView';
 import { RECORD_TYPES, type Props, type RecordType, type SbdRecord } from './record';
 
 // What an assistant may read (7.5): every prop of every record type, given or left out, listed here in full, so a change
@@ -24,9 +24,10 @@ const EVERY_PROP: Record<RecordType, { given: string[]; leftOut: string[] }> = {
   shot: {
     given: [
       'number title size lens_mm lens_id t_stop support height move status action dialogue department_status',
-      'departments media_id shoot_day_id setup_id location_id gear_ids custom',
+      'departments media_id shoot_day_id setup_id location_id gear_ids',
     ],
-    leftOut: ['crop:look clip:file'],
+    // Round 2: a frame's own fields are left out, as a person's and a location's are.
+    leftOut: ['crop:look clip:file custom:contact'],
   },
   setup: { given: ['name'], leftOut: [] },
   note: { given: ['text'], leftOut: [] },
@@ -200,9 +201,92 @@ describe('the assistant view', () => {
   });
 
   it('takes emails and phone numbers out of free text, and leaves dates, times and lengths', () => {
-    expect(withoutContacts('Call Robin on +1 (555) 012-3456 or robin.vale@example.com.')).toBe(`Call Robin on ${TAKEN_OUT} or ${TAKEN_OUT}`);
-    expect(withoutContacts('Gate code 4417, call 555.0123.88')).toBe(`Gate code 4417, call ${TAKEN_OUT}`);
+    // Round 2: the email's rule ends at its last letter, so the sentence keeps its full stop.
+    expect(withoutContacts('Call Robin on +1 (555) 012-3456 or robin.vale@example.com.')).toBe(`Call Robin on ${TAKEN_OUT} or ${TAKEN_OUT}.`);
+    // Round 2: groups whose last has under 4 digits are never a phone without a + or (.
+    expect(withoutContacts('Gate code 4417, call 555.0123.88')).toBe('Gate code 4417, call 555.0123.88');
     expect(withoutContacts('Shoot 2026-11-18 at 06:30, 4.5 m from the wall, T2.8')).toBe('Shoot 2026-11-18 at 06:30, 4.5 m from the wall, T2.8');
+  });
+
+  it('scrubs free text by every rule, Unicode-aware, and keeps what only looks like a number (round 2)', () => {
+    const scrubbed = [
+      // Phones: a leading + or (, a last group of 4 or more, one run of 10 or more; any dash, dots, slashes, spaces.
+      '+1 555 0123',
+      '+1 (555) 012-3456',
+      '(555) 012-3456',
+      '555-0123',
+      '555 0123',
+      '555.0123',
+      '555/0123',
+      '5550123456',
+      '+15550123',
+      '+44 20 7946 09',
+      '+1 555–0123',
+      '+1 555‑0123',
+      '555​-0123',
+      '+1 555­ 0123',
+      '＋１ ５５５ ０１２３',
+      '٥٥٥ ٠١٢٣',
+      '4111 1111 1111 1111 1111',
+      // Emails, with an @ or a lookalike.
+      'robin.vale@example.com',
+      'robin.vale＠example.com',
+      'robin.vale﹫example.com',
+      'robin.vale (at) example.com',
+      'robin.vale [at] example (dot) com',
+      'robin.vale at example.com',
+      'ROBIN at harbor.example',
+      // Coordinates: a pair of decimals of 3 or more places, or degrees, minutes and seconds.
+      '40.867712, -73.921234',
+      '40.8677 -73.9212',
+      '40.8677° N, 73.9212° W',
+      '40.867;-73.921',
+      `40°52'03.8"N`,
+      '40° 52′ 3″ N',
+      // Map links.
+      'https://maps.google.com/?q=40.8,-73.9',
+      'https://goo.gl/maps/abc123',
+      'https://maps.app.goo.gl/xyz',
+      'https://maps.apple.com/?ll=40.8,-73.9',
+      'https://www.openstreetmap.org/#map=17/40.8/-73.9',
+      'https://osm.org/go/ZWp',
+    ];
+    for (const value of scrubbed) expect(withoutContacts(`see ${value} please`), value).toBe(`see ${TAKEN_OUT} please`);
+    const kept = [
+      // Dates, with or without a time after.
+      '2026-11-18',
+      '18.11.2026',
+      '18-11-2026',
+      '11/18/2026',
+      '2026-11-18 06:30',
+      '18.11.2026 06:30',
+      '18-11-2026 06.30',
+      '2026-11-17T10:00:00.000Z',
+      // A range of two groups.
+      '1001-1096',
+      '1001–1096',
+      // Groups whose last is under 4 digits.
+      '101 102 103',
+      '1 250 000',
+      '18 25 35 50 85',
+      '555.0123.88',
+      // Short or single numbers, lengths, times, stops, pages, lenses, slates, ids.
+      '1234567',
+      '4417',
+      '4.5 m',
+      '06:30',
+      'T2.8',
+      '1 3/8',
+      '24-70',
+      'SC 12A',
+      '40.8',
+      '10000000-0000-4000-8000-000000000003',
+      'Meet at the pier.',
+      'Gate opens at 5. Night',
+    ];
+    for (const value of kept) expect(withoutContacts(`see ${value} please`), value).toBe(`see ${value} please`);
+    // A closing bracket the number didn't open stays with the sentence.
+    expect(withoutContacts('MARA (call +1 555 0166)')).toBe(`MARA (call ${TAKEN_OUT})`);
   });
 
   it('leaves the Trash out unless asked, and gives a suggestion’s fields by its target’s type', () => {
@@ -215,11 +299,54 @@ describe('the assistant view', () => {
     expect(assistantView(records).given[suggestion.id]?.props.data).toEqual({ props: { title: 'DP' }, before: {} });
   });
 
-  it('lists every contact detail a project holds for the server’s last check', () => {
-    const location = record('location', { name: 'Pier 9', address: '1200 Ocean Avenue', latitude: 40.867712, parking: 'Lot C behind the shed' });
-    const person = record('person', { name: 'Robin Vale', phone: '+1 555 0123' });
-    const values = contactValues({ [location.id]: location, [person.id]: person });
-    expect(values).toEqual(expect.arrayContaining(['1200 Ocean Avenue', '40.867712', 'Lot C behind the shed', '+1 555 0123']));
-    expect(values).not.toContain('Pier 9');
+  it('reads a suggestion’s data by its real target’s type, every value scrubbed, naming only known fields', () => {
+    const person = record('person', { name: 'Robin Vale' });
+    // Says it acts on a shot; its target is a person.
+    const suggestion = record('suggestion', {
+      target_id: person.id,
+      target_type: 'shot',
+      data: { props: { title: 'DP +1 555 0144', action: 'x', phone: '+1 555 0145', 'Cell 555 0146': 'y' }, before: { title: 'Gaffer' }, parent_id: 'call 555-0147' },
+    });
+    const records = { [person.id]: person, [suggestion.id]: suggestion };
+    expect(assistantView(records).given[suggestion.id]?.props.data).toEqual({ props: { title: `DP ${TAKEN_OUT}` }, before: { title: 'Gaffer' }, parent_id: `call ${TAKEN_OUT}` });
+    expect(suggestionFieldsLeftOut(records, suggestion)).toEqual(['phone', '2 unknown fields']);
+    // With no target in the project, read by the type it says.
+    const loose = record('suggestion', { target_id: 'gone', target_type: 'shot', data: { props: { action: 'Her hands', phone: '1' } } });
+    expect(assistantView({ [loose.id]: loose }).given[loose.id]?.props.data).toEqual({ props: { action: 'Her hands' } });
+    expect(suggestionFieldsLeftOut({ [loose.id]: loose }, loose)).toEqual(['1 unknown field']);
+  });
+
+  it('keeps for the server’s last check only contact-shaped values, and finds them however they are written', () => {
+    const location = record('location', {
+      name: 'Pier 9',
+      address: '1200 Ocean Avenue, Bayport',
+      latitude: 40.867712,
+      parking: 'Lot C behind the shed',
+      contact_name: 'Dana Pierce',
+      custom: { Gate: 'North side' },
+      map_name: 'Pier 9 Ferry Terminal',
+    });
+    const person = record('person', { name: 'Robin Vale', phone: '+1 555 0123', email: 'Robin.Vale@Example.com' });
+    const photo = record('media', { kind: 'image', taken_at: '2026-10-02T07:41:09' });
+    const project = record('project', { client: { name: 'Bayport Tourism', phone: '+1 555 0142' }, company: { name: 'Harbor Pictures', address: '88 Wharf Street, Bayport' } });
+    const guard = contactGuard({ [location.id]: location, [person.id]: person, [photo.id]: photo, [project.id]: project });
+    expect([...guard.phones].sort()).toEqual(['5550123', '5550142']);
+    expect([...guard.texts].sort()).toEqual(['1200 ocean avenue', '1200 ocean avenue, bayport', '2026-10-02t07:41:09', '88 wharf street', '88 wharf street, bayport', 'robin.vale@example.com']);
+    expect(guard.coordinates).toEqual([40.867712]);
+    for (const text of ['555 0123', '555–0123', '555‑0123', '(555) 0123', '+１ ５５５ ０１２３', 'ROBIN.VALE@EXAMPLE.COM', '1200  ocean avenue', '40.868', '40.8677', '-40.867'])
+      expect(contactIn(guard, `"${text}"`), text).not.toBeNull();
+    for (const text of ['Dana Pierce', 'Lot C behind the shed', 'North side', 'Pier 9 Ferry Terminal', 'Bayport Tourism', 'Bayport', '40.86', '2026-10-02', '555 012'])
+      expect(contactIn(guard, `"${text}"`), text).toBeNull();
+  });
+
+  it('hides a department’s material unless the reader is exempt from that department', () => {
+    const gear = record('gear_item', { name: 'Boom kit', department: 'sound' });
+    const onGear = { ...record('suggestion', { target_id: gear.id, target_type: 'gear_item', data: { props: { quantity: 2 } } }), id: 'suggestion-on-gear' };
+    const naming = { ...record('suggestion', { target_id: 'x', target_type: 'gear_item', data: { props: { department: 'sound' } } }), id: 'suggestion-naming' };
+    const records = { [gear.id]: gear, [onGear.id]: onGear, [naming.id]: naming };
+    const seen = (exempt: ReadonlySet<'sound' | 'camera'>) => Object.keys(assistantView(records, { departments: { hidden: new Set(['sound']), exempt } }).given).sort();
+    expect(seen(new Set())).toEqual([]);
+    expect(seen(new Set(['camera']))).toEqual([]);
+    expect(seen(new Set(['sound']))).toEqual([gear.id, naming.id, onGear.id].sort());
   });
 });

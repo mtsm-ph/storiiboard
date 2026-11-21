@@ -173,8 +173,10 @@ export default defineConfig({
     sourcemap: true,
   },
   test: {
-    // e2e's unit tests check what the end-to-end specs compute (e2e/frameCount.test.ts); Playwright leaves them out.
-    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts', 'e2e/**/*.test.ts', 'mcp/src/**/*.test.ts', 'mcp/test/**/*.test.ts'],
+    // e2e's unit tests check what the end-to-end specs compute (e2e/frameCount.test.ts); Playwright leaves them out. The
+    // MCP server's tests run on their own (`npm test --prefix mcp`, mcp/vitest.config.ts): the app never needs its
+    // packages, so this run passes without mcp/node_modules.
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts', 'e2e/**/*.test.ts'],
     environment: 'node',
     // The JSON report keeps every failed test's name (3.19): `npm run failed-tests` lists them, and CI keeps the file.
     reporters: ['default', 'json'],

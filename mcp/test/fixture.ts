@@ -74,7 +74,7 @@ export const IDS = {
 let key = 0;
 const nextKey = () => {
   key += 1;
-  return `a${String(key).padStart(4, '1')}`;
+  return `a${String(key).padStart(4, '0')}`;
 };
 
 const make = (id: string, type: RecordType, parentId: string, props: Props): Change => ({ kind: 'create', record: { id, type, parentId, sortKey: nextKey(), props } });

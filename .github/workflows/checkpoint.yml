@@ -216,13 +216,14 @@ jobs:
       # An empty config, so OSV-Scanner reports everything and osv-scanner.toml's ignores are applied once, by the
       # script, the same way for npm audit's findings. Its exit code doesn't decide: 1 only says it found something;
       # above 1 it failed, and the script must not read what it left.
-      - name: OSV-Scanner on both lock files
+      # The MCP server's lock file too (7.5 round 2).
+      - name: OSV-Scanner on the three lock files
         run: |
           mkdir -p test-results/advisories
           : > "$RUNNER_TEMP/osv/no-ignores.toml"
           status=0
           "$RUNNER_TEMP/osv/osv-scanner" scan source --config "$RUNNER_TEMP/osv/no-ignores.toml" --format json \
-            --lockfile package-lock.json --lockfile src-tauri/Cargo.lock > test-results/advisories/osv.json || status=$?
+            --lockfile package-lock.json --lockfile src-tauri/Cargo.lock --lockfile mcp/package-lock.json > test-results/advisories/osv.json || status=$?
           if [ "$status" -gt 1 ]; then echo "OSV-Scanner failed with exit code $status"; exit 1; fi
       # Its exit code doesn't decide either; a failed audit writes an error the script refuses.
       - name: npm audit

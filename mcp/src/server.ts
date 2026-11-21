@@ -1,6 +1,7 @@
-import { resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import { checkedAnswer } from './guard';
 import { readProject } from './project';
@@ -21,30 +22,44 @@ export function startedWith(argv: readonly string[]): string[] {
 }
 
 const same = (a: string, b: string) => (process.platform === 'win32' || process.platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b);
-const stem = (path: string) => (path.split(/[\\/]/).pop() ?? '').replace(/\.sbd$/i, '');
+const stem = (path: string) => basename(path).replace(/\.sbd$/i, '');
+
+/** A project as the assistant is told of it: its name, and its folder's name when another project shares the name. */
+function label(path: string, projects: readonly string[]): string {
+  const shared = projects.filter((p) => same(stem(p), stem(path))).length > 1;
+  return shared ? `${stem(path)} (in ${basename(dirname(path))})` : stem(path);
+}
+
+const labels = (projects: readonly string[]) => projects.map((p) => label(p, projects)).join(', ');
 
 /** Which of the started projects a call means: by path or by name; the only one when it names none. */
 function chosen(projects: readonly string[], asked: string | undefined): string {
   if (projects.length === 0) throw new ToolError('No project file was given to this server. Add the .sbd path to its arguments (docs/MCP.md).');
   if (asked === undefined || asked.trim() === '') {
     if (projects.length === 1) return projects[0] ?? '';
-    throw new ToolError(`Name the project: ${projects.map(stem).join(', ')}.`);
+    throw new ToolError(`Name the project: ${labels(projects)}.`);
   }
   const wanted = asked.trim();
-  const found = projects.find((p) => same(p, resolve(wanted))) ?? projects.find((p) => same(stem(p), wanted.replace(/\.sbd$/i, '')));
+  const byPath = projects.find((p) => same(p, resolve(wanted)));
+  if (byPath) return byPath;
+  const byName = projects.filter((p) => same(stem(p), wanted.replace(/\.sbd$/i, '')));
+  // Two files of one name in two folders: never a guess at which (round 2).
+  if (byName.length > 1) {
+    throw new ToolError(`${String(byName.length)} projects are named ${stem(byName[0] ?? '')}: ${byName.map((p) => `the one in ${basename(dirname(p))}`).join(' and ')}. Name it by its path.`);
+  }
   // Only a file the server was started with is ever opened: the assistant can't point it anywhere else.
-  if (!found) throw new ToolError(`This server reads only ${projects.map(stem).join(', ')}.`);
-  return found;
+  if (!byName[0]) throw new ToolError(`This server reads only ${labels(projects)}.`);
+  return byName[0];
 }
 
 type Answer = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
 const refused = (text: string): Answer => ({ content: [{ type: 'text', text }], isError: true });
 
-async function answer(projects: readonly string[], asked: string | undefined, run: (context: ToolContext) => unknown): Promise<Answer> {
+async function answer(projects: readonly string[], tool: string, asked: string | undefined, run: (context: ToolContext) => unknown): Promise<Answer> {
   try {
     const data = await readProject(chosen(projects, asked));
-    const checked = checkedAnswer(data.records, run({ data }));
+    const checked = checkedAnswer(data.records, tool, run({ data }));
     return checked.ok ? { content: [{ type: 'text', text: checked.text }] } : refused(checked.text);
   } catch (error) {
     if (error instanceof ToolError || error instanceof ProjectRefused) return refused(error.message);
@@ -62,6 +77,17 @@ const includeTrashed = z.boolean().optional().describe('Also list items in the T
 const sceneNumber = z.string().min(1).max(20);
 const dayName = z.string().min(1).max(20);
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
+
+/** Each argument's rule in words: what a wrong one is told, in place of zod's own list (round 2). */
+const ARGUMENT_WORDS: Readonly<Record<string, string>> = {
+  project: "project is text: the project's file name without .sbd, or its path",
+  include_trashed: 'include_trashed is true or false',
+  scene: 'scene is a scene number as text, as on the slate ("12", "4A")',
+  shoot_day: 'shoot_day is a date as text (YYYY-MM-DD) or a day number ("3")',
+  day: 'day is a date as text (YYYY-MM-DD) or a day number ("3")',
+  setup: 'setup is its number in the scene as text ("2"), or its id',
+  status: 'status is pending, approved, rejected or all',
+};
 
 /** What each tool says it does, for the assistant (docs/MCP.md has each one's answer). */
 const DESCRIPTIONS = {
@@ -100,85 +126,91 @@ const DESCRIPTIONS = {
     'flags in words and whether it can still be applied. A person applies each one in the app.',
 } as const;
 
+type ToolName = keyof typeof DESCRIPTIONS;
+
 /** Only the arguments given, so an optional one left out is never passed on as undefined. */
 const given = <T extends Record<string, unknown>>(args: T): { [K in keyof T]?: Exclude<T[K], undefined> } =>
   Object.fromEntries(Object.entries(args).filter(([, value]) => value !== undefined)) as { [K in keyof T]?: Exclude<T[K], undefined> };
 
+interface Tool {
+  shape: z.ZodRawShape;
+  /** Runs on arguments its own shape has parsed (callTool). */
+  run: (context: ToolContext, args: Record<string, unknown>) => unknown;
+}
+
+/** A tool's shape and what it does, its arguments typed by the shape. */
+const tool = <S extends z.ZodRawShape>(shape: S, run: (context: ToolContext, args: z.infer<z.ZodObject<S>>) => unknown): Tool => ({
+  shape,
+  run: (context, args) => run(context, args as z.infer<z.ZodObject<S>>),
+});
+
+const TOOLS = {
+  project_summary: tool({ project }, (c) => projectSummary(c)),
+  list_scenes: tool({ project, include_trashed: includeTrashed }, (c, a) => listScenes(c, given({ include_trashed: a.include_trashed }))),
+  list_shots: tool(
+    {
+      project,
+      scene: sceneNumber.optional().describe('A scene number as on the slate: "12", "4A".'),
+      shoot_day: dayName.optional().describe('A shoot day: its date (YYYY-MM-DD) or its number ("3").'),
+      include_trashed: includeTrashed,
+    },
+    (c, a) => listShots(c, given({ scene: a.scene, shoot_day: a.shoot_day, include_trashed: a.include_trashed })),
+  ),
+  get_schedule: tool({ project }, (c) => getSchedule(c)),
+  get_call_sheet: tool({ project, day: dayName.describe('The day: its date (YYYY-MM-DD) or its number ("3").') }, (c, a) => getCallSheet(c, { day: a.day })),
+  list_people: tool({ project, include_trashed: includeTrashed }, (c, a) => listPeople(c, given({ include_trashed: a.include_trashed }))),
+  list_gear: tool({ project, include_trashed: includeTrashed }, (c, a) => listGear(c, given({ include_trashed: a.include_trashed }))),
+  list_locations: tool({ project, include_trashed: includeTrashed }, (c, a) => listLocations(c, given({ include_trashed: a.include_trashed }))),
+  get_plan: tool(
+    {
+      project,
+      scene: sceneNumber.describe('The scene number as on the slate: "12", "4A".'),
+      setup: z.string().min(1).max(100).optional().describe('The setup: its number in the scene ("2") or its id.'),
+    },
+    (c, a) => getPlan(c, { scene: a.scene, ...given({ setup: a.setup }) }),
+  ),
+  list_suggestions: tool(
+    {
+      project,
+      status: z.enum(['pending', 'approved', 'rejected', 'all']).optional().describe('Which to list; pending when left out.'),
+      include_trashed: includeTrashed,
+    },
+    (c, a) => listSuggestions(c, given({ status: a.status, include_trashed: a.include_trashed })),
+  ),
+} satisfies Record<ToolName, Tool>;
+
+/** A wrong call's words: which arguments are wrong and what each takes, never zod's list. */
+function argumentWords(name: string, args: Record<string, unknown>, issues: readonly z.core.$ZodIssue[]): string {
+  const keys = [...new Set(issues.map((issue) => (typeof issue.path[0] === 'string' ? issue.path[0] : '')))];
+  const parts = keys.map((key) => {
+    if (key === '') return 'the arguments are named values';
+    const rule = ARGUMENT_WORDS[key] ?? `${key} isn't one of its arguments`;
+    return args[key] === undefined ? `${key} is needed: ${rule}` : rule;
+  });
+  return `${name}: ${parts.join('; ')}.`;
+}
+
+/** Calls a tool as the assistant asked: its arguments checked by its own rules, a wrong one told in words. */
+async function callTool(projects: readonly string[], name: string, raw: unknown): Promise<Answer> {
+  if (!Object.hasOwn(TOOLS, name)) return refused(`There's no tool named ${name.slice(0, 64)}. The tools are ${Object.keys(TOOLS).join(', ')}.`);
+  const entry: Tool = TOOLS[name as ToolName];
+  const args = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const parsed = z.object(entry.shape).safeParse(raw ?? {});
+  if (!parsed.success) return refused(argumentWords(name, args, parsed.error.issues));
+  const values = parsed.data as { project?: string };
+  return answer(projects, name, values.project, (context) => entry.run(context, parsed.data));
+}
+
 export function makeServer(projects: readonly string[]): McpServer {
   const server = new McpServer(SERVER);
-  const tool = { annotations: readOnly };
-  server.registerTool('project_summary', { ...tool, description: DESCRIPTIONS.project_summary, inputSchema: { project } }, async (args) =>
-    answer(projects, args.project, (c) => projectSummary(c)),
-  );
-  server.registerTool(
-    'list_scenes',
-    { ...tool, description: DESCRIPTIONS.list_scenes, inputSchema: { project, include_trashed: includeTrashed } },
-    async (args) => answer(projects, args.project, (c) => listScenes(c, given({ include_trashed: args.include_trashed }))),
-  );
-  server.registerTool(
-    'list_shots',
-    {
-      ...tool,
-      description: DESCRIPTIONS.list_shots,
-      inputSchema: {
-        project,
-        scene: sceneNumber.optional().describe('A scene number as on the slate: "12", "4A".'),
-        shoot_day: dayName.optional().describe('A shoot day: its date (YYYY-MM-DD) or its number ("3").'),
-        include_trashed: includeTrashed,
-      },
-    },
-    async (args) =>
-      answer(projects, args.project, (c) => listShots(c, given({ scene: args.scene, shoot_day: args.shoot_day, include_trashed: args.include_trashed }))),
-  );
-  server.registerTool('get_schedule', { ...tool, description: DESCRIPTIONS.get_schedule, inputSchema: { project } }, async (args) =>
-    answer(projects, args.project, (c) => getSchedule(c)),
-  );
-  server.registerTool(
-    'get_call_sheet',
-    { ...tool, description: DESCRIPTIONS.get_call_sheet, inputSchema: { project, day: dayName.describe('The day: its date (YYYY-MM-DD) or its number ("3").') } },
-    async (args) => answer(projects, args.project, (c) => getCallSheet(c, { day: args.day })),
-  );
-  server.registerTool(
-    'list_people',
-    { ...tool, description: DESCRIPTIONS.list_people, inputSchema: { project, include_trashed: includeTrashed } },
-    async (args) => answer(projects, args.project, (c) => listPeople(c, given({ include_trashed: args.include_trashed }))),
-  );
-  server.registerTool(
-    'list_gear',
-    { ...tool, description: DESCRIPTIONS.list_gear, inputSchema: { project, include_trashed: includeTrashed } },
-    async (args) => answer(projects, args.project, (c) => listGear(c, given({ include_trashed: args.include_trashed }))),
-  );
-  server.registerTool(
-    'list_locations',
-    { ...tool, description: DESCRIPTIONS.list_locations, inputSchema: { project, include_trashed: includeTrashed } },
-    async (args) => answer(projects, args.project, (c) => listLocations(c, given({ include_trashed: args.include_trashed }))),
-  );
-  server.registerTool(
-    'get_plan',
-    {
-      ...tool,
-      description: DESCRIPTIONS.get_plan,
-      inputSchema: {
-        project,
-        scene: sceneNumber.describe('The scene number as on the slate: "12", "4A".'),
-        setup: z.string().min(1).max(100).optional().describe('The setup: its number in the scene ("2") or its id.'),
-      },
-    },
-    async (args) => answer(projects, args.project, (c) => getPlan(c, { scene: args.scene, ...given({ setup: args.setup }) })),
-  );
-  server.registerTool(
-    'list_suggestions',
-    {
-      ...tool,
-      description: DESCRIPTIONS.list_suggestions,
-      inputSchema: {
-        project,
-        status: z.enum(['pending', 'approved', 'rejected', 'all']).optional().describe('Which to list; pending when left out.'),
-        include_trashed: includeTrashed,
-      },
-    },
-    async (args) => answer(projects, args.project, (c) => listSuggestions(c, given({ status: args.status, include_trashed: args.include_trashed }))),
-  );
+  for (const [name, entry] of Object.entries(TOOLS) as [ToolName, Tool][]) {
+    server.registerTool(name, { annotations: readOnly, description: DESCRIPTIONS[name], inputSchema: entry.shape }, async (args: Record<string, unknown>) =>
+      callTool(projects, name, args),
+    );
+  }
+  // The SDK lists the tools from the schemas above; calls come here instead, so a wrong argument is answered in our
+  // words (round 2), not as zod's list of issues. Registered after the tools, so it replaces the SDK's own handler.
+  server.server.setRequestHandler(CallToolRequestSchema, async (request) => callTool(projects, request.params.name, request.params.arguments));
   return server;
 }
 

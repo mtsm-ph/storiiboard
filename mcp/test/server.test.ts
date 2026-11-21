@@ -1,11 +1,15 @@
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { makeTestFolder } from '../../src/core/storage/testFolder';
 import { SCHEMA_VERSION } from '../../src/core/storage/migrations';
+import { OPEN_ONCE } from '../src/readOnlyFile';
 import { CONTACTS, IDS, setSchemaVersion, writeHarborLights } from './fixture';
 
 // The MCP server over stdio, driven by the SDK's own client (7.5): the built bundle, started as Claude Desktop starts it,
@@ -13,7 +17,11 @@ import { CONTACTS, IDS, setSchemaVersion, writeHarborLights } from './fixture';
 // anything it ever says.
 
 const mcp = join(import.meta.dirname, '..');
-const server = join(mcp, 'dist', 'server.js');
+// Round 2: the test's build goes to test-results/7.5/dist-test/, never over mcp/dist (a build of the person's own).
+const out = join(mcp, '..', 'test-results', '7.5', 'dist-test');
+const server = join(out, 'server.js');
+// From there, the server's two packages are found in mcp/node_modules by this hook (fromMcp.mjs); nothing else moves.
+const fromMcp = pathToFileURL(join(import.meta.dirname, 'fromMcp.mjs')).href;
 const folder = makeTestFolder();
 const project = folder.path('Harbor Lights.sbd');
 
@@ -47,7 +55,7 @@ let client: Client;
 
 async function connect(args: string[]): Promise<Client> {
   const c = new Client({ name: 'storiiboard-test', version: '0.0.0' });
-  await c.connect(new StdioClientTransport({ command: process.execPath, args: [server, ...args], stderr: 'ignore' }));
+  await c.connect(new StdioClientTransport({ command: process.execPath, args: ['--import', fromMcp, server, ...args], stderr: 'ignore' }));
   return c;
 }
 
@@ -79,8 +87,12 @@ function listing(dir: string): string[] {
 }
 
 beforeAll(async () => {
-  // The bundle, built as `npm run build --prefix mcp` builds it.
-  const built = spawnSync(process.execPath, [join(mcp, '..', 'node_modules', 'vite', 'bin', 'vite.js'), 'build', '--config', 'vite.config.ts'], { cwd: mcp, encoding: 'utf8' });
+  // The bundle, built as `npm run build --prefix mcp` builds it, into the test's own folder.
+  mkdirSync(out, { recursive: true });
+  const built = spawnSync(process.execPath, [join(mcp, '..', 'node_modules', 'vite', 'bin', 'vite.js'), 'build', '--config', 'vite.config.ts', '--outDir', out, '--emptyOutDir'], {
+    cwd: mcp,
+    encoding: 'utf8',
+  });
   expect(built.status, built.stderr).toBe(0);
   await writeHarborLights(project);
   client = await connect([project]);
@@ -233,7 +245,9 @@ describe('the MCP server over stdio', () => {
     expect(plan.openings).toEqual([expect.objectContaining({ id: IDS.window, kind: 'window', wall_id: IDS.wallS, along_m: 2, width_m: 1.2, sill_m: 0.9, top_m: 2.1, height_m: 1.2 })]);
     const [camera] = plan.cameras as Record<string, unknown>[];
     expect(camera).toMatchObject({ letter: 'A', lens: { from: 'frame', focal_mm: 32, squeeze: 1 }, sensor_mode: { name: 'Open Gate', width_mm: 36.7, height_mm: 25.54 }, frames: [{ id: IDS.shotA, number: '12A' }] });
-    expect((camera?.field_of_view as Record<string, number>).horizontal_deg).toBeGreaterThan(0);
+    // The fixture's own: a 36.7 mm wide Open Gate frame (the 2.39:1 frame fitted inside keeps the width) on 32 mm,
+    // 2 × atan(36.7 / 64) = 59.663°.
+    expect((camera?.field_of_view as Record<string, number>).horizontal_deg).toBeCloseTo(59.66, 2);
     expect(plan.lights).toEqual([expect.objectContaining({ id: IDS.light, watts: 450, watts_from: 'gear', height_m: 2.1 })]);
     expect(plan.watts).toEqual({ total_known: 450, lights: 1, lights_without_watts: 0 });
     const sun = (plan.items as Record<string, unknown>[]).find((i) => i.id === IDS.sun);
@@ -273,9 +287,15 @@ describe('the MCP server over stdio', () => {
     expect(noSetup).toEqual({ isError: true, text: 'Scene 12 has no setup "7". Its setups are 1.' });
     const noDay = await call(client, 'get_call_sheet', { day: '2027-01-01' });
     expect(noDay).toEqual({ isError: true, text: 'There\'s no shoot day "2027-01-01". The days are 1 (2026-11-18).' });
-    const wrongType = await call(client, 'list_scenes', { include_trashed: 'yes' });
-    expect(wrongType.isError).toBe(true);
-    expect(wrongType.text.length).toBeGreaterThan(0);
+    // In our words, never zod's list of issues (round 2).
+    expect(await call(client, 'list_scenes', { include_trashed: 'yes' })).toEqual({ isError: true, text: 'list_scenes: include_trashed is true or false.' });
+    expect(await call(client, 'get_call_sheet', {})).toEqual({ isError: true, text: 'get_call_sheet: day is needed: day is a date as text (YYYY-MM-DD) or a day number ("3").' });
+    expect(await call(client, 'list_shots', { scene: 12, include_trashed: 1 })).toEqual({
+      isError: true,
+      text: 'list_shots: scene is a scene number as text, as on the slate ("12", "4A"); include_trashed is true or false.',
+    });
+    expect(await call(client, 'list_suggestions', { status: 'maybe' })).toEqual({ isError: true, text: 'list_suggestions: status is pending, approved, rejected or all.' });
+    expect((await call(client, 'no_such_tool', {})).text).toMatch(/^There's no tool named no_such_tool\. The tools are project_summary, /);
     const elsewhere = await call(client, 'project_summary', { project: folder.path('Other.sbd') });
     expect(elsewhere).toEqual({ isError: true, text: 'This server reads only Harbor Lights.' });
     const byName = await call(client, 'project_summary', { project: 'Harbor Lights' });
@@ -294,7 +314,10 @@ describe('the MCP server over stdio', () => {
     const c = await connect([folder.path('Missing.sbd'), newer, older]);
     try {
       expect(await call(c, 'project_summary', { project: 'Missing' })).toEqual({ isError: true, text: "There's no project file at that path." });
-      expect((await call(c, 'project_summary', { project: 'Newer' })).text).toMatch(/^This project was saved by a newer version of Storiiboard/);
+      const newerAnswer = (await call(c, 'project_summary', { project: 'Newer' })).text;
+      expect(newerAnswer).toMatch(/^This project was saved by a newer version of Storiiboard/);
+      // The server's remedy, not the app's (round 2).
+      expect(newerAnswer).toContain('Rebuild the server (npm run build --prefix mcp) after updating Storiiboard.');
       const old = await call(c, 'list_scenes', { project: 'Older' });
       expect(old.isError).toBe(true);
       expect(old.text).toMatch(/^This project was saved by an older version of Storiiboard/);
@@ -306,14 +329,79 @@ describe('the MCP server over stdio', () => {
     expect(readFileSync(older).equals(olderBytes)).toBe(true);
   });
 
+  it('refuses a file in WAL mode before SQLite opens it, and nothing appears beside it', async () => {
+    const walFolder = makeTestFolder();
+    try {
+      const path = walFolder.path('Harbor Lights.sbd');
+      copyFileSync(project, path);
+      const db = new DatabaseSync(path);
+      db.exec('PRAGMA journal_mode = WAL');
+      db.close();
+      // Header bytes 18 and 19 now say WAL; closing took the -wal and -shm files away.
+      expect([...readFileSync(path).subarray(18, 20)]).toEqual([2, 2]);
+      const bytes = readFileSync(path);
+      const before = listing(walFolder.dir);
+      expect(before.map((line) => line.split('|')[0])).toEqual(['Harbor Lights.sbd']);
+      const c = await connect([path]);
+      try {
+        expect(await call(c, 'project_summary')).toEqual({ isError: true, text: OPEN_ONCE });
+        expect(listing(walFolder.dir)).toEqual(before);
+      } finally {
+        await c.close();
+      }
+      expect(readFileSync(path).equals(bytes)).toBe(true);
+      expect(listing(walFolder.dir)).toEqual(before);
+    } finally {
+      walFolder.remove();
+    }
+  });
+
+  it('refuses a name two of its projects share, showing each by its folder’s name', async () => {
+    const east = makeTestFolder();
+    const west = makeTestFolder();
+    try {
+      mkdirSync(east.path('East'));
+      mkdirSync(west.path('West'));
+      const one = east.path('East', 'Harbor Lights.sbd');
+      const two = west.path('West', 'Harbor Lights.sbd');
+      copyFileSync(project, one);
+      copyFileSync(project, two);
+      const c = await connect([one, two]);
+      try {
+        expect(await call(c, 'project_summary', { project: 'Harbor Lights' })).toEqual({
+          isError: true,
+          text: '2 projects are named Harbor Lights: the one in East and the one in West. Name it by its path.',
+        });
+        expect((await call(c, 'project_summary')).text).toBe('Name the project: Harbor Lights (in East), Harbor Lights (in West).');
+        expect((await call(c, 'project_summary', { project: two })).isError).toBe(false);
+      } finally {
+        await c.close();
+      }
+    } finally {
+      east.remove();
+      west.remove();
+    }
+  });
+
   it('is built into one file that imports only Node’s fs, path and sqlite, the SDK’s stdio server and zod', () => {
     const bundle = readFileSync(server, 'utf8');
     const imports = [...bundle.matchAll(/^import\b.*?from\s*"([^"]+)";?$/gm)].map((m) => m[1]);
-    expect([...new Set(imports)].sort()).toEqual(['@modelcontextprotocol/sdk/server/mcp.js', '@modelcontextprotocol/sdk/server/stdio.js', 'node:fs', 'node:path', 'node:sqlite', 'zod']);
+    expect([...new Set(imports)].sort()).toEqual([
+      '@modelcontextprotocol/sdk/server/mcp.js',
+      '@modelcontextprotocol/sdk/server/stdio.js',
+      // The call request's schema (round 2): calls are answered by the server's own argument check.
+      '@modelcontextprotocol/sdk/types.js',
+      'node:fs',
+      'node:path',
+      'node:sqlite',
+      'zod',
+    ]);
     expect(bundle).not.toMatch(/\bfetch\s*\(|XMLHttpRequest|WebSocket|\brequire\s*\(/);
   });
 
   it('runs Kevin’s probe: the Node it runs on, and node:sqlite opening a file read-only', async () => {
+    // Any probe folder already there (another run's) is left out of the count.
+    const probeFolders = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith('storiiboard-probe-')));
     const c = new Client({ name: 'storiiboard-test', version: '0.0.0' });
     await c.connect(new StdioClientTransport({ command: process.execPath, args: [join(mcp, 'probe', 'probe.mjs')], stderr: 'ignore' }));
     try {
@@ -322,6 +410,11 @@ describe('the MCP server over stdio', () => {
       const check = JSON.parse(answer.text) as Record<string, unknown>;
       expect(check.node).toBe(process.version);
       expect(check.sqlite).toMatch(/^opened read-only, SQLite \d+\.\d+/);
+      // What the server needs of node:sqlite, as the probe finds it (round 2), errors by their codes only.
+      expect(check).toMatchObject({ set_return_arrays: 'function', columns: 'function' });
+      expect(check.read_only_option).toMatch(/^honoured: a write is refused \(SQLite \d+\)$/);
+      // Its temp file is gone with its folder.
+      expect(readdirSync(tmpdir()).filter((name) => name.startsWith('storiiboard-probe-') && !probeFolders.has(name))).toEqual([]);
     } finally {
       await c.close();
     }

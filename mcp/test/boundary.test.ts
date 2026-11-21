@@ -2,8 +2,9 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// The trust boundary in the source (7.5, Phase 7 decisions 1 and 2): the MCP SDK and zod are the server's alone, never
-// the app's; the app never imports the server; and the server has no network code at all.
+// The server's side of the trust boundary (7.5, Phase 7 decisions 1 and 2): its two packages pinned exactly, and no
+// network code at all. The app's side (nothing under src imports the SDK, zod or mcp/) runs in the app's own test run,
+// scripts/mcpBoundary.test.ts, so it holds without mcp/node_modules (round 2).
 
 const root = join(import.meta.dirname, '..', '..');
 
@@ -23,23 +24,16 @@ function imported(text: string): string[] {
   return names.filter((name) => name !== '');
 }
 
-describe('the MCP server’s boundary', () => {
-  it('keeps the SDK and zod out of the app: no file under src imports either, nor anything in mcp', () => {
-    const offending = sourceFiles(join(root, 'src')).flatMap((path) =>
-      imported(readFileSync(path, 'utf8'))
-        .filter((name) => /^@modelcontextprotocol\//.test(name) || name === 'zod' || name.startsWith('zod/') || /(^|\/)mcp(\/|$)/.test(name))
-        .map((name) => `${relative(root, path)}: ${name}`),
-    );
-    expect(offending).toEqual([]);
-  });
+/** The SDK's parts the server may use: its stdio server, and the call request's schema (round 2's own argument words). */
+const SDK_PARTS = ['@modelcontextprotocol/sdk/server/mcp.js', '@modelcontextprotocol/sdk/server/stdio.js', '@modelcontextprotocol/sdk/types.js'];
 
-  it('adds neither to the app’s own package.json', () => {
-    const app = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as Record<string, Record<string, string> | undefined>;
-    const names = [...Object.keys(app.dependencies ?? {}), ...Object.keys(app.devDependencies ?? {})];
-    expect(names.filter((name) => name.startsWith('@modelcontextprotocol/') || name === 'zod')).toEqual([]);
+describe('the MCP server’s boundary', () => {
+  it('pins its two packages exactly, and needs Node 22.16 or later', () => {
     const server = JSON.parse(readFileSync(join(root, 'mcp', 'package.json'), 'utf8')) as Record<string, Record<string, string> | undefined>;
     // Pinned exactly, as every dependency is.
     expect(server.dependencies).toEqual({ '@modelcontextprotocol/sdk': '1.32.2', zod: '4.6.7' });
+    // node:sqlite's setReturnArrays and columns came in 22.16.
+    expect(server.engines).toEqual({ node: '>=22.16' });
   });
 
   it('has no network code in the server: no request, socket or HTTP module, and only the SDK’s stdio parts', () => {
@@ -50,7 +44,7 @@ describe('the MCP server’s boundary', () => {
       const where = relative(root, path);
       for (const name of imported(text)) {
         expect(name, where).not.toMatch(/^(node:)?(http|https|http2|net|tls|dgram|dns)$/);
-        if (name.startsWith('@modelcontextprotocol/')) expect(['@modelcontextprotocol/sdk/server/mcp.js', '@modelcontextprotocol/sdk/server/stdio.js'], where).toContain(name);
+        if (name.startsWith('@modelcontextprotocol/')) expect(SDK_PARTS, where).toContain(name);
       }
       expect(text, where).not.toMatch(/\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon/);
     }

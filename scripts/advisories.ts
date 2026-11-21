@@ -556,7 +556,7 @@ const OPTIONS = {
   config: { type: 'string', default: 'osv-scanner.toml' },
 } as const;
 
-function main(args: string[]): number {
+export function main(args: string[]): number {
   let parsed: ReturnType<typeof parseArgs<{ args: string[]; options: typeof OPTIONS }>>;
   try {
     parsed = parseArgs({ args, options: OPTIONS });

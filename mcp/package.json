@@ -5,9 +5,12 @@
   "description": "Storiiboard's MCP server: reads a project for an AI assistant, read-only (docs/MCP.md).",
   "type": "module",
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.16"
   },
   "scripts": {
+    "typecheck": "node ../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+    "lint": "node ../node_modules/eslint/bin/eslint.js .",
+    "test": "node ../node_modules/vitest/vitest.mjs run --config vitest.config.ts",
     "build": "node ../node_modules/vite/bin/vite.js build --config vite.config.ts",
     "start": "node dist/server.js"
   },

@@ -1,4 +1,4 @@
-import { assistantView, suggestionFieldsLeftOut, NO_DEPARTMENT_FLAGS, type DepartmentAccess } from '../../src/core/model/assistantView';
+import { assistantView, suggestionFieldsLeftOut, NO_DEPARTMENT_FLAGS, viewText, withoutContacts, type DepartmentAccess } from '../../src/core/model/assistantView';
 import { callSheet, callSheetIssues } from '../../src/core/model/callsheet';
 import { bodyFields, frameLens, gearKind, lensFields } from '../../src/core/model/cameraGear';
 import { departmentStates, departmentStatuses } from '../../src/core/model/departmentStatus';
@@ -23,7 +23,8 @@ import { planLegend } from '../../src/core/model/planLegend';
 import { beamDirection, beamOf, lightWatts } from '../../src/core/model/planLight';
 import { sceneNorth } from '../../src/core/model/planSun';
 import type { JsonValue, Props, SbdRecord } from '../../src/core/model/record';
-import { confirmedCrew, dayLocations, dayPeopleIds, dayScenes } from '../../src/core/model/schedule';
+import { projectStateOf } from '../../src/core/model/project';
+import { dayCrew, dayLocations, dayPeopleIds, dayScenes } from '../../src/core/model/schedule';
 import { sceneSetups, frameSetup, type Setup } from '../../src/core/model/setup';
 import { dayFrames, dayTotals, frameDayId, projectShootDays, setupMinutes, unscheduledFrames, type ShootDay } from '../../src/core/model/shootDay';
 import { lightReferenceOf } from '../../src/core/model/scoutPhoto';
@@ -58,6 +59,16 @@ type Obj = { [key: string]: Json };
 
 /** A reader's plain data (strings, numbers, booleans, nulls, arrays and objects of them) as JSON. */
 const json = (value: unknown): Json => JSON.parse(JSON.stringify(value)) as Json;
+
+/**
+ * A tool's answer as it leaves: every string in it through the view's text rule (round 2), so a string a reader hands
+ * back from the full records (a cast member's character names, a field name in a flag's words) is scrubbed as a given
+ * prop is. Ids and dates come through as they are.
+ */
+const out = (answer: Obj): Obj => viewText(answer) as Obj;
+
+/** A short word a suggestion carries (its kind, target type, source): scrubbed and at most 64 characters. */
+const word = (value: string | null): string | null => (value === null ? null : withoutContacts(value).slice(0, 64));
 
 const text = (props: Props, key: string): string => {
   const value = props[key];
@@ -107,9 +118,11 @@ function boardScenes(r: Read, withTrashed: boolean): SbdRecord[] {
 function sceneByNumber(r: Read, number: string, withTrashed = false): SbdRecord {
   const wanted = number.trim().replace(/^sc\s*/i, '').toUpperCase();
   const scenes = boardScenes(r, withTrashed);
-  const found =
-    scenes.find((s) => sceneFields(s.props).number.toUpperCase() === wanted) ??
-    scenes.find((s) => /^\d+$/.test(wanted) && sceneFields(s.props).number === String(Number(wanted)));
+  const match = (list: SbdRecord[]) =>
+    list.find((s) => sceneFields(s.props).number.toUpperCase() === wanted) ??
+    list.find((s) => /^\d+$/.test(wanted) && sceneFields(s.props).number === String(Number(wanted)));
+  // A live scene first; one in the Trash with the same number only when no live one has it.
+  const found = match(scenes.filter((s) => s.trashedAt === null)) ?? match(scenes.filter((s) => s.trashedAt !== null));
   if (!found) {
     const known = scenes.filter((s) => s.trashedAt === null).map((s) => sceneFields(s.props).number).filter((n) => n !== '');
     throw new ToolError(`There's no scene numbered "${number}". The scenes are ${known.length > 0 ? known.join(', ') : 'none yet'}.`);
@@ -166,12 +179,12 @@ export function projectSummary(context: ToolContext): Obj {
   const days = projectShootDays(r.scoped, r.projectId);
   const pending = Object.values(r.scoped).filter((s) => s.type === 'suggestion' && s.props.status === 'pending').length;
   const storyboard = projectStoryboard(r.scoped[r.projectId]?.props);
-  return {
+  return out({
     project: {
       id: r.projectId,
       file_name: r.data.name,
       title: text(project, 'title') || text(project, 'name') || r.data.name,
-      state: text(project, 'state') || 'active',
+      state: projectStateOf(project),
       stage: text(project, 'stage') || null,
       logline: text(project, 'logline'),
       format: text(project, 'format'),
@@ -200,7 +213,7 @@ export function projectSummary(context: ToolContext): Obj {
     },
     shoot_days: days.map(dayBrief),
     left_out: LEFT_OUT_WORDS,
-  };
+  });
 }
 
 /** What every answer leaves out, said once per summary so the assistant never guesses at it. */
@@ -214,7 +227,7 @@ export const LEFT_OUT_WORDS =
 export function listScenes(context: ToolContext, args: { include_trashed?: boolean }): Obj {
   const withTrashed = args.include_trashed === true;
   const r = read(context, withTrashed);
-  return {
+  return out({
     scenes: boardScenes(r, withTrashed).map((scene): Obj => {
       const fields = sceneFields(scene.props);
       const given = givenOf(r, scene.id);
@@ -234,7 +247,7 @@ export function listScenes(context: ToolContext, args: { include_trashed?: boole
         ...trashed(scene),
       };
     }),
-  };
+  });
 }
 
 // -- list_shots --------------------------------------------------------------------------------------------------------
@@ -251,7 +264,7 @@ export function listShots(context: ToolContext, args: { scene?: string; shoot_da
       .sort(bySortKey)
       .map((shot) => ({ scene, shot })),
   );
-  return {
+  return out({
     ...(day ? { shoot_day: dayBrief(day) } : {}),
     shots: shots
       .filter(({ shot }) => !day || frameDayId(r.scoped, shot) === day.record.id)
@@ -262,7 +275,6 @@ export function listShots(context: ToolContext, args: { scene?: string; shoot_da
         const setup = frameSetup(r.scoped, shot);
         const dayId = frameDayId(r.scoped, shot);
         const onDay = dayId === null ? undefined : days.find((d) => d.record.id === dayId);
-        const custom = given.custom;
         return {
           id: shot.id,
           number: fields.number,
@@ -287,11 +299,12 @@ export function listShots(context: ToolContext, args: { scene?: string; shoot_da
           }),
           departments: departmentStates(departmentStatuses(shot.props), r.data.seen[shot.id] ?? []).map((d) => ({ department: d.department, states: d.states })),
           has_picture: fields.mediaId !== null && r.scoped[fields.mediaId] !== undefined,
-          custom: typeof custom === 'object' && custom !== null && !Array.isArray(custom) ? custom : {},
           ...trashed(shot),
+          // A frame still on the board's list but in a scene that is in the Trash (only listed with include_trashed).
+          ...(shot.trashedAt === null && scene.trashedAt !== null ? { scene_trashed: true } : {}),
         };
       }),
-  };
+  });
 }
 
 // -- get_schedule ------------------------------------------------------------------------------------------------------
@@ -301,14 +314,13 @@ export function getSchedule(context: ToolContext): Obj {
   const minutes = setupMinutes(r.scoped[r.projectId]?.props);
   const days = projectShootDays(r.scoped, r.projectId);
   const unscheduled = unscheduledFrames(r.scoped, r.projectId);
-  return {
+  return out({
     minutes_per_setup: minutes,
     days: days.map((day): Obj => {
       const frames = dayFrames(r.scoped, r.projectId, day.record.id);
       const totals = dayTotals(r.scoped, frames, minutes);
-      const called = dayPeopleIds(day.record.props);
-      const people = called === null ? projectPeople(r.scoped, r.projectId).map((p) => p.record.id) : called.filter((id) => r.scoped[id]?.type === 'person');
-      const confirmed = confirmedCrew(day.record.props);
+      // The app's own count of who is called and who confirmed (the Calendar's "1 of 3 confirmed").
+      const crew = dayCrew(r.scoped, r.projectId, day.record);
       return {
         ...dayBrief(day),
         call_time: day.fields.callTime || null,
@@ -318,7 +330,7 @@ export function getSchedule(context: ToolContext): Obj {
         scenes: dayScenes(r.scoped, r.projectId, day.record.id).map(sceneBrief),
         frames: frames.map(({ shot }) => ({ id: shot.id, number: shotFields(shot.props).number, status: shotFields(shot.props).status })),
         locations: dayLocations(r.scoped, r.projectId, day.record.id).map((l) => ({ id: l.record.id, name: text(givenOf(r, l.record.id), 'name'), status: l.status })),
-        people: { called: people.length, confirmed: people.filter((id) => confirmed.has(id)).length, chosen: called !== null },
+        people: { called: crew.people, confirmed: crew.confirmed, chosen: dayPeopleIds(day.record.props) !== null },
         gear: gearIdsOf(day.record.props).flatMap((id) => {
           const item = ref(r, id);
           return item && r.scoped[id]?.trashedAt === null ? [item] : [];
@@ -326,7 +338,7 @@ export function getSchedule(context: ToolContext): Obj {
       };
     }),
     unscheduled_need_to_shoot: unscheduled.map(({ scene, shot }) => ({ id: shot.id, number: shotFields(shot.props).number, scene: sceneFields(scene.props).number })),
-  };
+  });
 }
 
 // -- get_call_sheet ----------------------------------------------------------------------------------------------------
@@ -334,15 +346,18 @@ export function getSchedule(context: ToolContext): Obj {
 export function getCallSheet(context: ToolContext, args: { day: string }): Obj {
   const r = read(context);
   const day = dayOf(r, args.day);
-  // No zone is looked up here (see noLookups): a location with no zone typed reads in this computer's zone, as the app's
-  // call sheet does where the lookup finds none, and says so.
+  // No zone is looked up here (see noLookups). The app's sheet reads a location with no zone typed in this computer's
+  // zone; that zone is this computer's, not the project's, so it never goes out (round 2): such a location says
+  // `zone: null, missing: 'noZone'` and has no sun times, which would be in the guessed zone.
   const sheet = callSheet(r.scoped, r.projectId, day.record.id, undefined, noLookups(r.scoped));
   if (!sheet) throw new ToolError(`There's no shoot day "${args.day}".`);
   const name = (record: SbdRecord) => text(givenOf(r, record.id), 'name');
-  return {
+  const zoneOut = (zone: { zone: string; source: string } | null): Obj | null =>
+    zone === null ? null : zone.source === 'computer' ? { zone: null, missing: 'noZone' } : { zone: zone.zone, from: zone.source };
+  return out({
     day: { ...dayBrief(sheet.day), of: sheet.dayCount, call_time: sheet.day.fields.callTime || null, wrap_time: sheet.day.fields.wrapTime || null },
     title: text(givenOf(r, r.projectId), 'title') || r.data.name,
-    times_in: sheet.timesIn ? { zone: sheet.timesIn.zone, from: sheet.timesIn.source } : null,
+    times_in: zoneOut(sheet.timesIn),
     nothing_left_to_shoot: sheet.nothingLeft,
     scenes: sheet.scenes.map((s) => ({
       ...sceneBrief(s.record),
@@ -371,22 +386,26 @@ export function getCallSheet(context: ToolContext, args: { day: string }): Obj {
         power: text(given, 'power'),
         notes: text(given, 'notes'),
         has_place: l.place !== null,
-        time_zone: l.zone ? { zone: l.zone.zone, from: l.zone.source } : null,
-        sun: l.sun
-          ? { state: l.sun.state, sunrise: l.sun.sunrise || null, sunset: l.sun.sunset || null, golden_hour: json(l.sun.golden), blue_hour: json(l.sun.blue) }
-          : null,
+        time_zone: zoneOut(l.zone),
+        sun:
+          l.sun && l.zone && l.zone.source !== 'computer'
+            ? { state: l.sun.state, sunrise: l.sun.sunrise || null, sunset: l.sun.sunset || null, golden_hour: json(l.sun.golden), blue_hour: json(l.sun.blue) }
+            : null,
         safety: {
           country_code: l.safety.countryCode || null,
           emergency_numbers: l.safety.numbers.map((n) => ({ kind: n.kind, number: n.number })),
-          // The hospital's name and how far it is: its address and phone are contact details.
-          hospital: hospital ? { name: text(given, 'hospital_name'), emergency_department: hospital.emergency, distance_km: hospital.distanceKm === null ? null : Math.round(hospital.distanceKm * 10) / 10 } : null,
+          // The hospital's name and how far it is, to a whole kilometre (round 2: a finer distance narrows where the
+          // location is): its address and phone are contact details.
+          hospital: hospital ? { name: text(given, 'hospital_name'), emergency_department: hospital.emergency, distance_km: hospital.distanceKm === null ? null : Math.round(hospital.distanceKm) } : null,
         },
       };
     }),
     notes: { general: text(givenOf(r, sheet.notes.record?.id), 'notes'), safety: text(givenOf(r, sheet.notes.record?.id), 'safety_notes') },
     issued: callSheetIssues(r.scoped, day.record.id).map((i) => ({ version: i.version, issued_at: i.issuedAt || null })),
-    left_out: 'Phone numbers and email addresses (even where the sheet prints them), addresses, parking, the map and its coordinates, the forecast (it is fetched by the app, never by these tools).',
-  };
+    left_out:
+      'Phone numbers and email addresses (even where the sheet prints them), addresses, parking, the map and its coordinates, the forecast (it is fetched by the app, never by these tools). ' +
+      "A location with no time zone typed has no sun times here: the app would read it in this computer's zone.",
+  });
 }
 
 // -- list_people -------------------------------------------------------------------------------------------------------
@@ -398,7 +417,7 @@ export function listPeople(context: ToolContext, args: { include_trashed?: boole
     ? Object.values(r.scoped).filter((p) => p.type === 'person' && p.parentId === r.projectId).map((record) => ({ record, fields: personFields(record.props) }))
     : projectPeople(r.scoped, r.projectId);
   const characters = Object.values(r.scoped).filter((c) => c.type === 'character' && c.parentId === r.projectId && characterName(c) !== '');
-  return {
+  return out({
     people: people.map(({ record, fields }): Obj => {
       const given = givenOf(r, record.id);
       return {
@@ -419,7 +438,7 @@ export function listPeople(context: ToolContext, args: { include_trashed?: boole
         return { id: c.id, name: text(givenOf(r, c.id), 'name').trim(), cast: cast ? { id: cast.id, name: text(givenOf(r, cast.id), 'name') } : null, ...trashed(c) };
       }),
     left_out: "Each person's phone, email, notes, their own fields and whether their contact prints on call sheets.",
-  };
+  });
 }
 
 // -- list_gear ---------------------------------------------------------------------------------------------------------
@@ -430,7 +449,7 @@ export function listGear(context: ToolContext, args: { include_trashed?: boolean
   const items = withTrashed
     ? Object.values(r.scoped).filter((g) => g.type === 'gear_item' && g.parentId === r.projectId).map((record) => ({ record, fields: gearFields(record.props) }))
     : projectGear(r.scoped, r.projectId);
-  return {
+  return out({
     currency: projectCurrency(r.scoped[r.projectId]?.props),
     gear: items.map(({ record, fields }): Obj => {
       const given = givenOf(r, record.id);
@@ -455,7 +474,7 @@ export function listGear(context: ToolContext, args: { include_trashed?: boolean
         ...trashed(record),
       };
     }),
-  };
+  });
 }
 
 // -- list_locations ----------------------------------------------------------------------------------------------------
@@ -469,7 +488,7 @@ export function listLocations(context: ToolContext, args: { include_trashed?: bo
         .filter((l) => l.type === 'location' && l.parentId === r.projectId)
         .map((record) => live.find((l) => l.record.id === record.id) ?? { record, fields: locationFields(record.props), scenes: [], frames: [] })
     : live;
-  return {
+  return out({
     locations: list.map(({ record, fields, scenes, frames }): Obj => {
       const given = givenOf(r, record.id);
       const hospital = keptHospital(record.props);
@@ -493,7 +512,7 @@ export function listLocations(context: ToolContext, args: { include_trashed?: bo
       };
     }),
     left_out: "Each location's address, contact name, phone and email, parking, its own fields, its place on the map and coordinates, the hospital's address, phone and place, and its photos' place and time.",
-  };
+  });
 }
 
 // -- get_plan ----------------------------------------------------------------------------------------------------------
@@ -524,8 +543,9 @@ function sunOut(r: Read, reading: SunReadingOf | null): Obj {
   if (fromPhoto) {
     return { place: placeOut, date: dateOut, left_out: "Drawn at a scout photo's place and time, which count as contact details: the sun's numbers for it aren't returned." };
   }
+  // To a whole degree (round 2): the sun's exact position at a known time and date says where on Earth it was drawn for.
   const at = (p: { bearing: number; altitude: number; up: boolean; time: string } | null): Json =>
-    p ? { time: p.time, bearing_deg: round(p.bearing, 2), altitude_deg: round(p.altitude, 2), up: p.up } : null;
+    p ? { time: p.time, bearing_deg: round(p.bearing, 0), altitude_deg: round(p.altitude, 0), up: p.up } : null;
   const day = reading.path?.day ?? null;
   return {
     place: placeOut,
@@ -652,14 +672,17 @@ export function getPlan(context: ToolContext, args: { scene: string; setup?: str
       id: w.windowId,
       wall_id: w.wallId,
       wall: w.wall,
-      facing: w.facing ? { bearing_deg: round(w.facing.bearing, 2), point: w.facing.point } : null,
+      // Bearings and altitudes to a whole degree, as the sun's (round 2).
+      facing: w.facing ? { bearing_deg: round(w.facing.bearing, 0), point: w.facing.point } : null,
       missing: w.missing,
       zone: fromPhoto ? null : w.zone,
-      hours: fromPhoto ? null : (w.hours?.map((h) => ({ from: h.from, to: h.to, ...(h.altitude ? { altitude_deg: h.altitude } : {}) })) ?? null),
+      hours: fromPhoto
+        ? null
+        : (w.hours?.map((h) => ({ from: h.from, to: h.to, ...(h.altitude ? { altitude_deg: { min: round(h.altitude.min, 0), max: round(h.altitude.max, 0) } } : {}) })) ?? null),
       ...(fromPhoto ? { left_out: "Worked out for a scout photo's place and time, which count as contact details." } : {}),
     };
   });
-  return {
+  return out({
     scene: sceneBrief(scene),
     setup: setup ? { id: setup.record.id, number: setup.number, name: text(givenOf(r, setup.record.id), 'name').trim() } : null,
     units: 'Lengths in metres; x to the right and y down the plan; rotations in degrees clockwise from up the plan; bearings in degrees clockwise from north.',
@@ -673,8 +696,10 @@ export function getPlan(context: ToolContext, args: { scene: string; setup?: str
     items: others,
     windows,
     windows_note: windows.length > 0 ? "Direct sun through each outside window, from its facing and the sun's path. Buildings and trees outside aren't known." : null,
-    left_out: "The place's coordinates and a scout photo's place and time. A zone is never looked up from the map here: a location needs its time zone typed for the sun to be worked out.",
-  };
+    left_out:
+      "The place's coordinates and a scout photo's place and time; the sun's and windows' bearings and altitudes are to a whole degree. " +
+      'A zone is never looked up from the map here: a location needs its time zone typed for the sun to be worked out.',
+  });
 }
 
 // -- list_suggestions --------------------------------------------------------------------------------------------------
@@ -697,22 +722,23 @@ export function listSuggestions(context: ToolContext, args: { status?: 'pending'
       return [
         {
           id: s.id,
-          kind: s.kind ?? s.kindName,
+          // What the suggestion says of itself is typed by whoever sent it: scrubbed and bounded (round 2).
+          kind: word(s.kind ?? s.kindName),
           status: s.status,
-          target: { id: s.targetId, type: s.targetType, label: text(given, 'target_label') },
-          source: s.source,
+          target: { id: s.targetId, type: word(s.targetType), label: text(given, 'target_label') },
+          source: word(s.source),
           author: typeof author === 'object' && author !== null && !Array.isArray(author) ? { name: typeof author.name === 'string' ? author.name : '', role: typeof author.role === 'string' ? author.role : '' } : null,
           note: text(given, 'note'),
           suggested_at: s.suggestedAt,
           decided_by: text(given, 'decided_by') || null,
           decided_at: s.decidedAt,
           data: given.data ?? null,
-          fields_left_out: suggestionFieldsLeftOut(record),
+          fields_left_out: suggestionFieldsLeftOut(r.data.records, record),
           flags: review.flags.map((flag) => ({ kind: flag.kind, words: reviewFlagWords(flag, s.targetType) })),
           can_apply: review.canApply,
           ...trashed(record),
         },
       ];
     });
-  return { status: wanted, suggestions, note: 'A person applies or rejects each suggestion in the app, one by one; these tools never do.' };
+  return out({ status: wanted, suggestions, note: 'A person applies or rejects each suggestion in the app, one by one; these tools never do.' });
 }
