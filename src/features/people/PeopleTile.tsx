@@ -4,6 +4,7 @@ import { showInfo } from '../../app/notice';
 import { projectStore, useProject } from '../../app/projectStore';
 import { projectSelfStore, setProjectSelf, useProjectSelf } from '../../app/settings/projectRole';
 import { t, tn } from '../../core/i18n';
+import { addStretch, personStretches, removeStretch, type Stretch } from '../../core/model/availability';
 import { customFieldsOf, fieldNamesOf, hiddenFieldNames } from '../../core/model/customFields';
 import { DEPARTMENT_LABELS, DEPARTMENTS } from '../../core/model/department';
 import { castOf, characterName, contactOnSheet, PERSON_TEXT_FIELDS, personFieldRecords, personFullView, personPart, projectCharacters, projectPeople, type PersonFields, type PersonTextField } from '../../core/model/person';
@@ -17,12 +18,13 @@ import { setCustomField } from '../storyboard/board';
 import { CustomFields } from '../storyboard/InspectorView';
 import { focusOf } from '../department/perspective';
 import { LinkedBoards } from '../moodboards/LinkedBoards';
+import { UnavailableDates } from './UnavailableDates';
 import { castCharacter, newPerson, personChange, personDepartment, personContactOnSheetChange, personFullViewChange, pendingIn, personRole, trashPerson, withPendingPerson } from './personEdits';
 
 // The Cast & crew tile (3.5), in the Production workspace: everyone on the production, each with their departments
 // (several: a DP is camera and grip and electric), one main role, a title for the call sheet, and their phone and email.
 // Contacts are private: shown here, never logged or named in History. Each field is one edit when it's left, so one ⌘Z;
-// Delete sends a person to the Trash. Narrow (Production gives it a column), the list sits above the editor.
+// Delete sends a person to the Trash. Their unavailable dates (7.3) are listed and added here too. Narrow (Production gives it a column), the list sits above the editor.
 
 const FIELD_LABEL: Readonly<Record<PersonTextField, () => string>> = {
   title: () => t('person.title'),
@@ -210,6 +212,9 @@ export function PeopleTile() {
               });
           }}
           fields={selected.fields}
+          stretches={personStretches(records, selected.record.id)}
+          onAddStretch={(from, to, note) => edit((now) => addStretch(now, selected.record.id, from, to, note))}
+          onRemoveStretch={(stretchId) => edit((now) => removeStretch(now, stretchId))}
           isMe={selected.record.id === self}
           onMe={(me) => {
             // On the stand-in, who "me" was is kept the first time, for a create that fails.
@@ -289,10 +294,14 @@ interface PersonEditorProps {
   /** The project's characters, and who plays each: picking one casts this person, again uncasts them. */
   characters: readonly { id: string; name: string; playedBy: string | null; castName: string }[];
   onCast: (characterId: string, on: boolean) => void;
+  /** Their unavailable dates (7.3), earliest first; each add and remove one op group. */
+  stretches: readonly Stretch[];
+  onAddStretch: (from: string, to: string, note: string) => Promise<boolean>;
+  onRemoveStretch: (id: string) => Promise<boolean>;
   onDelete: () => void;
 }
 
-function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, onChange, onRole, onDepartment, onFullView, onContactOnSheet, characters, onCast, onDelete }: PersonEditorProps) {
+function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, onChange, onRole, onDepartment, onFullView, onContactOnSheet, characters, onCast, stretches, onAddStretch, onRemoveStretch, onDelete }: PersonEditorProps) {
   const editor = useRef<HTMLElement>(null);
   useScrollLane(editor);
   const playsId = useId();
@@ -495,6 +504,7 @@ function PersonEditor({ id, props, knownFields, fields, isMe, onMe, nameField, o
           )}
         </Fragment>
       ))}
+      <UnavailableDates stretches={stretches} onAdd={onAddStretch} onRemove={onRemoveStretch} />
       <div className="flex flex-col gap-3">
         <h4 className="sb-label">{t('person.customFields')}</h4>
         <CustomFields

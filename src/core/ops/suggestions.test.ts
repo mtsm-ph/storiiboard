@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '../i18n';
 import type { JsonValue, Props, SbdRecord } from '../model/record';
+import { childrenOf } from '../model/recordIndex';
 import { flagWords, foldEdits, reviewSuggestion, type SuggestionFlag } from '../model/suggestion';
 import { ASSISTANT_SCOPE } from '../model/suggestionScope';
 import { nodeDriver } from '../storage/nodeDriver';
@@ -754,6 +755,31 @@ describe('Round 3: foldEdits folds only creates and updates (item 6)', () => {
     expect(() => foldEdits(base, [() => [{ kind: 'create', record: { type: 'shot', parentId: 'sc4', sortKey: 'Z', props: {} } }]])).toThrow(/no id/);
     expect(() => foldEdits(base, [() => [{ kind: 'update', id: 'gone-frame', set: { size: 'CU' } }]])).toThrow(/no such record/);
     expect(foldEdits(base, [() => [{ kind: 'update', id: 'b', set: { size: 'CU' } }]])).toEqual([{ kind: 'update', id: 'b', set: { size: 'CU' } }]);
+  });
+});
+
+describe('7.4 round 2: foldEdits gives each step a records object of its own (item 1)', () => {
+  it('a step after a change reads a new object, never one changed in place, so an index read earlier is not stale', () => {
+    const base = harbor();
+    const seen: Readonly<Record<string, SbdRecord>>[] = [];
+    const kept = { ...base };
+    foldEdits(base, [
+      (now) => {
+        seen.push(now);
+        // Read through the shared index first, as dayCallsheet does, so a copy changed in place would read stale next.
+        expect(childrenOf(now, 'd1', 'callsheet')).toHaveLength(0);
+        return [{ kind: 'create', record: { id: 'cs-new', type: 'callsheet', parentId: 'd1', sortKey: 'V', props: { notes: '' } } }];
+      },
+      (now) => {
+        seen.push(now);
+        expect(childrenOf(now, 'd1', 'callsheet').map((r) => r.id)).toEqual(['cs-new']);
+        return [];
+      },
+    ]);
+    expect(seen[1]).not.toBe(seen[0]);
+    // The records handed in are never touched.
+    expect(base).toEqual(kept);
+    expect(Object.hasOwn(base, 'cs-new')).toBe(false);
   });
 });
 

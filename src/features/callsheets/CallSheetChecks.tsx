@@ -12,8 +12,8 @@ import { findingTarget, findingWords } from './checkWords';
 
 const TIME = /(\d{2}:\d{2})(?: ([+−])1)?/g;
 
-/** A finding's words with each time in mono, as every technical value is; a time on another day carries +1 or −1 as the sheet's do. */
-function Words({ text }: { text: string }) {
+/** A finding's words with each time in mono, as every technical value is; a time on another day carries +1 or −1 as the sheet's do. The Checks tile (7.4) draws them the same way. */
+export function Words({ text }: { text: string }) {
   const parts: React.ReactNode[] = [];
   let last = 0;
   for (const match of text.matchAll(TIME)) {
@@ -42,11 +42,14 @@ export function CallSheetChecks({
   findings,
   records,
   canAddPeople,
+  peopleOdd,
 }: {
   findings: readonly CallSheetFinding[];
   records: Readonly<Record<string, SbdRecord>>;
   /** Whether "Who's on the day" has something to add to: where a missing department is fixed. */
   canAddPeople: boolean;
+  /** Whether the day's list of people can't be read, so "Who's on the day" offers nothing to press. */
+  peopleOdd: boolean;
 }) {
   const units = useWeatherUnits();
   const headingId = useId();
@@ -70,7 +73,7 @@ export function CallSheetChecks({
         <ul className="mt-1 flex flex-col gap-1">
           {findings.map((finding, i) => {
             const words = findingWords(finding, records, units);
-            const target = findingTarget(finding, canAddPeople);
+            const target = findingTarget(finding, canAddPeople, peopleOdd);
             return (
               <li key={`${finding.kind}:${String(i)}`} data-check={finding.kind} className="flex flex-wrap items-center gap-2 text-[13px]">
                 {/* Truffle on paper; in dark mode the page's text, as the other warnings do (it falls below AA there). */}
