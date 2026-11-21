@@ -3638,6 +3638,8 @@ export const en = {
   'layers.lockOf': 'Lock the {layer} layer',
   'layers.solo': 'Solo',
   'layers.soloOf': 'Solo the {layer} layer: it shown, the others dimmed and locked',
+  'layers.soloTitle': 'Solo the {layer} layer: it shown, the others dimmed and locked. On the plan, press {key}.',
+  'layers.showAllTitle': 'Show every layer, none locked. On the plan, press {key}.',
   'layers.lockedBySolo': 'Locked while {layer} is solo',
   'layers.items.one': '{count} item',
   'layers.items.other': '{count} items',

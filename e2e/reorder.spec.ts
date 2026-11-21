@@ -4,6 +4,12 @@ import { skipOnboarding } from './onboarding';
 
 // Dragging frames and notes to a new place, and the "/" menu (1.12), on real projects in the memory build.
 
+// These tests are about where a frame lands, not about the window: a 1440 × 900 window (a common laptop's) gives the
+// board room for a frame of SC 01 and the start of SC 02 in view at once, however the board lays out. At the browsers'
+// own 1280 × 720, where scroll bars overlay (headless Chromium, a Mac) the board takes its 16 px scroll lane (#222),
+// fits two columns instead of three, and the pressed frame and the drop point no longer fit in its 375 px together.
+test.use({ viewport: { width: 1440, height: 900 } });
+
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/?files=memory');
