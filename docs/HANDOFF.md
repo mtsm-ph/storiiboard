@@ -364,7 +364,23 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 21, early; written at 23:15 EST Nov 20)
+### Next session: start here (Nov 21, early; written at 00:20 EST)
+
+**Merged on `checkpoint/nov21-b`** (run 44864801159; every job green, Linux 671, Mac WebKit 668, nothing flaky; the
+Mac's launch check passed with its accents read by the worker, image `macos-26-arm64`): the launch stack #206, #213,
+#219, #223, #229, and item 8's first stack #241, #244, #245. Earlier, on nov21-a: #222, #235, #240. `v2`'s code
+equals nov21-b's tree.
+
+**Item 8, second stack, open:** #248 Settings (two rounds, reviewed), #250 undoing from History with `bring_back` (two
+rounds, reviewed), "Color" building on `polish/color-spelling`. Then `checkpoint/baselines-nov21` on the tip and a
+full checkpoint (`nov21-c`). Windows' baselines for the top bar (#241) still need regenerating on this PC (the checkout
+was busy); they come with the second stack's.
+
+**Follow-ups:** #235's dead-destination words (Kevin's line, night note); a flaky unit test seen once locally,
+`switchBackup.test.ts` "makes no copy on the reopen path…" (passed alone and on rerun). Briefs for Kevin:
+`private/briefs/rust-file-locks.md`.
+
+### Earlier: start here (Nov 21, early; written at 23:15 EST Nov 20)
 
 **Merged on `checkpoint/nov21-a`** (run 44859089297, every job green: Linux 650, Mac WebKit 647, nothing flaky): #222
 (the scroll lane), #235 (the encoder's leftovers), #240 (History lines). `v2`'s code equals nov21-a's tree.
