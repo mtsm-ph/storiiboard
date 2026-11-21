@@ -161,6 +161,22 @@ describe('a change file refused whole (7.1)', () => {
     expect(passed(changeFile({ suggestions: [two] })).suggestions).toHaveLength(1);
   });
 
+  it('with a suggestion one byte under 256 KB as JSON, it passes; one byte over, it is refused (round 4)', () => {
+    // Fields of plain text, each under every string's bound, padded by the last so the whole is exactly the size asked.
+    const sized = (target: number) => {
+      const props: Record<string, string> = {};
+      const size = () => new TextEncoder().encode(JSON.stringify(suggestion({ id: S2, kind: 'update', data: { props } }))).byteLength;
+      for (let i = 0; size() + 9_000 < target; i += 1) props[`f${String(i)}`] = 'x'.repeat(10_000);
+      props.pad = '';
+      props.pad = 'x'.repeat(target - size());
+      const made = suggestion({ id: S2, kind: 'update', data: { props } });
+      expect(new TextEncoder().encode(JSON.stringify(made)).byteLength).toBe(target);
+      return made;
+    };
+    expect(passed(changeFile({ suggestions: [sized(MAX_SUGGESTION_BYTES - 1)] })).suggestions).toHaveLength(1);
+    expect(refusal(changeFile({ suggestions: [sized(MAX_SUGGESTION_BYTES + 1)] }))).toEqual({ kind: 'suggestion_too_large', position: 1 });
+  });
+
   it('when a suggestion sets one of the record’s own props, which only the app writes', () => {
     for (const prop of ['status', 'source', 'change_file_id', 'decided_by', 'decided_at', 'created_id', 'after_suggestion', 'target_id', 'suggested_at']) {
       expect(refusal(changeFile({ suggestions: [suggestion({ [prop]: 'approved' })] }))).toEqual({ kind: 'bad_field', at: { in: 'suggestion', position: 1 } });

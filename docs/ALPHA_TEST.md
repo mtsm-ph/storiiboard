@@ -321,6 +321,8 @@ screen that shows them comes with 7.2, so until then the status line and History
   project brings the files in (OneDrive downloads them). (7.1)
 - [ ] Rename a project whose suggestions folder has its marker: on opening, the app asks to rename the folder to match
   (Rename / Not now); Rename renames it and brings its files in. (7.1)
+- [ ] [Mac] The same on an exFAT stick: a project there, renamed, and its `* Suggestions` folder with its marker;
+  Rename from the app renames the folder and brings its files in. (7.1)
 - [ ] [Windows] A `<Project> Suggestions` that is a junction to another folder is never read: the status line says
   it's a link. (7.1)
 

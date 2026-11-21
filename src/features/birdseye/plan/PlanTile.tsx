@@ -1047,8 +1047,9 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         onDrop={(event) => {
           if (event.dataTransfer.files.length === 0) return;
           event.preventDefault();
-          // A change file (7.1) is never a picture. Dropped here in the browser build it is left out and not brought in:
-          // only the storyboard's drop brings one in there. The desktop app brings it in from the window's own drop.
+          // A change file (7.1) is never a picture. Dropped here in the browser build it is left out here; brought in only
+          // by the storyboard's document listener when a Storyboard tile is open. The desktop app brings it in from the
+          // window's own drop.
           const pictures = [...event.dataTransfer.files].filter((file) => !isChangeFile(file.name));
           if (pictures.length === 0) return;
           addPictures(pictures.map(fromFile), dropAt({ x: event.clientX, y: event.clientY }));

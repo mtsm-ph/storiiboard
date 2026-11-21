@@ -34,14 +34,21 @@ interface NoticeState {
 
 export const noticeStore = createStore<NoticeState>()(() => ({ message: null, kind: 'warning', seq: 0, step: false, copy: null, action: null }));
 
-/** `action`: a button that does what the warning offers (7.1 round 3: Bring in, beside files that couldn't be read). */
-export function showNotice(error: unknown, { action = null }: { action?: NoticeAction | null } = {}): void {
+/**
+ * `action`: a button that does what the warning offers (7.1 round 3: Bring in, beside files that couldn't be read).
+ * `step`: the warning also tells of an edit just made, so an undo or redo takes it away (7.1 round 4: a pass that
+ * brought files in and couldn't read others).
+ */
+export function showNotice(
+  error: unknown,
+  { action = null, step = false }: { action?: NoticeAction | null; step?: boolean } = {},
+): void {
   // Errors from below the UI arrive in English; they show in the app's language where a translation has them.
   noticeStore.setState((s) => ({
     message: localizeError(error instanceof Error ? error.message : String(error)),
     kind: 'warning',
     seq: s.seq + 1,
-    step: false,
+    step,
     copy: null,
     action,
   }));

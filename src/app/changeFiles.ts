@@ -224,6 +224,8 @@ interface FolderState {
   lastWaiting: string;
   /** everBroughtIn's answer for this open, once read; null until a pass needs it. */
   ever: Ever | null;
+  /** What bring-ins wrote while `ever` was still null, merged into it once it's read (7.1 round 4). */
+  pending: Ever;
 }
 
 const states = new WeakMap<Project, FolderState>();
@@ -231,15 +233,26 @@ const states = new WeakMap<Project, FolderState>();
 function stateOf(opened: Project): FolderState {
   const known = states.get(opened);
   if (known) return known;
-  const made: FolderState = { read: new Set(), said: new Set(), opened: false, renameOffered: false, lastWaiting: '', ever: null };
+  const made: FolderState = {
+    read: new Set(),
+    said: new Set(),
+    opened: false,
+    renameOffered: false,
+    lastWaiting: '',
+    ever: null,
+    pending: { suggestions: new Set(), files: new Set() },
+  };
   states.set(opened, made);
   return made;
 }
 
-/** What a bring-in just wrote, added to this open's `ever`: the log is append-only, so it is never read again. */
+/**
+ * What a bring-in just wrote, added to this open's `ever`: the log is append-only, so it is never read again. Before
+ * `ever` is read it goes into `pending`, as the log's read may have begun before this write.
+ */
 function noteBroughtIn(opened: Project, files: readonly ChangeFile[], each: readonly BroughtIn[]): void {
-  const ever = states.get(opened)?.ever;
-  if (!ever) return;
+  const state = stateOf(opened);
+  const ever = state.ever ?? state.pending;
   for (const [i, file] of files.entries()) {
     const made = each[i]?.changes ?? [];
     for (const change of made) if (change.kind === 'create' && change.record.id !== undefined) ever.suggestions.add(change.record.id);
@@ -250,8 +263,14 @@ function noteBroughtIn(opened: Project, files: readonly ChangeFile[], each: read
 async function everOf(opened: Project, state: FolderState): Promise<Ever> {
   if (state.ever) return state.ever;
   const read = await everBroughtIn(opened.file);
-  // A bring-in by hand while the log was read is in the log already, so nothing is lost by keeping the first answer.
-  state.ever ??= { suggestions: new Set(read.suggestions), files: new Set(read.files) };
+  // A bring-in by hand while the log was read may have committed after the read began, so it may be missing from the
+  // answer: what it wrote waits in `pending` and is merged here. A second read that finished first is kept.
+  state.ever ??= {
+    suggestions: new Set([...read.suggestions, ...state.pending.suggestions]),
+    files: new Set([...read.files, ...state.pending.files]),
+  };
+  // Once `ever` is read, bring-ins note into it: nothing more goes into `pending`.
+  state.pending = { suggestions: new Set(), files: new Set() };
   return state.ever;
 }
 
@@ -383,6 +402,8 @@ async function listFolder(opened: Project, state: FolderState, handle: number): 
     });
     if (answer !== 'rename' || projectStore.getState().project !== opened) return null;
     await invoke('changes_folder_rename', { handle, from });
+    // Renamed beside the project the run began in; a switch meanwhile hears nothing of it (7.1 round 4).
+    if (projectStore.getState().project !== opened) return null;
     showInfo(t('changes.rename.done', { to: folder }));
     return listFolder(opened, state, handle);
   }
@@ -425,16 +446,22 @@ async function pass(opened: Project, state: FolderState, handle: number, folder:
   const unread = new Set<string>();
   for (const listed of waiting) {
     if (taken.length >= MAX_PASS_FILES || readFiles >= MAX_READ_FILES || readBytes + listed.bytes > MAX_READ_BYTES) break;
-    // A new file this large would take the pass past 10 MB: it waits, unread, for the next pass.
-    if (taken.length > 0 && takenBytes + listed.bytes > MAX_PASS_BYTES) break;
+    // A file this large would take the pass past 10 MB if it's new: it waits, unread, for the next pass, and the pass goes
+    // on to smaller ones while the read budget lasts, so a large file already brought in never blocks them (7.1 round 4).
+    if (taken.length > 0 && takenBytes + listed.bytes > MAX_PASS_BYTES) continue;
     if (projectStore.getState().project !== opened) return;
     const key = keyOf(listed);
     readFiles += 1;
     readBytes += listed.bytes;
-    let raw: Uint8Array;
+    let raw: Uint8Array | null;
     try {
       raw = new Uint8Array(await invoke<ArrayBuffer>('changes_folder_read', { handle, name: listed.name }));
     } catch {
+      raw = null;
+    }
+    // A switch while the file was read (7.1 round 4): nothing of this pass is said into, or kept for, the project open now.
+    if (projectStore.getState().project !== opened) return;
+    if (raw === null) {
       // Counted, said once for the pass, never settled: the next pass reads it again.
       unread.add(key);
       continue;
@@ -496,6 +523,6 @@ async function pass(opened: Project, state: FolderState, handle: number, folder:
   if (words === '') return;
   // Bring in tries again whatever is left, the files that couldn't be read included.
   const action = left.length === 0 ? null : waitingAction(opened);
-  if (failed !== null) showNotice(words, { action });
+  if (failed !== null) showNotice(words, { action, step: brought !== null });
   else showInfo(words, { step: brought !== null, action });
 }
