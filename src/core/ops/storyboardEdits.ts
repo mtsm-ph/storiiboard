@@ -13,8 +13,9 @@ import { list, t } from '../i18n';
 // removes a shot renumbers its scene in the same op group, so undo takes back the edit and its numbers together.
 // Notes (1.12) sit among a scene's frames in the same order but take no number. New sort keys are worked out among
 // every item in a scene, trashed ones too, so a restored item never shares a key with one added since.
-// In core since 7.0 (moved from src/features/storyboard/board.ts, unchanged): an applied suggestion
-// (src/core/ops/suggestions.ts) writes with these same edits, and 7.5's server shares them.
+// In core since 7.0, moved from src/features/storyboard/board.ts with every edit unchanged: an applied suggestion
+// (src/core/model/suggestion.ts) writes with these same edits, and 7.5's server shares them. The move added two helpers
+// that name a place as a suggestion names one (START_OF_SCENE, beforeIdAfter); they write nothing themselves.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 
@@ -801,41 +802,3 @@ function sceneAdded(
   };
 }
 
-/**
- * A new scene first on the board (7.0: a suggestion's `create` with `after_id` null), numbered before the first live
- * scene as scripts do (A4 before 4), placed before every scene, the Trash's too. addSceneChanges's shape: the create,
- * and the moves that keep the place past a key that can't be read.
- */
-export function addSceneFirstChanges(records: Records, projectId: string): { id: string; changes: Change[] } {
-  const all = childrenOf(records, projectId, 'scene', true);
-  const taken = all.map((scene) => sceneFields(scene.props).number);
-  const first = all.find((scene) => scene.trashedAt === null);
-  const number = sceneNumberBetween(null, first ? sceneFields(first.props).number : null, taken);
-  const placed = placeAmong(all, 0, 1);
-  const id = crypto.randomUUID();
-  return {
-    id,
-    changes: [
-      { kind: 'create', record: { id, type: 'scene', parentId: projectId, sortKey: placed.keys[0] ?? '', props: { number, name: '' } } },
-      ...movesOf(placed.moves, projectId),
-    ],
-  };
-}
-
-/**
- * Moves a scene to after `afterSceneId` on the board (null: first), among the project's scenes, the Trash's too, so a
- * restored one comes back where it was (7.0; the board has no scene drag yet). Scene numbers are slate numbers and
- * never follow the order, so nothing is renumbered. Nothing when it's there already, or either isn't a scene here.
- */
-export function moveSceneChanges(records: Records, projectId: string, sceneId: string, afterSceneId: string | null): Change[] {
-  const scene = records[sceneId];
-  if (scene?.type !== 'scene' || scene.parentId !== projectId || afterSceneId === sceneId) return [];
-  const all = childrenOf(records, projectId, 'scene', true);
-  const others = all.filter((s) => s.id !== sceneId);
-  const at = afterSceneId === null ? 0 : others.findIndex((s) => s.id === afterSceneId) + 1;
-  if (at === 0 && afterSceneId !== null) return [];
-  // Already right after it (or first): no edit, so no empty step in History.
-  if ((others[at - 1]?.id ?? null) === (all[all.indexOf(scene) - 1]?.id ?? null)) return [];
-  const placed = placeAmong(others, at, 1);
-  return [{ kind: 'move', id: sceneId, parentId: projectId, sortKey: placed.keys[0] ?? '' }, ...movesOf(placed.moves, projectId)];
-}

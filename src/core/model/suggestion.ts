@@ -1,41 +1,52 @@
+import { t, type MessageKey } from '../i18n';
+import { callsheetNoteChange, departmentCallChange, personTimeChange } from '../ops/callsheetEdits';
+import { dayChange, scheduleFrames } from '../ops/dayEdits';
+import { gearListChange } from '../ops/gearEdits';
+import type { Change } from '../ops/ops';
+import {
+  addNoteChanges,
+  addSceneChanges,
+  addShot,
+  beforeIdAfter,
+  boardScene,
+  leavesLockedScene,
+  moveItem,
+  START_OF_SCENE,
+  trashScene,
+  trashShot,
+} from '../ops/storyboardEdits';
 import { dayCallsheet } from './callsheet';
 import type { JsonValue, SbdRecord } from './record';
 import { isClockTime } from './shootDay';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from './shotNumbers';
+import { shotFields } from './storyboard';
 import {
   ASSISTANT_SCOPE,
+  isPersonTimeKey,
   isSuggestionKind,
+  PERSON_TIME_KEYS,
   scopeField,
   scopeType,
+  type PersonTimeKey,
+  type ScopeField,
   type ScopeRow,
   type ScopeType,
   type SuggestionKind,
   type ValueProblem,
 } from './suggestionScope';
-import { callsheetPropsChange } from '../ops/callsheetEdits';
-import type { Change } from '../ops/ops';
-import {
-  addNoteChanges,
-  addSceneChanges,
-  addSceneFirstChanges,
-  addShot,
-  beforeIdAfter,
-  leavesLockedScene,
-  moveItem,
-  moveSceneChanges,
-  START_OF_SCENE,
-  trashScene,
-  trashShot,
-} from '../ops/storyboardEdits';
 
 // A suggestion (7.0, docs/SBD_FORMAT.md "Change files"): what one would do to the project and whether it still can.
 // A `suggestion` record comes from a change file or the assistant, so everything in it is untrusted: it is read here
 // bounded and rebuilt clean, as a settings preset is, before anything is shown or written. Pure (no page, no storage),
 // so 7.5's server reads suggestions with the same code.
 //
-// What Apply writes is made by the edits the UI itself makes (src/core/ops: storyboardEdits, dayEdits, gearEdits,
-// callsheetEdits), never a copy of them: a frame added by a suggestion is numbered, placed and keyed exactly as one
-// added on the board. The engine (src/core/ops/suggestions.ts) adds the suggestion's own update and writes the group.
+// Apply only does what a person could do by hand, with the same edit the UI makes (src/core/ops: storyboardEdits,
+// dayEdits, gearEdits, callsheetEdits), never a copy of one: a frame added by a suggestion is numbered, placed and keyed
+// exactly as one added on the board; a gear list changes by the Gear picker's adds and removes; a call sheet by its own
+// per-key edits. Where a suggestion names several fields, the edits a person would make one after another are folded
+// into one op on the record (foldEdits). A placement the app can't make by hand (a scene first on the board) is
+// flagged "can't be applied", never made by an edit of its own. The engine (src/core/ops/suggestions.ts) adds the
+// suggestion's own update and writes the group.
 //
 // The engine's core, proposedChange, takes a proposal (kind, target, data) and a scope row, so the departments'
 // "changes" body can use it later with rows of its own.
@@ -106,12 +117,22 @@ export type SuggestionFlag =
   | { kind: 'trashed'; what: 'target' | 'parent' }
   /** A `create` under another suggestion's new scene, which hasn't been applied yet. */
   | { kind: 'waiting'; on: string }
+  /** A `create` or `reorder` placed after what another suggestion of the same file adds, not applied yet (7.0 round 2). */
+  | { kind: 'waiting_after'; on: string }
+  /** Something the app can't do by hand (7.0 round 2), with its own words (flagWords). */
+  | { kind: 'cant_apply'; why: CantApply }
   /** A frame can't leave a scene whose shot numbers are locked (unlocking it first frees it). */
   | { kind: 'locked' }
   /** Changed since it was suggested: for an update, field by field with the three values; else the target's time. */
   | { kind: 'changed_since'; fields: readonly ChangedField[] }
   /** The project already reads as suggested: Apply writes only the decision. */
   | { kind: 'no_change' };
+
+/**
+ * Why the app can't apply it by hand: a scene first on the board (a person adds one after a scene or at the end), a
+ * frame onto a day while it isn't Need to shoot (the Days tile offers only those, 4.11).
+ */
+export type CantApply = 'scene_first' | 'not_need';
 
 export interface ChangedField {
   field: string;
@@ -257,13 +278,56 @@ export function readSuggestion(record: SbdRecord): Suggestion {
 /** A record by an id from a suggestion: never one of Object's own keys. */
 const recordOf = (records: Records, id: string | null): SbdRecord | null => (id !== null && Object.hasOwn(records, id) ? (records[id] ?? null) : null);
 
-const same = (a: JsonValue | undefined, b: JsonValue | undefined): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+/** A live record of `type`. */
+const liveOf = (records: Records, id: JsonValue | undefined, type: string): boolean => {
+  const record = typeof id === 'string' ? recordOf(records, id) : null;
+  return record?.type === type && record.trashedAt === null;
+};
+
+/**
+ * A value as it reads, for comparing (7.0 round 2): what reads as empty ('', [], {}, null, a missing prop) is null,
+ * and a map's keys are sorted, so two values that read the same are the same whatever their key order.
+ */
+function normal(value: JsonValue | undefined): JsonValue {
+  if (value === undefined || value === null || value === '') return null;
+  if (Array.isArray(value)) return value.length === 0 ? null : value.map((v) => normal(v));
+  if (isObject(value)) {
+    const keys = Object.keys(value).sort();
+    return keys.length === 0 ? null : Object.fromEntries(keys.map((key) => [key, normal(value[key])]));
+  }
+  return value;
+}
+
+/** Whether two values read the same (normal). */
+const same = (a: JsonValue | undefined, b: JsonValue | undefined): boolean => JSON.stringify(normal(a)) === JSON.stringify(normal(b));
+
+/** A value with its maps' keys sorted and nothing else changed: two stored values the same but for key order are one. */
+function sorted(value: JsonValue | undefined): JsonValue | undefined {
+  if (Array.isArray(value)) return value.map((v) => sorted(v) ?? null);
+  if (isObject(value)) return Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted(value[key]) ?? null]));
+  return value;
+}
+const sameStored = (a: JsonValue | undefined, b: JsonValue | undefined): boolean => JSON.stringify(sorted(a)) === JSON.stringify(sorted(b));
 
 /** Whether the target was written after the suggester saw it; a time that can't be read counts as changed. */
-const newerThan = (record: SbdRecord, seen: string | null): boolean => {
+const newerThan = (updatedAt: string, seen: string | null): boolean => {
   const at = seen === null ? Number.NaN : Date.parse(seen);
-  return Number.isNaN(at) || Date.parse(record.updatedAt) > at;
+  return Number.isNaN(at) || Date.parse(updatedAt) > at;
 };
+
+/**
+ * When a target was last written, as a `trash` or `reorder` compares it (7.0 round 2): a scene's is the newest of its
+ * own and of what trashing it takes with it (its live frames, notes and setups), so a frame added since counts.
+ */
+function lastWritten(records: Records, target: SbdRecord): string {
+  if (target.type !== 'scene') return target.updatedAt;
+  let newest = target.updatedAt;
+  for (const record of Object.values(records)) {
+    if (record.parentId !== target.id || record.trashedAt !== null || (record.type !== 'shot' && record.type !== 'note' && record.type !== 'setup')) continue;
+    if (Date.parse(record.updatedAt) > Date.parse(newest)) newest = record.updatedAt;
+  }
+  return newest;
+}
 
 /** What a suggestion asks, as the engine takes it: from a suggestion, or (later) a department's change. */
 export interface Proposal {
@@ -282,29 +346,6 @@ export interface ProposedChange {
   createdId: string | null;
 }
 
-/**
- * The value written for a field: the suggested one, with what the record keeps there that this version can't read
- * written back as it was, as the field's own edit does (a day's gear list, a call sheet's calls and times).
- */
-function writtenValue(field: string, value: JsonValue, stored: JsonValue | undefined): JsonValue {
-  if (field === 'gear_ids' && Array.isArray(value) && Array.isArray(stored)) return [...value, ...stored.filter((v) => typeof v !== 'string')];
-  if (field === 'department_calls' && isObject(value) && isObject(stored)) {
-    const kept = Object.entries(stored).filter(([key, time]) => !Object.hasOwn(value, key) && (typeof time !== 'string' || !isClockTime(time)));
-    return Object.fromEntries([...kept, ...Object.entries(value)]);
-  }
-  if (field === 'person_times' && isObject(value) && isObject(stored)) {
-    const kept = Object.entries(stored).filter(([key, entry]) => !Object.hasOwn(value, key) && !isObject(entry));
-    const merged = Object.entries(value).map(([key, entry]): [string, JsonValue] => {
-      const was = stored[key];
-      if (!isObject(entry) || !isObject(was)) return [key, entry];
-      const unread = Object.entries(was).filter(([k]) => !['call', 'hmu_ready', 'on_set'].includes(k));
-      return [key, Object.fromEntries([...unread, ...Object.entries(entry)])];
-    });
-    return Object.fromEntries([...kept, ...merged]);
-  }
-  return value;
-}
-
 /** Each field's check, as flags: outside the row, or a value that fails. */
 function checkFields(entry: ScopeType, props: ReadonlyMap<string, JsonValue>, records: Records, record: SbdRecord | null, flags: SuggestionFlag[]): void {
   for (const [field, value] of props) {
@@ -318,29 +359,197 @@ function checkFields(entry: ScopeType, props: ReadonlyMap<string, JsonValue>, re
   }
 }
 
-/** The set and unset that bring a record's named fields to the suggested values; fields already so are left out. */
-function setAndUnset(entry: ScopeType, props: ReadonlyMap<string, JsonValue>, record: SbdRecord | null): { set: Record<string, JsonValue>; unset: string[] } {
+/** A time as a call sheet reads it: "HH:MM", else none. */
+const sheetTime = (value: JsonValue | undefined): JsonValue => (typeof value === 'string' && isClockTime(value) ? value : null);
+
+/**
+ * What a person sees of a field, for changed since (7.0 round 2): a list's live records of its type, in order (what it
+ * keeps that isn't one is left out); a call sheet's map, only the keys the suggestion names, each read as the sheet
+ * reads it; any other field as stored. `named` is the suggested value.
+ */
+function seen(records: Records, field: string, rule: ScopeField, value: JsonValue | undefined, named: JsonValue): JsonValue {
+  const type = rule.listOf;
+  if (type !== undefined) return Array.isArray(value) ? value.filter((id) => liveOf(records, id, type)) : [];
+  if (rule.byKey && isObject(named)) {
+    const map = isObject(value) ? value : {};
+    return Object.fromEntries(
+      Object.entries(named).map(([key, asked]): [string, JsonValue] => {
+        const stored = Object.hasOwn(map, key) ? map[key] : undefined;
+        // A department's call is a time; a person's entry is their times, the ones named (all three for null).
+        if (field !== 'person_times') return [key, sheetTime(stored)];
+        const entry = isObject(stored) ? stored : {};
+        const keys: readonly string[] = isObject(asked) ? Object.keys(asked) : PERSON_TIME_KEYS;
+        return [key, Object.fromEntries(keys.map((k) => [k, sheetTime(Object.hasOwn(entry, k) ? entry[k] : undefined)]))];
+      }),
+    );
+  }
+  return value ?? null;
+}
+
+/** One edit, worked out from the records as the edits before it in the same Apply left them. */
+type Step = (now: Records) => Change[];
+
+/** A record into the working copy as data, never assigned: an id can't reach the object's prototype, however it is spelled. */
+const put = (records: Record<string, SbdRecord>, id: string, record: SbdRecord): void => {
+  Object.defineProperty(records, id, { value: record, enumerable: true, writable: true, configurable: true });
+};
+
+/**
+ * The edits a person would make one by one, folded into one op per record they write (7.0 round 2): each is the app's
+ * own edit (the Inspector's set, the Days tile's, the Gear picker's, the call sheet's per key), run on the records the
+ * edits before it left, so what they write together is exactly what they'd write in turn; then each record gets one
+ * op, its create or its update. Nothing is written for a record that reads as it was but for key order.
+ */
+function foldEdits(records: Records, steps: readonly Step[]): Change[] {
+  const now: Record<string, SbdRecord> = { ...records };
+  const order: string[] = [];
+  const made = new Map<string, Extract<Change, { kind: 'create' }>>();
+  for (const step of steps) {
+    for (const change of step(now)) {
+      if (change.kind === 'create') {
+        const id = change.record.id;
+        if (id === undefined) continue;
+        made.set(id, change);
+        const { type, parentId, sortKey, props = {} } = change.record;
+        put(now, id, { id, type, parentId, sortKey, props, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' });
+        if (!order.includes(id)) order.push(id);
+      } else if (change.kind === 'update') {
+        const record = recordOf(now, change.id);
+        if (!record) continue;
+        const gone = new Set(change.unset);
+        const props = Object.fromEntries(Object.entries({ ...record.props, ...change.set }).filter(([key]) => !gone.has(key)));
+        put(now, change.id, { ...record, props });
+        if (!order.includes(change.id)) order.push(change.id);
+      }
+    }
+  }
+  return order.flatMap((id): Change[] => {
+    const final = now[id];
+    if (!final) return [];
+    const create = made.get(id);
+    if (create) return [{ ...create, record: { ...create.record, props: final.props } }];
+    const was = recordOf(records, id)?.props ?? {};
+    const set = Object.fromEntries(Object.entries(final.props).filter(([key, value]) => !Object.hasOwn(was, key) || !sameStored(value, was[key])));
+    const unset = Object.keys(was).filter((key) => !Object.hasOwn(final.props, key));
+    if (Object.keys(set).length === 0 && unset.length === 0) return [];
+    return [{ kind: 'update', id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }];
+  });
+}
+
+/**
+ * A list of ids as a suggestion leaves it, with what a person can't see kept (7.0 round 2): each stored entry that
+ * isn't a live record of `type` (in the Trash, gone, not an id) stays in its place, and the suggested ids fill the
+ * others in their order, the rest after. For a list no edit of the app keeps (a scene's characters, set by a script's
+ * import); a gear list goes through the Gear picker's own edit instead.
+ */
+function keptList(records: Records, stored: JsonValue | undefined, wanted: readonly string[], type: string): JsonValue[] {
+  const list = Array.isArray(stored) ? stored : [];
+  const out: JsonValue[] = [];
+  let next = 0;
+  for (const entry of list) {
+    if (!liveOf(records, entry, type)) out.push(entry);
+    else if (next < wanted.length) out.push(wanted[next++] ?? null);
+  }
+  return [...out, ...wanted.slice(next)];
+}
+
+/** A field set as data, never assigned: a field named __proto__ can't reach here (no row has one), and this keeps it so. */
+const define = (props: Record<string, JsonValue>, field: string, value: JsonValue): void => {
+  Object.defineProperty(props, field, { value, enumerable: true, writable: true, configurable: true });
+};
+
+/**
+ * The edits an `update` makes on a frame, scene, note or day, each the app's own: a frame's day as the Days tile
+ * schedules it (scheduleFrames), a gear list as the Gear picker adds and removes (gearListChange, the suggested list
+ * diffed into what a person would tick on and off), a day's crew call and wrap as the Days tile sets them (dayChange),
+ * and every other field as the Inspector sets it, in one update. Fields already as suggested are left out.
+ */
+function updateSteps(entry: ScopeType, props: ReadonlyMap<string, JsonValue>, records: Records, target: SbdRecord): Step[] {
+  const steps: Step[] = [];
   const set: Record<string, JsonValue> = {};
   const unset: string[] = [];
   for (const [field, value] of props) {
     const rule = scopeField(entry, field);
     if (!rule) continue;
-    const stored = record?.props[field];
-    if (rule.takesOff(value)) {
-      // Emptied, a list or a map still keeps what this version can't read in it, as its own edit does.
-      const empty: JsonValue | null = field === 'gear_ids' ? [] : field === 'department_calls' || field === 'person_times' ? {} : null;
-      const kept = empty === null ? null : writtenValue(field, empty, stored);
-      const keepsSome = kept !== null && (Array.isArray(kept) ? kept.length > 0 : isObject(kept) && Object.keys(kept).length > 0);
-      if (keepsSome) {
-        if (!same(kept, stored)) Object.defineProperty(set, field, { value: kept, enumerable: true, writable: true, configurable: true });
-      } else if (stored !== undefined) unset.push(field);
-      continue;
+    const stored = target.props[field];
+    const off = rule.takesOff(value);
+    if (field === 'shoot_day_id' && target.type === 'shot') {
+      const day = off || typeof value !== 'string' ? null : value;
+      steps.push((now) => scheduleFrames(now, [target.id], day));
+    } else if (field === 'gear_ids') {
+      const wanted = off || !Array.isArray(value) ? [] : value.filter((id): id is string => typeof id === 'string');
+      const storedIds = Array.isArray(stored) ? stored : [];
+      const removes = storedIds.filter((id): id is string => liveOf(records, id, 'gear_item') && typeof id === 'string' && !wanted.includes(id));
+      const adds = wanted.filter((id) => !storedIds.includes(id));
+      if (removes.length > 0) steps.push((now) => gearListChange(now, target.id, removes, false));
+      if (adds.length > 0) steps.push((now) => gearListChange(now, target.id, adds, true));
+    } else if ((field === 'call_time' || field === 'wrap_time') && target.type === 'shoot_day') {
+      const prop = field;
+      const time = off || typeof value !== 'string' ? '' : value;
+      steps.push((now) => dayChange(now, target.id, prop, time));
+    } else if (rule.listOf !== undefined) {
+      const wanted = off || !Array.isArray(value) ? [] : value.filter((id): id is string => typeof id === 'string');
+      const written = keptList(records, stored, wanted, rule.listOf);
+      if (!same(written, stored)) define(set, field, written);
+    } else if (!same(value, stored)) {
+      if (!off) define(set, field, value);
+      else if (stored !== undefined) unset.push(field);
     }
-    const written = writtenValue(field, value, stored);
-    // Defined as data, never assigned: a field named __proto__ can't reach here (no row has one), and this keeps it so.
-    if (!same(written, stored)) Object.defineProperty(set, field, { value: written, enumerable: true, writable: true, configurable: true });
   }
-  return { set, unset };
+  if (Object.keys(set).length > 0 || unset.length > 0) {
+    steps.unshift(() => [{ kind: 'update', id: target.id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }]);
+  }
+  return steps;
+}
+
+/**
+ * The edits an `update` makes on a call sheet, each the sheet's own, key by key (7.0 round 2): its notes
+ * (callsheetNoteChange), each department's call named (departmentCallChange) and each person's time named
+ * (personTimeChange). What isn't named stays, keys this version can't read included. The sheet is made by the first,
+ * as the first note typed makes it.
+ */
+function sheetSteps(props: ReadonlyMap<string, JsonValue>, dayId: string): Step[] {
+  // One id for the sheet, as each of the sheet's edits makes one: used only if the day has none yet.
+  const id = crypto.randomUUID();
+  const steps: Step[] = [];
+  for (const [field, value] of props) {
+    if (field === 'notes' || field === 'safety_notes') {
+      const note = field;
+      const text = typeof value === 'string' ? value : '';
+      steps.push((now) => callsheetNoteChange(now, dayId, note, text, id));
+    } else if (field === 'department_calls' && isObject(value)) {
+      for (const [department, time] of Object.entries(value)) {
+        steps.push((now) => departmentCallChange(now, dayId, department, typeof time === 'string' ? time : '', id));
+      }
+    } else if (field === 'person_times' && isObject(value)) {
+      for (const [personId, times] of Object.entries(value)) {
+        const named: [PersonTimeKey, JsonValue][] = isObject(times)
+          ? Object.entries(times).flatMap(([key, time]): [PersonTimeKey, JsonValue][] => (isPersonTimeKey(key) ? [[key, time]] : []))
+          : PERSON_TIME_KEYS.map((key): [PersonTimeKey, JsonValue] => [key, null]);
+        for (const [key, time] of named) steps.push((now) => personTimeChange(now, dayId, personId, key, typeof time === 'string' ? time : '', id));
+      }
+    }
+  }
+  return steps;
+}
+
+/** The fields a `create` gives the new record: those it names, but none taken off or empty (the record has none yet). */
+function createdProps(entry: ScopeType, props: ReadonlyMap<string, JsonValue>): Record<string, JsonValue> {
+  const set: Record<string, JsonValue> = {};
+  for (const [field, value] of props) {
+    const rule = scopeField(entry, field);
+    if (!rule || rule.takesOff(value) || same(value, undefined)) continue;
+    define(set, field, value);
+  }
+  return set;
+}
+
+/**
+ * A frame goes on a day only while it is Need to shoot, as the Days tile offers it (4.11): the status it would have
+ * once the suggestion is applied, so one that sets Need to shoot too may.
+ */
+function offDayStatus(day: JsonValue | undefined, status: JsonValue | undefined): boolean {
+  return typeof day === 'string' && (status ?? 'need') !== 'need';
 }
 
 /** Whether these flags leave Apply open. */
@@ -351,14 +560,6 @@ function liveSibling(records: Records, parentId: string, id: string | null, exce
   const record = recordOf(records, id);
   if (!record || record.id === except || record.parentId !== parentId || record.trashedAt !== null) return false;
   return records[parentId]?.type === 'project' ? record.type === 'scene' : record.type === 'shot' || record.type === 'note';
-}
-
-/** The last live scene on the board but `except`, or null. */
-function lastScene(records: Records, projectId: string, except: string | null): string | null {
-  const scenes = Object.values(records)
-    .filter((r) => r.type === 'scene' && r.parentId === projectId && r.trashedAt === null && r.id !== except)
-    .sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0));
-  return scenes.at(-1)?.id ?? null;
 }
 
 /**
@@ -390,10 +591,13 @@ export function proposedChange(records: Records, projectId: string, proposal: Pr
     else if (!entry.parents.includes(parent.type) || (parent.type === 'project' && parent.id !== projectId)) flags.push({ kind: 'invalid', field: 'parent_id', problem: 'type' });
     else if (parent.trashedAt !== null) flags.push({ kind: 'trashed', what: 'parent' });
     checkFields(entry, data.props, records, null, flags);
+    if (proposal.targetType === 'shot' && offDayStatus(data.props.get('shoot_day_id'), data.props.get('status'))) flags.push({ kind: 'cant_apply', why: 'not_need' });
+    // A person adds a scene at the end of the board or after a scene ("/" menu), never first: neither does Apply.
+    if (proposal.targetType === 'scene' && data.afterId === null) flags.push({ kind: 'cant_apply', why: 'scene_first' });
     if (!parent || !open(flags)) return none();
     const afterGone = data.afterId !== null && !liveSibling(records, parent.id, data.afterId, null);
     if (afterGone) flags.push({ kind: 'gone', what: 'after' });
-    const { set } = setAndUnset(entry, data.props, null);
+    const set = createdProps(entry, data.props);
     if (proposal.targetType === 'shot') {
       // Its number comes from the scene's own rule: no row lets a suggestion give one.
       const at = afterGone ? null : (data.afterId ?? START_OF_SCENE);
@@ -405,7 +609,8 @@ export function proposedChange(records: Records, projectId: string, proposal: Pr
       const made = addNoteChanges(records, parent.id, at, typeof set.text === 'string' ? set.text : '');
       return { flags, writes: made.changes, createdId: made.id };
     }
-    const made = data.afterId === null ? addSceneFirstChanges(records, projectId) : addSceneChanges(records, projectId, afterGone ? null : data.afterId);
+    // After a live scene, or (its after_id gone) at the end, as + Add Scene puts one.
+    const made = addSceneChanges(records, projectId, afterGone ? null : data.afterId);
     // The scene's number is the board's (addSceneChanges's); its other fields join the create, so it's made whole.
     const writes = made.changes.map((change): Change =>
       change.kind === 'create' && change.record.id === made.id ? { ...change, record: { ...change.record, props: { ...change.record.props, ...set } } } : change,
@@ -424,36 +629,36 @@ export function proposedChange(records: Records, projectId: string, proposal: Pr
   if (data.kind === 'update') {
     const record = isSheet ? dayCallsheet(records, target.id) : target;
     checkFields(entry, data.props, records, record, flags);
+    if (target.type === 'shot' && data.props.has('shoot_day_id') && !same(data.props.get('shoot_day_id'), target.props.shoot_day_id)) {
+      const status = data.props.has('status') ? data.props.get('status') : shotFields(target.props).status;
+      if (offDayStatus(data.props.get('shoot_day_id'), status)) flags.push({ kind: 'cant_apply', why: 'not_need' });
+    }
     const changed: ChangedField[] = [];
     for (const [field, value] of data.props) {
-      if (!scopeField(entry, field)) continue;
-      const now = record?.props[field] ?? null;
-      const then = data.before.get(field) ?? null;
+      const rule = scopeField(entry, field);
+      if (!rule) continue;
+      const now = seen(records, field, rule, record?.props[field], value);
+      const then = seen(records, field, rule, data.before.get(field), value);
       if (!same(now, then)) changed.push({ field, then, suggested: value, now });
     }
     if (changed.length > 0) flags.push({ kind: 'changed_since', fields: changed });
     if (!open(flags)) return none();
-    const { set, unset } = setAndUnset(entry, data.props, record);
-    const writes: Change[] = isSheet
-      ? callsheetPropsChange(records, target.id, set, unset)
-      : Object.keys(set).length > 0 || unset.length > 0
-        ? [{ kind: 'update', id: target.id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }]
-        : [];
+    const writes = foldEdits(records, isSheet ? sheetSteps(data.props, target.id) : updateSteps(entry, data.props, records, target));
     if (writes.length === 0) flags.push({ kind: 'no_change' });
     return { flags, writes, createdId: null };
   }
 
-  if (newerThan(target, proposal.targetUpdatedAt)) flags.push({ kind: 'changed_since', fields: [] });
+  if (newerThan(lastWritten(records, target), proposal.targetUpdatedAt)) flags.push({ kind: 'changed_since', fields: [] });
 
   if (data.kind === 'trash') {
     const writes = target.type === 'shot' ? trashShot(records, projectId, target.id, slate) : target.type === 'scene' ? trashScene(records, target.id) : [{ kind: 'trash' as const, id: target.id }];
     return { flags, writes, createdId: null };
   }
 
-  // reorder
+  // reorder: a frame or a note, as a drag on the board moves it (scenes don't move by hand, so the row has no reorder for them).
   const parent = recordOf(records, data.parentId);
   if (!parent) flags.push({ kind: 'gone', what: 'parent' });
-  else if (!entry.parents.includes(parent.type) || (parent.type === 'project' && parent.id !== projectId)) flags.push({ kind: 'invalid', field: 'parent_id', problem: 'type' });
+  else if (!entry.parents.includes(parent.type)) flags.push({ kind: 'invalid', field: 'parent_id', problem: 'type' });
   // A note moves within its own scene only.
   else if (target.type === 'note' && parent.id !== target.parentId) flags.push({ kind: 'invalid', field: 'parent_id', problem: 'not_found' });
   else if (parent.trashedAt !== null) flags.push({ kind: 'trashed', what: 'parent' });
@@ -462,13 +667,18 @@ export function proposedChange(records: Records, projectId: string, proposal: Pr
   if (!parent || !open(flags)) return none();
   const afterGone = data.afterId !== null && !liveSibling(records, parent.id, data.afterId, target.id);
   if (afterGone) flags.push({ kind: 'gone', what: 'after' });
-  let writes: Change[];
-  if (target.type === 'scene') {
-    writes = moveSceneChanges(records, projectId, target.id, afterGone ? lastScene(records, projectId, target.id) : data.afterId);
-  } else {
-    const beforeId = afterGone ? null : beforeIdAfter(records, parent.id, data.afterId, target.id);
-    writes = beforeId === undefined ? [] : moveItem(records, projectId, target.id, parent.id, beforeId, slate);
+  // Already right after it among the scene's live frames and notes (or first, or last for an after_id gone): no move.
+  if (target.parentId === parent.id) {
+    const items = boardScene(records, parent).items.map((item) => (item.kind === 'shot' ? item.shot.record.id : item.note.record.id));
+    const others = items.filter((id) => id !== target.id);
+    const wanted = afterGone ? (others.at(-1) ?? null) : data.afterId;
+    if ((items[items.indexOf(target.id) - 1] ?? null) === wanted) {
+      flags.push({ kind: 'no_change' });
+      return { flags, writes: [], createdId: null };
+    }
   }
+  const beforeId = afterGone ? null : beforeIdAfter(records, parent.id, data.afterId, target.id);
+  const writes = beforeId === undefined ? [] : moveItem(records, projectId, target.id, parent.id, beforeId, slate);
   if (writes.length === 0) flags.push({ kind: 'no_change' });
   return { flags, writes, createdId: null };
 }
@@ -491,8 +701,8 @@ export interface SuggestionReview {
 }
 
 /**
- * A create's parent or after_id may name another create suggestion of the same change file: once that one is applied,
- * it reads as the record it made. Undefined when it names no such suggestion.
+ * A create's parent or after_id, or a reorder's after_id, may name another create suggestion of the same change file:
+ * once that one is applied, it reads as the record it made. Undefined when it names no such suggestion.
  */
 function madeBy(records: Records, id: string, changeFileId: string | null): { suggestion: Suggestion } | undefined {
   const record = recordOf(records, id);
@@ -526,11 +736,16 @@ export function reviewSuggestion(records: Records, projectId: string, suggestion
         else if (parent.suggestion.status === 'rejected') flags.push({ kind: 'gone', what: 'parent' });
         else flags.push({ kind: 'waiting', on: parentBy });
       }
-      // A sibling made by an earlier suggestion of the same file reads as the record it made, once applied.
-      const after = data.afterId === null ? undefined : madeBy(records, data.afterId, suggestion.changeFileId);
-      if (after?.suggestion.status === 'approved' && after.suggestion.createdId !== null) data = { ...data, afterId: after.suggestion.createdId };
     }
-    const waiting = flags.some((f) => f.kind === 'waiting' || (f.kind === 'gone' && f.what === 'parent') || f.kind === 'invalid');
+    if (data.kind === 'create' || data.kind === 'reorder') {
+      // A sibling made by another suggestion of the same file reads as the record it made, once applied; until then it
+      // waits for it (a rejected one made nothing, so the place reads as gone: at the end).
+      const afterId = data.afterId;
+      const after = afterId === null ? undefined : madeBy(records, afterId, suggestion.changeFileId);
+      if (after?.suggestion.status === 'approved' && after.suggestion.createdId !== null) data = { ...data, afterId: after.suggestion.createdId };
+      else if (afterId !== null && after?.suggestion.status === 'pending') flags.push({ kind: 'waiting_after', on: afterId });
+    }
+    const waiting = flags.some((f) => f.kind === 'waiting' || f.kind === 'waiting_after' || (f.kind === 'gone' && f.what === 'parent') || f.kind === 'invalid');
     if (!waiting) {
       proposed = proposedChange(
         records,
@@ -544,4 +759,19 @@ export function reviewSuggestion(records: Records, projectId: string, suggestion
   const all = [...flags, ...proposed.flags];
   const canApply = suggestion.status === 'pending' && open(all) && (proposed.writes.length > 0 || all.some((f) => f.kind === 'no_change'));
   return { suggestion, flags: all, canApply, writes: canApply ? proposed.writes : [], createdId: canApply ? proposed.createdId : null };
+}
+
+const CANT_APPLY_WORDS: Readonly<Record<CantApply, MessageKey>> = {
+  scene_first: 'suggestion.flag.sceneFirst',
+  not_need: 'suggestion.flag.notNeed',
+};
+
+/**
+ * The words for the flags round 2 added (7.0): a placement or a day the app can't make by hand, and a place that waits
+ * for another suggestion. The other flags get their words with the review screen (7.2). Null for those.
+ */
+export function flagWords(flag: SuggestionFlag): string | null {
+  if (flag.kind === 'cant_apply') return t(CANT_APPLY_WORDS[flag.why]);
+  if (flag.kind === 'waiting_after') return t('suggestion.flag.waitingAfter');
+  return null;
 }

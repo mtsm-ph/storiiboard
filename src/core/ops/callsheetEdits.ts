@@ -42,29 +42,6 @@ function sheetProp(records: Records, dayId: string, prop: string, value: JsonVal
 }
 
 /**
- * Several of a day's call sheet props in one change, as sheetProp writes one (7.0: an applied suggestion that names
- * more than one): set and taken off on the sheet, or the sheet made with what's set when the day has none. A day's
- * first call sheet isn't made just to take something off. The caller checks the values, as the edits above do.
- */
-export function callsheetPropsChange(records: Records, dayId: string, set: Readonly<Props>, unset: readonly string[], id: string = crypto.randomUUID()): Change[] {
-  if (!liveDay(records, dayId)) return [];
-  const sheet = dayCallsheet(records, dayId);
-  const setKeys = Object.keys(set);
-  if (!sheet) {
-    if (setKeys.length === 0) return [];
-    const sortKey = keyAfterKeys(
-      Object.values(records)
-        .filter((r) => r.type === 'callsheet' && r.parentId === dayId)
-        .map((r) => r.sortKey),
-    );
-    return [{ kind: 'create', record: { id, type: 'callsheet', parentId: dayId, sortKey, props: { ...set } } }];
-  }
-  const off = unset.filter((prop) => sheet.props[prop] !== undefined);
-  if (setKeys.length === 0 && off.length === 0) return [];
-  return [{ kind: 'update', id: sheet.id, ...(setKeys.length > 0 ? { set: { ...set } } : {}), ...(off.length > 0 ? { unset: off } : {}) }];
-}
-
-/**
  * One of a day's notes; an empty value takes it off. Nothing when it's already so, or the day isn't live. The first
  * note of a day creates its call sheet with the note on it.
  */

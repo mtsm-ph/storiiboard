@@ -60,6 +60,14 @@ export interface ScopeField {
   check: (value: JsonValue, context: FieldContext) => ValueProblem | null;
   /** Whether this (checked) value takes the prop off rather than being written: null, and what the field's edit reads as empty. */
   takesOff: (value: JsonValue) => boolean;
+  /**
+   * For a list of ids: the type its ids name. What the stored list holds that isn't a live record of it (one in the
+   * Trash, one gone, something that isn't an id) is what a person can't see: Apply keeps it where it is, and changed
+   * since leaves it out (7.0 round 2).
+   */
+  listOf?: RecordType;
+  /** For a map a call sheet edits key by key (its calls and times): only the keys named are set or taken off. */
+  byKey?: true;
 }
 
 export interface ScopeType {
@@ -144,6 +152,7 @@ function idsOf(label: MessageKey, type: RecordType, prop: string, emptyOff: bool
       return value.every((id) => typeof id === 'string' && liveOf(records, id, type)) ? null : 'not_found';
     },
     takesOff: (value) => value === null || (emptyOff && Array.isArray(value) && value.length === 0),
+    listOf: type,
   };
 }
 
@@ -175,52 +184,78 @@ const storedMap = (record: SbdRecord | null, prop: string): 'unreadable' | null 
   return stored !== undefined && !isObject(stored) ? 'unreadable' : null;
 };
 
-/** A call sheet's department calls: `{ department id: "HH:MM" }`; {} or null takes the prop off. */
+/** A time on the sheet's or the day's own field: `HH:MM`, or '' and null to take it off, as the field's edit takes ''. */
+const clockOrOff = (time: JsonValue | undefined): boolean => time === null || time === '' || (typeof time === 'string' && isClockTime(time));
+
+/**
+ * A call sheet's department calls, key by key as the sheet's own edit writes them (departmentCallChange):
+ * `{ department id: "HH:MM" }`, where '' or null takes that department's call off. Departments not named stay as they are,
+ * one this version can't read included, so the field itself is never taken off whole.
+ */
 const departmentCalls: ScopeField = {
   label: 'history.field.departmentCalls',
   check: (value, { record }) => {
     const stored = storedMap(record, 'department_calls');
     if (stored) return stored;
-    if (value === null) return null;
     if (!isObject(value)) return 'type';
     const entries = Object.entries(value);
     if (entries.length > 50) return 'too_many';
     for (const [department, time] of entries) {
       if (!isDepartment(department)) return 'not_found';
-      if (typeof time !== 'string' || !isClockTime(time)) return 'type';
+      if (!clockOrOff(time)) return 'type';
     }
     return null;
   },
-  takesOff: (value) => value === null || (isObject(value) && Object.keys(value).length === 0),
+  takesOff: () => false,
+  byKey: true,
 };
 
-const PERSON_TIME_KEYS: readonly string[] = ['call', 'hmu_ready', 'on_set'];
+export const PERSON_TIME_KEYS = ['call', 'hmu_ready', 'on_set'] as const;
+export type PersonTimeKey = (typeof PERSON_TIME_KEYS)[number];
+export const isPersonTimeKey = (key: string): key is PersonTimeKey => (PERSON_TIME_KEYS as readonly string[]).includes(key);
 
-/** A call sheet's person times: `{ person id: { call?, hmu_ready?, on_set? } }`, each "HH:MM", each person with one or more. */
+/**
+ * A call sheet's person times, key by key as the sheet's own edit writes them (personTimeChange):
+ * `{ person id: { call?, hmu_ready?, on_set? } }`, each "HH:MM", or '' and null to take that one off; a person given
+ * null has all three taken off. People and keys not named stay as they are, those this version can't read included.
+ */
 const personTimes: ScopeField = {
   label: 'history.field.personTimes',
   check: (value, { records, record }) => {
     const stored = storedMap(record, 'person_times');
     if (stored) return stored;
-    if (value === null) return null;
     if (!isObject(value)) return 'type';
     const entries = Object.entries(value);
     if (entries.length > MAX_IDS) return 'too_many';
+    const was = record?.props.person_times;
     for (const [personId, times] of entries) {
       if (!liveOf(records, personId, 'person')) return 'not_found';
+      // A person's entry that isn't an object (a newer version's) is never written over, as the sheet's edit refuses it.
+      if (isObject(was) && Object.hasOwn(was, personId) && !isObject(was[personId])) return 'unreadable';
+      if (times === null) continue;
       if (!isObject(times) || Object.keys(times).length === 0) return 'type';
-      for (const [key, time] of Object.entries(times)) {
-        if (!PERSON_TIME_KEYS.includes(key) || typeof time !== 'string' || !isClockTime(time)) return 'type';
-      }
+      for (const [key, time] of Object.entries(times)) if (!isPersonTimeKey(key) || !clockOrOff(time)) return 'type';
     }
     return null;
   },
-  takesOff: (value) => value === null || (isObject(value) && Object.keys(value).length === 0),
+  takesOff: () => false,
+  byKey: true,
 };
+
+/** A day's crew call or wrap (3.7), as the Days tile edits one (dayChange): `HH:MM`, or '' and null to take it off. */
+function dayTime(label: MessageKey): ScopeField {
+  return {
+    label,
+    check: (value) => (clockOrOff(value) ? null : 'type'),
+    takesOff: (value) => value === null || value === '',
+  };
+}
 
 /**
  * The assistant's row (Phase 7 decision 4): frames, scenes and notes; a day's frames (a frame's `shoot_day_id`), the
- * board's order and a day's gear list; a call sheet's notes and calls. Plan items join it in 7.6 with `suggest_room`.
+ * board's order of frames and notes and a day's gear list; a call sheet's notes and calls, the day's crew call and wrap
+ * among them. Plan items join it in 7.6 with `suggest_room`. Each field can be emptied by a suggestion only where a
+ * person can empty it by hand (the Inspector, the Days tile, the call sheet).
  */
 export const ASSISTANT_SCOPE: ScopeRow = {
   id: 'assistant',
@@ -248,12 +283,14 @@ export const ASSISTANT_SCOPE: ScopeRow = {
     },
     scene: {
       label: 'suggestionScope.type.scene',
-      kinds: ['trash', 'update', 'create', 'reorder'],
+      // No reorder: a person can't move a scene on the board today, so neither can a suggestion (7.0 round 2).
+      kinds: ['trash', 'update', 'create'],
       parents: ['project'],
       fields: {
         name: text('history.field.name', SHORT_TEXT),
         int_ext: choice('history.field.intExt', INT_EXT, false),
-        day_night: choice('history.field.dayNight', DAY_NIGHT, false),
+        // The Inspector's Time can be set back to none; INT/EXT can't.
+        day_night: choice('history.field.dayNight', DAY_NIGHT, true),
         location_id: idOf('history.field.locationId', 'location', false),
         page_eighths: wholeNumber('history.field.pageEighths', 1, 8 * 999),
         character_ids: idsOf('history.field.characters', 'character', 'character_ids', false),
@@ -269,7 +306,12 @@ export const ASSISTANT_SCOPE: ScopeRow = {
       label: 'suggestionScope.type.shootDay',
       kinds: ['update'],
       parents: [],
-      fields: { gear_ids: idsOf('history.field.gearIds', 'gear_item', 'gear_ids', true) },
+      // The day's gear list, and its crew call and wrap: the call sheet's calls (4.2).
+      fields: {
+        gear_ids: idsOf('history.field.gearIds', 'gear_item', 'gear_ids', true),
+        call_time: dayTime('history.field.callTime'),
+        wrap_time: dayTime('history.field.wrapTime'),
+      },
     },
     callsheet: {
       label: 'suggestionScope.type.callsheet',

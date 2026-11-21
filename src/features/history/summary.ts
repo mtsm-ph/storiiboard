@@ -1877,12 +1877,6 @@ export function stepPictures(ops: readonly LoggedOp[]): string[] {
   });
 }
 
-/**
- * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
- * names without writing them (a sketch's frame, a scene's location), as they were then. `unsure`: a record of the
- * project then has since been deleted for good (steps.ts), so a place read from `around` says only what it can prove.
- * `trashed`: the records the step wrote while they were in the Trash, since deleted for good (steps.ts).
- */
 /** The op that decided a suggestion in a step (its status turned approved or rejected), or null. */
 function suggestionDecision(ops: readonly LoggedOp[]): { op: LoggedOp; record: SbdRecord; status: 'approved' | 'rejected' } | null {
   for (const op of ops) {
@@ -1900,13 +1894,30 @@ const SUGGESTION_WHAT: Readonly<Record<SuggestionKind, MessageKey>> = {
   reorder: 'history.suggestion.reorder',
 };
 
-/** What a suggestion would have done, by its kind and its target as the suggester named it (read clean, as text). */
-function suggestionWhat(record: SbdRecord): Part[] {
-  const { kind, targetLabel } = readSuggestion(record);
+/**
+ * What a suggestion would have done, by its kind and its target: by the target's own name as the step left it (steps.ts
+ * asks for it in `around`), as every other line names a record; by the label the suggester saw (read clean, as text)
+ * only when the record is gone, or for a `create`, which has none.
+ */
+function suggestionWhat(record: SbdRecord, around: ReadonlyMap<string, SbdRecord>): Part[] {
+  const { kind, targetId, targetType, targetLabel } = readSuggestion(record);
   if (kind === null) return [t('history.suggestion.unknown')];
+  const isSheet = targetType === 'callsheet';
+  const target = targetId === null ? undefined : around.get(targetId);
+  if (target && target.type === (isSheet ? 'shoot_day' : targetType)) {
+    // A call sheet is named by its day (4.1).
+    const name: Part = isSheet ? t('history.callsheetOf', { day: dayDateLabel(shootDayFields(target.props).date) || t('history.undatedDay') }) : nameOf(target, around);
+    return line(SUGGESTION_WHAT[kind], { label: name });
+  }
   return line(SUGGESTION_WHAT[kind], {}, { label: targetLabel || t('history.suggestion.anItem') });
 }
 
+/**
+ * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
+ * names without writing them (a sketch's frame, a scene's location), as they were then. `unsure`: a record of the
+ * project then has since been deleted for good (steps.ts), so a place read from `around` says only what it can prove.
+ * `trashed`: the records the step wrote while they were in the Trash, since deleted for good (steps.ts).
+ */
 export function describeEdit(
   opsIn: readonly LoggedOp[],
   stored: ReadonlySet<string>,
@@ -1920,8 +1931,11 @@ export function describeEdit(
   // rejected, as what it would have done, named as the suggester saw it.
   const decided = suggestionDecision(opsIn);
   if (decided) {
-    if (decided.status === 'rejected') return [t('history.suggestion.rejected'), ...suggestionWhat(decided.record)];
-    return [t('history.suggestion.applied'), ...describeEdit(opsIn.filter((op) => op !== decided.op), stored, around, unit, unsure, trashed)];
+    if (decided.status === 'rejected') return [t('history.suggestion.rejected'), ...suggestionWhat(decided.record, around)];
+    const applied = opsIn.filter((op) => op !== decided.op);
+    // The project read as suggested already: the step wrote only the decision.
+    if (applied.length === 0) return [t('history.suggestion.appliedNothing')];
+    return [t('history.suggestion.applied'), ...describeEdit(applied, stored, around, unit, unsure, trashed)];
   }
   // A call sheet made with its first note reads as that note being set, not as a call sheet added (4.1): its create
   // is read as an update from a record with no props.

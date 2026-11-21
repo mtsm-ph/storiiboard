@@ -17,9 +17,9 @@ describe('the assistant’s row', () => {
         kinds: ['trash', 'update', 'create', 'reorder'],
         fields: ['title', 'size', 'lens_mm', 't_stop', 'support', 'height', 'move', 'status', 'action', 'dialogue', 'location_id', 'shoot_day_id', 'gear_ids'],
       },
-      scene: { kinds: ['trash', 'update', 'create', 'reorder'], fields: ['name', 'int_ext', 'day_night', 'location_id', 'page_eighths', 'character_ids'] },
+      scene: { kinds: ['trash', 'update', 'create'], fields: ['name', 'int_ext', 'day_night', 'location_id', 'page_eighths', 'character_ids'] },
       note: { kinds: ['trash', 'update', 'create', 'reorder'], fields: ['text'] },
-      shoot_day: { kinds: ['update'], fields: ['gear_ids'] },
+      shoot_day: { kinds: ['update'], fields: ['gear_ids', 'call_time', 'wrap_time'] },
       callsheet: { kinds: ['update'], fields: ['notes', 'safety_notes', 'department_calls', 'person_times'] },
     });
     expect(Object.keys(SCOPE_ROWS)).toEqual(['assistant']);
@@ -46,9 +46,9 @@ describe('What the assistant can suggest, in words', () => {
     expect(words.title).toBe('What the assistant can suggest');
     expect(words.lines).toEqual([
       'Frames: move to the Trash, change, add and reorder. Fields: title, size, lens, T-stop, support, height, move, status, action, dialogue, location, shoot day and gear.',
-      'Scenes: move to the Trash, change, add and reorder. Fields: name, INT/EXT, time of day, location, length and characters.',
+      'Scenes: move to the Trash, change and add. Fields: name, INT/EXT, time of day, location, length and characters.',
       'Notes: move to the Trash, change, add and reorder. Fields: text.',
-      'Shoot days: change. Fields: gear.',
+      'Shoot days: change. Fields: gear, call and wrap.',
       'Call sheets: change. Fields: general notes, safety notes, department calls and times.',
     ]);
     // Each line's fields are exactly its type's, by the table's own labels.
@@ -66,6 +66,6 @@ describe('What the assistant can suggest, in words', () => {
     setLocale('es');
     const words = scopeWords(ASSISTANT_SCOPE);
     expect(words.title).toBe('Lo que el asistente puede sugerir');
-    expect(words.lines[3]).toBe('Días de rodaje: cambiar. Campos: equipamiento.');
+    expect(words.lines[3]).toBe('Días de rodaje: cambiar. Campos: equipamiento, llamado y fin de jornada.');
   });
 });

@@ -1,7 +1,13 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setLocale } from '../../core/i18n';
+import { dayDateLabel } from '../../core/model/shootDay';
 import type { Props, SbdRecord } from '../../core/model/record';
-import type { LoggedOp, OpGroup } from '../../core/ops/ops';
+import { apply, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { applySuggestion, rejectSuggestion } from '../../core/ops/suggestions';
+import { nodeDriver } from '../../core/storage/nodeDriver';
+import { createProject, type Project } from '../../core/storage/project';
+import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
+import { loadSteps } from './steps';
 import { describeEdit, describeGroup, lineText } from './summary';
 
 // A suggestion in History (7.0): an Apply reads "Applied a suggestion: " and the applied change's own line; a Reject,
@@ -72,10 +78,62 @@ describe('History for a suggestion', () => {
     expect(lineText(describeGroup(group, [], titles, none))).toBe(`Undid: Applied a suggestion: ${lineText(describeEdit([trashed], none, around))}`);
   });
 
+  it('words an Apply that wrote only the decision as one that changed nothing (round 2, item 9)', () => {
+    expect(lineText(describeEdit([decided({ kind: 'update', target_id: 'b', target_type: 'shot' }, 'approved')], none, around))).toBe('Applied a suggestion that changed nothing');
+    setLocale('es');
+    expect(lineText(describeEdit([decided({ kind: 'update', target_id: 'b', target_type: 'shot' }, 'approved')], none, around))).toBe('Se aplicó una sugerencia que no cambiaba nada');
+  });
+
+  it('names a Reject’s target by its record’s own name, and by the file’s label only once the record is gone (round 2, item 9)', () => {
+    // The frame is 4C now; the suggester saw 4B.
+    const renumbered = new Map([...around, ['b', record('b', 'shot', 'sc4', { number: '4C' })]]);
+    const rejected = decided({ kind: 'trash', target_id: 'b', target_type: 'shot' }, 'rejected');
+    expect(lineText(describeEdit([rejected], none, renumbered))).toBe('Rejected a suggestion: move 4C to the Trash');
+    expect(lineText(describeEdit([rejected], none, around))).toBe('Rejected a suggestion: move SC 04 · 4B to the Trash');
+    const day = record('d1', 'shoot_day', 'p', { date: '2026-12-01' });
+    const sheet = decided({ kind: 'update', target_id: 'd1', target_type: 'callsheet', target_label: 'Call sheet' }, 'rejected');
+    expect(lineText(describeEdit([sheet], none, new Map([['d1', day]])))).toBe(`Rejected a suggestion: change Call sheet · ${dayDateLabel('2026-12-01')}`);
+    setLocale('es');
+    expect(lineText(describeEdit([rejected], none, renumbered))).toBe('Se rechazó una sugerencia: enviar 4C a la Papelera');
+  });
+
   it('says it in Spanish too', () => {
     setLocale('es');
     const own = lineText(describeEdit([trashed], none, around));
     expect(lineText(describeEdit([trashed, decided({ kind: 'trash' }, 'approved')], none, around))).toBe(`Se aplicó una sugerencia: ${own}`);
     expect(lineText(describeEdit([decided({ kind: 'trash' }, 'rejected')], none, around))).toBe('Se rechazó una sugerencia: enviar SC 04 · 4B a la Papelera');
+  });
+});
+
+describe('History for a suggestion, read from a file (round 2, item 9)', () => {
+  let folder: TestFolder;
+  let project: Project;
+  beforeEach(async () => {
+    folder = makeTestFolder();
+    project = await createProject(folder.path('Harbor Lights.sbd'), { driver: nodeDriver, backups: false });
+    await apply(project.file, [
+      { kind: 'create', record: { id: 'sc4', type: 'scene', parentId: project.projectId, sortKey: 'M', props: { number: '4', name: 'Dock' } } },
+      { kind: 'create', record: { id: 'b', type: 'shot', parentId: 'sc4', sortKey: 'V', props: { number: '4B', status: 'need', size: 'CU' } } },
+    ]);
+  });
+  afterEach(async () => {
+    await project.close();
+    folder.remove();
+  });
+  const add = (id: string, props: Props) =>
+    apply(project.file, [
+      { kind: 'create', record: { id, type: 'suggestion', parentId: project.projectId, sortKey: id, props: { status: 'pending', source: 'mcp', change_file_id: 'cf1', author: { name: 'Robin Vale', role: 'assistant' }, ...props } } },
+    ]);
+  const newest = async () => lineText((await loadSteps(project.file, 1)).steps[0]?.line ?? []);
+
+  it('a Reject names the frame by its number as the step left it; an Apply that changed nothing says so', async () => {
+    await add('s1', { kind: 'trash', target_id: 'b', target_type: 'shot', target_label: 'SC 04 · 4A', data: {} });
+    expect(await rejectSuggestion(project.file, 's1')).toBe(true);
+    expect(await newest()).toBe('Rejected a suggestion: move 4B to the Trash');
+    await add('s2', { kind: 'update', target_id: 'b', target_type: 'shot', target_label: 'SC 04 · 4B', data: { props: { size: 'CU' }, before: { size: 'CU' } } });
+    expect((await applySuggestion(project.file, project.projectId, 's2')).applied).toBe(true);
+    expect(await newest()).toBe('Applied a suggestion that changed nothing');
+    setLocale('es');
+    expect(await newest()).toBe('Se aplicó una sugerencia que no cambiaba nada');
   });
 });

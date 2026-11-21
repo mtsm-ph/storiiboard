@@ -1322,8 +1322,8 @@ The Trash holds deleted items until they're restored or the Trash is emptied. It
   Since 6.24 an op group's time is strictly later than every earlier group's in the file, so two steps never share a
   time; files written before may hold such ties.
   Erased sketch strokes aren't listed in the Trash; undo brings them back.
-- A deletion approved from a change file is the same `trash` op, with the approver as `trashed_by`. Its op group also
-  marks the suggestion approved, so undoing the approval undoes both.
+- A deletion applied from a change file is the same `trash` op, with the person who applied it as `trashed_by`. Its op
+  group also marks the suggestion applied (`status: approved`), so undoing the Apply undoes both.
 - Views, rollups, call sheets, checks and MCP reads skip records with `trashed_at` set unless the caller asks for them.
 - Empty Trash, after a confirm, deletes the trashed records, their children and their media bytes for good. Older ops
   that touched them lose those records' data and can no longer be undone. Named versions lose them too; backups keep
@@ -1753,7 +1753,7 @@ Kinds (7.0, Kevin, Nov 16: Phase 7 decision 4). Format version 1 knows four; eac
 | `trash` | Send a frame, scene or note to the Trash | v1 |
 | `update` | Change some of a record's fields | v1 (7.0) |
 | `create` | Add a frame, scene or note | v1 (7.0) |
-| `reorder` | Move a frame, scene or note to a new place | v1 (7.0) |
+| `reorder` | Move a frame or note to a new place | v1 (7.0) |
 | `restore` | Bring an item back from the Trash (the web's Trash view) | Reserved: waits for the departments' "changes" body |
 | `comment` | A comment on a frame, plan or call sheet | Not planned for version 1 |
 
@@ -1770,15 +1770,22 @@ field's values. The assistant's row (Phase 7) allows:
 | Record | Kinds | Fields |
 |---|---|---|
 | `shot` (a frame) | `trash`, `update`, `create`, `reorder` | `title`, `size`, `lens_mm`, `t_stop`, `support`, `height`, `move`, `status`, `action`, `dialogue`, `location_id`, `shoot_day_id`, `gear_ids` |
-| `scene` | `trash`, `update`, `create`, `reorder` | `name`, `int_ext`, `day_night`, `location_id`, `page_eighths`, `character_ids` |
+| `scene` | `trash`, `update`, `create` | `name`, `int_ext`, `day_night`, `location_id`, `page_eighths`, `character_ids` |
 | `note` | `trash`, `update`, `create`, `reorder` | `text` |
-| `shoot_day` | `update` | `gear_ids` (the day's gear list) |
+| `shoot_day` | `update` | `gear_ids` (the day's gear list), `call_time` and `wrap_time` (its crew call and wrap, the call sheet's calls) |
 | `callsheet` | `update` | `notes`, `safety_notes`, `department_calls`, `person_times` |
 
 Never people's contact details, project settings, files, pictures, sketches or other media; never shot or scene
 numbers or their locks, approvals, department status, Seen, `trashed_at` and `trashed_by`, custom fields, or a frame's
 setup or lens pick. Plan items join the row in 7.6. A row's words ("What the assistant can suggest") are made from the
 table, so they always say what the rule allows.
+
+Apply only does what a person could do by hand, with the same edit the app makes. So scenes have no `reorder` (no one
+can move a scene on the board today), and a suggestion can empty a field only where a person can empty it: a frame's
+title, lens, T-stop, support, height, move, own location, shoot day and gear; a scene's time of day, length and
+characters; a note's text (to ''); a day's gear list, crew call and wrap; a call sheet's notes and each call or time.
+A frame's size and status and a scene's INT/EXT and location can be changed but not emptied; a frame's action and
+dialogue, and a scene's name, are emptied as text ('').
 
 A call sheet is named by its day: `target.id` is the `shoot_day`'s id and `target.type` is `callsheet`, since a day has
 no `callsheet` record until its first note (Call sheet props, 4.1). Applied to a day with none, it makes the record with
@@ -1801,9 +1808,22 @@ The applier is `trashed_by`.
 value the suggester saw. Only the fields the scope row allows for the target's type. `null` takes a field off where it
 can be empty (a frame's lens, its shoot day; a call sheet's notes); what a field's own edit reads as empty takes it off
 too (an empty title, an empty gear list). Applied, only the named fields change, in one op on the target (for a call
-sheet, on its `callsheet` record). What the record keeps in a field that this version can't read (a gear list's
-entries that aren't ids, a call that isn't a time) is written back as it was, as the field's own edit does; a field
-whose stored value isn't even the right shape (a list, an object) is never written over.
+sheet, on its `callsheet` record): each field by the edit a person would make for it (the Inspector's, the Days tile's
+for a frame's day and a day's crew call and wrap, the Gear picker's for a gear list, the call sheet's own for its notes,
+calls and times), one after another, folded into that one op.
+
+- A list of ids (`gear_ids`, `character_ids`) keeps what a person can't see: every stored entry that isn't a live
+  record of the list's type (in the Trash, gone, not an id) stays where it is, and is left out of *changed since*. A
+  gear list changes by the Gear picker's own adds and removes: the items a person would untick come off, the ones they'd
+  tick go on at the end, so an item already listed keeps its place. A scene's characters (no edit of the app sets them
+  but a script's import) take the suggested ids in their order, around the entries kept.
+- A call sheet's `department_calls` and `person_times` merge key by key, as the sheet's own edits do: a department or
+  a person named is set; `null` or `''` takes that one off (a person given `null` has their call, HMU ready and on set
+  taken off); every key not named stays as it is, one this version can't read included. The field itself can't be
+  taken off whole. Only the named keys are compared for *changed since*.
+- A frame goes on a day only if it is Need to shoot, as the Days tile offers it (4.11): the status it has once the
+  suggestion is applied. Any other is flagged *can't be applied*. Taking a frame off a day always can be.
+- A field whose stored value isn't even the right shape (a list, an object) is never written over.
 
 ```json
 { "id": "a41c…", "kind": "update", "target": { "id": "9c3e…", "type": "shot", "label": "SC 04 · 4B", "updated_at": "2026-11-20T17:41:09.000Z" },
@@ -1817,13 +1837,16 @@ whose stored value isn't even the right shape (a list, an object) is never writt
 note (under a scene), placed after `after_id` among the parent's live children (`null`: first), with `props` among the
 fields the scope row allows for that type. `target` has only `type` (the same as `data.type`) and `label`; there is no
 record yet. Shot numbers come from the project's own rule, never from the file: a new frame is numbered as one added on
-the board, and a new scene takes the board's number for its place (A4 first, 4A after 4, one past the highest at the
-end).
+the board, and a new scene takes the board's number for its place (4A after 4, one past the highest at the end), made
+by the board's own add. A scene goes only where a person can add one: after a live scene, or (its `after_id` gone) at
+the end. A scene with `after_id` `null` (first on the board) is flagged *can't be applied*: no one can add one there
+by hand, so Apply doesn't either.
 
 `parent_id` may instead name another `create` suggestion of the same file, for a new scene's new frames; the record
 then names it in `after_suggestion`. Such a suggestion can be applied only once that one has been, and is flagged
 until then; once it has, the parent is the scene it made. An `after_id` naming a `create` of the same file that has
-been applied reads as the record it made, so a new scene's frames keep their order.
+been applied reads as the record it made, so a new scene's frames keep their order; one not applied yet is *waiting*
+(it can't be applied until that one is), and one rejected made nothing, so the place reads as gone (at the end).
 
 Nothing is created until it is applied. A rejected `create` creates nothing and stays in the review log.
 
@@ -1835,11 +1858,14 @@ Nothing is created until it is applied. A rejected `create` creates nothing and 
 
 ### `reorder`
 
-`data` is `{ "parent_id", "after_id" }`: the target moves to after `after_id` among `parent_id`'s live children
-(`null`: first). A frame may move to another scene, and loses its setup there, as Setups (6.0) says, and is numbered
-there as the board numbers a frame dropped in; a frame can't leave a scene whose numbers are locked. A scene moves
-within the project (scene numbers are slate numbers and don't follow the order); a note within its own scene. A shoot
-day keeps no order of its own frames (a day's frames are read in board order), so `reorder` is the storyboard's only.
+`data` is `{ "parent_id", "after_id" }`: the target, a frame or a note, moves to after `after_id` among `parent_id`'s
+live frames and notes (`null`: first), as a drag on the board moves it. A frame may move to another scene, and loses
+its setup there, as Setups (6.0) says, and is numbered there as the board numbers a frame dropped in; a frame can't
+leave a scene whose numbers are locked. A note moves within its own scene. Scenes don't `reorder`: no one can move a
+scene on the board by hand today, so a scene's `reorder` is outside the scope. A target already right after `after_id`
+(or first, or last for an `after_id` gone) is *no change* and writes no move. `after_id` may name a `create` of the
+same file, as for `create`. A shoot day keeps no order of its own frames (a day's frames are read in board order), so
+`reorder` is the storyboard's only.
 
 ```json
 { "id": "e90b…", "kind": "reorder", "target": { "id": "9c3e…", "type": "shot", "label": "SC 04 · 4B", "updated_at": "2026-11-20T17:41:09.000Z" },
@@ -1867,14 +1893,17 @@ decision 3: it never writes the .sbd). Its props:
 | note | The suggester's words, shown as text |
 | data | Kind-specific (above) |
 | suggested_at | When it was suggested (`created_at` in the file) |
-| decided_by, decided_at | Who applied or rejected it, and when; the author as the op log records it |
+| decided_by, decided_at | Who applied or rejected it, the author as the op log records it, and when: the decision's own op group's time, the same as the `updated_at` (and, for a `trash`, the `trashed_at`) its group writes |
 | created_id | For an applied `create`: the id of the record it made |
 | after_suggestion | For a `create` whose parent is another `create` of the same file: that suggestion's id |
 
-Apply is one op group: the target's ops, made by the same edits the app makes by hand (the board's, the Days tile's,
-the Gear tile's, the call sheet's), then the suggestion's own update (`status: approved`, `decided_by`, `decided_at`,
-and `created_id` for a `create`). Reject is one op group that updates only the suggestion. History words them
-"Applied a suggestion: " and the change's own line, and "Rejected a suggestion: " and what it would have done.
+Apply is one op group: the target's ops, made by the edits a person makes by hand (the board's, the Inspector's, the
+Days tile's, the Gear picker's, the call sheet's), several fields of one record folded into one op, then the
+suggestion's own update (`status: approved`, `decided_by`, `decided_at`, and `created_id` for a `create`). Reject is
+one op group that updates only the suggestion. History words them "Applied a suggestion: " and the change's own line
+("Applied a suggestion that changed nothing" when the project already read as suggested), and "Rejected a suggestion: "
+and what it would have done, naming the target by its own record's name as the step left it, and by `target_label`
+only when the record is gone.
 
 ### Values are untrusted
 
@@ -1893,19 +1922,27 @@ spelled (`__proto__` among them), reaches anything but a field lookup.
 What the review screen (7.2) shows on a suggestion, worked out from the records as they are now (src/core/model/
 suggestion.ts, which 7.5's server shares):
 
-- *Changed since*: for `update`, a named field's value now differs from its `before`, field by field, shown with the
-  three values (then, suggested, now); for the other kinds, the target's `updated_at` is newer than
-  `target_updated_at` (or that can't be read). A person may still apply it: it writes the suggested value.
+- *Changed since*: for `update`, a named field's value now reads differently from its `before`, field by field, shown
+  with the three values (then, suggested, now). Values are compared as they read: what reads as empty (`''`, `[]`,
+  `{}`, `null`, a missing prop) is the same as absent, and a map's keys in any order are the same map; a list compares
+  only the entries a person can see, and a call sheet's calls and times only the keys named. For the other kinds, the
+  target's `updated_at` is newer than `target_updated_at` (or that can't be read); for a scene to the Trash, the newest
+  `updated_at` among the scene and the live frames, notes and setups that would go with it, so a frame added since
+  counts. A person may still apply it: it writes the suggested value.
 - *Gone*: the target or the parent no longer exists (a `create` whose parent suggestion was rejected too). For
   `after_id` alone (not a live child of the parent), it goes at the end instead, and says so.
 - *In the Trash*: the target or the parent is trashed.
-- *Waiting*: a `create` whose parent is another suggestion not yet applied.
+- *Waiting*: a `create` whose parent is another suggestion not yet applied, or a `create` or `reorder` whose
+  `after_id` names a `create` of the same file not yet applied, each with its own words.
 - *Locked*: a frame would leave a scene whose shot numbers are locked.
 - *Outside the scope*: a kind, type or field the row doesn't allow: kept, listed as refused, never applied "for
   review".
-- *Can't be applied*: a value that fails its field's check, or `data` that can't be read for its kind.
+- *Can't be applied*: a value that fails its field's check, or `data` that can't be read for its kind; and, each with
+  its own words, what the app can't do by hand: a scene first on the board, a frame onto a day while it isn't Need to
+  shoot.
 - *Needs a newer Storiiboard*: an unknown kind, status or field (of the record, or of its `data`): kept as it is.
-- *No change*: the project already reads as suggested; Apply writes only the decision.
+- *No change*: the project already reads as suggested (an update that would write only a key order, a reorder to where
+  it is); Apply writes only the decision.
 
 Only *changed since*, *no change* and a gone `after_id` leave Apply open; a suggestion already decided can't be
 decided again.

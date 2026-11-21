@@ -4060,4 +4060,9 @@ export const en = {
   'history.suggestion.reorder': 'move {label}',
   'history.suggestion.unknown': 'a change this version can’t read',
   'history.suggestion.anItem': 'an item',
+  'history.suggestion.appliedNothing': 'Applied a suggestion that changed nothing',
+  // src/core/model/suggestion.ts (flagWords): a suggestion the app can't apply by hand, or one waiting for another (7.0)
+  'suggestion.flag.sceneFirst': 'Can’t be applied: a scene is added after another scene or at the end of the board, never first.',
+  'suggestion.flag.notNeed': 'Can’t be applied: only frames marked Need to shoot go on a shoot day.',
+  'suggestion.flag.waitingAfter': 'Waiting: it goes after something another suggestion adds. Apply that one first.',
 };

@@ -8,7 +8,7 @@ import type { Change } from './ops';
 
 // The edits the Gear tile makes (3.9a): an item made, one field changed, one to the Trash, the project's currency.
 // Each is one op group, so one ⌘Z. In core since 7.0 (moved from src/features/gear, unchanged), so an applied
-// suggestion (src/core/ops/suggestions.ts) writes a gear list with the very edit the tile makes.
+// suggestion (src/core/model/suggestion.ts) writes a gear list with the very edit the tile makes.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 

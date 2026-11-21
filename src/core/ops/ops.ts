@@ -45,8 +45,12 @@ export type Change =
       kind: 'create';
       record: { id?: string; type: RecordType; parentId: string | null; sortKey: string; props?: Props };
     }
-  /** Sets the props in `set` and removes the ones in `unset`; every other prop stays as it was. */
-  | { kind: 'update'; id: string; set?: Props; unset?: readonly string[] }
+  /**
+   * Sets the props in `set` and removes the ones in `unset`; every other prop stays as it was. `stamp` names props set
+   * to the op group's own time (stepTime's), which no caller knows before the group is written: a suggestion's
+   * `decided_at` (7.0), so it is exactly the step's time, never a clock read before it.
+   */
+  | { kind: 'update'; id: string; set?: Props; unset?: readonly string[]; stamp?: readonly string[] }
   | { kind: 'move'; id: string; parentId: string | null; sortKey: string }
   /** Changes the type and keeps every prop, so a reference image can become a frame without losing anything. */
   | { kind: 'retype'; id: string; type: RecordType }
@@ -154,8 +158,9 @@ function changed(change: Change, before: SbdRecord | null, at: string, author: s
   switch (change.kind) {
     case 'update': {
       const unset = new Set(change.unset);
+      const stamped = Object.fromEntries((change.stamp ?? []).map((key) => [key, at] as const));
       const props = Object.fromEntries(
-        Object.entries({ ...before.props, ...change.set }).filter(([key]) => !unset.has(key)),
+        Object.entries({ ...before.props, ...change.set, ...stamped }).filter(([key]) => !unset.has(key)),
       );
       return { ...next, props };
     }
