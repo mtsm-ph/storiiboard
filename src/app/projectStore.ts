@@ -4,7 +4,7 @@ import type { SbdRecord } from '../core/model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../core/model/shotNumbers';
 import { forgetDecoded } from '../core/media/decoded';
 import { forgetImageUrls, releaseImageUrls } from '../core/media/urls';
-import { apply, type AlsoPurge, cleanUpPictures, emptyTrash, history, lastOpTime, loadRecords, redo, restoreTo, startStepClock, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
+import { apply, type AlsoPurge, bringBack, type BroughtBack, cleanUpPictures, emptyTrash, history, lastOpTime, loadRecords, redo, restoreTo, startStepClock, undo, type Change, type OpOptions, type Touched } from '../core/ops/ops';
 import { newestBackupAt } from '../core/storage/backups';
 import { CHANGED_ON_DISK, type Statement } from '../core/storage/driver';
 import { compactProject, type Compacted } from '../core/storage/compact';
@@ -14,6 +14,7 @@ import { slateNumbersAfter, slateNumbersUnknown } from '../core/storage/slateNum
 import { clearStepNotice, showNotice } from './notice';
 import { editAuthor, profileStore } from './settings/profileStore';
 import { dropProjectDraftsOnSwitch } from './settings/drafts';
+import { settledThrough, settleUndone } from './undoSettle';
 
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
 // updates, so the screen never shows a change the file doesn't have.
@@ -114,6 +115,12 @@ export interface ProjectState {
    * group that undo takes back. Resolves to whether it changed anything.
    */
   restoreTo: (groupId: string | null) => Promise<boolean>;
+  /**
+   * Bring back what was undone (item 7): takes back the undo run or the restore ending at `targetGroupId`, as one new
+   * bring_back group. Resolves to what it did, or null when it wasn't written (not a run, brought back already, or a
+   * refusal, which has set `error`).
+   */
+  bringBack: (targetGroupId: string) => Promise<BroughtBack | null>;
   /** Clean up old pictures (1.21): deletes the stored pictures only History uses, after a confirm. */
   cleanUpPictures: (only?: ReadonlySet<string>) => Promise<{ removed: number; freed: number } | null>;
   /** Compact project (1.27): a backup, then the file rewritten without its free space. Null when it failed (`error` says why). */
@@ -248,6 +255,8 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
               ...(await history(project.file)),
               savedAt: await lastOpTime(project.file),
             };
+            // History's undo outline starts settled (item 7): a run from before the project was opened never shows.
+            await settleUndone(project.file);
           } catch (error) {
             // It can't be read: it closes again (its lock with it), and the project open now stays as it was.
             await project.close().catch(() => undefined);
@@ -428,6 +437,19 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
           if (restoresInFlight === 0) set({ restoring: false });
         }
         return changed;
+      },
+      bringBack: async (targetGroupId) => {
+        // A holder, since the edit sets it inside a callback.
+        const outcome: { done: BroughtBack | null } = { done: null };
+        await edit(async (project) => {
+          // A settled undo never joins the run: only the part after the settled place comes back.
+          const done = await commit(() => bringBack(project.file, targetGroupId, { author: author(), settledThrough: settledThrough(project.file) }));
+          outcome.done = done;
+          // One that wrote nothing still settles its run, so the button doesn't keep pulsing over nothing to do.
+          if (done?.written === 0) await settleUndone(project.file);
+          return done?.touched ?? null;
+        });
+        return outcome.done;
       },
       cleanUpPictures: async (only) => {
         let result: { removed: number; freed: number } | null = null;
