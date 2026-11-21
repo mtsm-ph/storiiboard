@@ -405,6 +405,14 @@ export const sourceWord = (source: string): string => t(source === 'mcp' ? 'revi
 /** Who an import is from, as text, made when shown (so a language switch rewords it): its authors' names, else its source. */
 export const fromWords = (authors: readonly string[], source: string): string => (authors.length > 0 ? list(authors) : sourceWord(source));
 
+/**
+ * Who an import is from with its source beside the names, as the group heading has it (7.6 round 2): "Robin Vale, through
+ * the assistant", so an assistant's app that names itself as a person or as Storiiboard never reads as one. The source
+ * alone when the file names no one.
+ */
+export const fromWithSource = (authors: readonly string[], source: string): string =>
+  authors.length > 0 ? t('review.fromVia', { from: list(authors), source: sourceWord(source) }) : sourceWord(source);
+
 /** Where the item lives, to show it: a frame, a scene (for a note, or a create's scene), or a day; null for none. */
 export type ShowTarget = { kind: 'shot'; shotId: string; sceneId: string; label: Line } | { kind: 'scene'; sceneId: string; label: Line } | { kind: 'day'; dayId: string; label: Line };
 

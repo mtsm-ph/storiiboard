@@ -14,7 +14,7 @@ import {
   unscheduledFrames,
   type ShootDay,
 } from '../../core/model/shootDay';
-import { sceneSetups, setupLabel } from '../../core/model/setup';
+import { planPlace } from './planPlace';
 import { sceneFields, sceneLabel, shotFields, specLine } from '../../core/model/storyboard';
 import type { Change } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
@@ -590,12 +590,5 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
   );
 }
 
-/** Where a plan's finding comes from (6.5): the setup's scene and its number now ("SC 01", "Setup 2"). */
-export function planPlace(records: Readonly<Record<string, SbdRecord>>, setupId: string): { scene: string; setup: string } | null {
-  const setup = records[setupId];
-  const scene = setup?.parentId ? records[setup.parentId] : undefined;
-  if (scene?.type !== 'scene') return null;
-  // Named as setups are everywhere else (setupLabel: its number, and its name when it has one).
-  const live = sceneSetups(records, scene.id).find((s) => s.record.id === setupId);
-  return { scene: sceneLabel(sceneFields(scene.props).number), setup: live ? setupLabel(live) : t('history.aSetup') };
-}
+// In a file of its own (7.6), so the Checks tile's words read without this tile; kept here by name for its callers.
+export { planPlace } from './planPlace';

@@ -13,7 +13,7 @@ import { loadSteps, PAGE, type Steps } from '../history/steps';
 import { who, type Line } from '../history/summary';
 import type { OpGroup } from '../../core/ops/ops';
 import { selectionStore, useSelection } from '../storyboard/selection';
-import { fromWords } from '../suggestions/review';
+import { fromWithSource } from '../suggestions/review';
 import { openSuggestions } from '../suggestions/suggestionsFocus';
 import { markAllRead, markStepRead, markSuggestionRead, stepUnread, suggestionUnread, unreadCount, useNotifications, type SuggestionNote } from './notificationsStore';
 
@@ -139,7 +139,7 @@ function Feed() {
           {shown.map((row) => {
             const { group } = row;
             const isUnread = row.kind === 'step' ? stepUnread(state, group) : suggestionUnread(state, row.note);
-            const line: Line = row.kind === 'step' ? row.line : [tn('notifications.suggestions', row.note.count, { from: fromWords(row.note.authors, row.note.source) })];
+            const line: Line = row.kind === 'step' ? row.line : [tn('notifications.suggestions', row.note.count, { from: fromWithSource(row.note.authors, row.note.source) })];
             return (
               <li key={row.kind === 'step' ? group.id : `${group.id}:${row.note.itemId}`}>
                 <button

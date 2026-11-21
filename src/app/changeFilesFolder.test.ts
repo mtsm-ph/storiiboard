@@ -527,7 +527,8 @@ describe('the suggestions folder, round 4: the last lows', () => {
     expect(suggestions()).toHaveLength(1);
     await projectStore.getState().close();
 
-    // 5 MB new, 4 MB new, 2 MB already in, 10 KB new, in name order: the 2 MB one waits unread; the 10 KB one comes in.
+    // 5 MB new, 4 MB new, 2 MB already in, 10 KB new, all modified alike, so read newest first by name: the 2 MB one waits
+    // unread; the 10 KB one comes in.
     disk.files.set('a.sbdchanges', { bytes: changeFile(project.projectId, 1), modified: 1, listed: 5 * MB });
     disk.files.set('b.sbdchanges', { bytes: changeFile(project.projectId, 2), modified: 1, listed: 4 * MB });
     disk.files.set('d.sbdchanges', { bytes: changeFile(project.projectId, 4), modified: 1, listed: 10 * 1024 });
@@ -579,5 +580,22 @@ describe('the suggestions folder, round 4: the last lows', () => {
     expect(notice().step).toBe(true);
     await projectStore.getState().undo();
     expect(notice().message).toBeNull();
+  });
+});
+
+describe('the suggestions folder, 7.6 round 2: newest first', () => {
+  it('reads the files not yet brought in newest first, so a new one comes in when older ones fill the read budget', async () => {
+    await openAs(project, 7);
+    // Two files brought in before, each listed at half the read budget and older than the new one: read before it (as
+    // oldest first, or by name, would), they would fill it.
+    for (const n of [1, 2]) expect((await bringInBytes(project, changeFile(project.projectId, n))).kind).toBe('added');
+    disk.files.set('a.sbdchanges', { bytes: changeFile(project.projectId, 1), modified: 1, listed: MAX_READ_BYTES / 2 });
+    disk.files.set('b.sbdchanges', { bytes: changeFile(project.projectId, 2), modified: 2, listed: MAX_READ_BYTES / 2 });
+    disk.files.set('c.sbdchanges', { bytes: changeFile(project.projectId, 3), modified: 3 });
+    await bringInFolder();
+    expect(reads[0]).toBe('c.sbdchanges');
+    expect(suggestions()).toHaveLength(3);
+    // The older ones, larger than what is left of the pass's 10 MB, wait unread: they were brought in before anyway.
+    expect(reads).toEqual(['c.sbdchanges']);
   });
 });

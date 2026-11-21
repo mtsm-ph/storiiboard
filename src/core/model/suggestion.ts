@@ -375,7 +375,7 @@ const newerThan = (updatedAt: string, seen: string | null): boolean => {
  * When a target was last written, as a `trash` or `reorder` compares it (7.0 round 2): a scene's is the newest of its
  * own and of what trashing it takes with it (its live frames, notes and setups), so a frame added since counts.
  */
-function lastWritten(records: Records, target: SbdRecord): string {
+export function lastWritten(records: Records, target: SbdRecord): string {
   if (target.type !== 'scene') return target.updatedAt;
   let newest = target.updatedAt;
   for (const record of Object.values(records)) {
