@@ -14,6 +14,11 @@
 # back to the page too. The app says so honestly; this script judges. Such a pass fails here unless
 # --accents-by-page-ok is given, and only GitHub's Mac job gives it: its GPU is virtual, and a worker's canvas there
 # may get no backing. Windows and a real Mac stay strict, so a worker that fails on a real machine is still caught.
+#
+# The same flag lets one more pass through (Kevin, Nov 20 night): "accents ok (this machine can't read a canvas
+# back …)", when the worker and the page both failed at canvas, draw or read, so no canvas there can be read back at
+# all. Without the flag it fails. With it, either pass says a "launch check: warning:" line in the log and, when
+# GITHUB_STEP_SUMMARY is set, in the job's summary too.
 
 set -u
 
@@ -162,16 +167,30 @@ say "exit code $code: $(meaning "$code")"
 if [ "$code" = 0 ] && tr -d '\r' <"$log" | grep -qx 'launch check: passed'; then
   # A pass by the page: its line begins with these words (launchCheck.ts's BY_THE_PAGE; a test checks they match).
   by_page=$(tr -d '\r' <"$log" | grep -a '^launch check: accents ok (by the page' | head -n 1)
-  if [ -z "$by_page" ]; then
+  # Neither the worker nor the page could read a canvas back (launchCheck.ts's NO_CANVAS_READ; a test checks they
+  # match): GitHub's Mac, whose virtual GPU gives no canvas a backing.
+  no_read=$(tr -d '\r' <"$log" | grep -a "^launch check: accents ok (this machine can't read a canvas back" | head -n 1)
+  if [ -n "$by_page" ]; then
+    found=$by_page
+    what='the accents came from the page, not the worker'
+  elif [ -n "$no_read" ]; then
+    found=$no_read
+    what="neither the worker nor the page could read a canvas back"
+  else
     exit 0
   fi
-  note=${by_page#'launch check: accents ok ('}
+  note=${found#'launch check: accents ok ('}
   note=${note%)}
   if [ "$accents_by_page_ok" = true ]; then
-    say "warning: the accents came from the page, not the worker, as --accents-by-page-ok allows: $note"
+    warning="warning: $what, as --accents-by-page-ok allows: $note"
+    say "$warning"
+    # The job's summary too, so the warning is seen without opening the log.
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      printf 'launch check: %s\n' "$warning" >>"$GITHUB_STEP_SUMMARY"
+    fi
     exit 0
   fi
-  say 'FAILED: the accents came from the page, not the worker'
+  say "FAILED: $what"
   say "only --accents-by-page-ok lets that pass, and it belongs on GitHub's Mac alone, whose GPU is virtual"
   exit 1
 fi

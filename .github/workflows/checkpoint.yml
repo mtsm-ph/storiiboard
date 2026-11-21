@@ -289,8 +289,10 @@ jobs:
             triple: aarch64-apple-darwin
             bundles: src-tauri/target/release/bundle/dmg/*.dmg
             app: src-tauri/target/release/bundle/macos/Storiiboard.app/Contents/MacOS/storiiboard
-            # GitHub's Mac has a virtual GPU, so the accent worker's canvas may get no backing there: a pass by the
-            # page is allowed on it alone (scripts/launchCheck.sh). Windows stays strict.
+            # GitHub's Mac has a virtual GPU, so a canvas may get no backing there: two passes are allowed on it alone,
+            # each with a warning in the log and the job's summary (scripts/launchCheck.sh): the accents read by the
+            # page when the worker's canvas failed, and "this machine can't read a canvas back" when the worker's and
+            # the page's both failed. Windows stays strict.
             launch_flags: --accents-by-page-ok
           - name: Windows
             os: windows-latest

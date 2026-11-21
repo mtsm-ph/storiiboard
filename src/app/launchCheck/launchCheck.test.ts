@@ -5,6 +5,7 @@ import type { PdfText } from '../../core/script/pdfLayout';
 import {
   BY_THE_PAGE,
   CANARY,
+  NO_CANVAS_READ,
   PAGE_STEPS,
   WORKER_POLICY,
   fileName,
@@ -363,11 +364,11 @@ describe('the launch check’s page steps (6.27l)', () => {
     for (const stage of ['decode', 'canvas', 'draw', 'read']) {
       it(`names the page’s first failing stage, ${stage}, with its words`, async () => {
         const f = fakes(() => ({
-          accentsFromWorker: () => Promise.reject(atStage(invalid, stage)),
+          accentsFromWorker: () => Promise.reject(atStage(invalid, 'decode')),
           accentsOnPage: () => Promise.reject(atStage('The operation is insecure.', stage)),
         }));
         await run(f);
-        failedAt('accents', `${invalid} (worker: ${stage}); on the page: ${stage} failed: The operation is insecure.`)(
+        failedAt('accents', `${invalid} (worker: decode); on the page: ${stage} failed: The operation is insecure.`)(
           f.reports,
         );
       });
@@ -525,6 +526,124 @@ describe('the launch check’s page steps (6.27l)', () => {
       await run(f);
       failedAt('accents', `${invalid} (worker: no stage); on the page: read ok, 16 × 16, 3 accents`)(f.reports);
       expect(worker).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('accents when this machine can’t read a canvas back (Kevin, Nov 20 night)', () => {
+    const invalid = 'The object is in an invalid state.';
+    const insecure = 'The operation is insecure.';
+    const atStage = (message: string, stage: string): Error => Object.assign(new Error(message), { stage });
+
+    type WorkerSays = 'ok' | 'silent' | 'decode' | 'canvas' | 'draw' | 'read';
+    type Page = 'ok' | 'decode' | 'canvas' | 'draw' | 'read';
+    const workers: WorkerSays[] = ['ok', 'silent', 'decode', 'canvas', 'draw', 'read'];
+    const pages: Page[] = ['ok', 'decode', 'canvas', 'draw', 'read'];
+    const canvasStages: string[] = ['canvas', 'draw', 'read'];
+
+    /**
+     * The worker's answer, starting its script as askWorkerAlone does (worker-policy counts it); a second ask (after a
+     * pass by the page) gives the same failure again.
+     */
+    const workerAnswer =
+      (g: Fakes, worker: WorkerSays): (() => Promise<string[] | null>) =>
+      () => {
+        new g.window.Worker(new URL(ACCENT_WORKER), { type: 'module' });
+        if (worker === 'ok') return Promise.resolve(['#d02020']);
+        if (worker === 'silent') return Promise.resolve(null);
+        return Promise.reject(atStage(invalid, worker));
+      };
+    const pageAnswer = (page: Page): (() => Promise<{ width: number; height: number; accents: number }>) =>
+      page === 'ok'
+        ? () => Promise.resolve({ width: 16, height: 16, accents: 3 })
+        : () => Promise.reject(atStage(insecure, page));
+    const pageWords = (page: Page): string =>
+      page === 'ok' ? 'read ok, 16 × 16, 3 accents' : `${page} failed: ${insecure}`;
+
+    /** The accents step's report for each combination: [ok, detail]. */
+    function expected(worker: WorkerSays, page: Page): [boolean, string] {
+      if (worker === 'ok') return [true, ''];
+      const onThePage = `on the page: ${pageWords(page)}`;
+      if (worker === 'silent') return [false, `the accent worker failed or took over 15 s; ${onThePage}`];
+      if (worker === 'decode') return [false, `${invalid} (worker: decode); on the page: ${pageWords(page)}`];
+      if (page === 'ok') {
+        const note =
+          `${BY_THE_PAGE}: read ok, 16 × 16, 3 accents; the worker: ${invalid} (worker: ${worker}); ` +
+          'the worker asked again: the same';
+        return [true, note];
+      }
+      if (page === 'decode') return [false, `${invalid} (worker: ${worker}); on the page: ${pageWords(page)}`];
+      return [true, `${NO_CANVAS_READ} (worker: ${worker}: ${invalid}; page: ${page} failed: ${insecure})`];
+    }
+
+    for (const worker of workers) {
+      for (const page of pages) {
+        const [ok, detail] = expected(worker, page);
+        const line = !ok
+          ? 'failed, #223’s line'
+          : detail === ''
+            ? 'ok, no note'
+            : detail.startsWith(BY_THE_PAGE)
+              ? 'ok, by the page'
+              : 'ok, this machine can’t read a canvas back';
+        it(`worker ${worker}, page ${page}: ${line}`, async () => {
+          const f = fakes((g) => ({ accentsFromWorker: workerAnswer(g, worker), accentsOnPage: pageAnswer(page) }));
+          await run(f);
+          if (ok) expect(f.reports).toEqual(PAGE_STEPS.map((step) => [step, true, step === 'accents' ? detail : '']));
+          else failedAt('accents', detail)(f.reports);
+          expect(f.window.Worker).toBe(f.originalWorker);
+        });
+      }
+    }
+
+    for (const stage of canvasStages) {
+      for (const pageStage of canvasStages) {
+        it(`worker at ${stage}, page at ${pageStage}: both messages kept, each asked once, on to the end`, async () => {
+          const asked: Blob[] = [];
+          const onPage: Blob[] = [];
+          const f = fakes((g) => ({
+            accentsFromWorker: (picture) => {
+              asked.push(picture);
+              new g.window.Worker(new URL(ACCENT_WORKER), { type: 'module' });
+              return Promise.reject(atStage(invalid, stage));
+            },
+            accentsOnPage: (picture) => {
+              onPage.push(picture);
+              return Promise.reject(atStage(insecure, pageStage));
+            },
+          }));
+          await run(f);
+          const note =
+            `this machine can't read a canvas back (worker: ${stage}: ${invalid}; ` +
+            `page: ${pageStage} failed: ${insecure})`;
+          expect(f.reports).toEqual(PAGE_STEPS.map((step) => [step, true, step === 'accents' ? note : '']));
+          expect(note.startsWith(NO_CANVAS_READ)).toBe(true);
+          // No second ask: that is for a pass by the page alone.
+          expect(asked).toHaveLength(1);
+          expect(onPage).toHaveLength(1);
+          for (const picture of [...asked, ...onPage]) expect(picture).toBe(f.deps.picture);
+          // worker-policy and no-violation ran as they do today.
+          expect(f.fetched).toHaveLength(2);
+        });
+      }
+    }
+
+    it('fails when the worker gives no answer in 20 s, though the page fails at read', async () => {
+      const f = fakes(() => ({
+        accentsFromWorker: () => never<string[] | null>(),
+        accentsOnPage: () => Promise.reject(atStage(insecure, 'read')),
+      }));
+      await run(f);
+      failedAt('accents', `no answer from the accent worker in 20 s; on the page: read failed: ${insecure}`)(f.reports);
+    });
+
+    it('fails when the worker gives an empty list, though the page fails at canvas', async () => {
+      const f = fakes(() => ({
+        accentsFromWorker: () => Promise.resolve([]),
+        accentsOnPage: () => Promise.reject(atStage(insecure, 'canvas')),
+      }));
+      await run(f);
+      const why = `the accent worker found no accent in the built-in picture; on the page: canvas failed: ${insecure}`;
+      failedAt('accents', why)(f.reports);
     });
   });
 
@@ -705,6 +824,12 @@ describe('what the check reads', () => {
     const script = readFileSync(join(root, 'scripts/launchCheck.sh'), 'utf8');
     expect(BY_THE_PAGE).toBe('by the page');
     expect(script).toContain(`launch check: accents ok (${BY_THE_PAGE}`);
+  });
+
+  it('scripts/launchCheck.sh looks for the same words a canvas that can’t be read back begins with (Nov 20)', () => {
+    const script = readFileSync(join(root, 'scripts/launchCheck.sh'), 'utf8');
+    expect(NO_CANVAS_READ).toBe("this machine can't read a canvas back");
+    expect(script).toContain(`"^launch check: accents ok (${NO_CANVAS_READ}"`);
   });
 
   it('names a file by its name alone', () => {

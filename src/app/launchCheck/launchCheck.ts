@@ -42,6 +42,17 @@ const AGAIN_LIMIT_MS = 10_000;
  */
 export const BY_THE_PAGE = 'by the page';
 
+/**
+ * How the note of an `accents` step begins when the worker and the page both failed at canvas, draw or read (Kevin,
+ * Nov 20 night): the machine gives no canvas a backing to read back (GitHub's Mac, a virtual GPU), not a fault of the
+ * app's. The step passes so the last two steps still run; scripts/launchCheck.sh refuses it unless allowed (a test
+ * checks the script holds the same words).
+ */
+export const NO_CANVAS_READ = "this machine can't read a canvas back";
+
+/** The stages at which a canvas fails for want of the machine's backing, in a worker or on the page alike. */
+const CANVAS_STAGES: readonly string[] = ['canvas', 'draw', 'read'];
+
 /** What the page itself got from the built-in picture: its sampled size and how many accents it found. */
 export interface PageReading {
   width: number;
@@ -258,11 +269,17 @@ const workerWords = (error: unknown): string => `${reason(error)} (worker: ${sta
  * worker's canvas can fail as the page's doesn't (no GPU backing, or no OffscreenCanvas), and the page found accents
  * in the same picture, which is what the app itself then shows. The step passes with a note beginning `by the page`,
  * which says what the worker answered then and when asked once more; scripts/launchCheck.sh refuses it unless allowed.
+ *
+ * And one more (Kevin, Nov 20 night): the worker and the page both failed at `canvas`, `draw` or `read`. A page's
+ * canvas gets its buffer from the GPU process as a worker's does, so this machine reads no canvas back at all: the step
+ * passes with a note beginning `this machine can't read a canvas back`, both bare messages kept, and the last two
+ * steps still run. The worker must still have answered: silent, or failing at decode, it fails as before.
  */
 async function accents(deps: LaunchCheckDeps): Promise<string | undefined> {
   let why: string | null = null;
   let pageMayStand = false;
   let first: unknown;
+  let workerStage: string | undefined;
   try {
     const asking = deps.accentsFromWorker(deps.picture);
     const found = await within(deps, ACCENTS_LIMIT_MS, asking, 'no answer from the accent worker in 20 s');
@@ -276,23 +293,26 @@ async function accents(deps: LaunchCheckDeps): Promise<string | undefined> {
     else {
       first = error;
       why = workerWords(error);
-      const stage = stageOf(error);
+      workerStage = stageOf(error);
       // A picture the worker couldn't decode, or an error from nowhere known, is never the page's to stand in for.
-      pageMayStand = stage !== undefined && stage !== 'decode';
+      pageMayStand = workerStage !== undefined && CANVAS_STAGES.includes(workerStage);
     }
   }
   // Only after a failure: a passing check does exactly what it did before.
   if (why === null) return undefined;
   const page = await onPage(deps);
+  if (pageMayStand && page.stage !== undefined && CANVAS_STAGES.includes(page.stage)) {
+    return `${NO_CANVAS_READ} (worker: ${String(workerStage)}: ${reason(first)}; page: ${page.words})`;
+  }
   if (!pageMayStand || page.accents < 1) fail(`${why}; on the page: ${page.words}`);
   return `${BY_THE_PAGE}: ${page.words}; the worker: ${why}; the worker asked again: ${await askAgain(deps, first)}`;
 }
 
 /**
  * What the page itself gets from the built-in picture: the first stage that fails with its words, or what it read,
- * with how many accents (none when it failed).
+ * with how many accents (none when it failed), and the stage it failed at, when it says one.
  */
-async function onPage(deps: LaunchCheckDeps): Promise<{ words: string; accents: number }> {
+async function onPage(deps: LaunchCheckDeps): Promise<{ words: string; accents: number; stage?: string }> {
   try {
     const reading = deps.accentsOnPage(deps.picture);
     const read = await within(deps, ON_PAGE_LIMIT_MS, reading, 'no answer in 10 s');
@@ -301,7 +321,8 @@ async function onPage(deps: LaunchCheckDeps): Promise<{ words: string; accents: 
   } catch (error) {
     if (error instanceof StepFailed) return { words: error.message, accents: 0 };
     const stage = stageOf(error);
-    return { words: stage ? `${stage} failed: ${reason(error)}` : `failed: ${reason(error)}`, accents: 0 };
+    if (!stage) return { words: `failed: ${reason(error)}`, accents: 0 };
+    return { words: `${stage} failed: ${reason(error)}`, accents: 0, stage };
   }
 }
 

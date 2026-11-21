@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -29,15 +29,40 @@ function standIn(lines: string[], code: number): string {
   return app;
 }
 
-/** The script run with `args`, its log in the stand-in's own folder. */
-function launchCheck(args: string[]): { code: number | null; out: string } {
+/**
+ * The script run with `args`, its log in the stand-in's own folder. The job summary is `summary` when given, else
+ * none: in CI the real one is set, and these runs must never write into it.
+ */
+function launchCheck(args: string[], summary = ''): { code: number | null; out: string } {
   const result = spawnSync('bash', ['scripts/launchCheck.sh', ...args], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, RUNNER_TEMP: join(work, 'logs') },
+    env: { ...process.env, RUNNER_TEMP: join(work, 'logs'), GITHUB_STEP_SUMMARY: summary },
     timeout: 60_000,
   });
   return { code: result.status, out: `${result.stdout}${result.stderr}` };
+}
+
+const noReadNote =
+  "this machine can't read a canvas back (worker: read: The object is in an invalid state.; " +
+  'page: read failed: The object is in an invalid state.)';
+const before = [
+  'launch check: window ok',
+  'launch check: loaded ok',
+  'launch check: page ok',
+  'launch check: policy-watch ok',
+  'launch check: pdf-text ok',
+];
+const after = ['launch check: worker-policy ok', 'launch check: no-violation ok', 'launch check: passed'];
+
+/** An empty job summary of its own, as GitHub gives each step. */
+function summaryFile(): string {
+  made += 1;
+  const folder = join(work, String(made));
+  mkdirSync(folder, { recursive: true });
+  const file = join(folder, 'summary.md');
+  writeFileSync(file, '');
+  return file;
 }
 
 const passed = [
@@ -76,6 +101,57 @@ describe.skipIf(process.platform === 'win32')('scripts/launchCheck.sh with a sta
     const warning = 'launch check: warning: the accents came from the page, not the worker, as --accents-by-page-ok allows';
     expect(allowed.out).toContain(`${warning}: ${byPageNote}\n`);
     expect(allowed.out).not.toContain('FAILED');
+  });
+
+  it('writes the by-the-page warning into the job summary too, when it is set', () => {
+    const app = standIn(
+      ['launch check: window ok', `launch check: accents ok (${byPageNote})`, 'launch check: passed'],
+      0,
+    );
+    const summary = summaryFile();
+    const allowed = launchCheck(['--accents-by-page-ok', app], summary);
+    expect(allowed.code, allowed.out).toBe(0);
+    const warning =
+      'launch check: warning: the accents came from the page, not the worker, as --accents-by-page-ok allows: ' +
+      byPageNote;
+    expect(allowed.out).toContain(`${warning}\n`);
+    expect(readFileSync(summary, 'utf8')).toBe(`${warning}\n`);
+  });
+
+  it('refuses "this machine can’t read a canvas back" without the flag, and passes it with a warning', () => {
+    const app = standIn([...before, `launch check: accents ok (${noReadNote})`, ...after], 0);
+    const summary = summaryFile();
+    const strict = launchCheck([app], summary);
+    expect(strict.code, strict.out).toBe(1);
+    expect(strict.out).toContain('launch check: FAILED: neither the worker nor the page could read a canvas back');
+    expect(strict.out).toContain(`launch check: accents ok (${noReadNote})\n`);
+    expect(readFileSync(summary, 'utf8')).toBe('');
+
+    const allowed = launchCheck(['--accents-by-page-ok', app], summary);
+    expect(allowed.code, allowed.out).toBe(0);
+    const warning =
+      'launch check: warning: neither the worker nor the page could read a canvas back, as --accents-by-page-ok ' +
+      `allows: ${noReadNote}`;
+    expect(allowed.out).toContain(`${warning}\n`);
+    // The app's own line stays in the log.
+    expect(allowed.out).toContain(`launch check: accents ok (${noReadNote})\n`);
+    expect(allowed.out).not.toContain('FAILED');
+    expect(readFileSync(summary, 'utf8')).toBe(`${warning}\n`);
+  });
+
+  it('fails a silent worker and a decode failure with the flag too', () => {
+    for (const why of [
+      'the accent worker failed or took over 15 s; on the page: read failed: The object is in an invalid state.',
+      'The object is in an invalid state. (worker: decode); on the page: read failed: The object is in an invalid state.',
+    ]) {
+      const app = standIn([...before, `launch check: FAILED at accents: ${why}`], 16);
+      const summary = summaryFile();
+      const { code, out } = launchCheck(['--accents-by-page-ok', app], summary);
+      expect(code, out).toBe(1);
+      expect(out).toContain('launch check: exit code 16: step 6 (accents) failed');
+      expect(out).not.toContain('warning:');
+      expect(readFileSync(summary, 'utf8')).toBe('');
+    }
   });
 
   it('fails with the usage line on an unknown flag, no path, or two paths', () => {
