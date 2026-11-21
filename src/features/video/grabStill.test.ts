@@ -1,14 +1,31 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { lutStatements } from '../../core/media/lut';
 import { mediaFields, type PreparedImage } from '../../core/media/store';
 import { clipProp, readClip, readFromVideo, videoFields, videoProps, type VideoFields, type VideoProbe } from '../../core/media/video';
 import { readCrop } from '../../core/media/crop';
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
-import { stillEdit } from './grabStill';
+import { nodeDriver } from '../../core/storage/nodeDriver';
+import { createProject, type Project } from '../../core/storage/project';
+import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 
 // Still capture (2.7): the edit that makes a grabbed still the frame's picture. The grab itself (ffmpeg from the
-// original, graded) has its Rust tests; the end-to-end test drives the Player's button and key.
+// original, graded) has its Rust tests; the end-to-end test drives the Player's button and key. What grabStill says
+// when it can't grab is tested here, as the desktop app runs it.
+
+const tauri = vi.hoisted(() => ({ invoke: vi.fn(), isTauri: () => true }));
+vi.mock('@tauri-apps/api/core', () => tauri);
+vi.mock('../../app/fileAccess', () => ({ isTauriApp: true }));
+const notices = vi.hoisted(() => ({ said: [] as string[] }));
+vi.mock('../../app/notice', () => ({
+  showInfo: (message: string) => notices.said.push(message),
+  showNotice: (error: unknown) => notices.said.push(error instanceof Error ? error.message : String(error)),
+}));
+
+const { projectStore } = await import('../../app/projectStore');
+const { videoDriver } = await import('../../app/video');
+const { grabStill, stillEdit } = await import('./grabStill');
 
 const probe: VideoProbe = {
   codec: 'h264',
@@ -131,5 +148,58 @@ describe('a still grabbed into its frame (2.7)', () => {
     if (!shot) throw new Error('the frame');
     start.s1 = { ...shot, trashedAt: 'now' };
     expect(stillEdit(start, 's1', 'v1', 48, still(5), null, '', taken).changes).toEqual([]);
+  });
+});
+
+describe('what a still grab says when its LUT is missing or unreadable (round 3; Kevin, Nov 19)', () => {
+  let folder: TestFolder;
+  let project: Project;
+  beforeEach(async () => {
+    tauri.invoke.mockReset();
+    notices.said = [];
+    folder = makeTestFolder();
+    project = await createProject(folder.path('Bey County.sbd'), { driver: nodeDriver, backups: false });
+    await projectStore.getState().open(project);
+    await projectStore.getState().apply([
+      { kind: 'create', record: { id: 'sc1', type: 'scene', parentId: project.projectId, sortKey: 'a', props: { number: '1' } } },
+      {
+        kind: 'create',
+        record: {
+          id: 'v1',
+          type: 'media',
+          parentId: project.projectId,
+          sortKey: 'b',
+          props: { ...videoProps(probe, { name: 'A001_C003.MOV', path: '/Footage/A001_C003.MOV', size: 1 }, project.file.path, null), lut: 'lut-gone' },
+        },
+      },
+      { kind: 'create', record: { id: 's1', type: 'shot', parentId: 'sc1', sortKey: 'a', props: { number: '1A', clip: clipProp({ videoId: 'v1', inFrame: 24, outFrame: 96, crop }) } } },
+    ]);
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await projectStore.getState().close();
+    folder.remove();
+  });
+
+  it('a LUT no longer stored: says so, names the still, and grabs nothing ungraded', async () => {
+    const grab = vi.spyOn(videoDriver, 'still');
+    expect(await grabStill('s1', 48)).toBe(false);
+    expect(notices.said).toEqual(['This video’s LUT is no longer in the project, so a graded still can’t be made. Choose its LUT again, or set it to None.']);
+    expect(grab).not.toHaveBeenCalled();
+    expect(projectStore.getState().records.s1?.props.media_id).toBeUndefined();
+  });
+
+  it('a LUT stored but unreadable: names the still, never the playback copy, and grabs nothing ungraded', async () => {
+    // Stored under its own name, but a 1D LUT ffmpeg can't read.
+    const text = 'LUT_1D_SIZE 2\n0 0 0\n1 1 1\n';
+    const sha256 = createHash('sha256').update(text).digest('hex');
+    await projectStore.getState().apply([{ kind: 'update', id: 'v1', set: { lut: 'lut-1d' } }], {
+      alsoWrite: lutStatements('lut-1d', { sha256, name: 'Shaper', fileName: 'Shaper.cube', cube: text }, new Date()),
+    });
+    const grab = vi.spyOn(videoDriver, 'still');
+    expect(await grabStill('s1', 48)).toBe(false);
+    expect(notices.said).toEqual(['This video’s LUT can’t be read, so the still can’t be made.']);
+    expect(grab).not.toHaveBeenCalled();
+    expect(projectStore.getState().records.s1?.props.media_id).toBeUndefined();
   });
 });

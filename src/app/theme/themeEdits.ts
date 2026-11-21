@@ -1,4 +1,4 @@
-import { prepareImage } from '../../core/media/image';
+import { prepareImage, readablePicture } from '../../core/media/image';
 import { imageStatements, mediaFields, mediaProps, type ImageSource, type PreparedImage } from '../../core/media/store';
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
@@ -27,10 +27,14 @@ export interface ThemeImage {
   previewUrl: string;
 }
 
-/** Reads a picked, dropped or pasted file: stored as a picture would be, its accents read from the original. */
+/**
+ * Reads a picked, dropped or pasted file: stored as a picture would be, its accents read from the original. A HEIC
+ * the webview can't decode (Windows) is decoded once, by readablePicture, and both readers get its PNG: the accents'
+ * worker never gets bytes it can't read, and the decoder is never asked twice for one pick.
+ */
 export async function prepareThemeImage(file: PictureFile): Promise<ThemeImage> {
   const blob = await file.read();
-  const named = new File([blob], file.name, { type: blob.type });
+  const named = await readablePicture(new File([blob], file.name, { type: blob.type }));
   const [image, candidates] = await Promise.all([prepareImage(named), extractAccents(named)]);
   const previewUrl = URL.createObjectURL(new Blob([image.thumbnail.bytes as Uint8Array<ArrayBuffer>], { type: image.thumbnail.mime }));
   return { image, source: { name: file.name, ...(file.path ? { path: file.path } : {}) }, candidates, previewUrl };

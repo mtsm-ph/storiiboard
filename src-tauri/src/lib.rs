@@ -10,6 +10,7 @@ mod exif;
 mod export;
 mod fonts;
 mod geocode;
+mod heic;
 mod hospital;
 mod licences;
 mod lock;
@@ -115,6 +116,7 @@ pub(crate) fn with_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> ta
             fonts::font_bytes,
             timezone::time_zone_at,
             exif::photo_exif,
+            heic::heic_picture,
             tiles::map_tile,
             tiles::map_tiles_info,
             tiles::map_tiles_clear,

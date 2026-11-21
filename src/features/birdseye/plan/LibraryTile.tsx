@@ -6,6 +6,7 @@ import { useProject } from '../../../app/projectStore';
 import { t, type MessageKey } from '../../../core/i18n';
 import type { Project } from '../../../core/storage/project';
 import type { GridSnap } from '../../../ui/canvas/scale';
+import { useScrollLane } from '../../../ui/scrollLane';
 import { pointOnStrip } from '../../../ui/canvas/stripClear';
 import type { Tool } from '../../../ui/canvas/types';
 import { TextField } from '../../../ui/fields';
@@ -124,10 +125,12 @@ export function LibraryTile() {
   const { view, state } = keepReading(records, live?.view ?? null);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the language, read through t()
   const groups = useMemo(() => libraryGroups(filter), [filter, locale]);
+  const scroller = useRef<HTMLDivElement>(null);
+  useScrollLane(scroller);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('plan.noProject')}</p>;
   const words = stateWords(state);
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-library-tile="" data-library-state={state.kind}>
+    <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-library-tile="" data-library-state={state.kind}>
       <TextField
         label={t('library.filter')}
         type="search"
