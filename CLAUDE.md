@@ -57,8 +57,8 @@
   (e2e/smoke.spec.ts) on Linux, the whole end-to-end suite in WebKit on a Mac (Kevin, Nov 14) and in Chromium on
   Linux at one worker per core (`--workers=100%`, Kevin, Nov 18: 4 cores while the repo is public, 2 once private;
   if timeouts still show, the default, never a longer timeout), and the Mac and Windows installers, each listing what
-  its bundle carries. A job red only because of GitHub's machine is rerun, never waved through, and the report says
-  so; red twice for the same cause goes to Kevin.
+  its bundle carries and then starting the app it just built in its launch check (below). A job red only because of
+  GitHub's machine is rerun, never waved through, and the report says so; red twice for the same cause goes to Kevin.
 - Merging on a checkpoint (Kevin, Nov 20): a green job is green, retries and all. A flaky test holds a merge only when
   that checkpoint's own PRs added or changed it, or changed the code it tests; every flaky test is named in the
   report, and one that has been flaky in two checkpoints is fixed before the next. One stack's red doesn't hold
@@ -66,7 +66,27 @@
   tests run; Kevin, Nov 20 night), that PR merges, the report says why, and the session checks that `v2` plus the
   held PR is the checkpoint's tree.
 - The end-to-end tests run under the installed app's content security policy (6.13): a violation fails the test.
-  src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
+  Every worker runs under its own, stricter policy (src-tauri/worker-csp.txt, 6.27i: no network, no eval), which the
+  app sends on every JavaScript response (src-tauri/src/worker_csp.rs) and the test server likewise; Tauri puts the
+  page's policy only on .html, and a worker never inherits it.
+- The launch check (6.27l, Kevin, Nov 20): with `STORIIBOARD_LAUNCH_CHECK=1` in the environment, and only then, the
+  app starts in a self-check mode (src-tauri/src/launch_check.rs, src/app/launchCheck). It makes the main window,
+  loads the page, breaks the page's policy once on purpose to see it refused and reported, reads a built-in PDF
+  through the PDF worker and a built-in picture through the accent reader's worker, fetches both worker scripts and
+  reads their policy, then quits with 0. A step that fails is named on stdout and by the exit code (10 + n; 30 + n
+  when the 90 s limit ends; 3 for a quit before the end). The mode does nothing else: none of the app's own start-up
+  work, no project, no request (net.rs refuses every one). Both installer jobs run it on the app just built
+  (scripts/launchCheck.sh). What it can and can't prove is in docs/briefs/launch-check.md. It is the one test that
+  runs in the real webviews: Playwright's WebKit is newer than any Safari, so an end-to-end test can pass where the
+  Mac app fails. Its first run on a Mac found one (6.27p): pdf.js's `getTextContent` reads a stream with `for await`,
+  which Safari's engine lacks, so the Mac app could not read a PDF; src/features/script/readPdf.ts reads through
+  `streamTextContent` and a reader instead, and src/app/pdfjsUse.test.ts keeps it so. Its accents step asks the
+  worker alone. When the worker fails at its canvas (not at decoding the picture) and the page reads the same picture,
+  the step passes by the page and says so, and scripts/launchCheck.sh refuses such a pass unless it is given
+  `--accents-by-page-ok`, which only the Mac installer job gives (6.27r, Kevin, Nov 20: GitHub's Mac has a virtual
+  GPU; Windows and a real Mac stay strict). A branch named `checkpoint/launch-<name>` runs only the ffmpeg sources
+  and the two installers, launch check included: about a quarter of an hour, never a checkpoint to merge on.
+- src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
   commands are tested in Rust through tauri's `test` feature (6.16). No HTML5 drag and drop anywhere in the app
   (lint and src/app/noHtmlDrag.test.ts, 6.15).
 - A failing functional or data-safety test gets fixed, never skipped.
@@ -388,6 +408,10 @@
     curated hue families, light and dark, so no theme can be unreadable.
   - The theme's tokens are stored in the project record; a project without an image uses the default theme.
   - Run every generated theme through the axe checks, light and dark.
+  - The image's accents are read in a Web Worker; when the worker can't start, dies, reports an error or takes too
+    long, the page reads them itself, and a person sees an error only when the page fails too (6.27r, Kevin, Nov 20).
+    No code calls `new OffscreenCanvas` directly: `makeCanvas` (src/core/media/makeCanvas.ts, re-exported by
+    canvas.ts) falls back to a `<canvas>` where there is none (macOS 13.0 to 13.2).
 - Export (Phase 1): src/features/export is a registry; a format is one file plus one line. Per scene or whole
   project. Exports skip the Trash, and files go to disk through src/core/storage.
 - Review (Phase 7 desktop, Phase 9 web): web suggestions come back as a change file (.sbdchanges, in
