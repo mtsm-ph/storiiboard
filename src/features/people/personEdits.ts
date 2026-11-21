@@ -3,7 +3,7 @@ import type { SbdRecord } from '../../core/model/record';
 import { isRole } from '../../core/model/role';
 import { keyAfterKeys } from '../../core/ops/order';
 import type { Change } from '../../core/ops/ops';
-import { personDepartments } from '../../core/model/person';
+import { personDepartments, personFields, type PersonFields } from '../../core/model/person';
 
 // The edits the Cast & crew tile makes (3.5): a new person, one field changed, a department on or off, one sent to the
 // Trash. Each is one op group, so one ⌘Z, built from the person as they are at the edit's turn.
@@ -24,6 +24,34 @@ export function newPerson(records: Records, projectId: string, id: string = cryp
       .map((r) => r.sortKey),
   );
   return { kind: 'create', record: { id, type: 'person', parentId: projectId, sortKey, props: { name: '' } } };
+}
+
+/**
+ * The tile's people with the one "+ New person" is making (`pendingId`) while its save is on its way: shown at once, so
+ * its name field has focus before a key can be typed (Kevin, Nov 20), and left out as soon as a record with its id is
+ * there, so the real one takes its place. Unnamed, so it goes last, where the list puts an unnamed person.
+ */
+export function withPendingPerson(
+  people: readonly { record: SbdRecord; fields: PersonFields }[],
+  records: Records,
+  projectId: string,
+  pendingId: string | null,
+): { record: SbdRecord; fields: PersonFields }[] {
+  if (pendingId === null || records[pendingId] !== undefined) return [...people];
+  const { record } = newPerson(records, projectId, pendingId);
+  const props = record.props ?? {};
+  // Never written: the create op makes the real record, with its own times.
+  const shown: SbdRecord = { ...record, id: pendingId, props, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' };
+  return [...people, { record: shown, fields: personFields(props) }];
+}
+
+/**
+ * The id of the person being made, when it's being made in the project open now (`open`, the store's project): a
+ * project switched to while a create is on its way never shows the other one's stand-in. Compared by the open project
+ * itself, as the store drops an edit, so a copy of the same project (an opened backup) isn't taken for it.
+ */
+export function pendingIn<P>(pending: { id: string; project: P } | null, open: P | null): string | null {
+  return pending !== null && open !== null && pending.project === open ? pending.id : null;
 }
 
 /** One text field of a person; nothing when it's already that, or they're gone. */

@@ -8,20 +8,52 @@ It replaces nothing in either; it says where the work stands and what comes next
 
 What only Kevin can do or answer, one line each, with what it unblocks. Nothing a session, a review or CI can settle.
 
-- **"Color" everywhere: the plan, before anything changes.** Kevin's typed line above his Nov 20 afternoon note:
-  "should be Color everywhere plan before executing". Read as: the English people see spells it "Color", never
-  "Colour" (`en.ts` has both today), and a change that wide is planned and approved first. The inventory and the plan
-  are in `private/COLOR_PLAN.md` once written; nothing of it is built until Kevin says go, and says how far it
-  reaches (that word only, or American spelling throughout; the words people see only, or names in code and docs
-  too). Unblocks: the spelling change.
+- **The next checkpoints, by name.** None is left from Nov 20's list. Ready for one: #222 once round 6 is in, #235
+  (the encoder's leftovers, round 3 green on Linux), and item 8's stack (#240, #241, then Ctrl+S) with
+  `checkpoint/baselines-nov20b` at its end. Unblocks: every merge after nov20-f.
+- **The merge rule, as the session read it on nov20-d and nov20-f:** a PR merges past another's red when it touches
+  nothing the failing tests run (not the whole suite's step). On nov20-f that merged #233, #234, #236 and #238 past
+  #222's five failures; each PR's comment says why. Confirm, or say the stricter reading. Unblocks: the next
+  checkpoint's merges.
+- **The Mac's accent reader: run nov20-e's Mac build on your own Mac** (no build tools; `gh` signed in):
+  `gh run download 44802015054 -R mtsm-ph/storiiboard -n storiiboard-macOS -D ~/Downloads/sb-launch`, then
+  `xattr -cr ~/Downloads/sb-launch && hdiutil attach ~/Downloads/sb-launch/Storiiboard_0.1.0_aarch64.dmg -nobrowse -mountpoint /Volumes/SBLaunch`,
+  then `STORIIBOARD_LAUNCH_CHECK=1 /Volumes/SBLaunch/Storiiboard.app/Contents/MacOS/storiiboard`. `accents ok` then
+  `passed`: GitHub's virtual GPU. `accents ok (by the page…)`: the worker fails on a real Mac but the page reads.
+  The FAILED line: choosing a key image's colours is broken in the Mac app. Unblocks: #206, #213, #219, #223, #229.
+- **The tile accent: option 1 (by kind) or option 2 (by section)**, in `private/pictures/TILE_ACCENT_OPTIONS.md`
+  with the pictures. Unblocks: the tile accent, in item 8.
+- **"Bring back what was undone" (item 7 of the Nov 18 plan) needs a new kind of step in the file.** It writes a
+  step into History, and the log has no kind that means "brought back" (`edit`, `undo`, `redo`, `restore`,
+  `empty_trash`): a new kind is a format change. Either a `bring_back` kind pointing at the undo it takes back
+  (History says "Brought back: …"; an older copy of the app lists it as a step it doesn't know), or an ordinary edit
+  (no format change; History says "Changed …"). Unblocks: item 7 (the outline, the button and the mark).
+- **"Color" everywhere: the plan is in `private/COLOR_PLAN.md`**, with four decisions (that word only or American
+  spelling throughout; the words people see only, or names in code and docs too). Nothing changes until Kevin says
+  go. Unblocks: the spelling change.
+- **The Layers tile in Spanish at its default size** (`private/pictures/LAYERS_TILE_NOTE.md`): leave it scrolling,
+  give Layers about 60 px more in Setup's default layout, or shorter Spanish words. Unblocks: nothing; #222 merges
+  either way.
+- **A hand backup replacing a tick's own copy (#244).** Kevin's rule lets a press replace "a timed or hand backup"
+  under 5 minutes old. Round 2 made a tick that finds nothing changed keep the newest copy (so a run of presses keeps a
+  copy for every 5 minutes), but a press just before each tick still replaces that tick's own copy, so someone who
+  presses then keeps one copy per 10 minutes (6 an hour instead of 12). Keep the rule, or let a press replace only a
+  hand copy made since the last tick? Unblocks: nothing (it merges either way); the rule's last word.
+- **Words to read:** History lines in Spanish (#240: "Se cambió lente en 3 cuadros de ESC 12", "después de" or "a
+  continuación de", one voice for moves, "en" or "de" before a scene; the choices are in the PR's comment), and its new
+  "Moved items, some since deleted for good" / "Se movieron elementos, algunos borrados para siempre después"; a frame
+  moved between days reads "1A: shoot day Mon, Nov 16 → Tue, Nov 17" (the plan's example said "Moved 4A to shoot day
+  Nov 25"; #245 shows History's words as they are); and #235's line for a destination that stops answering, today
+  "took too long to read" though the clip was being saved. Unblocks: nothing waits; each changes in a small PR.
 - **CLAUDE.md's Models line.** From 13:52 EST Nov 20 the main session ran on Opus 5.5 at Kevin's word ("Continue
   with opus"). The line still says the main session runs on Fable 5.2. Change it, or was it for that day only?
   Unblocks: keeping CLAUDE.md true.
+- **An index on the ops' parent (a schema change), low priority:** it would bound one History read (a move's "after
+  3C" line for a step deep under many undos: 33 ms with 50,000 later ops). Unblocks: nothing urgent.
 - **An HDR HEIF from Kevin's camera** in private/samples, when he can. Unblocks: HDR HEIF beyond a refusal.
 - **Two folders Kevin said he will delete himself** (Nov 20; no work waits on either): the Nov 19 session's scratch
   folder (a decoded copy of one of his HEICs and two error logs, one with its file name), and
   `private/samples/.probe`.
-
 ## What a cloud session can and can't do
 
 - **Can:** read and change the code; run `npm run lint`, `npm test` (Vitest) and the Chromium end-to-end tests on
@@ -365,7 +397,158 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20, afternoon; written at 14:05 EST)
+### Next session: start here (Nov 20, night; written at 21:40 EST)
+
+Kevin's afternoon note is in `private/NOV20_AFTERNOON.md` with the session's status under it; the day's report went
+to Kevin at about 18:10 EST. Nothing merged since nov20-f's four; no checkpoint is left until Kevin names one.
+
+**Open, each built, reviewed and pushed (each round's brief in `docs/briefs/` on its branch):**
+
+| PR | What | State |
+|---|---|---|
+| #222 | the scroll lane (6.29) | rounds 6 to 6e after four reviews: the lane only where content overflows without it, never toggled sideways, positions inside and around kept, a reading only once a resize, a shrink or a view switch holds; reorder.spec at 1440 × 900; WebKit's dialog focus and Layers rows fixed. Ready for a checkpoint |
+| #235 | the encoder's leftovers | round 3 green on Linux; ready for a checkpoint |
+| #240 | History lines (6.30) | rounds 2 to 4 after a review and two re-reviews (never a wrong place after Empty Trash; one scan per load); ready |
+| #241 | Undo and Redo buttons (6.31), on #240 | round 3 with #240 merged in (b19d1f6); last re-review: no high or medium; lows on the PR as follow-ups; ready |
+| #244 | Ctrl+S and the hand-backup rule (6.32), on #241 | round 2 after a review (a copy for every 5 minutes; keys typed in the gap kept); round 3 building (`private/briefs/ctrl-s-3.md`: a backup at close never flags the new project nor holds its edits; Backspace and Enter in the gap; Kevin's rule stays, its question on the Only Kevin list) |
+| #245 | a shoot day's own history (6.33), on #244 | built; being reviewed; it takes #244's round 3 by a merge after |
+
+**Then:** Settings (Apply changes and the Measurement system, from Kevin's Nov 17 note and the Nov 18 plan's item 10),
+the tile accent (Kevin's option), item 7 (Kevin's format answer), and `checkpoint/baselines-nov20b` at the stack's end,
+once Kevin names the checkpoints.
+
+### Earlier: start here (Nov 20, night; written at 19:40 EST)
+
+Kevin's afternoon note is in `private/NOV20_AFTERNOON.md` with the session's status under it; the day's report went
+to Kevin at about 18:10 EST. Nothing merged since nov20-f's four (the section below); no checkpoint is left until
+Kevin names one (Only Kevin).
+
+**Open, each built, reviewed and pushed (each round's brief in `docs/briefs/` on its branch):**
+
+| PR | What | State |
+|---|---|---|
+| #222 | the scroll lane (6.29) | round 6 (reorder.spec opens 1440 × 900; the lane's start waits a frame, which WebKit needed for a dialog's focus), 6b (the lane only where the content overflows without it; Layers rows one height in both engines), 6c (inner scroll positions kept; the reading without the lane only once a resize holds): Chromium 71 and WebKit on Windows 23 passed locally, visual.spec against the Windows baselines; 6c being re-reviewed. Playwright's WebKit on Windows reproduced both Mac-only failures of nov20-f, so WebKit runs here for this lane's specs |
+| #235 | the encoder's leftovers | round 3 green on Linux; waits for a checkpoint |
+| #240 | History lines (6.30) | round 2 after a review (a scene's place from a real file; never a wrong place after a purge; "del proyecto"; one scan per load); round 3 building (`history-lines-3.md`: a page's number when unsure, "unsure" narrowed, the letters after the frame checked) |
+| #241 | Undo and Redo buttons (6.31), on #240 | round 2 after three reviews; round 3 queued (`private/briefs/undo-redo-buttons-3.md`): it first merges #240's rounds 2 and 3 |
+
+**Then:** Ctrl+S (`private/briefs/ctrl-s.md`, stacked on #241), a shoot day's own history, Settings, the tile accent
+(Kevin's option), and `checkpoint/baselines-nov20b` at the stack's end, once Kevin names the checkpoints.
+
+### Earlier: start here (Nov 20, evening; written at 17:55 EST)
+
+Kevin's afternoon note is in `private/NOV20_AFTERNOON.md` with the session's status under it.
+
+**Merged on `checkpoint/nov20-f`** (run 44821926923): #233 (a HEIC's pixel limit), #234 ("Vuelve a intentarlo"),
+#236 (a HEIC photo's date and place) and #238 (a HEIC as a key image or logo). `v2`'s code is now nov20-f's exactly,
+without #222 (checked: `v2` plus #222 is nov20-f's tree, docs aside).
+
+- Green: Smoke, Advisories, ffmpeg sources, both installers (Rust tests and launch checks).
+- Red, each failure in both tries, nothing flaky: Linux Chromium 644 passed, 3 failed; the Mac's WebKit 639 passed,
+  5 failed. Every one is in what #222 changes:
+  - reorder.spec, both systems: "drags a frame into another scene, numbering it there", "a frame dropped on a
+    scene's heading goes to the start of that scene", "a frame stays in a scene whose numbers are locked, and the
+    board says why";
+  - the Mac only: planLayers.spec "each layer is one line where its name fits and wraps where it doesn't, never cut
+    off; every row shows without scrolling" (#222's own), and presets.spec "a preset saved from the Settings header,
+    applied after a change back, and Before it applied to go back" (the Save preset dialog's Name field didn't take
+    focus; #222 adds its lane to every in-app window and to Settings).
+- The four merged by Kevin's rule read at the failing tests, as on nov20-d (Only Kevin: confirm). Each PR's comment
+  says why it can't reach those tests.
+- planExport.spec's underlay test, flaky on nov20-e, passed on nov20-f: flaky in one checkpoint so far.
+
+**Held: #222** (the scroll lane). Round 6, `private/briefs/scroll-lane-reorder.md`: reproduce the failures here,
+then fix the app, or give a test back the room it had without changing an assertion. v2 is to be merged into its
+branch first (the four merges).
+
+**Not in a checkpoint yet:** #235 (the encoder's leftovers, round 3: the clip's `+faststart` rewrite told from a
+stall by ffmpeg's own stderr line; its Linux checks green).
+
+**Item 8, the stacked screenshot milestones** (Kevin's Nov 18 order: Ctrl+S, the Undo and Redo buttons, the undo
+outline, a day's history, then Settings; one baseline run at the end):
+
+| PR | What | State |
+|---|---|---|
+| #240 | History lines name what changed and where (6.30) | built; its CI green; review owed |
+| #241 | Undo and Redo buttons in the top bar (6.31), on #240 | round 2 after two reviews (a name only for its own state, a bounded read, a press while typing commits first); being re-reviewed |
+| next | Ctrl+S and the hand-backup rule | brief ready, `private/briefs/ctrl-s.md` |
+| later | the undo outline, button and mark (item 7) | waits for Kevin: a new kind of step (Only Kevin) |
+| later | a shoot day's own history; Settings (Apply changes, Measurement system); the tile accent | the tile accent waits for Kevin's option |
+
+**GitHub, Nov 20 from 20:50Z:** pushes to PR branches start no Actions run; `gh workflow run ci.yml --ref <branch>`
+starts each PR's checks. Pushes to `checkpoint/` branches still start runs.
+
+### Earlier: start here (Nov 20, evening; written at 16:45 EST)
+
+Kevin's afternoon note is in `private/NOV20_AFTERNOON.md` with the session's status under it.
+
+**Running: `checkpoint/nov20-f`** (run 44821926923, pushed 16:37 EST), the last full checkpoint Kevin allowed that
+day. It is `v2` at 56f2076 plus:
+
+| PR | What |
+|---|---|
+| #222 | the scroll lane, the keys line, 40 baselines |
+| #233 | a HEIC's pixel limit: four rounds, the last after a review found an Apple-silicon test failure, a thin frame and a coded size larger than declared |
+| #234 | "Vuelve a intentarlo" |
+| #236 | a HEIC photo's date and place: two rounds; Kevin's two iPhone HEICs read yes and yes |
+| #238 | a HEIC as a key image or logo |
+
+Its merged tree passed types, lint, 3634 unit tests and 413 Rust tests on Kevin's PC. What it proves merges, by
+Kevin's rules.
+
+**Not in it:** #235 (the encoder's leftovers). Its review showed the round-2 fix for the clip's `+faststart` rewrite
+can't work: ffmpeg prints no progress between the last frame and the end. Round 3, a signal from ffmpeg's own
+stderr, was being built at 16:45; it waits for the next checkpoint.
+
+**Stopped for Kevin:** the launch check stack, #206 ← #213 ← #219 ← #223 ← #229 (Only Kevin).
+
+**GitHub, Nov 20 from 20:50Z:** pushes to PR branches started no Actions run, though other apps' checks did. Pushes
+to `checkpoint/` branches did start runs. The session started each PR's checks by hand (`gh workflow run ci.yml
+--ref <branch>`).
+
+**Follow-ups noted, not built:**
+
+- #238: a HEIC key image on the Mac now gets one extra trial decode before the readers (latency, not a fault).
+- #235: a dead destination says "took too long to read", which speaks of reading, not saving (wording for Kevin).
+
+**Item 8** (the stacked screenshot milestones) is not started. The tile accent waits for Kevin's choice.
+
+### Earlier: start here (Nov 20, late afternoon; written at 15:55 EST)
+
+Kevin's afternoon note (Nov 20) is word for word in `private/NOV20_AFTERNOON.md`, with the session's status under
+it. The main session runs on Opus 5.5 since 13:52 at Kevin's word.
+
+**Merged on `checkpoint/nov20-e`** (run 44802015054): #207, #228, #230, #231 and #218, by Kevin's second rule.
+
+- The one red job was Installer (macOS): the launch check failed at `accents`, the worker and the page both
+  ("The object is in an invalid state."). That step exists only in the launch check's stack.
+- The one flaky test on the Mac, planExport.spec "prints a real underlay dimmed from its picture…", failed in
+  set-up: the browser closed, as on nov20-b. Nothing in the checkpoint touched it.
+- Linux ran 641 tests, none flaky; Windows' launch check passed.
+- Earlier: #208, #214, #215, #221 and the docs.
+
+**Stopped for Kevin (his rule: "The page fails too: stop this stack and tell me"):** #206 ← #213 ← #219 ← #223 ←
+#229.
+
+- `checkpoint/launch-1` had passed by the worker itself; nov20-e failed on the worker and the page.
+- Kevin has the three Terminal lines to run nov20-e's Mac build on his own Mac (Only Kevin).
+- The session's guess, untried: the page's fallback draws on an OffscreenCanvas too; a page `<canvas>` element might
+  read back where an OffscreenCanvas on a virtual GPU doesn't.
+
+**Open, for the next checkpoint (`nov20-f`), each built and reviewed:**
+
+| PR | What | State |
+|---|---|---|
+| #222 | the scroll lane; the keys line only where it fits; 40 baselines | out of draft. The baselines all come from the lane (listed on the PR). Spanish still scrolls at the default size: Kevin's choice |
+| #233 | a HEIC's pixels limited before any decode | round 2 done (the grid's own tiles, the canvas, `max_pixels`); its review is owed |
+| #234 | "Vuelve a intentarlo" | done |
+| #235 | the encoder's leftovers | round 2 being built: the clip's `+faststart` rewrite isn't a stall; the destination is checked |
+| #236 | a HEIC photo's date and place | round 2 to build: duplicate ids, inner cuts, overflow tests |
+
+Still to build, in Kevin's order: a HEIC as a key image or logo (needs #218: merged); then item 8, the stacked
+screenshot milestones. The tile accent's two options are with Kevin (`private/pictures/TILE_ACCENT_OPTIONS.md`).
+
+### Earlier: start here (Nov 20, afternoon; written at 14:05 EST)
 
 Kevin's afternoon note (Nov 20) is word for word in `private/NOV20_AFTERNOON.md` on his PC, with the session's
 status under it: read it first. From 13:52 EST the main session runs on Opus 5.5 at Kevin's word ("Continue with

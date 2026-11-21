@@ -3,12 +3,14 @@
 //! photo was taken is personal data. The bytes are untrusted, so the whole answer is "not there" for anything missing,
 //! malformed or out of range, never an error: a photo with no EXIF imports exactly as before.
 //!
-//! JPEG is the format this is for; a TIFF file reads too. The EXIF's TIFF block is checked here before the crate parses
-//! it (`block_is_safe`). A HEIF (HEIC) file answers `heic`, its EXIF not read yet; PNG and WebP answer `none`: the crate
-//! gives their block only already parsed (`exif_block`). No picture is decoded or converted here.
+//! JPEG is the format this is for; a TIFF file reads too, and a HEIF (HEIC) file (Kevin, Nov 20): its `Exif` item is
+//! found by heic.rs's own box reader (`exif_item`), and its block then gets exactly what a JPEG's does. The EXIF's TIFF
+//! block is checked here before the crate parses it (`block_is_safe`). A HEIF whose boxes can't be followed, or whose
+//! item is stored a way that reader doesn't read, answers `heic`; PNG and WebP answer `none`: the crate gives their
+//! block only already parsed (`exif_block`). No picture is decoded or converted here.
 //!
 //! Beside the values, the answer says why there are none (6.27 round 3, Kevin Nov 17: `Reason`), so the Locations tile
-//! can say when a photo's date and place couldn't be read or a HEIC's can't be yet. The photo imports either way.
+//! can say when a photo's date and place couldn't be read. The photo imports either way.
 
 use std::borrow::Cow;
 use std::io::Cursor;
@@ -17,6 +19,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use exif::{Exif, In, Reader, Tag, Value};
 use serde::Serialize;
 
+use crate::heic::ExifItem;
 use crate::pictures::MAX_BYTES;
 
 /// Why a photo's answer holds what it holds (6.27 round 3, Kevin Nov 17), so the page can say when a photo's date and
@@ -30,7 +33,7 @@ pub enum Reason {
     None,
     /// The EXIF was refused: by the walk here, or by the crate's own error or panic.
     Refused,
-    /// A HEIF (HEIC) container, whose EXIF isn't read yet.
+    /// A HEIF (HEIC) container whose boxes can't be followed, or whose EXIF item is stored a way this doesn't read.
     Heic,
 }
 
@@ -81,9 +84,6 @@ pub fn read(bytes: &[u8]) -> PhotoExif {
 pub fn answer(bytes: &[u8]) -> PhotoAnswer {
     if bytes.len() as u64 > MAX_BYTES {
         return PhotoAnswer::empty(Reason::Refused);
-    }
-    if is_heif(bytes) {
-        return PhotoAnswer::empty(Reason::Heic);
     }
     // The parser returns errors for malformed input; a panic in it on a crafted file must not take the command down.
     catch_unwind(AssertUnwindSafe(|| parse(bytes))).unwrap_or(PhotoAnswer::empty(Reason::Refused))
@@ -283,8 +283,8 @@ fn block_is_safe(bytes: &[u8]) -> bool {
 /// The EXIF's TIFF block in a picture's bytes, unparsed: `Ok(None)` for a picture with none, `Err` for a JPEG whose
 /// segments can't be read. A JPEG's comes from its APP1 segment (the crate's own `get_exif_attr_from_jpeg`, which only
 /// copies the segment out); a TIFF file is its own block, borrowed, so nothing is copied before it is checked. A HEIF
-/// (HEIC) file never comes here: `answer` names it `heic` first. PNG and WebP give no block here, so they answer
-/// `none`.
+/// (HEIC) file never comes here: `parse` asks heic.rs's box reader for its block. PNG and WebP give no block here, so
+/// they answer `none`.
 fn exif_block(bytes: &[u8]) -> Result<Option<Cow<'_, [u8]>>, ()> {
     if bytes.starts_with(&[0xff, 0xd8]) {
         return match exif::get_exif_attr_from_jpeg(&mut Cursor::new(bytes)) {
@@ -299,16 +299,33 @@ fn exif_block(bytes: &[u8]) -> Result<Option<Cow<'_, [u8]>>, ()> {
     )
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many blocks were handed to `read_raw` on this thread, so a test can see that a refused block never was.
+    pub(crate) static RAW_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn parse(bytes: &[u8]) -> PhotoAnswer {
-    let block = match exif_block(bytes) {
-        Ok(Some(block)) => block,
-        Ok(None) => return PhotoAnswer::empty(Reason::None),
-        Err(()) => return PhotoAnswer::empty(Reason::Refused),
+    let block = if is_heif(bytes) {
+        // A HEIC's block from its `Exif` item (Kevin, Nov 20), then exactly what a JPEG's gets.
+        match crate::heic::exif_item(bytes) {
+            ExifItem::Block(block) => block,
+            ExifItem::None => return PhotoAnswer::empty(Reason::None),
+            ExifItem::NotFollowed => return PhotoAnswer::empty(Reason::Heic),
+        }
+    } else {
+        match exif_block(bytes) {
+            Ok(Some(block)) => block,
+            Ok(None) => return PhotoAnswer::empty(Reason::None),
+            Err(()) => return PhotoAnswer::empty(Reason::Refused),
+        }
     };
     // Never a block the walk hasn't passed, and a copy only of one that has.
     if !block_is_safe(&block) {
         return PhotoAnswer::empty(Reason::Refused);
     }
+    #[cfg(test)]
+    RAW_READS.with(|reads| reads.set(reads.get() + 1));
     let Ok(exif) = Reader::new().read_raw(block.into_owned()) else {
         return PhotoAnswer::empty(Reason::Refused);
     };
@@ -601,7 +618,7 @@ pub(crate) mod tests {
         jpeg_with(&tiff(fixture))
     }
 
-    fn jpeg_with(tiff: &[u8]) -> Vec<u8> {
+    pub(crate) fn jpeg_with(tiff: &[u8]) -> Vec<u8> {
         let mut out = vec![0xff, 0xd8, 0xff, 0xe1];
         out.extend(((2 + 6 + tiff.len()) as u16).to_be_bytes());
         out.extend(b"Exif\0\0");
@@ -899,10 +916,10 @@ pub(crate) mod tests {
     }
 
     /// One raw directory entry: tag, type, count, and the four value bytes as a number.
-    type Raw = (u16, u16, u32, u32);
+    pub(crate) type Raw = (u16, u16, u32, u32);
 
     /// A directory written as given, with no checks: its count, its entries, the offset of the next one.
-    fn raw_directory(entries: &[Raw], next: u32) -> Vec<u8> {
+    pub(crate) fn raw_directory(entries: &[Raw], next: u32) -> Vec<u8> {
         let mut out = (entries.len() as u16).to_le_bytes().to_vec();
         for (tag, kind, count, value) in entries {
             out.extend(tag.to_le_bytes());
@@ -914,7 +931,7 @@ pub(crate) mod tests {
         out
     }
 
-    fn raw_block(parts: &[Vec<u8>]) -> Vec<u8> {
+    pub(crate) fn raw_block(parts: &[Vec<u8>]) -> Vec<u8> {
         let mut out = b"II*\0".to_vec();
         out.extend(8u32.to_le_bytes());
         for part in parts {
@@ -924,20 +941,20 @@ pub(crate) mod tests {
     }
 
     /// How long a directory of n entries is, in bytes.
-    const fn directory_len(n: usize) -> usize {
+    pub(crate) const fn directory_len(n: usize) -> usize {
         2 + 12 * n + 4
     }
 
-    const WHEN: &[u8] = b"2026:11:03 16:42:07\0";
+    pub(crate) const WHEN: &[u8] = b"2026:11:03 16:42:07\0";
     /// A `DateTime` entry whose 20 bytes sit at `at`.
-    const fn date_time(at: usize) -> Raw {
+    pub(crate) const fn date_time(at: usize) -> Raw {
         (0x0132, 2, 20, at as u32)
     }
     /// An entry nothing reads: one byte.
     const FILLER: Raw = (0x9999, 1, 1, 0);
 
     /// A block the walk refuses.
-    fn refused_block(n: usize) -> Vec<u8> {
+    pub(crate) fn refused_block(n: usize) -> Vec<u8> {
         let entries: Vec<Raw> = (0..n)
             .map(|i| (if i < n / 2 { 0x8769 } else { 0xa005 }, 4, 1, 8))
             .collect();
@@ -1153,6 +1170,56 @@ pub(crate) mod tests {
         }
     }
 
+    /// The real-HEIC check (Kevin, Nov 20), run by hand by the main session, never in CI:
+    /// `SB_SAMPLE_HEICS=<folder> cargo test real_heics -- --ignored --nocapture`. For every .heic and .heif in the
+    /// folder, one line: its number in name order, whether a date and a place were read, and the answer's reason. Real
+    /// photos hold where and when they were taken, so nothing else is printed: never a name, a path, a date, a time
+    /// or a coordinate. Nothing is written.
+    #[test]
+    #[ignore = "reads a folder of real photos named by SB_SAMPLE_HEICS; run by hand"]
+    fn real_heics_say_whether_their_date_and_place_read() {
+        let Some(folder) = std::env::var_os("SB_SAMPLE_HEICS") else {
+            panic!("SB_SAMPLE_HEICS names no folder");
+        };
+        let Ok(entries) = std::fs::read_dir(&folder) else {
+            panic!("the SB_SAMPLE_HEICS folder couldn't be read");
+        };
+        let mut paths: Vec<std::path::PathBuf> = entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                    e.eq_ignore_ascii_case("heic") || e.eq_ignore_ascii_case("heif")
+                })
+            })
+            .collect();
+        paths.sort();
+        assert!(!paths.is_empty(), "the folder holds no .heic or .heif");
+        // As the JPEG check: the default hook would print a caught panic's message, which may hold the file's values.
+        let old_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let word = |yes: bool| if yes { "yes" } else { "no" };
+        for (index, path) in paths.iter().enumerate() {
+            let n = index + 1;
+            let Ok(bytes) = std::fs::read(path) else {
+                println!("{n}: couldn't be read");
+                continue;
+            };
+            let found = answer(&bytes);
+            let reason = match found.reason {
+                Reason::Read => "read",
+                Reason::None => "none",
+                Reason::Refused => "refused",
+                Reason::Heic => "heic",
+            };
+            println!(
+                "{n}: date {}, place {}, reason {reason}",
+                word(found.exif.taken_at.is_some()),
+                word(found.exif.latitude.is_some()),
+            );
+        }
+        std::panic::set_hook(old_hook);
+    }
+
     #[test]
     fn a_pointer_stored_as_one_short_is_followed_as_the_crate_follows_it() {
         let two = directory_len(2);
@@ -1303,8 +1370,9 @@ pub(crate) mod tests {
         assert!(unchecked
             .get_field(Tag::DateTimeOriginal, In::PRIMARY)
             .is_some());
-        // ...but it answers `heic` before any block is looked for, so `read` answers nothing for it, cut short or
-        // whole, and never panics.
+        // ...but its item is stored in its item data box (`idat`, construction method 1), which the box reader doesn't
+        // follow (Nov 20), and it has no primary item: it answers `heic`, so `read` answers nothing for it, cut short
+        // or whole, and never panics.
         assert_eq!(read(&whole), NONE);
         for length in 0..whole.len() {
             assert_eq!(read(&whole[..length]), NONE);
