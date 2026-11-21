@@ -139,6 +139,70 @@ describe.skipIf(process.platform === 'win32')('scripts/launchCheck.sh with a sta
     expect(readFileSync(summary, 'utf8')).toBe(`${warning}\n`);
   });
 
+  describe('with each line’s time, as the app says it since Nov 21', () => {
+    const at = (line: string, seconds: string): string => `${line} (at ${seconds} s)`;
+    const beforeTimed = before.map((line, i) => at(line, `${String(i + 1)}.5`));
+    const afterTimed = [at('launch check: worker-policy ok', '40.1'), at('launch check: no-violation ok', '40.4')];
+
+    it('passes a plain pass, with and without --accents-by-page-ok', () => {
+      const accents = at('launch check: accents ok', '12.0');
+      const app = standIn([...beforeTimed, accents, ...afterTimed, 'launch check: passed'], 0);
+      for (const args of [[app], ['--accents-by-page-ok', app]]) {
+        const { code, out } = launchCheck(args);
+        expect(code, out).toBe(0);
+        expect(out).not.toContain('FAILED');
+        expect(out).not.toContain('warning:');
+      }
+    });
+
+    it('finds a pass by the page and repeats its note without the time', () => {
+      const line = at(`launch check: accents ok (${byPageNote})`, '34.0');
+      const app = standIn([...beforeTimed, line, ...afterTimed, 'launch check: passed'], 0);
+      const strict = launchCheck([app]);
+      expect(strict.code, strict.out).toBe(1);
+      expect(strict.out).toContain('launch check: FAILED: the accents came from the page, not the worker');
+      const summary = summaryFile();
+      const allowed = launchCheck(['--accents-by-page-ok', app], summary);
+      expect(allowed.code, allowed.out).toBe(0);
+      const warning =
+        'launch check: warning: the accents came from the page, not the worker, as --accents-by-page-ok allows: ' +
+        byPageNote;
+      expect(allowed.out).toContain(`${warning}\n`);
+      expect(allowed.out).toContain(`${line}\n`);
+      expect(readFileSync(summary, 'utf8')).toBe(`${warning}\n`);
+    });
+
+    it('finds "this machine can’t read a canvas back" and repeats its note without the time', () => {
+      const line = at(`launch check: accents ok (${noReadNote})`, '14.2');
+      const app = standIn([...beforeTimed, line, ...afterTimed, 'launch check: passed'], 0);
+      const strict = launchCheck([app]);
+      expect(strict.code, strict.out).toBe(1);
+      expect(strict.out).toContain('launch check: FAILED: neither the worker nor the page could read a canvas back');
+      const allowed = launchCheck(['--accents-by-page-ok', app]);
+      expect(allowed.code, allowed.out).toBe(0);
+      const warning =
+        'launch check: warning: neither the worker nor the page could read a canvas back, as --accents-by-page-ok ' +
+        `allows: ${noReadNote}`;
+      expect(allowed.out).toContain(`${warning}\n`);
+      expect(allowed.out).toContain(`${line}\n`);
+    });
+
+    it('names a failure and a time limit by their codes, the app’s timed line kept in the log', () => {
+      const failed = at('launch check: FAILED at worker-policy: worker-pwfgZlae.js: no answer in 10 s', '52.3');
+      const limit = at('launch check: FAILED: time limit (90 s) while waiting for worker-policy', '90.0');
+      for (const [line, code, meaning] of [
+        [failed, 17, 'step 7 (worker-policy) failed'],
+        [limit, 37, 'the time limit ended while waiting for step 7 (worker-policy)'],
+      ] as const) {
+        const app = standIn([...beforeTimed, line], code);
+        const { code: exit, out } = launchCheck(['--accents-by-page-ok', app]);
+        expect(exit, out).toBe(1);
+        expect(out).toContain(`${line}\n`);
+        expect(out).toContain(`launch check: exit code ${String(code)}: ${meaning}`);
+      }
+    });
+  });
+
   it('fails a silent worker and a decode failure with the flag too', () => {
     for (const why of [
       'the accent worker failed or took over 15 s; on the page: read failed: The object is in an invalid state.',

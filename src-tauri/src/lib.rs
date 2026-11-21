@@ -262,6 +262,7 @@ pub fn run() {
         let check = LaunchCheck::<tauri::Wry>::new(
             Box::new(launch_check::say_on_stdout),
             Box::new(launch_check::finish_in_app),
+            launch_check::since(started),
         );
         check.arm_time_limit(started + launch_check::TIME_LIMIT);
         builder.manage(check)

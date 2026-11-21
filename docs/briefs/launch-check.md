@@ -40,6 +40,11 @@ end-to-end-only ones, which skip that job):
 - Both workers start and work under that policy in the real webview: the PDF's text can only come from the PDF
   worker, and the accents are asked of the worker alone, never the page's fallback.
 - The app quits by itself, and exit code 0 with the line `launch check: passed` can only mean every step passed.
+- Where the time went (Nov 21): each step's line, a failure's and the time limit's end with the time since `run()`
+  began, measured in Rust on a clock that never goes backwards (`launch check: pdf-text ok (at 12.4 s)`). A worker
+  script's fetch in `worker-policy` that hangs fails that step at 10 s by its file's name (`<file>: no answer in 10 s`),
+  well before the 90 s; the page's limits add up to 77.4 s at worst. A step with no limit of its own (the `page`
+  step's draw, Rust's `window` and `loaded`) still ends only at the 90 s, though the times now say how long it took.
 
 **It can't prove:**
 
@@ -82,7 +87,7 @@ end-to-end-only ones, which skip that job):
   | 4 | `policy-watch` | the page | an inline script added on purpose did not run and was reported as a violation |
   | 5 | `pdf-text` | the page | `readPdfText` returned the built-in PDF's line |
   | 6 | `accents` | the page | the accent reader's worker, asked alone, returned at least one accent for the built-in picture |
-  | 7 | `worker-policy` | the page | exactly two worker scripts were started in steps 5 and 6, and each, fetched by the page, is JavaScript and carries exactly the worker policy |
+  | 7 | `worker-policy` | the page | exactly two worker scripts were started in steps 5 and 6, and each, fetched by the page, answers within 10 s (both are asked at once, Nov 21), is JavaScript and carries exactly the worker policy |
   | 8 | `no-violation` | the page | nothing but step 4's own violation was reported from the document's start to now |
 
 - **Exit codes:** 0 passed. 3: the app was asked to quit before the check ended (its window was closed).
@@ -94,8 +99,12 @@ end-to-end-only ones, which skip that job):
   - `launch check: FAILED at pdf-text: <why>`
   - `launch check: FAILED: time limit (90 s) while waiting for accents`
   - `launch check: passed`
-  Each line is flushed. A write that fails is ignored, never a panic. The page's `<why>` is cut to one line of at
-  most 300 characters, control characters replaced.
+  Since Nov 21 a step's line, a failure's and the time limit's end with the time since the start, ` (at 12.4 s)`.
+  `passed` has none, as scripts/launchCheck.sh matches that line whole; nor does the early quit's line, which is said
+  when something outside the check asks the app to quit (its window closed), never by a step: the step lines before
+  it already bound its time. Each
+  line is flushed. A write that fails is ignored, never a panic. The page's `<why>` is cut to one line of at most 300
+  characters, control characters replaced.
 - **Rust's strings here are not words for people.** They start in lower case and end with no full stop, so the scan in
   `src/core/i18n/i18n.test.ts` ("cover every message the Rust commands send") does not take them for messages. Never
   add to that test's `internal` list.
