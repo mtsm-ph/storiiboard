@@ -129,11 +129,42 @@ async function addUnderlayFromMenu(page: Page) {
   await expect.poll(() => kinds(page)).toEqual(['underlay']);
 }
 
-test('an underlay set to scale by two clicks and "4m", a wall traced over it and measured, through the layers, another scene, undo and a reload', async ({ page }) => {
-  // About a hundred steps and a reload: 8.3 to 8.4 s alone (Nov 14, five runs), 20.9 s in the full suite on twelve
-  // workers (Nov 14), and over 30 s when it started in the first wave (6.9's probe). The time is the steps' and the
-  // loads', not the app's.
-  test.setTimeout(60_000);
+/** Set scale by two clicks 2 m apart and "4m", for a test whose story starts from a scaled underlay. */
+async function scaleTo4m(page: Page) {
+  await planTile(page).locator('[data-underlay-scale-now]').click();
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:scale');
+  await clickAt(page, -100, 0);
+  await clickAt(page, 100, 0);
+  const question = page.locator('[data-scale-window]');
+  await question.getByRole('textbox', { name: 'Distance between the points' }).fill('4m');
+  await question.getByRole('textbox', { name: 'Distance between the points' }).press('Enter');
+  await expect(question).toHaveCount(0);
+  await expect.poll(async () => (await one(page, 'underlay')).scaled).toBe(true);
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'select');
+}
+
+/** A 4 m wall traced from (-2, -2) to (2, -2) m, then measured end to end, as the first test does it. */
+async function wallAndMeasure(page: Page) {
+  await canvas(page).focus();
+  await page.keyboard.press('w');
+  await clickAt(page, -200, -200);
+  await clickAt(page, 200, -200);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => kinds(page)).toEqual(['underlay', 'wall']);
+  await canvas(page).focus();
+  await page.keyboard.press('r');
+  await expect(canvas(page)).toHaveAttribute('data-tool', 'host:measure');
+  await clickAt(page, -197, -198);
+  await clickAt(page, 198, -203);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => kinds(page)).toEqual(['measure', 'underlay', 'wall']);
+}
+
+// These two were one test until Nov 21: about a hundred steps and a reload, 37 to 38 s on GitHub's Linux, it timed out
+// at 60 s on two checkpoints in a row (nov21-e and nov21-f) on machines 1.5 to 1.7 times slower than usual. Split, each
+// starts its own project, underlay and scale, and every assertion it had is in one of them, word for word. Most of a
+// test's own time is the first gesture's whole-pixel walk (e2e/wholePixels.ts), which each new worker takes once.
+test('an underlay added locked and dimmed, set to scale by two clicks and "4m", a wall traced over it and measured, through the layers', async ({ page }) => {
   await startRoom(page);
   await addUnderlayFromMenu(page);
   const added = await one(page, 'underlay');
@@ -221,6 +252,14 @@ test('an underlay set to scale by two clicks and "4m", a wall traced over it and
   expect(axeLayers.violations).toEqual([]);
   const axeHeading = await new AxeBuilder({ page }).include('[data-plan-heading]').analyze();
   expect(axeHeading.violations).toEqual([]);
+});
+
+test('a measured wall over a scaled underlay: undo and redo, another scene set in the same room, and a reload', async ({ page }) => {
+  await startRoom(page);
+  await addUnderlayFromMenu(page);
+  await scaleTo4m(page);
+  const scaled = await one(page, 'underlay');
+  await wallAndMeasure(page);
 
   // Undo takes the measure back, redo brings it again.
   await canvas(page).focus();
