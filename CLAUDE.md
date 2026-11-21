@@ -63,7 +63,8 @@
   that checkpoint's own PRs added or changed it, or changed the code it tests; every flaky test is named in the
   report, and one that has been flaky in two checkpoints is fixed before the next. One stack's red doesn't hold
   another: when a checkpoint is red in one job and a PR in it can't have caused that (it touches nothing the failing
-  step runs), that PR merges, and the report says why.
+  tests run; Kevin, Nov 20 night), that PR merges, the report says why, and the session checks that `v2` plus the
+  held PR is the checkpoint's tree.
 - The end-to-end tests run under the installed app's content security policy (6.13): a violation fails the test.
   src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
   commands are tested in Rust through tauri's `test` feature (6.16). No HTML5 drag and drop anywhere in the app
@@ -511,9 +512,10 @@
   what a builder can't fix, judges review findings, does all of git (commits, PRs, merges), runs the CI checkpoints,
   keeps CLAUDE.md, PLAN.md and HANDOFF.md and writes Kevin's reports. The builder (.claude/agents/builder.md) writes
   the code and its tests from a brief; the reviewer (.claude/agents/reviewer.md) reviews, read-only.
-  - Models (Kevin, Nov 13): the main session runs on Fable 5.2; the builder on claude-opus-5-5 at effort medium; the
-    reviewer on claude-opus-5-5 at effort high. The agents' models and effort are set in their files; start them
-    without a model. Agent files are read when a chat starts, so a change to one takes effect in the next chat.
+  - Models (Kevin, Nov 13 and 20): the main session runs on the model Kevin starts it with (Opus 5.5 for now); the
+    builder on claude-opus-5-5 at effort medium; the reviewer on claude-opus-5-5 at effort high. The agents' models and
+    effort are set in their files; start them without a model. Agent files are read when a chat starts, so a change to
+    one takes effect in the next chat.
   - The main session costs the most per token, so it writes no long code itself and keeps its own reading small:
     fixes from a review go back to a builder, and a brief still carries everything a builder needs.
   - The first builder run in a new chat is the model check: its transcript must record the model builder.md names

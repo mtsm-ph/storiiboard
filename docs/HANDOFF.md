@@ -7,53 +7,20 @@ It replaces nothing in either; it says where the work stands and what comes next
 ## Only Kevin (keep current; the same list ends every report)
 
 What only Kevin can do or answer, one line each, with what it unblocks. Nothing a session, a review or CI can settle.
+Kevin answered the Nov 20 list that night (`private/NOV20_NIGHT_NOTE.md`; the note arrived cut off after "any other
+change to the file format or"). Still his, and nothing waits on them:
 
-- **The next checkpoints, by name.** None is left from Nov 20's list. Ready for one: #222 once round 6 is in, #235
-  (the encoder's leftovers, round 3 green on Linux), and item 8's stack (#240, #241, then Ctrl+S) with
-  `checkpoint/baselines-nov20b` at its end. Unblocks: every merge after nov20-f.
-- **The merge rule, as the session read it on nov20-d and nov20-f:** a PR merges past another's red when it touches
-  nothing the failing tests run (not the whole suite's step). On nov20-f that merged #233, #234, #236 and #238 past
-  #222's five failures; each PR's comment says why. Confirm, or say the stricter reading. Unblocks: the next
-  checkpoint's merges.
-- **The Mac's accent reader: run nov20-e's Mac build on your own Mac** (no build tools; `gh` signed in):
-  `gh run download 44802015054 -R mtsm-ph/storiiboard -n storiiboard-macOS -D ~/Downloads/sb-launch`, then
-  `xattr -cr ~/Downloads/sb-launch && hdiutil attach ~/Downloads/sb-launch/Storiiboard_0.1.0_aarch64.dmg -nobrowse -mountpoint /Volumes/SBLaunch`,
-  then `STORIIBOARD_LAUNCH_CHECK=1 /Volumes/SBLaunch/Storiiboard.app/Contents/MacOS/storiiboard`. `accents ok` then
-  `passed`: GitHub's virtual GPU. `accents ok (by the page…)`: the worker fails on a real Mac but the page reads.
-  The FAILED line: choosing a key image's colours is broken in the Mac app. Unblocks: #206, #213, #219, #223, #229.
-- **The tile accent: option 1 (by kind) or option 2 (by section)**, in `private/pictures/TILE_ACCENT_OPTIONS.md`
-  with the pictures. Unblocks: the tile accent, in item 8.
-- **"Bring back what was undone" (item 7 of the Nov 18 plan) needs a new kind of step in the file.** It writes a
-  step into History, and the log has no kind that means "brought back" (`edit`, `undo`, `redo`, `restore`,
-  `empty_trash`): a new kind is a format change. Either a `bring_back` kind pointing at the undo it takes back
-  (History says "Brought back: …"; an older copy of the app lists it as a step it doesn't know), or an ordinary edit
-  (no format change; History says "Changed …"). Unblocks: item 7 (the outline, the button and the mark).
-- **"Color" everywhere: the plan is in `private/COLOR_PLAN.md`**, with four decisions (that word only or American
-  spelling throughout; the words people see only, or names in code and docs too). Nothing changes until Kevin says
-  go. Unblocks: the spelling change.
-- **The Layers tile in Spanish at its default size** (`private/pictures/LAYERS_TILE_NOTE.md`): leave it scrolling,
-  give Layers about 60 px more in Setup's default layout, or shorter Spanish words. Unblocks: nothing; #222 merges
-  either way.
-- **A hand backup replacing a tick's own copy (#244).** Kevin's rule lets a press replace "a timed or hand backup"
-  under 5 minutes old. Round 2 made a tick that finds nothing changed keep the newest copy (so a run of presses keeps a
-  copy for every 5 minutes), but a press just before each tick still replaces that tick's own copy, so someone who
-  presses then keeps one copy per 10 minutes (6 an hour instead of 12). Keep the rule, or let a press replace only a
-  hand copy made since the last tick? Unblocks: nothing (it merges either way); the rule's last word.
-- **Words to read:** History lines in Spanish (#240: "Se cambió lente en 3 cuadros de ESC 12", "después de" or "a
-  continuación de", one voice for moves, "en" or "de" before a scene; the choices are in the PR's comment), and its new
-  "Moved items, some since deleted for good" / "Se movieron elementos, algunos borrados para siempre después"; a frame
-  moved between days reads "1A: shoot day Mon, Nov 16 → Tue, Nov 17" (the plan's example said "Moved 4A to shoot day
-  Nov 25"; #245 shows History's words as they are); and #235's line for a destination that stops answering, today
-  "took too long to read" though the clip was being saved. Unblocks: nothing waits; each changes in a small PR.
-- **CLAUDE.md's Models line.** From 13:52 EST Nov 20 the main session ran on Opus 5.5 at Kevin's word ("Continue
-  with opus"). The line still says the main session runs on Fable 5.2. Change it, or was it for that day only?
-  Unblocks: keeping CLAUDE.md true.
-- **An index on the ops' parent (a schema change), low priority:** it would bound one History read (a move's "after
-  3C" line for a step deep under many undos: 33 ms with 50,000 later ops). Unblocks: nothing urgent.
-- **An HDR HEIF from Kevin's camera** in private/samples, when he can. Unblocks: HDR HEIF beyond a refusal.
-- **Two folders Kevin said he will delete himself** (Nov 20; no work waits on either): the Nov 19 session's scratch
-  folder (a decoded copy of one of his HEICs and two error logs, one with its file name), and
-  `private/samples/.probe`.
+- **The tile accent: option 1 (by kind) or option 2 (by section)**, in `private/pictures/TILE_ACCENT_OPTIONS.md`.
+  Unblocks: the tile accent (kept out of both item-8 stacks until he picks).
+- **The Spanish History words** (#240's comment) and **the frame-moved-between-days line** (History says "1A: shoot day
+  Mon, Nov 16 → Tue, Nov 17"). Unblocks: nothing waits.
+- **A day's history reads its frames' whole log** (#245, the session's reading of "every frame whose shoot_day_id is or
+  was that day"): Day 2 also shows the step that put 1A on Day 1, and 1A's creation. Narrow it if he meant less.
+- **His Mac, the HDR HEIF, the two folders** he will delete himself (the Nov 19 scratch folder, `private/samples/.probe`).
+- **The cut-off end of the Nov 20 night note**: the session reads it as the standing list (any other format or schema
+  change, a dependency not approved, anything on main, anything that deletes, a screenshot change no item explains, a
+  red job it can't explain).
+
 ## What a cloud session can and can't do
 
 - **Can:** read and change the code; run `npm run lint`, `npm test` (Vitest) and the Chromium end-to-end tests on
@@ -397,7 +364,21 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20, night; written at 21:40 EST)
+### Next session: start here (Nov 20, night; written at 22:30 EST)
+
+Kevin's night note (`private/NOV20_NIGHT_NOTE.md`) answers the list and sets the night's work, in order: (1)
+checkpoint/nov21-a = v2 + #222 + #235 + #240 (running, run 44859089297, eff0b45; v2 merged into each first); (2) the
+launch stack: the check says "this machine can't read a canvas back" when worker and page both fail at canvas, draw or
+read, strict except with the Mac job's flag (`private/briefs/launch-canvas.md`), then checkpoint/launch-2; (3) item 8's
+first stack: #245 round 2 (building), #244 round 4 (`ctrl-s-4.md`, with Kevin's hand-backup rule), baselines-nov20b on
+the tip, then nov21-b; (4) second stack: Settings, item 7 with `bring_back` (brief first), "Color"; then
+baselines-nov21 and a full checkpoint; (5) a brief only: a lock per file in Rust; (6) `docs/PLAN.md merge=union`.
+Checkpoints allowed tonight: nov21-a to -d, baselines-nov20b and -nov21, launch-2 to -4.
+
+GitHub starts no pull_request run for a PR that conflicts with its base (Kevin): merge v2 in and checks start by
+themselves; don't also start them by hand.
+
+### Earlier: start here (Nov 20, night; written at 21:40 EST)
 
 Kevin's afternoon note is in `private/NOV20_AFTERNOON.md` with the session's status under it; the day's report went
 to Kevin at about 18:10 EST. Nothing merged since nov20-f's four; no checkpoint is left until Kevin names one.
