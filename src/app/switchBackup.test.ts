@@ -29,13 +29,21 @@ interface Gate {
   fail: Error | null;
 }
 
-/** nodeDriver, with every copy of the files it makes or opens held at `gate` while it's shut. */
-function gatedDriver(gate: Gate): SqlDriver {
+/**
+ * nodeDriver, with every copy of the files it makes or opens held at `gate` while it's shut. Once `replaced.now` is
+ * set, those files refuse every write and copy as replaced on disk, as nodeDriver and sbd.rs do after a sync.
+ */
+function gatedDriver(gate: Gate, replaced: { now: boolean } = { now: false }): SqlDriver {
   const wrap = (file: ProjectFile): ProjectFile => ({
     ...file,
+    tx: async (statements, options) => {
+      if (replaced.now) throw new Error(CHANGED_ON_DISK);
+      await file.tx(statements, options);
+    },
     backup: async (kind, name) => {
       gate.copies += 1;
       if (gate.shut) await gate.shut;
+      if (replaced.now) throw new Error(CHANGED_ON_DISK);
       if (gate.fail) throw gate.fail;
       await file.backup(kind, name);
     },
@@ -87,8 +95,9 @@ async function queuedHandCopy(
   store: ReturnType<typeof createProjectStore>,
   gate: ReturnType<typeof makeGate>,
   options: Omit<Parameters<typeof createProject>[1], 'driver'> = {},
+  driver: SqlDriver = gatedDriver(gate),
 ) {
-  const first = await createProject(folder.path('Bey County.sbd'), { driver: gatedDriver(gate), ...options });
+  const first = await createProject(folder.path('Bey County.sbd'), { driver, ...options });
   await store.getState().open(first);
   await store.getState().apply([{ kind: 'update', id: first.projectId, set: { title: 'One' } }]);
   gate.open();
@@ -153,14 +162,24 @@ describe('a hand backup queued at a switch', () => {
   });
 
   it('makes no copy on the reopen path, whether the newer version opens or the replaced one just closes', async () => {
+    // The backups' clock stands still, ten seconds into a minute. The reopened schedule has no copy of its own, so it
+    // ages the hand copy by the minute in its name: on the real clock a run that crossed into the next minute found that
+    // copy "a minute old", and its press made a copy rather than queueing one.
+    const clock = () => new Date(2026, 10, 21, 14, 5, 10);
     const store = createProjectStore();
     const gate = makeGate();
-    const first = await queuedIn(store, gate);
+    const replaced = { now: false };
+    const backups = { onError: vi.fn(), now: clock };
+    const first = await queuedHandCopy(store, gate, { backups }, gatedDriver(gate, replaced));
     const closed = watchClose(first);
     const path = folder.path('Bey County.sbd');
     const before = listed();
     // The same file opened again: the reopen after a sync replaced it, which says so (reopenChangedProject, round 4).
-    const reopened = await openProject(path, { driver: gatedDriver(gate), backups: {} });
+    const reopened = await openProject(path, { driver: gatedDriver(gate), backups: { now: clock } });
+    // From here the first project's file is the replaced one. Said by the test, not left to the reopen's own write: on
+    // Windows that write can leave the file's size and modified time as they were, so the first project took the next
+    // edit, and the reopened one then refused its own as a file changed on disk.
+    replaced.now = true;
     await store.getState().apply([{ kind: 'update', id: first.projectId, set: { title: 'Three' } }]);
     await store.getState().open(reopened, { flush: false });
     await closed.done;
