@@ -399,7 +399,15 @@ describe('the Trash and History', () => {
     ]);
     setLocale('es');
     expect((await lines()).slice(0, 2)).toEqual(['Se agregó el tablero Cámara', 'Se agregó un rectángulo']);
-    expect((await lines())[4]).toBe('Movido: 3 rectángulos');
+    expect((await lines())[4]).toBe('Se movieron 3 rectángulos');
+  });
+
+  it('in Spanish, one item moved reads in the singular (Kevin, Nov 21)', async () => {
+    const { ids } = await cameraBoard(1);
+    await store.getState().apply(geometryChanges(records(), [{ id: ids[0] ?? '', ...rect(5, 5), width: 200, height: 120 }]));
+    setLocale('es');
+    const [newest] = (await loadSteps(project.file, 1)).steps.map((s) => lineText(s.line));
+    expect(newest).toBe('Se movió 1 rectángulo');
   });
 });
 
