@@ -2,6 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { createRoot } from 'react-dom/client';
 import { readPdfText } from '../../features/script/readPdf';
 import { askWorkerAlone } from '../../ui/theme/generator/extract';
+import { accentCandidates } from '../../ui/theme/generator/generate';
+import { samplePixels } from '../../ui/theme/generator/sample';
 import { LAUNCH_CHECK_LINE, LAUNCH_CHECK_PDF, LAUNCH_CHECK_PNG } from './builtIn';
 import { fromBase64, runLaunchCheck, type CheckWindow, type LaunchCheckWatch, type PageStep } from './launchCheck';
 import { LaunchCheckScreen } from './LaunchCheckScreen';
@@ -31,6 +33,11 @@ export function startLaunchCheck(root: HTMLElement, watch: LaunchCheckWatch): vo
       }),
     readPdfText,
     accentsFromWorker: askWorkerAlone,
+    // The worker's four stages on the page itself, after a failure only (6.27q): no worker, no fallback in between.
+    accentsOnPage: async (picture) => {
+      const { data, width, height } = await samplePixels(picture);
+      return { width, height, accents: accentCandidates(data, width, height).length };
+    },
     // The page's own files only: the worker scripts the app's own code just started.
     getFile: (url) => fetch(url),
     document,

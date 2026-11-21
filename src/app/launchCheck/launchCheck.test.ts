@@ -80,6 +80,8 @@ function fakes(change: (f: Fakes) => Partial<LaunchCheckDeps> = () => ({})): Fak
         new page.Worker(new URL(ACCENT_WORKER), { type: 'module' });
         return Promise.resolve(['#d02020']);
       },
+      // The page reads the built-in picture fine: asked only after the accents step failed.
+      accentsOnPage: () => Promise.resolve({ width: 16, height: 16, accents: 3 }),
       getFile: (url) => {
         fetched.push(url);
         return Promise.resolve(goodScript());
@@ -320,11 +322,20 @@ describe('the launch check’s page steps (6.27l)', () => {
 
   describe('accents', () => {
     const unread = 'That image’s colours can’t be read.';
+    const invalid = 'The object is in an invalid state.';
+    const pageOk = 'on the page: read ok, 16 × 16, 3 accents';
+    /** An error as samplePixels gives it: the engine's own, with its stage beside it (6.27q). */
+    const atStage = (message: string, stage: string): Error => Object.assign(new Error(message), { stage });
+
     for (const [what, answer, why] of [
-      ['no answer (null)', () => Promise.resolve(null), 'the accent worker failed or took over 15 s'],
-      ['nothing in 20 s', () => never<string[] | null>(), 'no answer from the accent worker in 20 s'],
-      ['an empty list', () => Promise.resolve([]), 'the accent worker found no accent in the built-in picture'],
-      ['an error', () => Promise.reject(new Error(unread)), unread],
+      ['no answer (null)', () => Promise.resolve(null), `the accent worker failed or took over 15 s; ${pageOk}`],
+      ['nothing in 20 s', () => never<string[] | null>(), `no answer from the accent worker in 20 s; ${pageOk}`],
+      [
+        'an empty list',
+        () => Promise.resolve([]),
+        `the accent worker found no accent in the built-in picture; ${pageOk}`,
+      ],
+      ['an error', () => Promise.reject(new Error(unread)), `${unread} (worker: no stage); ${pageOk}`],
     ] as const) {
       it(`fails when the worker gives ${what}, and puts window.Worker back`, async () => {
         const f = fakes(() => ({ accentsFromWorker: answer }));
@@ -333,6 +344,77 @@ describe('the launch check’s page steps (6.27l)', () => {
         expect(f.window.Worker).toBe(f.originalWorker);
       });
     }
+
+    it('asks nothing of the page when the worker passes', async () => {
+      const onPage = vi.fn(() => Promise.resolve({ width: 16, height: 16, accents: 3 }));
+      const f = fakes(() => ({ accentsOnPage: onPage }));
+      await run(f);
+      expect(f.reports).toEqual(allOk());
+      expect(onPage).not.toHaveBeenCalled();
+    });
+
+    it('names the worker’s stage, and the page reading the same picture fine', async () => {
+      const f = fakes(() => ({ accentsFromWorker: () => Promise.reject(atStage(invalid, 'decode')) }));
+      await run(f);
+      failedAt('accents', `${invalid} (worker: decode); ${pageOk}`)(f.reports);
+    });
+
+    for (const stage of ['decode', 'canvas', 'draw', 'read']) {
+      it(`names the page’s first failing stage, ${stage}, with its words`, async () => {
+        const f = fakes(() => ({
+          accentsFromWorker: () => Promise.reject(atStage(invalid, stage)),
+          accentsOnPage: () => Promise.reject(atStage('The operation is insecure.', stage)),
+        }));
+        await run(f);
+        failedAt('accents', `${invalid} (worker: ${stage}); on the page: ${stage} failed: The operation is insecure.`)(
+          f.reports,
+        );
+      });
+    }
+
+    it('keeps today’s words for a null from the worker, and adds the page’s part', async () => {
+      const f = fakes(() => ({
+        accentsFromWorker: () => Promise.resolve(null),
+        accentsOnPage: () => Promise.reject(atStage(invalid, 'read')),
+      }));
+      await run(f);
+      const why = `the accent worker failed or took over 15 s; on the page: read failed: ${invalid}`;
+      failedAt('accents', why)(f.reports);
+    });
+
+    it('says when the page’s own failure has no stage, and when the page gives no answer in 10 s', async () => {
+      const noStage = fakes(() => ({
+        accentsFromWorker: () => Promise.resolve(null),
+        accentsOnPage: () => Promise.reject(new TypeError('Load failed')),
+      }));
+      await run(noStage);
+      const nullWords = 'the accent worker failed or took over 15 s';
+      failedAt('accents', `${nullWords}; on the page: failed: Load failed`)(noStage.reports);
+
+      const silent = fakes(() => ({ accentsFromWorker: () => Promise.resolve(null), accentsOnPage: () => never() }));
+      await run(silent);
+      failedAt('accents', `${nullWords}; on the page: no answer in 10 s`)(silent.reports);
+    });
+
+    it('gives the page the same picture it gave the worker', async () => {
+      const pictures: Blob[] = [];
+      const f = fakes(() => ({
+        accentsFromWorker: (picture) => {
+          pictures.push(picture);
+          return Promise.reject(atStage(invalid, 'draw'));
+        },
+        accentsOnPage: (picture) => {
+          pictures.push(picture);
+          return Promise.resolve({ width: 16, height: 16, accents: 3 });
+        },
+      }));
+      await run(f);
+      failedAt('accents', `${invalid} (worker: draw); ${pageOk}`)(f.reports);
+      expect(pictures).toHaveLength(2);
+      expect(pictures[0]).toBe(f.deps.picture);
+      expect(pictures[1]).toBe(f.deps.picture);
+      expect(f.window.Worker).toBe(f.originalWorker);
+    });
   });
 
   describe('worker-policy', () => {

@@ -1,4 +1,5 @@
 import type { PdfText } from '../../core/script/pdfLayout';
+import { stageOf } from '../../ui/theme/generator/sample';
 
 // The page's part of the launch check (6.27l, Kevin Nov 20; docs/briefs/launch-check.md). Rust switches the mode on
 // from the environment alone and adds a script that watches for policy violations from the document's first moment
@@ -30,6 +31,15 @@ const SAME_REFUSAL_MS = 100;
  */
 const PDF_LIMIT_MS = 25_000;
 const ACCENTS_LIMIT_MS = 20_000;
+/** The page's own reading of the picture, after an `accents` failure: short, so the whole stays within Rust's 90 s. */
+const ON_PAGE_LIMIT_MS = 10_000;
+
+/** What the page itself got from the built-in picture: its sampled size and how many accents it found. */
+export interface PageReading {
+  width: number;
+  height: number;
+  accents: number;
+}
 
 /** One violation, as the watch script keeps it. */
 export interface Violation {
@@ -77,6 +87,12 @@ export interface LaunchCheckDeps {
   readPdfText: (bytes: ArrayBuffer, name: string) => Promise<PdfText[]>;
   /** The accent reader's worker, asked alone (extract.ts's askWorkerAlone). */
   accentsFromWorker: (image: Blob) => Promise<string[] | null>;
+  /**
+   * The same four stages run on the page itself (sample.ts's samplePixels, then accentCandidates), only after the
+   * worker's answer failed the step, so its line tells a webview that can't do a call in a worker from one that
+   * can't do it at all, or can't decode this picture (6.27q). A failure carries its stage as samplePixels gives it.
+   */
+  accentsOnPage: (image: Blob) => Promise<PageReading>;
   /** Asks for one of the page's own files (fetch). */
   getFile: (url: string) => Promise<ScriptAnswer>;
   document: CheckDocument;
@@ -218,13 +234,38 @@ async function pdfText(deps: LaunchCheckDeps): Promise<void> {
   if (!text.includes(deps.pdfLine)) fail(`the PDF's text lacks its line: read "${text.slice(0, 80)}"`);
 }
 
-/** The built-in picture's accents, from the accent reader's worker alone. */
+/**
+ * The built-in picture's accents, from the accent reader's worker alone. A failure's line says where in the worker it
+ * failed, then what the page itself gets from the same picture (6.27q):
+ * `<the worker's words> (worker: <stage>); on the page: <what happened>`.
+ */
 async function accents(deps: LaunchCheckDeps): Promise<void> {
-  const asking = deps.accentsFromWorker(deps.picture);
-  const found = await within(deps, ACCENTS_LIMIT_MS, asking, 'no answer from the accent worker in 20 s');
-  // One null for no worker, a worker error and its own 15 s limit alike (extractAccents falls back on all three).
-  if (found === null) fail('the accent worker failed or took over 15 s');
-  else if (found.length === 0) fail('the accent worker found no accent in the built-in picture');
+  let why: string | null = null;
+  try {
+    const asking = deps.accentsFromWorker(deps.picture);
+    const found = await within(deps, ACCENTS_LIMIT_MS, asking, 'no answer from the accent worker in 20 s');
+    // One null for no worker, a worker error and its own 15 s limit alike (extractAccents falls back on all three).
+    if (found === null) why = 'the accent worker failed or took over 15 s';
+    else if (found.length === 0) why = 'the accent worker found no accent in the built-in picture';
+  } catch (error) {
+    // The check's own time limit has no worker stage; the worker's rejection has one, or says it had none.
+    why = error instanceof StepFailed ? error.message : `${reason(error)} (worker: ${stageOf(error) ?? 'no stage'})`;
+  }
+  // Only after a failure: a passing check does exactly what it did before.
+  if (why !== null) fail(`${why}; on the page: ${await onPage(deps)}`);
+}
+
+/** What the page itself gets from the built-in picture: the first stage that fails with its words, or what it read. */
+async function onPage(deps: LaunchCheckDeps): Promise<string> {
+  try {
+    const reading = deps.accentsOnPage(deps.picture);
+    const read = await within(deps, ON_PAGE_LIMIT_MS, reading, 'no answer in 10 s');
+    return `read ok, ${String(read.width)} × ${String(read.height)}, ${String(read.accents)} accents`;
+  } catch (error) {
+    if (error instanceof StepFailed) return error.message;
+    const stage = stageOf(error);
+    return stage ? `${stage} failed: ${reason(error)}` : `failed: ${reason(error)}`;
+  }
 }
 
 /** Exactly two worker scripts started, each JavaScript and carrying exactly the workers' policy. */
