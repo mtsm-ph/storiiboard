@@ -361,6 +361,8 @@ export const en = {
   'storage.switched': 'Another project opened while you were deciding, so nothing was deleted.',
   // src/app/openFiles.ts
   'open.failed': 'Couldn’t open “{name}”. {reason}',
+  'backups.stillClosing': 'The backup of “{project}” is still being made. You can go on working.',
+  'backups.closeFailed': 'The backup asked for when “{project}” closed couldn’t be made: {reason}',
   // src/app/openVersion.ts
   'project.noneOpenSentence': 'No project is open.',
   // src/app/project/BackupsPanel.tsx

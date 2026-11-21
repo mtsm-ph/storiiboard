@@ -5,6 +5,7 @@ import { DEPARTMENTS, type Department } from '../model/department';
 import { planLayerStatesOf, type PlanLayerStates } from '../model/planLayers';
 import { isRole, type Role } from '../model/role';
 import { DEFAULT_KEEP, type BackupKeep } from './backups';
+import { pathKey } from './paths';
 
 // App settings that belong to the person, not the project: they never go into a .sbd file.
 // They stay in the webview's localStorage, which the app keeps in its own data folder: public/theme-boot.js has to
@@ -345,6 +346,53 @@ export function saveCanvasViews(views: CanvasViews, storage: Writer | undefined 
     // A full or blocked store only loses the view, never the session.
   }
   return next;
+}
+
+/**
+ * A backup a close was to make that failed (#244 round 4, Kevin, Nov 20): kept on this computer by the project's path
+ * (`pathKey`), never in the project file, and said once in the status line the next time that project opens, then
+ * forgotten. Under a key of its own beside the settings: a note, not a setting, never in a preset.
+ */
+export const CLOSE_BACKUP_FAILED_KEY = 'storiiboard.closeBackupFailed';
+
+/** At most this many projects' notes are kept; the oldest goes first. A note's reason, at most this many characters. */
+const MAX_CLOSE_NOTES = 20;
+const MAX_CLOSE_REASON = 500;
+
+function closeNotesOf(storage: Reader | undefined): [string, string][] {
+  try {
+    const raw = storage?.getItem(CLOSE_BACKUP_FAILED_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is [string, string] => Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string' && typeof entry[1] === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCloseNotes(notes: [string, string][], storage: Writer | undefined): void {
+  try {
+    storage?.setItem(CLOSE_BACKUP_FAILED_KEY, JSON.stringify(notes.slice(-MAX_CLOSE_NOTES)));
+  } catch {
+    // A full or blocked store only loses the note, never the session.
+  }
+}
+
+/** Keeps why a close's backup of the project at `path` failed, in place of any earlier note for it. */
+export function rememberCloseBackupFailure(path: string, reason: string, storage: Writer | undefined = browserStorage()): void {
+  const key = pathKey(path);
+  saveCloseNotes([...closeNotesOf(storage).filter(([at]) => at !== key), [key, reason.slice(0, MAX_CLOSE_REASON)]], storage);
+}
+
+/** The note kept for the project at `path`, or null; taking it forgets it, so it's said once. */
+export function takeCloseBackupFailure(path: string, storage: Writer | undefined = browserStorage()): string | null {
+  const key = pathKey(path);
+  const notes = closeNotesOf(storage);
+  const found = notes.find(([at]) => at === key);
+  if (!found) return null;
+  saveCloseNotes(notes.filter(([at]) => at !== key), storage);
+  return found[1];
 }
 
 /**

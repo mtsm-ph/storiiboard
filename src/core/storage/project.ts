@@ -6,7 +6,7 @@ import type { AppDataStore } from './appData';
 import { startBackups, type BackupOptions, type BackupSchedule } from './backups';
 import type { ProjectFile, SqlDriver } from './driver';
 import { migrate, setMeta, type MigrationResult } from './migrate';
-import { fileStem } from './paths';
+import { fileStem, pathKey } from './paths';
 import { rememberRecent } from './recent';
 
 export interface Project {
@@ -19,18 +19,29 @@ export interface Project {
   /** Null when backups were turned off for this open. */
   readonly backups: BackupSchedule | null;
   /**
-   * Closes the file and its lock. A hand backup still queued is made first (`flush`, on unless set false): not for a
-   * file a sync replaced, which is no longer the project (#244 round 3).
+   * Closes the file and its lock. A hand backup still queued is made first, and one under way finished (`flush`, on
+   * unless set false): not for a file a sync replaced, which is no longer the project (#244 round 3).
    */
   close(options?: { flush?: boolean }): Promise<void>;
 }
 
 /**
- * Files still closing, by path: a close that makes a queued backup first can run on after a switch (projectStore's
- * `open`), and the same file opened again meanwhile waits for it, so the old connection's close never takes the lock
- * file the new one wrote.
+ * Files still closing, by `pathKey` (one key for two spellings of a path): a close that makes a queued backup first
+ * can run on after a switch (projectStore's `open`), and the same file opened again meanwhile waits for it, up to
+ * CLOSE_WAIT_MS.
  */
 const closing = new Map<string, Promise<void>>();
+
+/**
+ * How long opening a file waits for its last close (Kevin, Nov 20: nothing waits without an end). Past it the open
+ * goes on and `onStillClosing` says so. That's safe: from the moment its close began, the old connection only reads
+ * the project file, for its copy (what it writes and prunes is in the backups folder; its 5-minute timer and its lock
+ * refresh stopped then, so it never rewrites the lock); the new connection opens beside it as a second one to the same
+ * file; and the old one's close removes the lock file only when it's still its own session's (lock.rs, nodeDriver.ts),
+ * so it never takes the new one's. In the desktop app every open file shares one lock in Rust (`OpenFiles`, sbd.rs),
+ * so the new connection's calls still wait out any single copy step that stalls; a lock per file is a later item.
+ */
+export const CLOSE_WAIT_MS = 10 * 1000;
 
 export const LOCK_REFRESH_MS = 60 * 1000;
 
@@ -48,6 +59,15 @@ export interface ProjectOptions {
    */
   backupsNextToProject?: boolean;
   now?: () => Date;
+  /** CLOSE_WAIT_MS unless a test sets it. */
+  closeWaitMs?: number;
+  /** Told when this file's last close is still running after `closeWaitMs` and the open goes on without it. */
+  onStillClosing?: () => void;
+  /**
+   * Told when the backup a close made first (a queued or unfinished hand backup) failed: the project is closing, so
+   * its sign can't show it; the app keeps it for the next time the file opens (#244 round 4).
+   */
+  onCloseBackupFailed?: (error: unknown) => void;
 }
 
 /** Makes a new .sbd at `path` with the current schema and opens it. */
@@ -68,8 +88,10 @@ async function start(path: string, options: ProjectOptions, isNew: boolean): Pro
     lockRefreshMs = LOCK_REFRESH_MS,
     backupsNextToProject = false,
     now = () => new Date(),
+    closeWaitMs = CLOSE_WAIT_MS,
   } = options;
-  await closing.get(path);
+  const key = pathKey(path);
+  await closed(key, closeWaitMs, options.onStillClosing);
   const file = isNew ? await driver.create(path) : await driver.open(path);
 
   const name = fileStem(path);
@@ -111,23 +133,56 @@ async function start(path: string, options: ProjectOptions, isNew: boolean): Pro
     backups: schedule,
     close: (closeOptions) => {
       const done = (async () => {
-        // A hand backup waiting for its minute is made now (if anything changed): the sign said one would be.
-        if (closeOptions?.flush !== false) await schedule?.flushQueued();
-        schedule?.stop();
+        // First, so a close that hangs never keeps the lock fresh, nor rewrites it over a newer open's.
         clearInterval(lockTimer);
+        // A hand backup waiting for its minute is made now (if anything changed), and one under way finished: the sign
+        // said one would be.
+        if (closeOptions?.flush !== false) {
+          const failed = await schedule?.flushQueued();
+          if (failed) {
+            try {
+              options.onCloseBackupFailed?.(failed.error);
+            } catch {
+              // Keeping the note is a courtesy: it never stops the file closing.
+            }
+          }
+        }
+        schedule?.stop();
         await file.close();
       })();
       const settled = done.then(
         () => undefined,
         () => undefined,
       );
-      closing.set(path, settled);
+      closing.set(key, settled);
       void settled.then(() => {
-        if (closing.get(path) === settled) closing.delete(path);
+        if (closing.get(key) === settled) closing.delete(key);
       });
       return done;
     },
   };
+}
+
+/** Waits for the file's last close, if one is running, for at most `limitMs`; past it, says so and goes on. */
+async function closed(key: string, limitMs: number, onStillClosing: (() => void) | undefined): Promise<void> {
+  const last = closing.get(key);
+  if (!last) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = await Promise.race([
+    last.then(() => false),
+    new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => {
+        resolve(true);
+      }, limitMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (!timedOut) return;
+  try {
+    onStillClosing?.();
+  } catch {
+    // Saying so never stops the open.
+  }
 }
 
 /**

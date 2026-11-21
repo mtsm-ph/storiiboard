@@ -81,7 +81,11 @@ export interface ProjectState {
    * can be off by the difference until the next backup (whose time the schedule hands over as a Date).
    */
   backupAt: string | null;
-  open: (project: Project) => Promise<void>;
+  /**
+   * Shows `project` in place of the one open, which then closes. `flush: false` when the new one is the reopen after a
+   * sync replaced the file (reopenChangedProject says so): the old connection's queued hand backup isn't made.
+   */
+  open: (project: Project, options?: { flush?: boolean }) => Promise<void>;
   /** `flush: false` when the file was replaced on disk (the reopen path): its queued hand backup isn't made. */
   close: (options?: { flush?: boolean }) => Promise<void>;
   /** `alsoWrite` saves a picture's bytes in the same transaction as the edit that uses them. */
@@ -227,7 +231,7 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
       savedAt: null,
       saveFailed: null,
       backupAt: null,
-      open: (project) =>
+      open: (project, options) =>
         enqueue(async () => {
           let loaded: Pick<ProjectState, 'records' | 'slateNumbers' | 'slateUnknown' | 'seen' | 'canUndo' | 'canRedo' | 'savedAt'>;
           let read = 0;
@@ -266,17 +270,20 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
               if (get().project === project) set({ backupAt: at.toISOString() });
             }) ?? noop;
           if (before && before !== project) {
-            // The same file opened again is the reopen after a sync replaced it (openProjectFile never reopens the
-            // file open now): the old connection is on a file that's no longer the project, so no backup of it.
-            const replaced = before.file.path === project.file.path;
+            // The caller says whether the old connection's queued hand backup is made: not on the reopen after a sync
+            // replaced the file (reopenChangedProject passes `flush: false`), since that file is no longer the project.
+            const flush = options?.flush !== false;
             // Read before the close begins, which takes the queued one off the schedule at once.
-            const copyFirst = !replaced && before.backups?.pending() === true;
+            const copyFirst = flush && before.backups?.pending() === true;
             // Closing the old one can only fail to tidy its lock, which another computer then counts stale.
-            const closed = before.close({ flush: !replaced }).catch(() => undefined);
-            // With a hand backup still to make, the old project closes on its own, outside this queue, so the new
-            // one's edits never wait for its copy (a large project's full copy, a share that stalls: #244 round 3).
-            // Its schedule tells nobody of it (unsubscribed above) and drops its failures (flushQueued), so none
-            // lands on the project open now; project.ts holds back a reopen of that file until it's closed.
+            const closed = before.close({ flush }).catch(() => undefined);
+            // With a hand backup still to make or finish, the old project closes on its own, outside this queue, so the
+            // new one's edits never queue behind its copy (#244 round 3). In the desktop app every open file still
+            // shares one lock in Rust (`OpenFiles`, sbd.rs), so a copy step that stalls (a share) holds the new
+            // project's writes until that step ends; a lock per file is a later item. Its schedule tells nobody of it
+            // (unsubscribed above) and drops its failures (flushQueued; openFiles keeps them for that file's next
+            // open), so none lands on the project open now; project.ts holds back a reopen of that file until it's
+            // closed, for at most CLOSE_WAIT_MS.
             if (!copyFirst) await closed;
             forgetDecoded();
             await releaseImageUrls(before.file);

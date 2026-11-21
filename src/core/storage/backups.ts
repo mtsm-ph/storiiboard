@@ -165,7 +165,7 @@ export interface BackupRun {
 /**
  * What a backup asked for by hand did (Ctrl+S, ⌘S, or Settings → Backups → Back up now; Kevin, Nov 18): nothing, as
  * nothing changed since the newest backup; queued for `at`, when the newest is a minute old; a new copy in place of a
- * timed or hand one under 5 minutes old; or a new copy. `deleted` is what pruning took, as in BackupRun.
+ * hand one made since the last tick (Kevin, Nov 20); or a new copy. `deleted` is what pruning took, as in BackupRun.
  */
 export type HandBackup =
   | { kind: 'nothing'; newestAt: Date | null; deleted: string[] }
@@ -175,7 +175,7 @@ export type HandBackup =
 
 /** A hand backup under this old waits: one is queued for when the minute is up. */
 export const HAND_WAIT_MS = 60 * 1000;
-/** A timed or hand backup this schedule wrote under this long ago is replaced by a hand backup, not added to. */
+/** A hand backup made since the last tick, under this long ago, is replaced by the next hand backup, not added to. */
 export const HAND_REPLACE_MS = 5 * 60 * 1000;
 
 export interface BackupOptions {
@@ -201,18 +201,21 @@ export interface BackupSchedule {
   /**
    * A backup asked for by hand, one rule for Ctrl+S and Back up now, so pressing after every edit never pushes the timed
    * backups out of the last 12: nothing when nothing changed; under a minute after the newest, one is queued for when
-   * the minute is up (at most one); under 5 minutes after a timed or hand backup this schedule wrote, the new copy
-   * replaces it, written first and the old one deleted after; otherwise a new copy. Prunes as every run does.
+   * the minute is up (at most one); under 5 minutes after a hand backup made since the last tick, the new copy
+   * replaces it, written first and the old one deleted after; otherwise a new copy. A tick's own copy is never
+   * replaced, so there's a copy for every 5 minutes whoever presses (Kevin, Nov 20). Prunes as every run does.
    */
   backUpByHand(): Promise<HandBackup>;
   /**
    * For a close: makes the queued hand backup now, if one is waiting and anything changed, so closing or switching the
-   * project never drops the copy the sign said would be made; one whose minute came and is being made is waited for.
-   * Resolves once it's on disk or failed. A failure never goes to `onError`, nor does any later one: the project is
-   * closing, and another may be open by the time it ends (#244 round 3), so a failure can't be told on its sign.
+   * project never drops the copy the sign said would be made; a hand copy already being made (a press, or the queued
+   * one whose minute came) is waited for. The 5-minute timer stops as it begins, so a close that hangs queues no more
+   * runs. Resolves once it's on disk or failed: to the failure of the last copy it waited for or made, or null. A
+   * failure never goes to `onError`, nor does any later one: the project is closing, and another may be open by the
+   * time it ends (#244 round 3), so a failure can't be told on its sign; the caller keeps it for the next open (round 4).
    */
-  flushQueued(): Promise<void>;
-  /** Whether a hand backup is queued, or the queued one is being made: a close then has a copy to make first. */
+  flushQueued(): Promise<{ error: unknown } | null>;
+  /** Whether a hand backup is queued or being made: a close then has a copy to make or finish first. */
   pending(): boolean;
   /**
    * Calls `listener` with the time in a backup's name each time this schedule writes one (the 5-minute run, Back up
@@ -250,14 +253,18 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
   /** When this schedule wrote `latest`, to the millisecond: a hand backup's minute and 5 minutes count from it. */
   let latestAt: Date | null = null;
   /**
-   * Whether a hand backup may replace `latest`: only a timed or hand copy. One Compact made or adopted is its safety
-   * copy and never replaced. Kept in memory only, so a copy from before this session is never replaceable.
+   * Whether a hand backup may replace `latest`: only a hand copy made since the last tick (Kevin, Nov 20). A tick's
+   * own copy, or one a tick adopted, stands for its 5 minutes and is never replaced; nor is one Compact made or
+   * adopted, its safety copy. Kept in memory only, so a copy from before this session is never replaceable.
    */
   let latestReplaceable = false;
   /** The one hand backup waiting for its minute, if any. */
   let queued: { at: Date; timer: ReturnType<typeof setTimeout> } | null = null;
-  /** The queued one once its minute came, while it's being made: a close waits for it before the file goes. */
-  let queuedRun: Promise<void> | null = null;
+  /**
+   * The latest hand backup asked for (a press, or the queued one once its minute came) while it's in its turn: a close
+   * waits for it before the file goes. Hand runs take their turns in order, so the latest settles after the others.
+   */
+  let handRun: Promise<HandBackup> | null = null;
   let running: Promise<BackupRun> | null = null;
   let stopped = false;
   /** Set when a close begins (`flushQueued`): from then on no failure is told, as after `stop()`. */
@@ -316,7 +323,8 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     backedUpAt = changes;
     latest = name;
     latestAt = at;
-    latestReplaceable = true;
+    // A tick's own copy: never replaced by a press, so every 5 minutes keeps one (Kevin, Nov 20).
+    latestReplaceable = false;
     try {
       return { created: name, deleted: await prune(name, at) };
     } finally {
@@ -349,22 +357,15 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
       const timer = setTimeout(() => {
         queued = null;
         if (stopped) return;
-        const run: Promise<void> = backUpByHand().then(
-          () => undefined,
-          (error: unknown) => {
-            report(error);
-          },
-        );
-        queuedRun = run;
-        void run.finally(() => {
-          if (queuedRun === run) queuedRun = null;
+        backUpByHand().catch((error: unknown) => {
+          report(error);
         });
       }, HAND_WAIT_MS - age);
       queued = { at: due, timer };
       return { kind: 'queued', at: due, deleted: [] };
     }
-    // Only a timed or hand copy this schedule wrote, under 5 minutes old and still on disk (someone short of space may
-    // have deleted it by hand).
+    // Only a hand copy this schedule wrote since the last tick, under 5 minutes old and still on disk (someone short of
+    // space may have deleted it by hand).
     const old =
       latest !== null && latestReplaceable && age !== null && age >= 0 && age < HAND_REPLACE_MS
         ? (await file.listBackups()).some((b) => b.name === latest)
@@ -390,23 +391,45 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     }
   };
 
-  const backUpByHand = (): Promise<HandBackup> =>
+  const backUpByHand = (): Promise<HandBackup> => {
     // A press while one is queued answers at once, without waiting for a copy in progress.
-    queued ? Promise.resolve({ kind: 'queued', at: queued.at, deleted: [] }) : inTurn(() => byHand());
+    if (queued) return Promise.resolve({ kind: 'queued', at: queued.at, deleted: [] });
+    // Counted while in its turn (pending), so a switch lets it finish rather than close the file under it.
+    const run = inTurn(() => byHand());
+    handRun = run;
+    const clear = () => {
+      if (handRun === run) handRun = null;
+    };
+    void run.then(clear, clear);
+    return run;
+  };
 
-  const flushQueued = async (): Promise<void> => {
-    if (stopped) return;
+  const flushQueued = async (): Promise<{ error: unknown } | null> => {
+    if (stopped) return null;
     closing = true;
-    // Its minute came already and the copy is under way: the file closes only once it's done, in its turn.
-    if (queuedRun) await queuedRun;
-    if (!queued) return;
+    // A close that hangs (a share that stalls) queues no more 5-minute runs behind it.
+    clearInterval(timer);
+    let failed: { error: unknown } | null = null;
+    // A hand copy already under way (a press, or the queued one whose minute came): the file closes only once it's
+    // done, in its turn. Its own caller hears of a failure too, but by then may be showing another project.
+    if (handRun) {
+      try {
+        await handRun;
+      } catch (error) {
+        failed = { error };
+      }
+    }
+    if (!queued) return failed;
     clearTimeout(queued.timer);
     queued = null;
     try {
       await inTurn(() => byHand(false));
-    } catch {
-      // Not told (see flushQueued's note): the project is closing, and another may be open by now. The copies made
-      // before it are on disk as they were.
+      // This copy holds every change the failed one would have: nothing is missing.
+      return null;
+    } catch (error) {
+      // Not told here (see flushQueued's note): the project is closing, and another may be open by now. The copies
+      // made before it are on disk as they were.
+      return { error };
     }
   };
 
@@ -448,7 +471,7 @@ export async function startBackups(file: ProjectFile, options: BackupOptions = {
     backUpThen,
     backUpByHand,
     flushQueued,
-    pending: () => queued !== null || queuedRun !== null,
+    pending: () => queued !== null || handRun !== null,
     onBackup: (listener) => {
       listeners.add(listener);
       return () => {
