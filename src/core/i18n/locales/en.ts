@@ -1621,6 +1621,7 @@ export const en = {
   'error.videoTooSlow': 'That video took too long to read. If it\'s on a network drive, copy it to this computer first.',
   // src-tauri/src/heic.rs (6.27n): a HEIC turned into a PNG on Windows; the Mac answers error.heic
   'error.heicTooBig': 'This HEIC photo is too large to read (over 64 MB). Convert it to JPEG first.',
+  'error.heicTooManyPixels': 'This HEIC photo is too large to read (over 120 megapixels). Convert it to JPEG first.',
   'error.heicNotHeic': 'That file isn\'t an HEIC photo.',
   'error.heicHdr': 'This is an HDR photo, which Storiiboard can\'t read on this computer yet. Export it as a JPEG first.',
   'error.heicTooSlow': 'This HEIC photo took too long to read. Try again, or convert it to JPEG first.',

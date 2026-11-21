@@ -4,6 +4,7 @@ import ts from 'typescript';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatNumber, getLocale, labels, list, LOCALES, localizeError, setLocale, t, tn, type MessageKey } from '.';
 import { en } from './locales/en';
+import { es } from './locales/es';
 
 const root = join(import.meta.dirname, '../../..');
 
@@ -133,6 +134,14 @@ describe('Spanish (polish 7)', () => {
     }
     setLocale('es');
     expect(t('board.noSetups', { scene: 'ESC 04' })).toContain('la sección Planta');
+  });
+
+  // Kevin, Nov 20: one way to say it, "Vuelve a intentarlo" (lower case inside a sentence), so a new line can't drift.
+  it('says "try again" one way: Vuelve a intentarlo', () => {
+    const keys = (Object.keys(en) as MessageKey[]).filter((key) => /try again/i.test(en[key]));
+    expect(keys.length).toBeGreaterThan(0);
+    const drifted = keys.filter((key) => !es[key].includes('uelve a intentarlo'));
+    expect(drifted).toEqual([]);
   });
 });
 

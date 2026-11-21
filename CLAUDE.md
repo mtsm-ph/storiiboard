@@ -38,9 +38,10 @@
   (`heic_picture`, src-tauri/src/heic.rs, through src/core/media/image.ts and src/app/heicPicture.ts). ffmpeg decodes
   it, upright, fitted inside 2560 px, as a PNG tagged with the file's own colour: its ICC profile carried (at most
   64 KiB, else the photo is refused), else its four-number tag as cICP, else sRGB. The page then stores from it what
-  a Mac stores. 64 MiB in at most, 10 s, two decodes at a time, an HDR photo refused with a line. The Mac changes
-  nothing: WebKit reads HEIC itself. While two or more files are being added the status line counts them ("Reading
-  3 of 30…").
+  a Mac stores. 64 MiB in at most, 10 s, two decodes at a time, an HDR photo refused with a line, and over 120
+  megapixels refused before any decode (the picture, and its grid's tiles as ffmpeg counts them; 6.27v). A key image
+  and a company logo come in the same way (`readablePicture` in image.ts, 6.27z). The Mac changes nothing: WebKit
+  reads HEIC itself. While two or more files are being added the status line counts them ("Reading 3 of 30…").
 - Network (Kevin, Nov 9): one HTTP client for every need, reqwest with rustls (ring, as Tauri's updater uses it), only
   in src-tauri/src/net.rs.
 - PDFs: pdf-lib; QR codes: qrcode-generator. Sun times: SunCalc. A place's time zone: tzf-rs in Rust,
@@ -242,8 +243,10 @@
     location (no address search, no request). A compass at the plan's top right shows north and the sun: chrome,
     never printed, never stored.
     Scout photos (6.27, Kevin Nov 16 and 17): a location's photo keeps its EXIF date, time and GPS (read in Rust,
-    src-tauri/src/exif.rs, which checks every block itself before the library reads it; a refused or HEIC photo
-    still imports and the status line says so); one photo can be the location's light reference. Every picture the
+    src-tauri/src/exif.rs, which checks every block itself before the library reads it; a HEIC's block is found by
+    heic.rs's own box reader, its Exif item through iinf and iloc, no library code copied: 6.27y; a refused photo,
+    or a HEIC whose boxes can't be followed, still imports and the status line says so); one photo can be the
+    location's light reference. Every picture the
     page encodes is cleaned in `canvasBlob` (6.27b, src/core/media/cleanPicture.ts): kept by a list, never removed by
     one, the colour profile at most 64 KiB as stored; Rust's door (picture_door.rs, sbd.rs) and the in-page build
     refuse anything else, both readers tested against one shared list of statements; an import leaves out a stored
