@@ -265,10 +265,14 @@ describe('watchLane measures the overflow without the lane', () => {
       paddingBottom?: (lane: string | null) => number;
       /** A scroller around this one, and how far it reaches with each lane on this one. */
       parent?: { area: Outer; reach: (lane: string | null) => number };
+      /** The scroller's height inside, 400 unless given. */
+      clientHeight?: number;
     } = {},
   ) {
+    const boxHeight = options.clientHeight ?? 400;
     const frames: FrameRequestCallback[] = [];
     const resized: ((entries: { target: unknown }[]) => void)[] = [];
+    const mutated: ((records: unknown[]) => void)[] = [];
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
     vi.stubGlobal('cancelAnimationFrame', () => undefined);
     vi.stubGlobal(
@@ -288,6 +292,9 @@ describe('watchLane measures the overflow without the lane', () => {
     vi.stubGlobal(
       'MutationObserver',
       class {
+        constructor(callback: (records: unknown[]) => void) {
+          mutated.push(callback);
+        }
         observe() {
           return undefined;
         }
@@ -298,6 +305,8 @@ describe('watchLane measures the overflow without the lane', () => {
     );
     const attributes = new Map<string, string>();
     const laneNow = () => attributes.get('data-scroll-lane') ?? null;
+    /** Every write of the lane attribute, in order: its value, or 'removed'. */
+    const writes: string[] = [];
     // The style is read live, as a browser's is: the bottom padding follows the lane.
     vi.stubGlobal('getComputedStyle', () => ({
       display: 'block',
@@ -311,15 +320,16 @@ describe('watchLane measures the overflow without the lane', () => {
     const scrollListeners: ((event: { target: unknown }) => void)[] = [];
     const inners: { area: Inner; reach: (lane: string | null) => number }[] = [];
     let top = 0;
-    let rect = { width: 300, height: 400 };
-    /** Times the content was read without the lane: the lane taken off and put back within one measure. */
+    let rect = { width: 300, height: boxHeight };
+    /** Times the content was read without the lane: the lane taken off (or 'both' made 'x') and put back within one
+     *  measure. */
     let bareReadings = 0;
     let off = false;
     const height = () => content.height(laneNow());
     // Each change of the lane lays the content out again, pulling every position back that no longer reaches.
     const relayout = () => {
       const lane = laneNow();
-      top = Math.min(top, Math.max(0, height() - 400));
+      top = Math.min(top, Math.max(0, height() - boxHeight));
       for (const { area, reach } of inners) area.clamp(reach(lane));
       options.parent?.area.clamp(options.parent.reach(lane));
     };
@@ -328,7 +338,7 @@ describe('watchLane measures the overflow without the lane', () => {
       parentElement: options.parent?.area ?? null,
       scrollWidth: options.scrollWidth ?? 300,
       clientWidth: 300,
-      clientHeight: 400,
+      clientHeight: boxHeight,
       scrollLeft: 0,
       get scrollHeight() {
         return height();
@@ -337,18 +347,21 @@ describe('watchLane measures the overflow without the lane', () => {
         return top;
       },
       set scrollTop(value: number) {
-        top = Math.min(value, Math.max(0, height() - 400));
+        top = Math.min(value, Math.max(0, height() - boxHeight));
       },
       getBoundingClientRect: () => rect,
       getAttribute: (name: string) => attributes.get(name) ?? null,
       setAttribute: (name: string, value: string) => {
         if (off) bareReadings += 1;
-        off = false;
+        // 'both' made 'x' is the reading of the lane up and down with the sideways one kept.
+        off = value === 'x' && attributes.get(name) === 'both';
+        writes.push(value);
         attributes.set(name, value);
         relayout();
       },
       removeAttribute: (name: string) => {
         if (attributes.has(name)) off = true;
+        writes.push('removed');
         attributes.delete(name);
         relayout();
       },
@@ -375,8 +388,15 @@ describe('watchLane measures the overflow without the lane', () => {
       /** The lane after each measure so far. */
       lanes,
       readings: () => bareReadings,
+      /** Every write of the lane attribute so far. */
+      writes,
       frame,
       observe,
+      /** The scroller's children replaced (a view switch): the children observer's call, then the frame it asks for. */
+      replaceChildren: () => {
+        for (const callback of mutated) callback([]);
+        frame();
+      },
       resize: () => {
         observe();
         frame();
@@ -627,6 +647,66 @@ describe('watchLane measures the overflow without the lane', () => {
     expect(table.scrollLeft).toBe(100);
     // The list never moved: nothing written to it.
     expect(list.writes).toBe(0);
+    s.stop();
+  });
+
+  it('reads once without the lane after its children are replaced, though the new content is taller, and drops it (round 6e)', () => {
+    // The Shot list in a 600 px box, 620 px high with the lane: it overflows either way.
+    const content: { height: (lane: string | null) => number } = { height: () => 620 };
+    const s = scroller(content, { clientHeight: 600 });
+    s.resize();
+    expect(s.lanes).toEqual(['y', 'y']);
+    // Switched to the Grid: 670 px with the lane, which takes a column away; 450 without it, where it fits.
+    content.height = (lane) => (lane === null ? 450 : 670);
+    s.replaceChildren();
+    expect(s.readings()).toBe(0);
+    expect(s.lanes.at(-1)).toBe('y');
+    // The new size has held for a frame: one reading without the lane, and the lane goes.
+    s.frame();
+    expect(s.readings()).toBe(1);
+    expect(s.lanes.at(-1)).toBeNull();
+    s.resize();
+    expect(s.readings()).toBe(1);
+    expect(s.lanes.at(-1)).toBeNull();
+    s.stop();
+  });
+
+  it('takes no reading for a shrink while the lane up and down is held at this box (round 6e)', () => {
+    // A line shown only without the lane, as the Layers tile's keys line: on, off, back on and held.
+    let shown = true;
+    const content: { height: (lane: string | null) => number } = { height: () => (shown ? 420 : 380) };
+    const s = scroller(content);
+    for (let i = 0; i < 4; i += 1) {
+      shown = s.lanes.at(-1) === null;
+      s.resize();
+    }
+    expect(s.lanes).toEqual(['y', null, 'y', 'y', 'y']);
+    const before = s.readings();
+    // The content shrinks with the lane held on: nothing to read, and the lane stays.
+    content.height = () => 360;
+    s.resize();
+    s.frame();
+    s.frame();
+    expect(s.readings()).toBe(before);
+    expect(s.lanes.slice(-3)).toEqual(['y', 'y', 'y']);
+    s.stop();
+  });
+
+  it('reads both lanes with the sideways one kept on, and takes away only the room it adds to the scroller’s own padding (round 6e)', () => {
+    // Its own bottom padding 8, the sideways lane's 16; 396 px of content in a 400 px box. Without any lane it ends
+    // 404 px down and overflows; with the sideways lane 412. Taking away the lane's whole 16 would read 396 and fit.
+    const content: { height: (lane: string | null) => number } = {
+      height: (lane) => (lane === 'both' ? 440 : lane === 'x' ? 412 : lane === 'y' ? 432 : 404),
+    };
+    const s = scroller(content, { overflowX: 'auto', scrollWidth: 900, paddingBottom: (lane) => (lane === 'x' || lane === 'both' ? 16 : 8) });
+    expect(s.lanes).toEqual(['both']);
+    const start = s.writes.length;
+    // A change of size that holds: one reading, the attribute 'x' during it, never taken off.
+    s.box(320);
+    s.resize();
+    expect(s.readings()).toBe(1);
+    expect(s.writes.slice(start)).toEqual(['x', 'both']);
+    expect(s.lanes.at(-1)).toBe('both');
     s.stop();
   });
 });

@@ -166,9 +166,11 @@ test('a Shot list scrolled to its right end stays there when a frame’s Action 
     }).observe(tile, { attributes: true, attributeFilter: ['data-scroll-lane'] });
   });
   await page.setViewportSize({ width: 1280, height: 560 });
+  // Waited for, so a slow resize of the viewport (the Mac's runner) can't be read before its reading happened.
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { laneChanges: { count: number } }).laneChanges.count))
+    .toBeGreaterThanOrEqual(2);
   const resized = await read(5);
-  const changes = await page.evaluate(() => (window as unknown as { laneChanges: { count: number } }).laneChanges.count);
-  expect(changes).toBeGreaterThanOrEqual(2);
   expect({ left: resized.left, max: resized.max, tileLane: resized.tileLane }).toEqual({ left: after.max, max: after.max, tileLane: 'y' });
 });
 

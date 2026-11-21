@@ -167,6 +167,11 @@ function px(value: string | undefined): number {
  * down, the content overflows without it when it reaches past the box less the room that lane adds, `extraBottom`
  * (the lane's padding less the scroller's own). The same arithmetic holds where the scroller's height follows its
  * content (the Shot list's table): there the box is as high as the content, lane included, and never overflows.
+ *
+ * It assumes a border-box scroller (the app's base style) whose own bottom padding doesn't change while its sideways
+ * lane is on: that padding is read only while there is no lane. `scrollHeight` counts the bottom padding in Chromium
+ * and in WebKit alike, for block, flex (row and column) and grid scrollers (probed in round 6e: a 100 px box with a
+ * 150 px child and 16 px of bottom padding reads 166 in each).
  */
 function overflowNow(element: HTMLElement, lane: string | null = null, extraBottom = 0): { x: boolean; y: boolean } {
   const bottom = lane === 'x' || lane === 'both' ? extraBottom : 0;
@@ -247,6 +252,13 @@ function overflowWithoutLane(element: HTMLElement, lane: string, scrolled: Set<E
  * (`overflowNow`), so it is read as it is on every measure, and nothing moves. That matters where a lane host sits
  * inside another (the Shot list's table in the board): taking that lane off would make the table, whose height follows
  * its content, 16 px shorter for a moment, and the board around it would pull its own scroll position back.
+ *
+ * A change of the scroller's own children (the Shot list switched to the Grid: the board's body gets new content) is
+ * read as a shrink is, once without the lane when the size holds, even where the new content is taller (round 6e): the
+ * grid with the lane would otherwise keep a column fewer than it needs. One case is left: frames moved between scenes
+ * so that the content fits without the lane while no watched box changes size and no child comes or goes; it heals at
+ * the next change of the scroller's box. And while the lane up and down is held on at this box (the Layers tile's keys
+ * line), no reading can change the answer, so none is taken for a shrink there.
  */
 export function watchLane(element: HTMLElement): () => void {
   let state = NO_LANE;
@@ -261,6 +273,8 @@ export function watchLane(element: HTMLElement): () => void {
   // seen at, until a measure finds it still there.
   let lastSize: { width: number; height: number } | null = null;
   let shrunk: string | null = null;
+  // Whether the scroller's children changed since the last measure: read as a shrink is (round 6e).
+  let swapped = false;
   // The scroller's own bottom padding, read while it has no lane: the sideways lane's room is the lane's padding less it.
   let ownBottom = 0;
   const boxOf = () => {
@@ -290,6 +304,10 @@ export function watchLane(element: HTMLElement): () => void {
     const width = element.scrollWidth;
     const height = element.scrollHeight;
     const size = `${String(width)}x${String(height)}`;
+    const childrenChanged = swapped;
+    swapped = false;
+    // The lane up and down alone, held on at this box: a reading without it would hold it on all the same.
+    const held = on === 'y' && state.y.heldAt === box;
     let over: { x: boolean; y: boolean };
     if (on === null || on === 'x') {
       // No lane, or the sideways one alone: what is read is the content without it, nothing taken off.
@@ -297,7 +315,7 @@ export function watchLane(element: HTMLElement): () => void {
       over = overflowNow(element, on, extraBottom);
       pending = null;
       shrunk = null;
-    } else if ((pending !== null && box === pending) || (pending === null && shrunk === size && box === lastBox)) {
+    } else if ((pending !== null && box === pending) || (pending === null && !held && shrunk === size && box === lastBox)) {
       // The new size, or the content's smaller size, has held: read once without the lane.
       over = overflowWithoutLane(element, on, scrolled, extraBottom);
       pending = null;
@@ -305,7 +323,10 @@ export function watchLane(element: HTMLElement): () => void {
     } else {
       // Still changing size (a drag, a transition), or only the content changed: read with the lane on.
       if (pending !== null || (lastBox !== null && box !== lastBox)) pending = box;
-      else if (shrunk !== null || (lastSize !== null && (width < lastSize.width || height < lastSize.height))) shrunk = size;
+      else if (held) shrunk = null;
+      else if (shrunk !== null || childrenChanged || (lastSize !== null && (width < lastSize.width || height < lastSize.height))) {
+        shrunk = size;
+      }
       over = overflowNow(element, on, extraBottom);
     }
     lastBox = box;
@@ -338,6 +359,7 @@ export function watchLane(element: HTMLElement): () => void {
     schedule();
   });
   const children = new MutationObserver(() => {
+    swapped = true;
     watch();
     schedule();
   });
