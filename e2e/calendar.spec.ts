@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
-import { closeSettings, openSettings } from './settings';
+import { applySettings, closeSettings, openSettings } from './settings';
 
 // The Calendar (3.8) in the memory build: shoot days by month and week, a date picked to narrow the shoot schedule,
 // each day with its scenes, locations and crew confirmed (set in the Shoot days tile). The page's clock is fixed, so
@@ -109,9 +109,11 @@ test('the week starts as this computer’s region says, or as Settings → App s
   // In Spanish, still as set: Monday because Settings says so, not because of the language.
   await openSettings(page, 'App');
   await app.getByLabel('Language').selectOption('es');
-  // The tab's own name is Spanish now: the field is found by its label, and the window by its Spanish name.
+  // Once applied (Kevin, Nov 17), the tab's own name is Spanish: the field is found by its label, and the window by its
+  // Spanish name.
+  await applySettings(page);
   await page.getByLabel('La semana empieza el').selectOption('region');
-  await page.keyboard.press('Escape');
+  await closeSettings(page);
   await expect(page.getByRole('dialog', { name: 'Configuración' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Calendario', exact: true }).getByRole('grid').getByRole('columnheader').first()).toHaveText(/^dom/);
 });

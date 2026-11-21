@@ -17,6 +17,7 @@ import { boardGridNow, setBoardGrid } from '../boardGrid';
 import { canvasViewsNow, setCanvasView } from '../canvasView';
 import { projectStore, type ProjectState } from '../projectStore';
 import { arrangedCustomWorkspaces, replaceCustomWorkspaces, replaceDepartmentWorkspaces, usableCustomWorkspaces } from '../shell/workspaceStore';
+import { discardDrafts } from '../settings/drafts';
 import { readPreset } from './presetDiff';
 
 // Settings presets (6.5.8): saving, renaming, replacing and deleting one is an edit of the project, through ops, so it's
@@ -123,5 +124,8 @@ export async function applyPreset(id: string, setTheme: (theme: ThemePreference)
   });
   if (!written || !kept.made) return null;
   applyToComputer(read.settings, setTheme);
+  // Still one action (Kevin, Nov 17): the preset replaces whatever waited for Apply in Settings, so that is discarded,
+  // never applied later over it. The Apply window says so first while anything waits. Nothing applied, nothing goes.
+  discardDrafts();
   return kept.name;
 }

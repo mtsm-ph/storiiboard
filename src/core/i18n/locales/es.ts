@@ -3964,4 +3964,30 @@ export const es: Messages = {
   'history.aPhoto': 'una foto',
   'history.atPhotoOn': 'se muestra',
   'history.atPhotoOff': 'no se muestra',
+  // src/app/settings/SettingsWindow.tsx, settingsClose.ts
+  'settings.applyChanges': 'Aplicar cambios',
+  'settings.discardChanges': 'Descartar cambios',
+  'settings.keepEditing': 'Seguir editando',
+  'settings.closeAsk.title': '¿Aplicar tus cambios?',
+  'settings.closeAsk.text': 'Algunos ajustes que cambiaste aún no se aplican. Aplícalos, o descártalos y conserva tu configuración como estaba.',
+  'presets.applyDiscardsDrafts': 'Los cambios pendientes en Configuración que no aplicaste se descartan.',
+  // src/app/preferences/AppTile.tsx
+  'app.measurement': 'Sistema de medidas',
+  'app.measurement.region': 'Según la región de esta computadora',
+  'app.measurement.metric': 'Métrico (m, °C, km/h, km)',
+  'app.measurement.us': 'EE. UU. (ft, °F, mph, mi)',
+  'app.measurement.mixed': 'Mixto',
+  'app.measurement.note': 'Fija juntas las longitudes de la planta, el clima y las distancias. Debajo, cada una por separado para un caso mixto.',
+  'app.measurement.mixedNote': 'Mixto. Plantas: {plan}. Clima y distancias: {weather}.',
+  'app.weatherUnitsNote': 'Las unidades del clima también dan las distancias al hospital más cercano.',
+  // src/ui/canvas/ScaleUnits.tsx
+  'canvas.units.label': 'Unidades de la planta',
+  'canvas.units.hint': 'Metros o pies para cada planta en esta computadora. El archivo siempre guarda metros.',
+  'canvas.units.m': 'm',
+  'canvas.units.ft': 'ft',
+  'canvas.units.metres': '(metros)',
+  'canvas.units.feet': '(pies)',
+  // src/features/export/ExportDialog.tsx
+  'export.plan.units': 'Unidades impresas',
+  'export.plan.bothBars': 'Barra de escala en metros y pies',
 };

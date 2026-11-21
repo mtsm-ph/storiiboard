@@ -114,7 +114,8 @@ async function makePages(context: ExportContext, views: readonly PlanView[]): Pr
   const unreadable = underlay ? await preparePlanPictures(file, underlayShas(records, views)) : 0;
   const pages = planPages(records, projectId, views, {
     paper: context.paper ?? paperNow(),
-    unit: planUnitNow(),
+    unit: context.planUnit ?? planUnitNow(),
+    bothBars: context.planBothBars ?? false,
     underlay,
     grid: context.planGrid ?? true,
     title: context.title,

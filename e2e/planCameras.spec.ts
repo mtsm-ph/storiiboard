@@ -294,7 +294,8 @@ test('turns a camera with the rotate handle, and its labels follow the language 
   // A change of language reads its labels again, with no edit.
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'App language' }).selectOption('es');
-  await page.keyboard.press('Escape');
+  // Applied as Settings closes (Kevin, Nov 17).
+  await closeSettings(page);
   // (The tile's name is in Spanish now too: read the plan by its data.)
   const labels = async () => (JSON.parse((await page.locator('[data-plan-data]').getAttribute('data-plan-data')) ?? '[]') as Camera[]).find((c) => c.id === id)?.labels;
   await expect.poll(labels).toEqual(['Sin cuerpo de cámara']);

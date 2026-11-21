@@ -32,6 +32,22 @@ describe('Settings → App', () => {
     expect(render()).toContain('Unidades de la planta');
   });
 
+  it('has the Measurement system (Kevin, Nov 18) over the two units, read from them', () => {
+    setLocale('en');
+    const html = render();
+    expect(html).toContain('Measurement system');
+    expect(html).toContain('Metric (m, °C, km/h, km)');
+    expect(html).toContain('US (ft, °F, mph, mi)');
+    // Both By region here, so it reads By region, and Mixed is no choice.
+    expect(html).toContain('data-measurement="region"');
+    expect(html).not.toContain('>Mixed<');
+    expect(html.indexOf('Measurement system')).toBeLessThan(html.indexOf('Plan units'));
+    expect(html.indexOf('Plan units')).toBeLessThan(html.indexOf('Weather units'));
+    expect(html).toContain('Weather units also give the nearest hospital’s distances.');
+    setLocale('es');
+    expect(render()).toContain('Sistema de medidas');
+  });
+
   it('has it in Spanish too', () => {
     setLocale('es');
     const html = render();

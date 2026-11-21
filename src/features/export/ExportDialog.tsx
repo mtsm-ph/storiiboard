@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isPaperChoice, loadSettings, saveSettings } from '../../core/storage/settings';
 import { setPaperChoice, usePaper, usePaperChoice } from '../../app/paper';
+import { usePlanUnit } from '../../app/planUnits';
+import type { PlanUnit } from '../../core/model/length';
 import { isTauriApp } from '../../app/fileAccess';
 import { showInfo, showNotice } from '../../app/notice';
 import { useProject } from '../../app/projectStore';
@@ -86,6 +88,11 @@ function ExportDialog() {
   // What a plan prints (6.17): everything, one department's print or each department's; as the underlay and the grid, a
   // choice for this export only, never remembered and never in the project.
   const [planDepartments, setPlanDepartments] = useState<PlanDepartments>('everything');
+  // Units on paper (Kevin, Nov 18): this computer's plan units to start with, and the scale bar in both if asked; for
+  // this export only, as the underlay and the grid, never remembered and never in the project.
+  const computerUnit = usePlanUnit();
+  const [planUnit, setPlanUnit] = useState<PlanUnit>(computerUnit);
+  const [planBothBars, setPlanBothBars] = useState(false);
   const [pixelRatio, setPixelRatio] = useState<'1' | '2'>('1');
   const [sceneId, setSceneId] = useState('');
   // Remembered on this computer, as last chosen (polish PP).
@@ -207,7 +214,7 @@ function ExportDialog() {
         ...(deckId ? { deckId } : {}),
         ...(swatches ? { swatches } : {}),
         ...(plan ? { plan } : {}),
-        ...(plans ? { paper, planUnderlay, planGrid, planDepartments } : {}),
+        ...(plans ? { paper, planUnderlay, planGrid, planDepartments, planUnit, planBothBars } : {}),
         pixelRatio: pixelRatio === '2' ? 2 : 1,
         file: project.file,
         target,
@@ -308,6 +315,19 @@ function ExportDialog() {
             ))}
             <option value="each">{t('export.plan.departments.each')}</option>
           </Select>
+          <Select
+            label={t('export.plan.units')}
+            value={planUnit}
+            disabled={running !== null}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+              if (next === 'metres' || next === 'feet') setPlanUnit(next);
+            }}
+          >
+            <option value="metres">{t('app.planUnits.metres')}</option>
+            <option value="feet">{t('app.planUnits.feet')}</option>
+          </Select>
+          <Toggle label={t('export.plan.bothBars')} checked={planBothBars} disabled={running !== null} onChange={setPlanBothBars} />
           <Toggle label={t('export.plan.underlay')} checked={planUnderlay} disabled={running !== null} onChange={setPlanUnderlay} />
           <Toggle label={t('export.plan.grid')} checked={planGrid} disabled={running !== null} onChange={setPlanGrid} />
         </>

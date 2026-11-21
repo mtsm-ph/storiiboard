@@ -3,6 +3,7 @@ import { isProjectRole, type ProjectRole } from '../../core/model/departmentStat
 import { ROLE_LABELS, ROLES } from '../../core/model/role';
 import { useProfile } from '../settings/profileStore';
 import { setProjectRole, useMyPart, useProjectRoleSet } from '../settings/projectRole';
+import { useDraft, useDraftValue } from '../settings/drafts';
 import { personFields } from '../../core/model/person';
 import type { Props, SbdRecord } from '../../core/model/record';
 import { PROJECT_STATE_LABEL, PROJECT_STATES, projectStateOf } from '../../core/model/project';
@@ -76,8 +77,12 @@ const roleLabel = (role: ProjectRole | null): string =>
  * kept as the fallback.
  */
 function YourRole({ projectId }: { projectId: string }) {
-  const set = useProjectRoleSet(projectId);
-  const usual = useProfile().role;
+  // This computer's setting, so it waits for Apply changes (drafts.ts) where the project's fields below save at once.
+  const [set, draftSet] = useDraft<ProjectRole | null>(`projectRole:${projectId}`, useProjectRoleSet(projectId), (next) => {
+    setProjectRole(projectId, next);
+  });
+  // The usual role as Settings → Profile shows it, a change there still waiting included.
+  const usual = useDraftValue('profile.role', useProfile().role);
   const part = useMyPart(projectId);
   const noteId = useId();
   if (part.person) {
@@ -100,7 +105,7 @@ function YourRole({ projectId }: { projectId: string }) {
         value={set ?? ''}
         onChange={(event) => {
           const value = event.currentTarget.value;
-          setProjectRole(projectId, isProjectRole(value) ? value : null);
+          draftSet(isProjectRole(value) ? value : null);
         }}
       >
         <option value="">{usual ? t('projectHome.usualRole', { role: ROLE_LABELS[usual] }) : t('projectHome.usualRoleNone')}</option>

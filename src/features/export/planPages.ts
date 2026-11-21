@@ -477,6 +477,11 @@ export interface PlanArea {
   items: readonly CanvasItem[];
   /** The scale bar's round length, world units, and its label ("2 m"). */
   bar: { length: number; label: string };
+  /**
+   * The scale bar in both units (Kevin, Nov 18), metres above feet, each its own round length: printed in place of `bar`
+   * when the export asks for both. Absent otherwise.
+   */
+  bothBars?: { metres: { length: number; label: string }; feet: { length: number; label: string } };
   /** The grid's step, world units: 1 m or 1 ft, wider where that would print closer than GRID_LEAST_MM; null without a grid. */
   grid: number | null;
   /** A view whose scene has no room drawn (its items print, with the note). */
@@ -501,7 +506,10 @@ export const MAX_LEGEND_PAGES = 50;
 
 export interface PlanPrintOptions {
   paper: Paper;
+  /** Units on paper (Kevin, Nov 18): the lengths, the scale's list and the grid; an export's choice, this computer's by default. */
   unit: PlanUnit;
+  /** The scale bar in metres and in feet, one above the other (an export choice, off by default). */
+  bothBars?: boolean;
   /** Print the room's underlay, dimmed (an export choice, on by default). */
   underlay: boolean;
   /** Print the light 1 m (1 ft) grid (an export choice, on by default). */
@@ -649,6 +657,7 @@ export function viewPages(records: Records, projectId: string, view: PlanView, o
         pointsPerUnit: ppu,
         items,
         bar: scaleBar(options.unit, ppu, planBox.width),
+        ...(options.bothBars ? { bothBars: { metres: scaleBar('metres', ppu, planBox.width), feet: scaleBar('feet', ppu, planBox.width) } } : {}),
         grid: options.grid ? gridStep(options.unit, ppu) : null,
         noRoom: sceneRoomId(records, records[view.sceneId]) === null,
         // Cut only when the extent itself doesn't fit the drawing (6.10 review, round two): the paper margin is

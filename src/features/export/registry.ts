@@ -1,3 +1,4 @@
+import type { PlanUnit } from '../../core/model/length';
 import type { Paper } from '../../core/model/paper';
 import type { SbdRecord } from '../../core/model/record';
 import type { ExportTarget } from '../../core/storage/exportFiles';
@@ -49,6 +50,10 @@ export interface ExportContext {
   planGrid?: boolean;
   /** What a plan prints (6.17): everything (as before, when absent), one department's print, or each department's. */
   planDepartments?: PlanDepartments;
+  /** Units on paper (Kevin, Nov 18): the plan's lengths, scale and grid; this computer's plan units when absent. */
+  planUnit?: PlanUnit;
+  /** The printed scale bar in metres and in feet, one above the other, whatever the units on paper. */
+  planBothBars?: boolean;
 }
 
 export interface ExportFormatOptions {

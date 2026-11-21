@@ -20,6 +20,7 @@ import {
   presetsOf,
   renamePresetChanges,
   savePresetChanges,
+  WORKED_OUT_NEVER_IN_PRESET,
   type PresetSettings,
 } from './settingsPreset';
 
@@ -85,6 +86,22 @@ describe('the two lists', () => {
     }
     expect(settingSources.sort()).toEqual(['customWorkspaces', 'departmentWorkspaces', 'pdfScenePalettes', 'planLayers', 'theme', 'themeChosen']);
     expect(ownKeySources.sort()).toEqual([BOARD_GRID_KEY, CANVAS_VIEW_KEY].sort());
+  });
+});
+
+describe('settings worked out, never stored (Kevin, Nov 18)', () => {
+  it('keep the Measurement system out of every preset, read only from settings that are in the never list', () => {
+    expect(Object.keys(WORKED_OUT_NEVER_IN_PRESET)).toEqual(['measurementSystem']);
+    for (const [name, { from, reason }] of Object.entries(WORKED_OUT_NEVER_IN_PRESET)) {
+      expect((PRESET_FIELDS as readonly string[]).includes(name), name).toBe(false);
+      expect(Object.hasOwn(PRESET_SOURCES, name), name).toBe(false);
+      // Never a key of its own: what's kept is what it's read from, and that never goes in a preset either.
+      expect(Object.keys(DEFAULT_SETTINGS).includes(name), name).toBe(false);
+      expect(from.length).toBeGreaterThan(0);
+      for (const key of from) expect(Object.hasOwn(NEVER_IN_PRESET, key), key).toBe(true);
+      expect(reason.length).toBeGreaterThan(10);
+    }
+    expect(WORKED_OUT_NEVER_IN_PRESET.measurementSystem?.from).toEqual(['weatherUnits', 'planUnits']);
   });
 });
 

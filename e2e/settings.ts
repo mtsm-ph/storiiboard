@@ -1,4 +1,4 @@
-import type { Locator, Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 export type SettingsTab = 'Project' | 'App' | 'Theme' | 'Backups' | 'Storage' | 'Online services' | 'Profile';
 
@@ -16,8 +16,29 @@ export async function openSettings(page: Page, tab: SettingsTab): Promise<Locato
   return window.getByRole('tabpanel', { name: tab, exact: true });
 }
 
-/** Closes Settings with Escape, as a person would, back to the workspace. */
-export async function closeSettings(page: Page): Promise<void> {
+/** The question closing Settings asks while changes wait for Apply (Kevin, Nov 17), in either language. */
+export const closeQuestion = (page: Page): Locator => page.getByRole('alertdialog', { name: /^(Apply your changes\?|¿Aplicar tus cambios\?)$/ });
+
+/** Apply changes in Settings' title bar, in either language: what was changed there applies. */
+export async function applySettings(page: Page): Promise<void> {
+  const apply = page.locator('[data-settings-apply]');
+  await expect(apply).toBeEnabled();
+  await apply.click();
+  await expect(apply).toBeDisabled();
+}
+
+/**
+ * Closes Settings with Escape, as a person would, back to the workspace. With changes waiting it asks (Kevin, Nov 17),
+ * and the question is answered as given: Apply changes unless told otherwise, as a person who changed a setting means to.
+ */
+export async function closeSettings(page: Page, answer: 'apply' | 'discard' = 'apply'): Promise<void> {
   await page.keyboard.press('Escape');
-  await settingsWindow(page).waitFor({ state: 'hidden' });
+  const question = closeQuestion(page);
+  // Either the window goes (nothing waited) or the question comes: never both, never neither for long.
+  await expect.poll(async () => (await question.count()) > 0 || (await page.locator('[data-settings-tab]').count()) === 0).toBe(true);
+  if ((await question.count()) > 0) {
+    const name = answer === 'apply' ? /^(Apply changes|Aplicar cambios)$/ : /^(Discard changes|Descartar cambios)$/;
+    await question.getByRole('button', { name }).click();
+  }
+  await expect(page.locator('[data-settings-tab]')).toHaveCount(0);
 }

@@ -184,6 +184,37 @@ test('exports the setup’s plan as a PDF and a PNG and the scene’s plans from
   expect(texts[1]).toContain('Page 2 of 2');
 });
 
+test('Units on paper start as this computer’s plan units; feet on paper print in feet, and the scale bar can show both (Kevin, Nov 18)', async ({ page }) => {
+  await furnishedSetup(page);
+  // In metres here (furnishedSetup sets them): the export starts in metres, one bar.
+  await fromPlan(page, 'plan-setup-pdf');
+  const units = dialog(page).getByRole('combobox', { name: 'Printed units' });
+  await expect(units).toHaveValue('metres');
+  const both = dialog(page).getByRole('switch', { name: 'Scale bar in metres and feet' });
+  await expect(both).toHaveAttribute('aria-checked', 'false');
+  // Feet on paper: the scale in inches to the foot, the bar in feet, no metres.
+  await units.selectOption({ label: 'Feet and inches' });
+  const [feet] = await pdfTexts(await bytesOf(await save(page)));
+  expect(feet).toMatch(/Scale \d+(\/\d+)?" = 1'-0"/);
+  expect(feet).toMatch(/\b\d+(\.\d+)? ft\b/);
+  expect(feet).not.toMatch(/\b\d+(\.\d+)? m\b/);
+
+  // The plan's m | ft switch sets this computer's plan units at once: the next export starts in feet.
+  const switchUnits = planTile(page).getByRole('group', { name: 'Plan units' });
+  await switchUnits.getByRole('button', { name: 'ft (feet)' }).click();
+  await expect(switchUnits.getByRole('button', { name: 'ft (feet)' })).toHaveAttribute('aria-pressed', 'true');
+  await fromPlan(page, 'plan-setup-pdf');
+  await expect(dialog(page).getByRole('combobox', { name: 'Printed units' })).toHaveValue('feet');
+  // Both bars, metres above feet, on feet's scale.
+  await dialog(page).getByRole('switch', { name: 'Scale bar in metres and feet' }).click();
+  const [twice] = await pdfTexts(await bytesOf(await save(page)));
+  expect(twice).toMatch(/Scale \d+(\/\d+)?" = 1'-0"/);
+  const metresAt = twice?.search(/\b\d+(\.\d+)? m\b/) ?? -1;
+  const feetAt = twice?.search(/\b\d+(\.\d+)? ft\b/) ?? -1;
+  expect(metresAt).toBeGreaterThan(-1);
+  expect(feetAt).toBeGreaterThan(metresAt);
+});
+
 test('exports a shoot day’s plans from Shoot days, and a day with nothing to print says so', async ({ page }) => {
   await furnishedSetup(page);
   await toSection(page, 'Production');
@@ -216,7 +247,8 @@ test('prints the page’s words in Spanish with the language set to es', async (
   await furnishedSetup(page);
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'App language' }).selectOption('es');
-  await page.keyboard.press('Escape');
+  // Applied as Settings closes (Kevin, Nov 17).
+  await closeSettings(page);
   await fromPlan(page, 'plan-setup-pdf');
   const exportar = page.getByRole('dialog', { name: 'Exportar' });
   await expect(exportar.getByRole('radio', { name: 'Planta del emplazamiento (PDF)' })).toBeChecked();

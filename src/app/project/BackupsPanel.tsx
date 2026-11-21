@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { byNewest, parseBackup } from '../../core/storage/backups';
+import { byNewest, parseBackup, type BackupKeep } from '../../core/storage/backups';
+import { useDraft } from '../settings/drafts';
 import { joinPath } from '../../core/storage/openBackup';
 import { loadSettings, saveSettings } from '../../core/storage/settings';
 import { localDateTime } from '../format';
@@ -13,12 +14,27 @@ import { t } from '../../core/i18n';
 
 export function BackupsPanel() {
   const project = useProject((s) => s.project);
-  const [keep, setKeep] = useState(() => loadSettings().backups);
-  const [nextToProject, setNextToProject] = useState(() => loadSettings().backupsNextToProject);
   const [found, setFound] = useState<{ folder: string; names: readonly string[]; synced: string | null } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   // Bumped after Back up now, a change of folder or any backup landing, so the list is read again.
   const [generation, setGeneration] = useState(0);
+  // Both wait for Apply changes (drafts.ts), as every setting of this computer's in Settings; read as applied each time
+  // the tab draws, so an Apply shows at once. Back up now, Show backups and Open act at once: they're actions.
+  const applied = loadSettings();
+  const [keep, draftKeep] = useDraft<BackupKeep>('backups', applied.backups, (next) => {
+    saveSettings({ backups: next });
+  });
+  const [nextToProject, draftNextToProject] = useDraft<boolean>('backupsNextToProject', applied.backupsNextToProject, (next) => {
+    saveSettings({ backupsNextToProject: next });
+    // The project open when it's applied moves its backups at once; earlier copies stay where they were made.
+    projectStore
+      .getState()
+      .project?.file.placeBackups(next)
+      .then(() => {
+        setGeneration((n) => n + 1);
+      })
+      .catch(showNotice);
+  });
 
   useEffect(() => {
     if (!project) return;
@@ -55,20 +71,9 @@ export function BackupsPanel() {
   return (
     <BackupsView
       keep={keep}
-      onKeepChange={(next) => {
-        setKeep(saveSettings({ backups: next }).backups);
-      }}
+      onKeepChange={draftKeep}
       nextToProject={nextToProject}
-      onNextToProjectChange={(next) => {
-        setNextToProject(saveSettings({ backupsNextToProject: next }).backupsNextToProject);
-        // The open project moves its backups at once; earlier copies stay where they were made.
-        project?.file
-          .placeBackups(next)
-          .then(() => {
-            setGeneration((n) => n + 1);
-          })
-          .catch(showNotice);
-      }}
+      onNextToProjectChange={draftNextToProject}
       project={project && found ? { folder: found.folder, backups: entries, synced: found.synced } : null}
       status={status}
       onBackUpNow={() => {

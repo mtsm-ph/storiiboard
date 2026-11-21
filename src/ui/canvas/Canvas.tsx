@@ -2,6 +2,7 @@ import type Konva from 'konva';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Circle, Layer, Line, Rect, Shape, Stage, Transformer } from 'react-konva';
 import { t, tn } from '../../core/i18n';
+import type { PlanUnit } from '../../core/model/length';
 import type { CanvasViewChoice } from '../../core/storage/settings';
 import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
@@ -14,6 +15,7 @@ import { createZoomSettle } from './zoomSettle';
 import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
 import { LinkShape, type ResolvedLink } from './LinkShapes';
 import { Minimap } from './Minimap';
+import { ScaleUnits } from './ScaleUnits';
 import { PASTE_WAIT, pasteEventSeen, pasteStep, waitFoundNoEvent } from './pasteFallback';
 import { remadeFor, shownWith } from './liveShown';
 import { handledSize, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, shrunkBelow, tidy } from './placement';
@@ -228,6 +230,12 @@ export interface CanvasProps {
   tools?: readonly ToolSpec[];
   /** A real scale (6.2a): a grid, rulers and a scale bar, grid snapping, and the scale bar as the zoom label. */
   scale?: CanvasScale;
+  /**
+   * The m | ft switch by the scale bar (Kevin, Nov 18): given with a `scale`, a pair of pressed-or-not buttons follows the
+   * scale bar in the zoom's box and hands the unit picked back. A view of this computer's, as Paper and Dark are: the host
+   * keeps it (Plan units) and applies it at once; the file holds metres whatever it shows. Left out, none shows.
+   */
+  scaleUnits?: { value: PlanUnit; onChange: (unit: PlanUnit) => void };
   /** How far the view zooms (a board's 10% to 800% without). */
   zoomLimits?: ZoomLimits;
   /**
@@ -348,6 +356,7 @@ export function Canvas({
   linkInk,
   tools,
   scale,
+  scaleUnits,
   zoomLimits,
   onPath,
   constrainMove,
@@ -2011,6 +2020,8 @@ export function Canvas({
             {percent}%
           </button>
         )}
+        {/* m | ft (Kevin, Nov 18), right by the scale bar it changes. */}
+        {scale && scaleUnits && <ScaleUnits value={scaleUnits.value} onChange={scaleUnits.onChange} button={BUTTON} pressed={PRESSED_IN_BOX} />}
         <button type="button" aria-label={t('canvas.zoomIn')} className={ZOOM_BUTTON} onClick={() => { zoomTo(view.zoom * ZOOM_STEP); }}>
           +
         </button>

@@ -346,7 +346,8 @@ test('in Spanish at 1280 × 720 no layer’s name is cut off', async ({ page }) 
   await page.setViewportSize({ width: 1280, height: 720 });
   const app = await openSettings(page, 'App');
   await app.getByLabel('Language').selectOption('es');
-  await page.keyboard.press('Escape');
+  // Applied as Settings closes (Kevin, Nov 17).
+  await closeSettings(page);
   await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeHidden();
   const capas = page.getByRole('region', { name: 'Capas', exact: true });
   await expect(capas).toBeVisible();

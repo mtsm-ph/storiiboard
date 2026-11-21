@@ -13,6 +13,7 @@ import { showInfo } from '../notice';
 import { projectStore, useProject } from '../projectStore';
 import { presetDiff, presetLeftOut, readPreset } from './presetDiff';
 import { applyPreset, beforeName, deletePreset, presetSettingsNow, renamePreset, savePreset } from './presets';
+import { useHasDrafts } from '../settings/drafts';
 
 // Settings presets in the Settings window (6.5.8): the header's Save preset… button, the Presets tab listing this
 // project's presets (Apply…, a name to rename, Delete), and the two windows they open: the name to save under, and what
@@ -223,6 +224,7 @@ function ApplyWindow({ id }: { id: string }) {
   const records = useProject((s) => s.records);
   const { setPreference } = useTheme();
   const [busy, setBusy] = useState(false);
+  const waiting = useHasDrafts();
   const preset = projectId ? presetsOf(records, projectId).find((p) => p.id === id) : undefined;
   // Gone (deleted, undone, another project opened): the window's state goes too, so an undo never reopens it by itself.
   useEffect(() => {
@@ -237,11 +239,12 @@ function ApplyWindow({ id }: { id: string }) {
     closeApply();
     showInfo(t('presets.applied', { name: preset.name, before }));
   };
-  return <ApplyView preset={preset} before={beforeName(records, projectId, id)} busy={busy} onApply={() => void apply()} />;
+  return <ApplyView preset={preset} before={beforeName(records, projectId, id)} busy={busy} draftsWaiting={waiting} onApply={() => void apply()} />;
 }
 
 /** What applying a preset would change, and its Apply: drawn from what it's given, so a test renders it as it is. */
-export function ApplyView({ preset, before, busy, onApply }: { preset: Preset; before: string; busy: boolean; onApply: () => void }) {
+/** `draftsWaiting`: changes wait for Apply in Settings, which applying the preset discards (Kevin, Nov 17), said first. */
+export function ApplyView({ preset, before, busy, draftsWaiting = false, onApply }: { preset: Preset; before: string; busy: boolean; draftsWaiting?: boolean; onApply: () => void }) {
   const textId = useId();
   const read = readPreset(preset.record);
   const lines = read.tooLarge ? [] : presetDiff(presetSettingsNow(), read.settings);
@@ -263,6 +266,11 @@ export function ApplyView({ preset, before, busy, onApply }: { preset: Preset; b
                 ))}
               </ul>
               <p className="text-[13px]">{t('presets.applyBefore', { before })}</p>
+              {draftsWaiting && (
+                <p className="text-[13px]" data-preset-drafts="">
+                  {t('presets.applyDiscardsDrafts')}
+                </p>
+              )}
             </>
           )}
           {leftOut.map((note) => (
