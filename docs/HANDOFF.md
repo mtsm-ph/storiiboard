@@ -7,23 +7,16 @@ It replaces nothing in either; it says where the work stands and what comes next
 ## Only Kevin (keep current; the same list ends every report)
 
 What only Kevin can do or answer, one line each, with what it unblocks. Nothing a session, a review or CI can settle.
-Kevin answered the Nov 20 list that night (`private/NOV20_NIGHT_NOTE.md`; the note arrived cut off after "any other
-change to the file format or"). Still his, and nothing waits on them:
+Kevin's Nov 21 morning note (`private/NOV21_NOTE.md`, complete) answered the morning report and set the day's work:
+the small ones, then Phase 7 from 7.0. Still his:
 
 - **The tile accent: option 1 (by kind) or option 2 (by section)**, in `private/pictures/TILE_ACCENT_OPTIONS.md`.
-  Unblocks: the tile accent (kept out of both item-8 stacks until he picks).
-- **The Spanish History words** (#240's comment) and **the frame-moved-between-days line** (History says "1A: shoot day
-  Mon, Nov 16 → Tue, Nov 17"). Unblocks: nothing waits.
-- **A day's history reads its frames' whole log** (#245, the session's reading of "every frame whose shoot_day_id is or
-  was that day"): Day 2 also shows the step that put 1A on Day 1, and 1A's creation. Narrow it if he meant less.
+  Unblocks: the tile accent.
+- **The Rust file-locks brief** (`private/briefs/rust-file-locks.md`): he is reading it, no build. Unblocks: the build.
 - **His Mac, the HDR HEIF, the two folders** he will delete himself (the Nov 19 scratch folder, `private/samples/.probe`).
-- **The cut-off end of the Nov 20 night note**: the session reads it as the standing list (any other format or schema
-  change, a dependency not approved, anything on main, anything that deletes, a screenshot change no item explains, a
-  red job it can't explain).
-- **Readings he can overrule** (all merged; each is a small change): the playback copies' cap and floor still save at
-  once (as drafts they broke video.spec:136); the export's label is "Printed units" ("Units on paper" clashed with
-  "Paper"); "tick" became "check" in English; a settled undo never joins a new run of undos.
-- **The Rust file-locks brief** (`private/briefs/rust-file-locks.md`): his read, no build yet. Unblocks: the build.
+- Standing, for him alone: any format or schema change he hasn't answered, a dependency he hasn't approved, any change to
+  the tool list, anything on main, anything that deletes, a screenshot change no item explains, a red job the session
+  can't explain.
 
 ## What a cloud session can and can't do
 
@@ -368,7 +361,22 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 21, morning; written at 03:00 EST)
+### Next session: start here (Nov 21, morning; written at 05:45 EST)
+
+**Kevin's Nov 21 note** (`private/NOV21_NOTE.md`): checkpoints `nov21-e` to `nov21-j`, `baselines-nov21b` and `-c`,
+`launch-4` to `launch-6` are the session's to run. New rule (in CLAUDE.md): a PR that changes only the launch check may
+merge on a green launch run. nov21-d's 90 s isn't called a hang: launch-3's Mac read a canvas, so it says nothing about
+one that can't; #255's times will show it next time; until then it's the machine, rerun.
+
+**Merged:** #255 (6.37) on `checkpoint/launch-3` and its own checks, by that rule; v2 is launch-3's tree plus #256's
+HANDOFF lines.
+
+**Under way, in Kevin's order:** (1) the small ones, riding the first checkpoint: a day's history narrowed to what
+happened to the day (`private/briefs/day-history-narrow.md`, branch `fix/day-history-narrow`, builder running), the
+frame-to-day line and the Spanish History words (stacked on it), the switchBackup.test.ts flake (cause, not a retry);
+(2) Phase 7 from 7.0, as answered on Nov 16, one PR per milestone, stacked, a checkpoint every two or three.
+
+### Earlier: start here (Nov 21, morning; written at 03:00 EST)
 
 **Merged on `checkpoint/nov21-d`** (run 44876688397: Linux 682, Mac WebKit 679, nothing failed or flaky): item 8's
 second stack, #248 Settings, #250 undoing from History with `bring_back`, #252 American spelling. Earlier, after
