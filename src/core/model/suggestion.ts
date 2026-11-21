@@ -282,6 +282,22 @@ export function readSuggestion(record: SbdRecord): Suggestion {
   };
 }
 
+// A record read once per record object (7.2): records are never changed in place (each edit makes new ones), so a read
+// is good for as long as its record lives. Reviewing a chain of N creates reads each link again for every create after
+// it (loopsBack, about N²/2 reads); kept, a read after the first is a lookup. What it hands out is shared: its readers
+// never change it.
+const kept = new WeakMap<SbdRecord, Suggestion>();
+
+/** readSuggestion, kept per record object: the same Suggestion for the same record. Shared, so never changed by its readers. */
+export function keptSuggestion(record: SbdRecord): Suggestion {
+  let read = kept.get(record);
+  if (!read) {
+    read = readSuggestion(record);
+    kept.set(record, read);
+  }
+  return read;
+}
+
 /**
  * The authors' name when every suggestion shares one (read clean, as text), else null: what a change file brought in is
  * named by (7.1: the status line and History).
@@ -729,7 +745,7 @@ export interface SuggestionReview {
 function madeBy(records: Records, id: string, changeFileId: string | null): { suggestion: Suggestion } | undefined {
   const record = recordOf(records, id);
   if (record?.type !== 'suggestion') return undefined;
-  const other = readSuggestion(record);
+  const other = keptSuggestion(record);
   if (other.kind !== 'create' || other.changeFileId === null || other.changeFileId !== changeFileId) return undefined;
   return { suggestion: other };
 }
@@ -838,4 +854,64 @@ export function flagWords(flag: SuggestionFlag): string | null {
   if (flag.kind === 'waiting_after') return t('suggestion.flag.waitingAfter');
   if (flag.kind === 'invalid' && flag.problem === 'loop') return t('suggestion.flag.loop');
   return null;
+}
+
+const PROBLEM_WORDS: Readonly<Record<Exclude<ValueProblem, 'loop'>, MessageKey>> = {
+  type: 'suggestion.problem.type',
+  too_long: 'suggestion.problem.tooLong',
+  range: 'suggestion.problem.range',
+  choice: 'suggestion.problem.choice',
+  not_found: 'suggestion.problem.notFound',
+  too_many: 'suggestion.problem.tooMany',
+  repeated: 'suggestion.problem.repeated',
+  empty: 'suggestion.problem.empty',
+  unreadable: 'suggestion.problem.unreadable',
+  lens_range: 'suggestion.problem.lensRange',
+  not_on_day: 'suggestion.problem.notOnDay',
+};
+
+/** Fields of the suggestion itself, not of the record it acts on: named as what they are, never by their key. */
+const PLACE_FIELDS: ReadonlySet<string> = new Set(['parent_id', 'after_id', 'after_suggestion']);
+
+/** A field's name in the words: its name in the scope row for the target's type, its place, or else the suggestion's data. */
+function fieldName(field: string, targetType: string): string {
+  if (PLACE_FIELDS.has(field)) return t('suggestion.field.place');
+  const entry = scopeType(ASSISTANT_SCOPE, targetType);
+  const rule = entry ? scopeField(entry, field) : null;
+  return rule ? t(rule.label) : t('suggestion.field.data');
+}
+
+/**
+ * Every flag in words (7.2's review screen; 7.5's server can say the same): flagWords's own, and the words of every
+ * other flag, which flagWords leaves null. `targetType` names an invalid value's field as the scope row names it.
+ */
+export function reviewFlagWords(flag: SuggestionFlag, targetType = ''): string {
+  const own = flagWords(flag);
+  if (own !== null) return own;
+  switch (flag.kind) {
+    case 'decided':
+      return t(flag.status === 'rejected' ? 'suggestion.flag.rejected' : 'suggestion.flag.applied');
+    case 'newer':
+      return t(flag.what === 'kind' ? 'suggestion.flag.newerKind' : 'suggestion.flag.newerField', { name: flag.name });
+    case 'outside_scope':
+      return t(flag.what === 'kind' ? 'suggestion.flag.outsideKind' : flag.what === 'type' ? 'suggestion.flag.outsideType' : 'suggestion.flag.outsideField', { name: flag.name });
+    case 'invalid':
+      return flag.problem === 'loop' ? t('suggestion.flag.loop') : t(PROBLEM_WORDS[flag.problem], { field: fieldName(flag.field, targetType) });
+    case 'gone':
+      return t(flag.what === 'target' ? 'suggestion.flag.goneTarget' : flag.what === 'parent' ? 'suggestion.flag.goneParent' : 'suggestion.flag.goneAfter');
+    case 'trashed':
+      return t(flag.what === 'target' ? 'suggestion.flag.trashedTarget' : 'suggestion.flag.trashedParent');
+    case 'waiting':
+      return t('suggestion.flag.waiting');
+    case 'locked':
+      return t('suggestion.flag.locked');
+    case 'changed_since':
+      return t('suggestion.flag.changedSince');
+    case 'no_change':
+      return t('suggestion.flag.noChange');
+    // flagWords has words for these; kept here so a new flag is a type error until it has its own.
+    case 'cant_apply':
+    case 'waiting_after':
+      return '';
+  }
 }

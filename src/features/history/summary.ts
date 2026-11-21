@@ -49,7 +49,7 @@ export const lineText = (line: Line): string => line.map((part) => (typeof part 
  * A translated line whose placeholders can be parts: `{name}` takes parts.name, a frame's number in mono or words.
  * The message stays one sentence, so a language can put the name where its grammar wants it.
  */
-function line(key: MessageKey, parts: Readonly<Record<string, Part>> = {}, params?: Params): Part[] {
+export function line(key: MessageKey, parts: Readonly<Record<string, Part>> = {}, params?: Params): Part[] {
   // The markers can't come from people's text: a NUL in a field's name is dropped, not taken for a part.
   const marked: Record<string, string | number> = {};
   for (const [name, value] of Object.entries(params ?? {})) marked[name] = typeof value === 'string' ? value.split('\u0000').join('') : value;
