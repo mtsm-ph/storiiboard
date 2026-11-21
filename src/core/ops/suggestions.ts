@@ -1,9 +1,11 @@
 import type { JsonValue, SbdRecord } from '../model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../model/shotNumbers';
-import { readSuggestion, reviewSuggestion, type SuggestionReview } from '../model/suggestion';
+import { readSuggestion, reviewSuggestion, sharedAuthor, type SuggestionReview } from '../model/suggestion';
+import { readChangeFile, type ChangeFile, type ChangeFileRefusal } from '../storage/changeFile';
 import type { ProjectFile } from '../storage/driver';
 import { loadSlateNumbers } from '../storage/slateNumbers';
 import { apply, loadRecords, type Change, type OpOptions } from './ops';
+import { keyAfter, keyAfterKeys } from './order';
 
 // The two decisions a person makes on a suggestion (7.0, Phase 7 decision 5): Apply and Reject, each its own op group,
 // so each undoes on its own and "Apply the rest" (7.2) is a loop of single applies. Apply writes what the suggestion
@@ -79,4 +81,66 @@ export async function rejectSuggestion(file: ProjectFile, suggestionId: string, 
   if (!changes) return false;
   await apply(file, changes, options);
   return true;
+}
+
+// Bringing a change file in (7.1, docs/SBD_FORMAT.md "Importing"): one op group of creates, one `suggestion` record per
+// suggestion the project doesn't have yet, under the project, so one undo removes them all. Nothing else is written:
+// the file's suggestions become records only, and no other record is touched.
+
+/** What bringing a file in would write, and what it found. */
+export interface BroughtIn {
+  /** The creates; [] when the file adds nothing, so no op is written. */
+  changes: Change[];
+  /** Suggestions it adds. */
+  added: number;
+  /** Suggestions already in the project (brought in before): they add nothing. */
+  already: number;
+  /** Suggestions whose id is another record's (not a suggestion): left out, never written over it. */
+  taken: number;
+  /** The authors' name when every one added shares one, as text; null for none or several. */
+  authorName: string | null;
+}
+
+/**
+ * Bring-in's change list for a file already read (readChangeFile): a create for each suggestion whose id no record has,
+ * placed after the project's suggestions. An id that is already a suggestion is the same file (or one sharing it)
+ * brought in before; an id that is any other record's is left out, so a file can never write over a frame by naming it.
+ */
+export function bringInChanges(records: Readonly<Record<string, SbdRecord>>, projectId: string, file: ChangeFile): BroughtIn {
+  const keys = Object.values(records)
+    .filter((record) => record.parentId === projectId && record.type === 'suggestion')
+    .map((record) => record.sortKey);
+  let key: string | null = null;
+  const changes: Change[] = [];
+  const made: SbdRecord[] = [];
+  let already = 0;
+  let taken = 0;
+  for (const suggestion of file.suggestions) {
+    const existing = Object.hasOwn(records, suggestion.id) ? records[suggestion.id] : undefined;
+    if (existing) {
+      if (existing.type === 'suggestion') already += 1;
+      else taken += 1;
+      continue;
+    }
+    key = (key === null ? null : keyAfter(key)) ?? keyAfterKeys(key === null ? keys : [...keys, key]);
+    changes.push({ kind: 'create', record: { id: suggestion.id, type: 'suggestion', parentId: projectId, sortKey: key, props: suggestion.props } });
+    made.push({ id: suggestion.id, type: 'suggestion', parentId: projectId, sortKey: key, props: suggestion.props, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' });
+  }
+  return { changes, added: changes.length, already, taken, authorName: sharedAuthor(made) };
+}
+
+/** Bringing a file into an open file: what it did, or why the file was refused (nothing written). */
+export type BringInResult = { ok: true; broughtIn: BroughtIn } | { ok: false; refusal: ChangeFileRefusal };
+
+/**
+ * Brings a change file into an open project file as one op group, reading the project as it is now. For tests and 7.5's
+ * server: the app runs bringInChanges inside the store's queue (`applyWith`), so no edit lands between its read and its
+ * write. A file that adds nothing writes no op.
+ */
+export async function bringInChangeFile(file: ProjectFile, projectId: string, bytes: Uint8Array, options: OpOptions = {}): Promise<BringInResult> {
+  const read = readChangeFile(bytes, projectId);
+  if (!read.ok) return read;
+  const broughtIn = bringInChanges(await recordsOf(file), projectId, read.file);
+  if (broughtIn.changes.length > 0) await apply(file, broughtIn.changes, options);
+  return { ok: true, broughtIn };
 }

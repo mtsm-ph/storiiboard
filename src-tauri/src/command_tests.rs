@@ -973,6 +973,116 @@ mod files_and_media {
     }
 }
 
+/// Change files in (changes.rs, 7.1), as src/app/changeFiles.ts calls them: the folder beside the open project by its
+/// handle alone, a file of it by its name, the rename, and a picked or dropped file only once Rust was given it.
+mod change_files {
+    use super::*;
+
+    const ID: &str = "0b6e2d0a-3f5c-4d8e-9c1a-7e2f4b5a6c3d";
+
+    #[test]
+    fn lists_reads_and_renames_the_open_projects_folder_by_its_handle() {
+        let h = Harness::new("changes");
+        let handle = h
+            .call("sbd_create", json!({ "path": h.path("Bey County.sbd") }))
+            .unwrap();
+        let args = |extra: Json| {
+            let mut args = json!({ "handle": handle, "projectId": ID });
+            args.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            args
+        };
+        // No folder yet, and a renamed project's folder beside it, marked for this project.
+        let old = h.dir().join("Old Name Suggestions");
+        fs::create_dir(&old).unwrap();
+        fs::write(
+            old.join("storiiboard-folder.json"),
+            json!({ "format": "storiiboard.suggestions-folder", "project_id": ID, "project_name": "Old Name" }).to_string(),
+        )
+        .unwrap();
+        fs::write(
+            old.join("Robin.sbdchanges"),
+            r#"{"format":"storiiboard.changes"}"#,
+        )
+        .unwrap();
+        let listed = h.call("changes_folder", args(json!({}))).unwrap();
+        assert_eq!(listed["state"], json!("none"));
+        assert_eq!(listed["folder"], json!("Bey County Suggestions"));
+        assert_eq!(listed["renameFrom"], json!("Old Name Suggestions"));
+        assert_eq!(listed["files"], json!([]));
+
+        assert_eq!(
+            h.call(
+                "changes_folder_rename",
+                args(json!({ "from": "Old Name Suggestions" }))
+            ),
+            Ok(Json::Null)
+        );
+        let listed = h.call("changes_folder", args(json!({}))).unwrap();
+        assert_eq!(listed["state"], json!("read"));
+        assert_eq!(listed["renameFrom"], Json::Null);
+        assert_eq!(listed["files"][0]["name"], json!("Robin.sbdchanges"));
+        assert!(listed["files"][0]["modified"].is_u64());
+        assert_eq!(listed["tooLarge"], json!([]));
+        assert_eq!(listed["more"], json!(0));
+        let bytes = h
+            .call_bytes(
+                "changes_folder_read",
+                args(json!({ "name": "Robin.sbdchanges" })),
+            )
+            .unwrap();
+        assert_eq!(bytes, br#"{"format":"storiiboard.changes"}"#);
+        // A name out of the folder, and the marker, are refused.
+        fs::write(h.dir().join("outside.sbdchanges"), "{}").unwrap();
+        assert!(h
+            .call(
+                "changes_folder_read",
+                args(json!({ "name": "../outside.sbdchanges" }))
+            )
+            .is_err());
+        assert_eq!(
+            refused(h.call(
+                "changes_folder_read",
+                args(json!({ "name": "storiiboard-folder.json" }))
+            )),
+            "Only a .sbdchanges file can be brought in as changes."
+        );
+        // The rename again: nothing of the old name is left, and the new one is never written over.
+        assert_eq!(
+            refused(h.call(
+                "changes_folder_rename",
+                args(json!({ "from": "Old Name Suggestions" }))
+            )),
+            "Storiiboard couldn't rename the suggestions folder."
+        );
+        h.call("sbd_close", json!({ "handle": handle })).unwrap();
+        assert_eq!(
+            refused(h.call("changes_folder", args(json!({})))),
+            "That project isn't open."
+        );
+    }
+
+    #[test]
+    fn reads_a_change_file_only_once_rust_was_given_it() {
+        let h = Harness::new("changes-offered");
+        let file = h.path("Robin.sbdchanges");
+        fs::write(&file, "{}").unwrap();
+        assert_eq!(
+            refused(h.call("changes_read", json!({ "path": file }))),
+            "Storiiboard reads only the files you drop on it or choose."
+        );
+        h.app
+            .state::<crate::pictures::Offered>()
+            .offer(&[PathBuf::from(&file)]);
+        assert_eq!(
+            h.call_bytes("changes_read", json!({ "path": file }))
+                .unwrap(),
+            b"{}"
+        );
+    }
+}
+
 /// A HEIC photo turned into a PNG (heic.rs, 6.27n): the one ffmpeg command here, since it needs only the photo's bytes
 /// and the app's own cache folder (the harness's). Where the ffmpeg sidecars run, as heic.rs's own tests need them.
 mod heic_photos {

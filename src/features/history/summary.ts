@@ -22,13 +22,13 @@ import { CAMERA_ICON, DIFFUSION_ICON, FLAG_ICON, gripFields, iconIdOf, LIGHT_ICO
 import { aFrame, anIcon } from '../birdseye/plan/iconWords';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
-import { readSuggestion } from '../../core/model/suggestion';
+import { readSuggestion, sharedAuthor } from '../../core/model/suggestion';
 import type { SuggestionKind } from '../../core/model/suggestionScope';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, projectStoryboard, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
 import { letterIndex, lettersOf } from '../../core/model/shotNumbers';
 import type { GroupKind, KeptEdit, LoggedOp, OpGroup } from '../../core/ops/ops';
 import { POSITION_LABEL, POSITIONS } from '../export/watermark';
-import { formatNumber, getLocale, labels, t, tn, type MessageKey, type Params, type PluralBase } from '../../core/i18n';
+import { formatNumber, getLocale, labels, pluralKey, t, tn, type MessageKey, type Params, type PluralBase } from '../../core/i18n';
 
 // What each step in History says (1.22): one line for an op group, in the board's words ("Added frame 4C", "4A: lens
 // 35 → 50"), worked out from its ops' before and after. A drag that renumbers a scene is one step, "Moved 4B to after
@@ -1927,6 +1927,13 @@ export function describeEdit(
   trashed: ReadonlySet<string> = new Set(),
 ): Line {
   if (opsIn.length === 0) return [t('history.noChange')];
+  // A change file brought in (7.1): only suggestions made, each pending. Named by its authors' name when they share one,
+  // as text, from the records it made.
+  if (opsIn.every((op) => op.kind === 'create' && op.after?.type === 'suggestion' && op.after.props.status === 'pending')) {
+    const made = opsIn.flatMap((op) => (op.after ? [op.after] : []));
+    const name = sharedAuthor(made);
+    return name === null ? line(pluralKey('history.broughtIn', made.length), {}, { count: made.length }) : line(pluralKey('history.broughtInFrom', made.length), {}, { count: made.length, name });
+  }
   // A suggestion applied or rejected (7.0): its own update says which. Applied, the step reads as the change it wrote;
   // rejected, as what it would have done, named as the suggester saw it.
   const decided = suggestionDecision(opsIn);

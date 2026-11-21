@@ -1713,6 +1713,7 @@ A change file is one UTF-8 JSON object:
   "version": 1,
   "id": "8d0f3c52-5a0e-4c47-9a7e-2b1f0c6e9a11",
   "project_id": "0b6e2d0a-3f5c-4d8e-9c1a-7e2f4b5a6c3d",
+  "project_name": "Bey County",
   "review_copy": { "id": "c41d…", "published_at": "2026-11-20T18:00:00.000Z" },
   "created_at": "2026-11-21T09:12:00.000Z",
   "created_by": "web",
@@ -1736,12 +1737,13 @@ A change file is one UTF-8 JSON object:
 | Field | Notes |
 |---|---|
 | format, version | `version` goes up only for a change an older app can't read safely. Adding a kind or an optional field doesn't change it. An app refuses a newer version with "made by a newer Storiiboard" |
-| id | This file's id |
+| id | This file's id: a UUID, lowercase |
 | project_id | The project record's id. A file for another project is refused |
-| review_copy | The published review copy the suggestions were made on |
-| created_by | What wrote the file: `web` (the review copy, Phase 9) or `mcp` (the assistant, Phase 7) |
-| people | Who made the suggestions: name, Team role and, when known, their `person` record. Never contact details |
-| suggestions[].id | Becomes the suggestion record's id, so importing the same file twice adds nothing |
+| project_name | Optional (7.1): the project's name as the writer saw it, shown as text when the file is refused for another project |
+| review_copy | Optional (7.1): the published review copy the suggestions were made on. Read by nothing yet |
+| created_by | What wrote the file: `web` (the review copy, Phase 9) or `mcp` (the assistant, Phase 7). Shown as text, never trusted |
+| people | Who made the suggestions: `id` (the key `suggestions[].author` names), name, Team role and, when known, their `person` record. Never contact details: any other field of a person is left out |
+| suggestions[].id | Becomes the suggestion record's id, so importing the same file twice adds nothing. A UUID, lowercase |
 | suggestions[].kind | What's suggested (below) |
 | suggestions[].target | The record, its type, a label as the reviewer saw it, and its `updated_at` in the review copy; for a `create`, only the type and the label |
 | suggestions[].data | Kind-specific (below); empty for `trash` |
@@ -1965,14 +1967,90 @@ decided again.
 Additive: `suggestion` is a record type every version keeps (it was in the first schema), so no table, column, op
 group kind or schema number; an older version keeps the records as they are.
 
-Importing:
+### Importing (7.1)
 
-- The file is untrusted input. It's checked against the format before anything is stored, it's limited to 5 MB, and
-  its text is shown as text. Names in it are what the web or the assistant reported; that's one reason every
-  suggestion still needs a person to apply it.
-- Unknown kinds and unknown fields are kept as they are, shown as "needs a newer Storiiboard", and never applied or
-  dropped.
-- Rejecting a suggestion changes nothing in the project; the suggestion stays, `rejected`, in the review log.
+A change file is untrusted input: anyone can write one by hand. Whatever is in it, importing it only ever adds
+`suggestion` records under the project; it never edits another record, never reaches a file path, never runs anything,
+and every word in it is shown as text. Names in it are what the web or the assistant reported; that's one reason every
+suggestion still needs a person to apply it. The checks are one pure reader (src/core/storage/changeFile.ts, which 7.5's
+server shares to write files of the same shape); Rust adds the size cap before the page sees a byte.
+
+A file is refused whole, nothing stored, with words that say why (never a stack trace), when it is:
+
+- larger than 5 MB (5,242,880 bytes); Rust refuses it before reading, and the page again;
+- not UTF-8 text, or not JSON, or JSON nested deeper than 16 arrays and objects (counted before it is parsed);
+- not an object whose `format` is `storiiboard.changes` ("isn't a change file");
+- of a `version` that isn't a whole number from 1, or above 1: "made by a newer Storiiboard";
+- without an `id` that is a lowercase UUID;
+- for another project: `project_id` isn't this project's id, refused with "This change file is for another project",
+  and its `project_name` as text when it has one;
+- holding more than 2,000 suggestions or more than 50 people;
+- holding a string over its bound, wherever it is: an id 100 characters (the file's, a person's, a target's, a
+  `person_id`); `created_by` and a person's name 100; a Team role, a kind and a target's type 40; a target's label 200;
+  a time 40; a note 2,000; any other string, `data` and unknown fields included, 10,000; any key 100;
+- holding a suggestion that isn't an object, has no lowercase UUID `id`, or shares its `id` with another in the file; a
+  person with no `id` or one shared; or a suggestion field named as one of the record's own props (`status`, `source`,
+  `change_file_id`, `target_id`, `target_type`, `target_label`, `target_updated_at`, `suggested_at`, `decided_by`,
+  `decided_at`, `created_id`, `after_suggestion`), which only the app sets.
+
+Everything else is brought in, each suggestion as a `suggestion` record with the suggestion's own `id`:
+
+| From the file | To the record |
+|---|---|
+| `kind`, `note`, `data` | `kind`, `note`, `data`, as they are |
+| `target.id`, `.type`, `.label`, `.updated_at` | `target_id`, `target_type`, `target_label`, `target_updated_at` |
+| `target.<other>` | `target_<other>`, kept as it is |
+| `author` | `author`: the named person's `name`, `role` and `person_id` only, else empty |
+| `created_at` | `suggested_at` |
+| the file's `id` | `change_file_id` |
+| `created_by` | `source`: `mcp` when it is `mcp`, else `change_file` |
+| a `create`'s `data.parent_id` naming another `create` of the file | `after_suggestion` |
+| any other field | kept under its own name, but `__proto__`, which is left out |
+| | `status`: `pending` |
+
+A suggestion that fails 7.0's reader (an unknown kind, a field this version doesn't know, `data` it can't read, a
+target outside the scope) is still brought in and flagged as it reads, under the assistant's scope row (`scopeRowFor`),
+whatever wrote the file. Unknown kinds and unknown fields are kept as they are, shown as "needs a newer Storiiboard",
+and never applied or dropped. Fields of the file itself that this version doesn't know aren't stored: the file is
+never changed, so they stay in it.
+
+One import is one op group of creates, so one undo removes everything it brought in. A suggestion whose `id` is
+already a suggestion in the project was brought in before and adds nothing; one whose `id` is another record's is left
+out and the status line says how many. A file that adds nothing writes no op and says "Already brought in" (one from the folder says nothing). The
+status line says "Brought in 12 suggestions from Robin Vale" (the authors' name when they share one, as text), and
+History says the same.
+
+Rejecting a suggestion changes nothing in the project; the suggestion stays, `rejected`, in the review log.
+
+### Where change files come from (7.1, Phase 7 decision 3)
+
+- By hand: the project menu's Import changes…, or a `.sbdchanges` file dropped anywhere on the window (a picture
+  dropped keeps its meaning; a change file never becomes a picture). Rust reads only the file the Open dialog or the
+  drop gave it, by that path, once, at most 5 MB, and only a name ending in `.sbdchanges`.
+- From the assistant (7.6): a folder beside the project named for it, `<Project> Suggestions/` beside `<Project>.sbd`
+  (`<Project>` is the .sbd's file name, as for `Backups/`), holding the change files the assistant writes and a marker
+  file, `storiiboard-folder.json`:
+
+  ```json
+  { "format": "storiiboard.suggestions-folder", "project_id": "0b6e2d0a-3f5c-4d8e-9c1a-7e2f4b5a6c3d", "project_name": "Bey County" }
+  ```
+
+- The app brings the folder in when the project opens and each time the window comes back to the front. Rust finds the
+  folder beside the open project itself (the page never names a path) and lists only regular files whose names end in
+  `.sbdchanges`, at most 5 MB each (a larger one is named and skipped), at most 200 by name order (the rest are
+  counted and wait). It never follows a link or a Windows junction: a folder that is one, or a file that is one, is
+  skipped, and a file is opened without following one (and checked to be the file that was listed). The marker is
+  never read as a change file; it is read at most 64 KB. A folder whose marker names another project is skipped, with
+  a line saying so; one with no marker, or a marker that can't be read, is read (a person may have made it). Each
+  file then goes through the checks above, as one dropped would. A file already brought in is recognised by its
+  suggestions' ids and adds nothing; while the project stays open, a file already read with the same size and time
+  isn't read again.
+- Nothing in the folder is ever deleted, moved or written by the app.
+- A renamed project: when no `<Project> Suggestions/` exists but a folder beside the project named `<anything>
+  Suggestions` (a real folder, not a link) has a marker naming this project's id, the app asks once per open to rename
+  it to `<Project> Suggestions` (Rename / Not now). Renaming is the only write, through Rust, only after the person
+  says so, only from such a folder beside the project, only to that name, and never over an existing file or folder.
+  Until it is renamed its files aren't brought in.
 
 ## Project data as JSON (2.9)
 
@@ -2097,7 +2175,8 @@ merge a database, so two guards sit around every open project:
 | `<Project> (copy).sbd` | Open a copy, chosen when another computer has the project open. A separate project | 1.2 | Like any project |
 | `<Project> (<version>).sbd` | Open version: a copy restored to a named version's step, a separate project. A second copy of the same version is `(<version> 2)` | 1.23 | Like any project |
 | `.<Project> (<version>) <8 hex digits>.sbd` | Open version's draft while it's copied and restored, renamed to the copy's name once it's ready. Hidden: a leading dot on Mac, the hidden attribute on Windows (cleared before the rename) | 1.23 | Deleted if Open version fails. One a crash cuts off stays, hidden, until the person deletes it: the app never deletes a project-shaped file it didn't just make |
-| `<name>.sbdchanges` | Suggestions from the web review copy | Phase 7 (import), Phase 9 (web) | Wherever the person saved it |
+| `<name>.sbdchanges` | Suggestions, from the assistant (in the folder below) or brought by hand (Import changes…, or dropped on the window) | Phase 7 (import, 7.1; the assistant, 7.6) | Wherever the person saved it; never deleted, moved or written by the app |
+| `<Project> Suggestions/` | The assistant's change files for this project, and its marker `storiiboard-folder.json` (`format`, `project_id`, `project_name`; see Change files). Brought in when the project opens and when the window comes back to the front | 7.1 | Never deleted, moved or written by the app; renamed to match a renamed project only when the person says so |
 | `<name>.sbdpack` | Zip of the .sbd and every linked file (Collect Project) | Phase 8 | |
 | Review package | Compressed review copy: the records reviewers may see, compressed images, theme and watermark. Uploaded on Publish, or exported as a file | Phase 9 | On the web, 30 days after the last shoot day |
 
@@ -2141,3 +2220,6 @@ its contents are worked out, not stored) and `field_card` (with `field` and a te
 no schema_version change; an older version keeps a deck as a board and a page or field card as an item it doesn't show.
 7.0 writes the change files' four kinds (`trash`, `update`, `create`, `reorder`) and the `suggestion` record's props (see Change files):
 additive, no table change, no migration and no schema_version change; an older version keeps the records as they are.
+7.1 brings change files in (Importing, and the `<Project> Suggestions/` folder and its marker; `project_name` and an
+optional `review_copy` in the file): it writes only `suggestion` records with 7.0's props, so no table change, no
+migration and no schema_version change.
