@@ -1,4 +1,4 @@
-import { memo, useId, useMemo } from 'react';
+import { memo, useId, useMemo, useRef } from 'react';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { labels, t, tn } from '../../../core/i18n';
 import { sceneRoomId, shownItems, type PlanLayer } from '../../../core/model/plan';
@@ -6,11 +6,13 @@ import { LAYER_DEPARTMENT, LAYER_ORDER, LAYER_SHOWS, layerCounts, rowState, UNDE
 import { cx } from '../../../ui/cx';
 import { LayerShowGlyph, LockGlyph } from '../../../ui/glyphs';
 import { roveFocus, rovingIndex } from '../../../ui/roving';
+import { useScrollLane } from '../../../ui/scrollLane';
 import { DepartmentSwatch } from '../../../ui/tags';
 import { useLocale } from '../../../ui/useLocale';
 import { myDepartmentLayers, rowName, setLayerLocked, setLayerShow, showAllLayers, soloLayer, startUnderlayScale, useLayersSaid, usePlanLayerStates, useSoloLayer } from './layersStore';
 import { groupName } from './library';
-import { useLiveView } from './PlanTile';
+import { useKeysLineFits } from './keysLine';
+import { layerKeyOf, SHOW_ALL_KEY, useLiveView } from './PlanTile';
 import { usePlan } from './planStore';
 import { scaleTarget } from './underlayEdits';
 import { viewKey } from './planItems';
@@ -22,8 +24,8 @@ import { viewKey } from './planItems';
 // buttons, named in words for screen readers and in their titles, each a 24 px square (WCAG 2.2's least target, 2.5.8,
 // met by the target's own size, so no spacing is needed beside it), so a row is one 24 px line wherever its name fits
 // beside them; where it doesn't, in any language, the name keeps the first line and the controls go onto the line below,
-// at the right (L7: a row reads top to bottom), never cut short. A layer with nothing on it is muted as a whole, still
-// usable. During a solo every other row's choice and lock are the solo's: shown as they are, held and saying why (M-a).
+// at the right (L7: a row reads top to bottom), never cut short; where even that line is too narrow, they wrap again
+// (#222). A layer with nothing on it is muted as a whole, still usable. During a solo every other row's choice and lock are the solo's: shown as they are, held and saying why (M-a).
 
 const SHOW_WORDS = labels<LayerShow>({ shown: 'layers.show.shown', dimmed: 'layers.show.dimmed', hidden: 'layers.show.hidden' });
 /** Each choice's name for screen readers, with its layer's: "Lighting: hidden". */
@@ -36,6 +38,11 @@ const CELL = 'flex h-6 w-6 shrink-0 items-center justify-center focus-visible:-o
 const WORD = 'sb-label h-6 min-w-6 shrink-0 border px-0.5 tracking-normal focus-visible:-outline-offset-2';
 /** A row: its name first, its controls at the right, on the line below where they don't fit beside it (L7). */
 const ROW = 'flex min-h-6 flex-wrap items-center gap-x-1';
+/** A row's controls, at its right: where even the line below the name is too narrow for them (a squeezed tile, the lane
+ *  beside it), they wrap again, at the right and in order, so none runs past the row. Never narrower than the row. */
+const CONTROLS = 'ml-auto flex max-w-full shrink-0 flex-wrap items-center justify-end gap-0.5';
+/** One unbroken run of controls: the count with the three-way show control, then Lock with Solo (or Set scale). */
+const RUN = 'flex shrink-0 items-center gap-0.5';
 /** A cell's ink: selection and a pressed lock are an ink fill; otherwise ink, or muted in a row with nothing on it. */
 const inked = (on: boolean, muted = false) => (on ? 'bg-text text-text-inverse focus-visible:outline-text-inverse' : muted ? 'text-text-muted' : 'text-text');
 /** A control's outline: ink, or muted in a row with nothing on it. */
@@ -50,15 +57,22 @@ export function LayersTile() {
   const sceneId = live?.view.sceneId ?? null;
   const setupId = live?.view.setupId ?? null;
   // The shown plan's items per layer; none when no plan is shown.
+  const scroller = useRef<HTMLElement>(null);
+  useScrollLane(scroller);
+  const list = useRef<HTMLUListElement>(null);
+  const keysCopy = useRef<HTMLParagraphElement>(null);
+  const keysFit = useKeysLineFits({ tile: scroller, last: list, copy: keysCopy });
+  const keysId = useId();
   const counts = useMemo(() => (sceneId === null ? null : layerCounts(records, shownItems(records, sceneId, setupId))), [records, sceneId, setupId]);
   return (
-    <section className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2" data-layers-tile="" aria-label={t('layers.label')}>
+    <section ref={scroller} className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2" data-layers-tile="" aria-label={t('layers.label')}>
       {/* One row above the list; only where both can't fit whole (Spanish in a tile under 200 px) does it wrap. */}
       <div className="flex flex-wrap gap-1.5">
         <button
           type="button"
           className={SMALL}
           data-layers-all=""
+          title={t('layers.showAllTitle', { key: SHOW_ALL_KEY })}
           onClick={() => {
             showAllLayers();
           }}
@@ -78,13 +92,25 @@ export function LayersTile() {
         </button>
       </div>
       {/* Each target is 24 px square on its own, so the rows need no spacing for it: 4 px keeps the eight in view. */}
-      <ul className="flex flex-col gap-1">
+      <ul ref={list} className="flex flex-col gap-1" aria-describedby={keysFit ? undefined : keysId}>
         {LAYER_ORDER.map((layer) => (
           <LayerRow key={layer} layer={layer} state={states[layer]} count={counts?.[layer] ?? 0} solo={solo} />
         ))}
         <UnderlayRow state={rowState(states, UNDERLAY_ROW)} count={counts?.[UNDERLAY_ROW] ?? 0} solo={solo} roomId={sceneId === null ? null : sceneRoomId(records, records[sceneId])} viewKeyNow={sceneId === null ? null : viewKey(sceneId, setupId)} />
       </ul>
-      <p className="text-[12px] text-text-muted">{t('layers.keys')}</p>
+      {/* The keys line shows only where it fits whole (#222, Kevin Nov 20): never cut off, never why the tile scrolls.
+          Where it doesn't, it stays as the list's description, visually hidden, so a screen reader still hears it;
+          where it shows, it is read in its place, and the list carries no copy of it. */}
+      <p id={keysId} className={cx('text-[12px] text-text-muted', !keysFit && 'sr-only')} aria-hidden={keysFit ? undefined : true} data-layers-keys={keysFit ? 'shown' : 'hidden'}>
+        {t('layers.keys')}
+      </p>
+      {/* The line's copy that decides it: out of the flow, at the tile's width, no height of its own, never seen or
+          read. Measuring the copy, not the line, is what keeps showing it from changing the answer. */}
+      <div aria-hidden="true" className="pointer-events-none invisible absolute inset-x-2 top-0 h-0 overflow-hidden">
+        <p ref={keysCopy} className="text-[12px]">
+          {t('layers.keys')}
+        </p>
+      </div>
       {/* What the last change here that touched several rows did (a solo, its end, Show all, My department), read out
           (L3); a single control speaks its own new state, and the plan's keys are read by the canvas's own line. */}
       <p role="status" className="sr-only" data-layers-said="">
@@ -107,7 +133,8 @@ const LayerRow = memo(function LayerRow({ layer, state, count, solo }: { layer: 
   const lockHeld = heldBy !== null;
   const heldId = useId();
   // Where the name doesn't fit beside the controls, it keeps the first line, whole, and the controls go onto the line
-  // below at the right; only a name wider than the tile breaks, by its words.
+  // below at the right, wrapping again at the right if that line is too narrow; only a name wider than the tile breaks,
+  // by its words.
   return (
     <li
       className={cx(ROW, empty && 'text-text-muted')}
@@ -124,45 +151,49 @@ const LayerRow = memo(function LayerRow({ layer, state, count, solo }: { layer: 
           {name}
         </span>
       </span>
-      <span className="ml-auto flex shrink-0 items-center gap-0.5" data-layer-controls="">
-        <span className="min-w-[1ch] shrink-0 text-right font-mono text-[12px] leading-6" data-layer-count={count}>
-          <span aria-hidden="true">{count}</span>
-          <span className="sr-only">{tn('layers.items', count)}</span>
-        </span>
-        <ShowChoice layer={layer} name={name} show={state.show} muted={empty} heldBy={heldBy} heldId={heldId} />
-        <button
-          type="button"
-          aria-pressed={state.locked}
-          aria-disabled={lockHeld || undefined}
-          aria-label={t('layers.lockOf', { layer: name })}
-          aria-describedby={lockHeld ? heldId : undefined}
-          title={heldBy !== null ? t('layers.lockedBySolo', { layer: heldBy }) : t('layers.lockOf', { layer: name })}
-          data-layer-lock={layer}
-          className={cx(CELL, 'border', lockHeld ? 'cursor-default border-dashed' : '', edge(empty || lockHeld), inked(state.locked && !lockHeld, empty || lockHeld))}
-          onClick={() => {
-            if (!lockHeld) setLayerLocked(layer, !state.locked);
-          }}
-        >
-          <LockGlyph open={!state.locked} inherit />
-        </button>
-        {heldBy !== null && (
-          <span id={heldId} className="sr-only">
-            {t('layers.lockedBySolo', { layer: heldBy })}
+      <span className={CONTROLS} data-layer-controls="">
+        <span className={RUN}>
+          <span className="min-w-[1ch] shrink-0 text-right font-mono text-[12px] leading-6" data-layer-count={count}>
+            <span aria-hidden="true">{count}</span>
+            <span className="sr-only">{tn('layers.items', count)}</span>
           </span>
-        )}
-        <button
-          type="button"
-          aria-pressed={soloed}
-          aria-label={t('layers.soloOf', { layer: name })}
-          title={t('layers.soloOf', { layer: name })}
-          data-layer-solo={layer}
-          className={cx(WORD, edge(empty), inked(soloed, empty))}
-          onClick={() => {
-            soloLayer(layer);
-          }}
-        >
-          {t('layers.solo')}
-        </button>
+          <ShowChoice layer={layer} name={name} show={state.show} muted={empty} heldBy={heldBy} heldId={heldId} />
+        </span>
+        <span className={RUN}>
+          <button
+            type="button"
+            aria-pressed={state.locked}
+            aria-disabled={lockHeld || undefined}
+            aria-label={t('layers.lockOf', { layer: name })}
+            aria-describedby={lockHeld ? heldId : undefined}
+            title={heldBy !== null ? t('layers.lockedBySolo', { layer: heldBy }) : t('layers.lockOf', { layer: name })}
+            data-layer-lock={layer}
+            className={cx(CELL, 'border', lockHeld ? 'cursor-default border-dashed' : '', edge(empty || lockHeld), inked(state.locked && !lockHeld, empty || lockHeld))}
+            onClick={() => {
+              if (!lockHeld) setLayerLocked(layer, !state.locked);
+            }}
+          >
+            <LockGlyph open={!state.locked} inherit />
+          </button>
+          {heldBy !== null && (
+            <span id={heldId} className="sr-only">
+              {t('layers.lockedBySolo', { layer: heldBy })}
+            </span>
+          )}
+          <button
+            type="button"
+            aria-pressed={soloed}
+            aria-label={t('layers.soloOf', { layer: name })}
+            title={t('layers.soloTitle', { layer: name, key: layerKeyOf(layer) })}
+            data-layer-solo={layer}
+            className={cx(WORD, edge(empty), inked(soloed, empty))}
+            onClick={() => {
+              soloLayer(layer);
+            }}
+          >
+            {t('layers.solo')}
+          </button>
+        </span>
       </span>
     </li>
   );
@@ -199,49 +230,53 @@ const UnderlayRow = memo(function UnderlayRow({ state, count, solo, roomId, view
           {name}
         </span>
       </span>
-      <span className="ml-auto flex shrink-0 items-center gap-0.5" data-layer-controls="">
-        <span className="min-w-[1ch] shrink-0 text-right font-mono text-[12px] leading-6" data-layer-count={count}>
-          <span aria-hidden="true">{count}</span>
-          <span className="sr-only">{tn('layers.items', count)}</span>
-        </span>
-        <ShowChoice layer={UNDERLAY_ROW} name={name} show={state.show} muted={empty} heldBy={heldBy} heldId={heldId} />
-        <button
-          type="button"
-          aria-pressed={state.locked}
-          aria-disabled={heldBy !== null || undefined}
-          aria-label={t('layers.lockOf', { layer: name })}
-          aria-describedby={heldBy !== null ? heldId : undefined}
-          title={heldBy !== null ? t('layers.lockedBySolo', { layer: heldBy }) : t('layers.lockOf', { layer: name })}
-          data-layer-lock={UNDERLAY_ROW}
-          className={cx(CELL, 'border', heldBy !== null ? 'cursor-default border-dashed' : '', edge(empty || heldBy !== null), inked(state.locked && heldBy === null, empty || heldBy !== null))}
-          onClick={() => {
-            if (heldBy === null) setLayerLocked(UNDERLAY_ROW, !state.locked);
-          }}
-        >
-          <LockGlyph open={!state.locked} inherit />
-        </button>
-        {heldBy !== null && (
-          <span id={heldId} className="sr-only">
-            {t('layers.lockedBySolo', { layer: heldBy })}
+      <span className={CONTROLS} data-layer-controls="">
+        <span className={RUN}>
+          <span className="min-w-[1ch] shrink-0 text-right font-mono text-[12px] leading-6" data-layer-count={count}>
+            <span aria-hidden="true">{count}</span>
+            <span className="sr-only">{tn('layers.items', count)}</span>
           </span>
-        )}
-        {!empty && (
+          <ShowChoice layer={UNDERLAY_ROW} name={name} show={state.show} muted={empty} heldBy={heldBy} heldId={heldId} />
+        </span>
+        <span className={RUN}>
           <button
             type="button"
-            data-layer-set-scale=""
-            aria-label={t('layers.scaleOf')}
-            title={t('layers.scaleOf')}
-            className={cx(WORD, edge(false), inked(false))}
+            aria-pressed={state.locked}
+            aria-disabled={heldBy !== null || undefined}
+            aria-label={t('layers.lockOf', { layer: name })}
+            aria-describedby={heldBy !== null ? heldId : undefined}
+            title={heldBy !== null ? t('layers.lockedBySolo', { layer: heldBy }) : t('layers.lockOf', { layer: name })}
+            data-layer-lock={UNDERLAY_ROW}
+            className={cx(CELL, 'border', heldBy !== null ? 'cursor-default border-dashed' : '', edge(empty || heldBy !== null), inked(state.locked && heldBy === null, empty || heldBy !== null))}
             onClick={() => {
-              const target = scaleTarget(projectStore.getState().records, roomId, selection ?? []);
-              if (target === null) return;
-              startUnderlayScale(target);
-              document.querySelector<HTMLElement>('[data-plan-tile] [data-canvas]')?.focus();
+              if (heldBy === null) setLayerLocked(UNDERLAY_ROW, !state.locked);
             }}
           >
-            {t('layers.scale')}
+            <LockGlyph open={!state.locked} inherit />
           </button>
-        )}
+          {heldBy !== null && (
+            <span id={heldId} className="sr-only">
+              {t('layers.lockedBySolo', { layer: heldBy })}
+            </span>
+          )}
+          {!empty && (
+            <button
+              type="button"
+              data-layer-set-scale=""
+              aria-label={t('layers.scaleOf')}
+              title={t('layers.scaleOf')}
+              className={cx(WORD, edge(false), inked(false))}
+              onClick={() => {
+                const target = scaleTarget(projectStore.getState().records, roomId, selection ?? []);
+                if (target === null) return;
+                startUnderlayScale(target);
+                document.querySelector<HTMLElement>('[data-plan-tile] [data-canvas]')?.focus();
+              }}
+            >
+              {t('layers.scale')}
+            </button>
+          )}
+        </span>
       </span>
     </li>
   );
@@ -255,9 +290,11 @@ const UnderlayRow = memo(function UnderlayRow({ state, count, solo, roomId, view
 function ShowChoice({ layer, name, show, muted, heldBy, heldId }: { layer: LayerRow; name: string; show: LayerShow; muted: boolean; heldBy: string | null; heldId: string }) {
   const held = heldBy !== null;
   return (
-    // Its outline sits a pixel above and below the row's 24 px (-my-px), its cells level with the lock and Solo, so a
-    // one-line row stays 24 px.
-    <div role="radiogroup" aria-label={t('layers.showOf', { layer: name })} className={cx('-my-px flex shrink-0 border', held && 'border-dashed', edge(muted || held))}>
+    // Its outline sits a pixel above the row's 24 px and below it, its cells level with the lock and Solo, so a one-line
+    // row stays 24 px. Set from the top, 1 px up, and 2 px taken off below: the rule is 1.5 px, which a screen at 1x
+    // draws as 1 px (the outline 26 px high) and a Mac's at 2x whole (27 px), and with 1 px off below the Mac's rows
+    // were a pixel taller each, so the tile overflowed at 200 px (#222 round 6b). At 1x nothing moves.
+    <div role="radiogroup" aria-label={t('layers.showOf', { layer: name })} className={cx('-mt-px -mb-[2px] flex shrink-0 self-start border', held && 'border-dashed', edge(muted || held))}>
       {LAYER_SHOWS.map((value, i) => {
         const selected = value === show;
         return (
