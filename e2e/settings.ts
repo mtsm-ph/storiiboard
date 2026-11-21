@@ -29,14 +29,16 @@ export async function applySettings(page: Page): Promise<void> {
 
 /**
  * Closes Settings with Escape, as a person would, back to the workspace. With changes waiting it asks (Kevin, Nov 17),
- * and the question is answered as given: Apply changes unless told otherwise, as a person who changed a setting means to.
+ * and the question is answered as given; a test that changed something says how, so none applies a change unawares.
+ * The question coming with no answer given fails the test.
  */
-export async function closeSettings(page: Page, answer: 'apply' | 'discard' = 'apply'): Promise<void> {
+export async function closeSettings(page: Page, answer?: 'apply' | 'discard'): Promise<void> {
   await page.keyboard.press('Escape');
   const question = closeQuestion(page);
   // Either the window goes (nothing waited) or the question comes: never both, never neither for long.
   await expect.poll(async () => (await question.count()) > 0 || (await page.locator('[data-settings-tab]').count()) === 0).toBe(true);
   if ((await question.count()) > 0) {
+    if (answer === undefined) throw new Error('Settings asked to apply or discard changes, and the test gave no answer.');
     const name = answer === 'apply' ? /^(Apply changes|Aplicar cambios)$/ : /^(Discard changes|Descartar cambios)$/;
     await question.getByRole('button', { name }).click();
   }

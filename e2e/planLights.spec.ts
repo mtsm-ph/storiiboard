@@ -92,7 +92,7 @@ async function placeLight(page: Page): Promise<string> {
 test('lights with their gear item’s watts, a height and a beam; a frame sized by name; the legend’s total; the gear check', async ({ page }) => {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
 
   // A 1,200 W light in Gear.
   await toSection(page, 'Production');
@@ -203,7 +203,7 @@ async function screen(page: Page, x: number, y: number) {
 test('turns a standing flag with the rotate handle at 200%, its 5 cm depth kept (6.5 review)', async ({ page }) => {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
   await planTile(page).getByRole('button', { name: 'New room' }).click();
@@ -239,7 +239,7 @@ test('turns a standing flag with the rotate handle at 200%, its 5 cm depth kept 
 async function placeFlag(page: Page): Promise<Item & { centre: { x: number; y: number } }> {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
   await planTile(page).getByRole('button', { name: 'New room' }).click();
@@ -409,7 +409,7 @@ test('names a typed frame in the Trash and History in the plan’s unit, and aga
   // Feet and inches: both lists name it again, with nothing else touched.
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Feet and inches' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await expect(trash).toContainText('Flag · 4\' 11"');
   await expect(trash).not.toContainText('1.50 m');
   await expect(history).toContainText('Deleted a flag · 4\' 11"');

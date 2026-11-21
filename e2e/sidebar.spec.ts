@@ -273,7 +273,7 @@ test('the sidebar’s foot holds the web version to come, Hide sidebar, the Sett
   await tab.getByLabel('Your name').press('Enter');
   await tab.getByLabel('Usual role').selectOption('dp');
   // Closing asks, with the profile waiting for Apply (Kevin, Nov 17): applied.
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   // The avatar shows the initials, the name is its label.
   const filled = page.getByRole('button', { name: 'Profile: Kevin Matos' });
   await expect(filled).toHaveText('KM');

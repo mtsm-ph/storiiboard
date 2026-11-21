@@ -217,10 +217,10 @@ test('the switch in Settings and the one by the zoom are one choice, the platfor
   await expect(app.getByText('Two fingers pan. Off: the wheel zooms.')).toBeVisible();
   // The help line is the switch's description, read with it.
   await expect(setting).toHaveAccessibleDescription('Two fingers pan. Off: the wheel zooms.');
-  // Changed in Settings: the canvas's switch follows at once.
+  // Changed in Settings: the canvas's switch follows on Apply (here, the close question's Apply changes).
   await setting.click();
   await expect(setting).toHaveAttribute('aria-checked', String(!mac));
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await expect(canvasSwitch(tile)).toHaveAttribute('aria-checked', String(!mac));
   await expect(tile.locator('[data-trackpad-mode]')).toHaveAttribute('data-trackpad-mode', mac ? 'off' : 'on');
   // Changed on the canvas: Settings follows.
@@ -230,7 +230,7 @@ test('the switch in Settings and the one by the zoom are one choice, the platfor
   await expect(app.getByRole('switch', { name: 'Trackpad mode' })).toHaveAttribute('aria-checked', String(mac));
   // And set the platform's other way, so the reload shows a choice, not the default.
   await app.getByRole('switch', { name: 'Trackpad mode' }).click();
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
 
   await page.reload();
   await page.getByRole('list', { name: 'Recent projects' }).getByRole('button', { name: /^Bey County/ }).click();

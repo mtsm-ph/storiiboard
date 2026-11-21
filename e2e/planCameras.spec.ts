@@ -113,7 +113,7 @@ async function gearAndFrames(page: Page) {
   await closeSettings(page);
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await toSection(page, 'Production');
   await newItem(page, 'FX3', 'Camera body');
   await editor(page).getByLabel('Camera and recording mode').selectOption({ label: 'Sony FX3: Full frame 16:9, 35.6 × 20 mm' });
@@ -295,7 +295,7 @@ test('turns a camera with the rotate handle, and its labels follow the language 
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'App language' }).selectOption('es');
   // Applied as Settings closes (Kevin, Nov 17).
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   // (The tile's name is in Spanish now too: read the plan by its data.)
   const labels = async () => (JSON.parse((await page.locator('[data-plan-data]').getAttribute('data-plan-data')) ?? '[]') as Camera[]).find((c) => c.id === id)?.labels;
   await expect.poll(labels).toEqual(['Sin cuerpo de cámara']);

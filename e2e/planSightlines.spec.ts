@@ -85,7 +85,7 @@ async function clickAt(page: Page, x: number, y: number) {
 async function startRoom(page: Page) {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await toSection(page, 'Production');
   await gear(page).getByRole('button', { name: '+ New item' }).click();
   await expect(editor(page).getByLabel('Name')).toBeFocused();

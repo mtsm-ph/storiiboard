@@ -78,9 +78,15 @@ const roleLabel = (role: ProjectRole | null): string =>
  */
 function YourRole({ projectId }: { projectId: string }) {
   // This computer's setting, so it waits for Apply changes (drafts.ts) where the project's fields below save at once.
-  const [set, draftSet] = useDraft<ProjectRole | null>(`projectRole:${projectId}`, useProjectRoleSet(projectId), (next) => {
-    setProjectRole(projectId, next);
-  });
+  // Tied to this project: opening another (Open backup, a switch) while it waits drops it (drafts.ts).
+  const [set, draftSet] = useDraft<ProjectRole | null>(
+    `projectRole:${projectId}`,
+    useProjectRoleSet(projectId),
+    (next) => {
+      setProjectRole(projectId, next);
+    },
+    projectId,
+  );
   // The usual role as Settings → Profile shows it, a change there still waiting included.
   const usual = useDraftValue('profile.role', useProfile().role);
   const part = useMyPart(projectId);

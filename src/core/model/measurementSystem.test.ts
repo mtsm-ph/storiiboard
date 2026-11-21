@@ -60,6 +60,17 @@ describe('upgrading changes nothing anyone sees', () => {
     expect(before.kept.get(SETTINGS_KEY)).toBe(raw);
   });
 
+  it('a computer with only one unit saved (Plan units, feet) reads Mixed and shows what it showed (round 2)', () => {
+    const before = storage({ planUnits: 'feet' });
+    const raw = before.kept.get(SETTINGS_KEY);
+    const settings = loadSettings(before);
+    // Plans in feet, as chosen; the weather by this computer's region, as it never chose.
+    expect(settings.planUnits).toBe('feet');
+    expect(settings.weatherUnits).toBe('region');
+    expect(measurementOf(settings.weatherUnits, settings.planUnits)).toBe('mixed');
+    expect(before.kept.get(SETTINGS_KEY)).toBe(raw);
+  });
+
   it('a computer that never chose either reads By region, as it showed', () => {
     const settings = loadSettings(storage({ language: 'en' }));
     expect(measurementOf(settings.weatherUnits, settings.planUnits)).toBe('region');

@@ -106,7 +106,7 @@ test('each edit carries the profile’s name, or only its initials; edits made b
   await profile.getByLabel('Your name').fill('Kevin Matos');
   await profile.getByLabel('Your name').press('Enter');
   // Closing asks, with the name waiting for Apply (Kevin, Nov 17): applied.
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
   await expect(steps(page).first()).toContainText('Added frame 1D');
   await expect(steps(page).first()).toContainText('Kevin Matos ·');
@@ -116,7 +116,7 @@ test('each edit carries the profile’s name, or only its initials; edits made b
   // Initials only, from here on.
   profile = await openSettings(page, 'Profile');
   await profile.getByRole('switch', { name: 'Sign my edits with my initials only' }).click();
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
   await expect(steps(page).first()).toContainText('Added frame 1E');
   await expect(steps(page).first()).toContainText('KM ·');
@@ -255,7 +255,7 @@ test('a named version opens as a copy at that point, and the original keeps ever
   await profile.getByLabel('Your name').fill('Kevin Matos');
   await profile.getByLabel('Your name').press('Enter');
   // Closing asks, with the name waiting for Apply (Kevin, Nov 17): applied.
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await openHistory(page);
   await history(page).getByLabel('Name this point').fill('Board sent to client');
   await history(page).getByRole('button', { name: 'Name version' }).click();

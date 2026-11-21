@@ -90,7 +90,7 @@ test('only the director or the DP approves a scene, with who, and a change shows
   const role = project.getByLabel('Your role on this project');
   await expect(role.locator('option').first()).toHaveText('Your usual role (Gaffer)');
   await role.selectOption({ label: 'Director and DP' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
 
   await approved.click();
   await expect(approved).toHaveAttribute('aria-checked', 'true');
@@ -158,7 +158,7 @@ test('opening a frame marks it Seen by your department, shown on its card and in
 
   const project = await openSettings(page, 'Project');
   await project.getByLabel('Your role on this project').selectOption({ label: 'Director of photography' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   // The frame open as the role was set is marked; arrowing past the next one doesn't count as opening it.
   const second = board(page).locator('[data-shot-id]').nth(1);
   await expect(board(page).locator('[data-shot-id]').first()).toHaveAccessibleDescription('Departments: 1 seen');
@@ -192,7 +192,7 @@ test('the department status and approval grids pass the axe checks', async ({ pa
   // An approval that's changed since, in the warning colour (3.6b).
   const project = await openSettings(page, 'Project');
   await project.getByLabel('Your role on this project').selectOption({ label: 'Director of photography' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await approveBox(page, 'Camera: Approved').click();
   await box(page, 'Camera: Working on it').click();
   await expect(approvalRow(page, 'Camera')).toContainText('Changed since approval');
@@ -208,7 +208,7 @@ test('you in Cast and crew: your person’s role approves and their departments 
   await profile.getByLabel('Your name').fill('Sam Ortiz');
   await profile.getByLabel('Your name').press('Enter');
   await profile.getByLabel('Usual role').selectOption('gaffer');
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
 
   await sections.getByRole('button', { name: /^Production/ }).click();
   const people = page.getByRole('region', { name: 'Cast and crew', exact: true });

@@ -111,6 +111,57 @@ test('the Project tab’s own fields still save at once, as edits; Your role wai
   await expect(again.getByLabel('Your role on this project')).toHaveValue('');
 });
 
+test('a typed number turns Apply on at once, and one click applies it: Backups’ numbers; the playback copies’ cap still saves at once', async ({ page }) => {
+  const backups = await openSettings(page, 'Backups');
+  const recent = backups.getByRole('textbox', { name: 'Keep the last' });
+  await recent.fill('20');
+  // Still in the field, nothing left or pressed: the number already waits.
+  await expect(recent).toBeFocused();
+  await expect(applyButton(page)).toBeEnabled();
+  expect((await stored(page)).backups ?? { recent: 12, days: 14 }).toEqual({ recent: 12, days: 14 });
+  await applyButton(page).click();
+  await expect(applyButton(page)).toBeDisabled();
+  expect(await stored(page)).toMatchObject({ backups: { recent: 20, days: 14 } });
+  await expect(recent).toHaveValue('20');
+  // Not a number in range: nothing waits, and leaving the field puts back what's shown.
+  await recent.fill('0');
+  await expect(applyButton(page)).toBeDisabled();
+  await recent.blur();
+  await expect(recent).toHaveValue('20');
+
+  // The playback copies' cap still saves at once, as Rust holds it: said in its own notice, nothing waits for Apply.
+  await settingsWindow(page).getByRole('tab', { name: 'Storage', exact: true }).click();
+  const cap = settingsWindow(page).getByRole('tabpanel', { name: 'Storage', exact: true }).getByRole('textbox', { name: 'Cap, in GB' });
+  await cap.fill('30');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText('The cap for playback copies is 30 GB now.')).toBeVisible();
+  await expect(applyButton(page)).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(settingsWindow(page)).toHaveCount(0);
+});
+
+test('opening a backup with changes waiting drops the project’s own (Your role) and keeps this computer’s', async ({ page }) => {
+  const project = await openSettings(page, 'Project');
+  await project.getByLabel('Your role on this project').selectOption({ label: 'Director of photography' });
+  await settingsWindow(page).getByRole('tab', { name: 'App', exact: true }).click();
+  await settingsWindow(page).getByRole('tabpanel', { name: 'App', exact: true }).getByLabel('Week starts on').selectOption('monday');
+  await settingsWindow(page).getByRole('tab', { name: 'Backups', exact: true }).click();
+  const backups = settingsWindow(page).getByRole('tabpanel', { name: 'Backups', exact: true });
+  await backups.getByRole('button', { name: 'Back up now' }).click();
+  await expect(backups.getByRole('status')).toContainText('Backed up at');
+  await backups.getByRole('list', { name: 'Backups' }).getByRole('button', { name: /^Open the/ }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Opened a backup as a separate project' })).toBeVisible();
+
+  // The week start still waits; the role, for the project left, is gone, so Apply never writes it.
+  await expect(applyButton(page)).toBeEnabled();
+  await settingsWindow(page).getByRole('tab', { name: 'Project', exact: true }).click();
+  await expect(settingsWindow(page).getByRole('tabpanel', { name: 'Project', exact: true }).getByLabel('Your role on this project')).toHaveValue('');
+  await applyButton(page).click();
+  await expect(applyButton(page)).toBeDisabled();
+  expect((await stored(page)).weekStart).toBe('monday');
+  expect(Object.values(((await stored(page)).projectRoles ?? {}) as Record<string, string>)).toEqual([]);
+});
+
 test('the Measurement system sets plan and weather units together, and reads Mixed, both shown, when they differ', async ({ page }) => {
   const app = await openSettings(page, 'App');
   const system = app.getByRole('combobox', { name: 'Measurement system' });

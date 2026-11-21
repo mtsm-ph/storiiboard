@@ -2,22 +2,24 @@ import { t } from '../../core/i18n';
 import type { PlanUnit } from '../../core/model/length';
 import { cx } from '../cx';
 
-// The m | ft switch by a plan's scale bar (Kevin, Nov 18): two pressed-or-not buttons in the zoom's box, the unit in use
-// an ink fill, as Paper and Dark's. It only hands the unit picked back: the host keeps it on this computer (Plan units)
+// The m | ft switch by a plan's scale bar (Kevin, Nov 18): two pressed-or-not buttons just above the zoom's box, the
+// unit in use an ink fill, as Paper and Dark's. It only hands the unit picked back: the host keeps it on this computer (Plan units)
 // and applies it at once, a view as the Dark view is. Pressing the unit already in use changes nothing, so a computer
 // whose Plan units follow its region keeps following it until the other unit is picked.
 
 interface ScaleUnitsProps {
   value: PlanUnit;
   onChange: (unit: PlanUnit) => void;
-  /** The canvas's own button classes, so the pair sits in the zoom's box as its other buttons do. */
+  /** The canvas's own button classes, so the pair looks as the row's other buttons do. */
   button: string;
   pressed: string;
 }
 
 export function ScaleUnits({ value, onChange, button, pressed }: ScaleUnitsProps) {
   return (
-    <div role="group" aria-label={t('canvas.units.label')} title={t('canvas.units.hint')} data-scale-units={value} className="flex items-center border-x border-text">
+    // A box of its own, framed as Paper and Dark's is, first in the row just above the zoom's box (Canvas.tsx): the zoom's
+    // box keeps the footprint it had before the pair came, so it covers no more of the plan.
+    <div role="group" aria-label={t('canvas.units.label')} title={t('canvas.units.hint')} data-scale-units={value} className="flex items-center border-[1.5px] border-text bg-surface p-0.5">
       {(['metres', 'feet'] as const).map((unit) => {
         const on = value === unit;
         return (
