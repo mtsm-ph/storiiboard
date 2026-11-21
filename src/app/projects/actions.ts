@@ -63,16 +63,17 @@ export async function reopenChangedProject(): Promise<void> {
       try {
         if (!(await reopenProjectFile(path, files))) {
           // Not opened (Cancel at "open on another computer"): the one open is on a replaced file and can't be saved
-          // to, so it closes rather than refuse every edit without a word.
-          await projectStore.getState().close();
+          // to, so it closes rather than refuse every edit without a word. No queued backup is made of a file that's
+          // no longer the project.
+          await projectStore.getState().close({ flush: false });
           showNotice(t('open.changedNotReopened'));
           return;
         }
         showNotice(t('open.changedReopened'));
       } catch (error) {
         // The open project is on a file that's been replaced, so it can't be saved to: it closes, and the notice says
-        // why.
-        await projectStore.getState().close();
+        // why. No queued backup of it, as above.
+        await projectStore.getState().close({ flush: false });
         showNotice(error);
       }
     });

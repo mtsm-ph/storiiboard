@@ -12,7 +12,8 @@ import { isTextEntry } from './workspaces';
 // answer. The browser's or WebView's own save dialog never opens: the key is caught for the whole window, text fields
 // included, with or without a project.
 
-type KeyEvent = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>;
+type KeyEvent = Pick<KeyboardEvent, 'key' | 'code' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'> &
+  Partial<Pick<KeyboardEvent, 'getModifierState'>>;
 
 /**
  * ⌘S on a Mac, Ctrl+S elsewhere: never the other one. The letter typed, on any Latin layout; the key's place only where
@@ -30,16 +31,63 @@ export function isSaveShortcut(event: KeyEvent, mac: boolean): boolean {
  * page then, so letters typed would be lost and window shortcuts would act on them (Ctrl+Z undoing the step just
  * committed). Every key in it is taken, and the typed ones are kept, in order, for the field once it's back.
  */
-let gap: { doc: Pick<Document, 'activeElement' | 'body'>; typed: string[] } | null = null;
+let gap: Gap | null = null;
+
+/** What a key in the gap does to the field once it's back, in order. */
+type GapEdit = { kind: 'text'; text: string } | { kind: 'delete' } | { kind: 'forwardDelete' };
+
+interface Gap {
+  doc: Pick<Document, 'activeElement' | 'body'>;
+  edits: GapEdit[];
+  /** A textarea, where Enter types a line break; in a one-line field Enter does something else. */
+  multiline: boolean;
+  /**
+   * Set at a key that moves on (Tab, an arrow, Escape, Enter in a one-line field): what follows it was meant for
+   * another place, so it's dropped; what came before still goes into the field.
+   */
+  stopped: boolean;
+  /** Set at a pointerdown: the person went elsewhere (WebKit on a Mac moves no focus on a click), so nothing comes back. */
+  ended: boolean;
+}
+
+/** Keys that change nothing by themselves: held for a capital, an accent or a layout's next key. */
+const NEUTRAL = new Set(['Shift', 'Control', 'Alt', 'AltGraph', 'Meta', 'CapsLock', 'NumLock', 'Fn', 'Dead', 'Process', 'Unidentified']);
 
 /** What a key types, or null for one that types nothing (a shortcut, an arrow, Enter, a dead key). */
 export function typedBy(event: KeyEvent, mac: boolean): string | null {
   // A key that types has one character for its name; named keys (Enter, ArrowLeft, Dead) have longer ones.
   if (event.metaKey || !/^.$/u.test(event.key)) return null;
-  // AltGr reports Ctrl and Alt together on Windows and Linux, and types; Alt alone is a shortcut there (Alt+1). On a
-  // Mac, Option types and Ctrl doesn't.
-  if (mac ? event.ctrlKey : event.ctrlKey !== event.altKey) return null;
-  return event.key;
+  // On a Mac, Option types and Ctrl doesn't.
+  if (mac) return event.ctrlKey ? null : event.key;
+  if (!event.ctrlKey && !event.altKey) return event.key;
+  // AltGr reports Ctrl and Alt together on Windows and Linux, and types; Alt alone is a shortcut there (Alt+1). Where
+  // the engine says which it is, only AltGr counts, so Ctrl+Alt+letter held down isn't typing.
+  if (event.getModifierState) return event.getModifierState('AltGraph') ? event.key : null;
+  return event.ctrlKey && event.altKey ? event.key : null;
+}
+
+/** What a key pressed in the gap does: an edit for the field, nothing, or the end of collecting. */
+function gapKey(event: KeyEvent, mac: boolean, multiline: boolean): GapEdit | 'none' | 'stop' {
+  const typed = typedBy(event, mac);
+  if (typed !== null) return { kind: 'text', text: typed };
+  if (NEUTRAL.has(event.key)) return 'none';
+  const plain = !event.ctrlKey && !event.altKey && !event.metaKey;
+  if (plain && event.key === 'Backspace') return { kind: 'delete' };
+  if (plain && event.key === 'Delete') return { kind: 'forwardDelete' };
+  if (plain && event.key === 'Enter' && multiline) return { kind: 'text', text: '\n' };
+  // Taken as round 2 has it, and collecting goes on: the key again, Enter in a one-line field, and other shortcuts
+  // (Ctrl+Z). A shortcut stopping the collecting too, as round 3's item 3 asks, would change round 2's test of "x,
+  // Ctrl+Z, y, Ctrl+S, Enter, z" typing "xyz"; that's left for the main session to decide.
+  if (isSaveShortcut(event, mac) || event.key === 'Enter' || !plain) return 'none';
+  // Any other key that doesn't type (Tab, an arrow, Escape, Home, a function key) moves on.
+  return 'stop';
+}
+
+/** A pointerdown anywhere ends the gap: nothing typed in it goes in, and the field isn't focused again. */
+export function onGapPointer(): void {
+  if (!gap) return;
+  gap.ended = true;
+  gap = null;
 }
 
 /**
@@ -57,9 +105,15 @@ export function onSaveKey(
   // Only while focus is still nowhere: a person who clicked into another place meanwhile types there.
   if (gap && (gap.doc.activeElement === null || gap.doc.activeElement === gap.doc.body)) {
     event.preventDefault();
+    // Stops every listener after this one, but not capture-phase listeners on the window added before the shell's
+    // (a child's effect runs before its parent's), which still hear the key. Today those handle only Escape (a tip),
+    // a tile move, drag or menu already under way, or track which keys are held (the canvas's Ctrl): never an edit.
     event.stopImmediatePropagation?.();
-    const typed = typedBy(event, mac);
-    if (typed !== null) gap.typed.push(typed);
+    if (!gap.stopped) {
+      const edit = gapKey(event, mac, gap.multiline);
+      if (edit === 'stop') gap.stopped = true;
+      else if (edit !== 'none') gap.edits.push(edit);
+    }
     return isSaveShortcut(event, mac);
   }
   if (!isSaveShortcut(event, mac)) return false;
@@ -144,6 +198,50 @@ function typeInto(element: HTMLElement, text: string, doc: Document): void {
   }
 }
 
+/** Backspace (`delete`) or Delete (`forwardDelete`) pressed in the gap, at the caret, as the key does it. */
+function deleteIn(element: HTMLElement, kind: 'delete' | 'forwardDelete', doc: Document): void {
+  // eslint-disable-next-line @typescript-eslint/no-deprecated
+  if (doc.execCommand(kind, false)) return;
+  const field = element as HTMLInputElement;
+  try {
+    let start = field.selectionStart ?? field.value.length;
+    let end = field.selectionEnd ?? start;
+    // With nothing selected, the character before the caret (Backspace) or after it (Delete).
+    if (start === end) {
+      if (kind === 'delete') start = Math.max(0, start - 1);
+      else end = Math.min(field.value.length, end + 1);
+    }
+    if (start === end) return;
+    field.setRangeText('', start, end, 'end');
+    const inputType = kind === 'delete' ? 'deleteContentBackward' : 'deleteContentForward';
+    field.dispatchEvent(new InputEvent('input', { bubbles: true, inputType }));
+  } catch {
+    // A field with no caret of its own: nothing to delete.
+  }
+}
+
+/** The gap's keys replayed in order: each run of letters typed at once, each delete as its key. */
+function replay(element: HTMLElement, edits: readonly GapEdit[], doc: Document): void {
+  let text = '';
+  const flush = () => {
+    if (text !== '') typeInto(element, text, doc);
+    text = '';
+  };
+  for (const edit of edits) {
+    if (doc.activeElement !== element) return;
+    if (edit.kind === 'text') {
+      text += edit.text;
+      continue;
+    }
+    flush();
+    deleteIn(element, edit.kind, doc);
+  }
+  if (doc.activeElement === element) flush();
+}
+
+/** A value as a commit may leave it: tidied of spaces at the ends, and in any case (a scene number made upper case). */
+const tidied = (value: string) => value.trim().toLowerCase();
+
 /** The element the climb for a field drawn anew stops at: its tile, so focus never goes to another tile's field. */
 const TILE = 'data-stack-id';
 
@@ -165,7 +263,7 @@ export async function commitAndStay(settled: () => Promise<void>, doc: Document 
     ancestors.push(at);
     if (at.getAttribute(TILE) !== null) break;
   }
-  const keys = { doc, typed: [] as string[] };
+  const keys: Gap = { doc, edits: [], multiline: active.tagName === 'TEXTAREA', stopped: false, ended: false };
   gap = keys;
   try {
     if (!commitTyping(doc)) return;
@@ -174,6 +272,8 @@ export async function commitAndStay(settled: () => Promise<void>, doc: Document 
     // From here on (synchronously) the field is back or isn't coming back: keys go where focus is again.
     if (gap === keys) gap = null;
   }
+  // A click meanwhile: the person went elsewhere, even where it moved no focus (WebKit on a Mac).
+  if (keys.ended) return;
   // Read again after the wait: the person may have moved on meanwhile.
   const focused: Element | null = (doc as Pick<Document, 'activeElement'>).activeElement;
   if (focused && focused !== doc.body) return;
@@ -184,15 +284,15 @@ export async function commitAndStay(settled: () => Promise<void>, doc: Document 
     const holder = ancestors.find((at) => at.isConnected);
     const same = holder
       ? [...holder.querySelectorAll('input, textarea')].filter(
-          (el) => isTextEntry(el) && signature(el) === sig && (el as HTMLInputElement).value === value,
+          // As the commit left it: a scene number made upper case, a name trimmed, is still the same field's value.
+          (el) => isTextEntry(el) && signature(el) === sig && tidied((el as HTMLInputElement).value) === tidied(value),
         )
       : [];
     if (same.length === 1 && same[0]) field = same[0] as HTMLElement;
   }
   if (!field) return;
   putBack(field, caret);
-  const text = keys.typed.join('');
-  if (text !== '' && doc.activeElement === field) typeInto(field, text, doc);
+  if (keys.edits.length > 0 && doc.activeElement === field) replay(field, keys.edits, doc);
 }
 
 /** The edits queued so far are written and merged, and the screen has drawn them. */

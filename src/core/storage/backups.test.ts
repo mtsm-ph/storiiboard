@@ -532,7 +532,7 @@ describe('a backup asked for by hand (Ctrl+S, Back up now; Kevin, Nov 18)', () =
     return { left, results };
   }
 
-  it('keeps a copy for every 5 minutes when presses come every two, never fewer than the ticks alone', async () => {
+  it('keeps a copy for every 5 minutes when each interval’s presses come after its tick, never fewer than the ticks alone', async () => {
     const other = makeTestFolder();
     const pressed = await chain(other, true);
     other.remove();
@@ -544,6 +544,31 @@ describe('a backup asked for by hand (Ctrl+S, Back up now; Kevin, Nov 18)', () =
     expect(pressed.results).toEqual(['created', 'created', 'replaced', 'created', 'replaced', 'created']);
     expect(pressed.left).toEqual([backupFileName('Bey', at(4)), name(8), name(12), name(16)]);
     expect(pressed.left.length).toBeGreaterThanOrEqual(timed.left.length);
+  });
+
+  // Kevin's rule as written (a copy "itself a timed or hand backup" may be replaced): a press may replace the copy a tick
+  // wrote, and the next tick then adopts the press's. Pressing just before each tick so keeps one copy per two
+  // intervals. Pinned so that changing it is a decision (#244 round 3; the question is Kevin's).
+  it('lets a press replace a tick’s own copy, which the next tick then adopts: one copy per two intervals', async () => {
+    const schedule = await start({ intervalMs: BACKUP_INTERVAL_MS });
+    const results: HandBackup[] = [];
+    for (const interval of [0, 10]) {
+      await edit(`tick ${String(interval)}`);
+      clock = at(interval + 5);
+      await vi.advanceTimersByTimeAsync(BACKUP_INTERVAL_MS);
+      await edit(`press ${String(interval)}`);
+      clock = at(interval + 9, 50);
+      results.push(await schedule.backUpByHand());
+      // The tick at 10 (and 20) finds nothing new: the press's copy is its.
+      clock = at(interval + 10);
+      await vi.advanceTimersByTimeAsync(BACKUP_INTERVAL_MS);
+    }
+    expect(results).toEqual([
+      { kind: 'replaced', created: name(9), replaced: name(5), deleted: [] },
+      { kind: 'replaced', created: name(19), replaced: name(15), deleted: [] },
+    ]);
+    expect(await names()).toEqual([name(9), name(19)]);
+    schedule.stop();
   });
 
   it('still replaces a press’s copy with the next press in the same 5 minutes, after a tick that wrote nothing', async () => {
@@ -624,6 +649,104 @@ describe('a backup asked for by hand (Ctrl+S, Back up now; Kevin, Nov 18)', () =
     expect(vi.getTimerCount()).toBe(0);
     await schedule.flushQueued();
     expect(await names()).toEqual([backupFileName('Bey', at(0), 2)]);
+  });
+
+  it('at a close, waits for the queued copy already under way before resolving', async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let hold = false;
+    const schedule = await startBackups(
+      {
+        ...watched(),
+        backup: async (kind, backup) => {
+          calls.push(`copy ${backup}`);
+          if (hold) await held;
+          await file.backup(kind, backup);
+          calls.push(`copied ${backup}`);
+        },
+      },
+      { intervalMs: 3_600_000, now: () => clock },
+    );
+    await edit('1A');
+    await schedule.backUpByHand();
+    await edit('1B');
+    clock = at(0, 30);
+    await expect(schedule.backUpByHand()).resolves.toMatchObject({ kind: 'queued' });
+    // Its minute comes, and its copy starts and is held.
+    hold = true;
+    clock = at(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.waitFor(() => {
+      expect(calls).toContain(`copy ${name(1)}`);
+    });
+    expect(schedule.pending()).toBe(true);
+    let flushed = false;
+    const flushing = schedule.flushQueued().then(() => {
+      flushed = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(flushed).toBe(false);
+    release();
+    await flushing;
+    expect(calls.at(-2)).toBe(`copied ${name(1)}`);
+    expect(calls.at(-1)).toBe(`delete ${name(0)}`);
+    expect(schedule.pending()).toBe(false);
+    schedule.stop();
+  });
+
+  it('at a close, tells onError of no failure: neither the copy it makes nor one under way', async () => {
+    const onError = vi.fn();
+    const schedule = await start({ onError });
+    await edit('1A');
+    await schedule.backUpByHand();
+    await edit('1B');
+    clock = at(0, 30);
+    await expect(schedule.backUpByHand()).resolves.toMatchObject({ kind: 'queued' });
+    failNext = true;
+    await schedule.flushQueued();
+    expect(failNext).toBe(false);
+    expect(await names()).toEqual([name(0)]);
+    schedule.stop();
+
+    // One whose minute came and whose copy is under way when the close begins, and then fails.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let hold = false;
+    const other = await startBackups(
+      {
+        ...watched(),
+        backup: async (kind, backup) => {
+          if (hold) {
+            calls.push(`held ${backup}`);
+            await held;
+            throw new Error('The disk is full.');
+          }
+          await file.backup(kind, backup);
+        },
+      },
+      { intervalMs: 3_600_000, now: () => clock, onError },
+    );
+    await edit('2A');
+    clock = at(3);
+    await other.backUpByHand();
+    await edit('2B');
+    clock = at(3, 30);
+    await expect(other.backUpByHand()).resolves.toMatchObject({ kind: 'queued' });
+    hold = true;
+    clock = at(4);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.waitFor(() => {
+      expect(calls).toContain(`held ${name(4)}`);
+    });
+    const flushing = other.flushQueued();
+    release();
+    await flushing;
+    other.stop();
+    expect(onError).not.toHaveBeenCalled();
   });
 });
 
