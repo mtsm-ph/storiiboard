@@ -17,7 +17,7 @@ describe('the assistant’s row', () => {
         kinds: ['trash', 'update', 'create', 'reorder'],
         fields: ['title', 'size', 'lens_mm', 't_stop', 'support', 'height', 'move', 'status', 'action', 'dialogue', 'location_id', 'shoot_day_id', 'gear_ids'],
       },
-      scene: { kinds: ['trash', 'update', 'create'], fields: ['name', 'int_ext', 'day_night', 'location_id', 'page_eighths', 'character_ids'] },
+      scene: { kinds: ['trash', 'update', 'create'], fields: ['name', 'int_ext', 'day_night', 'location_id', 'page_eighths'] },
       note: { kinds: ['trash', 'update', 'create', 'reorder'], fields: ['text'] },
       shoot_day: { kinds: ['update'], fields: ['gear_ids', 'call_time', 'wrap_time'] },
       callsheet: { kinds: ['update'], fields: ['notes', 'safety_notes', 'department_calls', 'person_times'] },
@@ -46,7 +46,7 @@ describe('What the assistant can suggest, in words', () => {
     expect(words.title).toBe('What the assistant can suggest');
     expect(words.lines).toEqual([
       'Frames: move to the Trash, change, add and reorder. Fields: title, size, lens, T-stop, support, height, move, status, action, dialogue, location, shoot day and gear.',
-      'Scenes: move to the Trash, change and add. Fields: name, INT/EXT, time of day, location, length and characters.',
+      'Scenes: move to the Trash, change and add. Fields: name, INT/EXT, time of day, location and length.',
       'Notes: move to the Trash, change, add and reorder. Fields: text.',
       'Shoot days: change. Fields: gear, call and wrap.',
       'Call sheets: change. Fields: general notes, safety notes, department calls and times.',

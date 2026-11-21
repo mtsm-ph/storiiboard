@@ -2,6 +2,7 @@ import { list, t, type MessageKey } from '../i18n';
 import { frameLens } from './cameraGear';
 import { isDepartment } from './department';
 import type { JsonValue, RecordType, SbdRecord } from './record';
+import { dayPeopleIds } from './schedule';
 import { isClockTime } from './shootDay';
 import { SHOT_STATUSES } from './shotStatus';
 import { DAY_NIGHT, HEIGHTS, INT_EXT, MOVES, SHOT_SIZES, SUPPORTS, T_STOPS } from './storyboard';
@@ -14,8 +15,9 @@ import { DAY_NIGHT, HEIGHTS, INT_EXT, MOVES, SHOT_SIZES, SUPPORTS, T_STOPS } fro
 //
 // Left out of every row on purpose: shot and scene numbers and their locks (the project's own rule gives them, and
 // slates hold them), approvals, department status and Seen, pictures, sketches and other media, `trashed_*`, custom
-// fields, a frame's setup and lens pick (Phase 6's plans, with `suggest_room` in 7.6), project settings, and anything
-// that holds a person's contact details. A field not in a row is refused, never applied "for review".
+// fields, a frame's setup and lens pick (Phase 6's plans, with `suggest_room` in 7.6), a scene's characters (no hand
+// edit sets them: 7.7's breakdown brings them back with one, 7.0 round 3), project settings, and anything that holds a
+// person's contact details. A field not in a row is refused, never applied "for review".
 
 /** The kinds format version 1 knows (docs/SBD_FORMAT.md, Change files). */
 export const SUGGESTION_KINDS = ['trash', 'update', 'create', 'reorder'] as const;
@@ -45,12 +47,18 @@ export type ValueProblem =
   /** The project holds something there this version can't read (a newer one's): never written over. */
   | 'unreadable'
   /** A frame's focal length outside the range of the lens picked for it, or taken off while one is picked. */
-  | 'lens_range';
+  | 'lens_range'
+  /** A call sheet's times for someone who isn't on its day: the sheet shows only the day's people (4.2). */
+  | 'not_on_day';
 
-/** What a check reads besides the value: the project's records, and the record the value would go on (null for one being made). */
+/**
+ * What a check reads besides the value: the project's records, the record the value would go on (null for one being
+ * made, or a call sheet not made yet), and for a call sheet, its day.
+ */
 export interface FieldContext {
   records: Records;
   record: SbdRecord | null;
+  day?: SbdRecord | null;
 }
 
 export interface ScopeField {
@@ -218,18 +226,22 @@ export const isPersonTimeKey = (key: string): key is PersonTimeKey => (PERSON_TI
  * A call sheet's person times, key by key as the sheet's own edit writes them (personTimeChange):
  * `{ person id: { call?, hmu_ready?, on_set? } }`, each "HH:MM", or '' and null to take that one off; a person given
  * null has all three taken off. People and keys not named stay as they are, those this version can't read included.
+ * Only the day's people (7.0 round 3): when the day has a list (`people_ids`), someone not on it is refused, since the
+ * sheet shows only them (4.2); a day without the list (everyone) takes any live person.
  */
 const personTimes: ScopeField = {
   label: 'history.field.personTimes',
-  check: (value, { records, record }) => {
+  check: (value, { records, record, day }) => {
     const stored = storedMap(record, 'person_times');
     if (stored) return stored;
     if (!isObject(value)) return 'type';
     const entries = Object.entries(value);
     if (entries.length > MAX_IDS) return 'too_many';
     const was = record?.props.person_times;
+    const onDay = day ? dayPeopleIds(day.props) : null;
     for (const [personId, times] of entries) {
       if (!liveOf(records, personId, 'person')) return 'not_found';
+      if (onDay && !onDay.includes(personId)) return 'not_on_day';
       // A person's entry that isn't an object (a newer version's) is never written over, as the sheet's edit refuses it.
       if (isObject(was) && Object.hasOwn(was, personId) && !isObject(was[personId])) return 'unreadable';
       if (times === null) continue;
@@ -293,7 +305,6 @@ export const ASSISTANT_SCOPE: ScopeRow = {
         day_night: choice('history.field.dayNight', DAY_NIGHT, true),
         location_id: idOf('history.field.locationId', 'location', false),
         page_eighths: wholeNumber('history.field.pageEighths', 1, 8 * 999),
-        character_ids: idsOf('history.field.characters', 'character', 'character_ids', false),
       },
     },
     note: {

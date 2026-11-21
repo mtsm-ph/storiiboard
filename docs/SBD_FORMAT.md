@@ -1770,20 +1770,21 @@ field's values. The assistant's row (Phase 7) allows:
 | Record | Kinds | Fields |
 |---|---|---|
 | `shot` (a frame) | `trash`, `update`, `create`, `reorder` | `title`, `size`, `lens_mm`, `t_stop`, `support`, `height`, `move`, `status`, `action`, `dialogue`, `location_id`, `shoot_day_id`, `gear_ids` |
-| `scene` | `trash`, `update`, `create` | `name`, `int_ext`, `day_night`, `location_id`, `page_eighths`, `character_ids` |
+| `scene` | `trash`, `update`, `create` | `name`, `int_ext`, `day_night`, `location_id`, `page_eighths` |
 | `note` | `trash`, `update`, `create`, `reorder` | `text` |
 | `shoot_day` | `update` | `gear_ids` (the day's gear list), `call_time` and `wrap_time` (its crew call and wrap, the call sheet's calls) |
 | `callsheet` | `update` | `notes`, `safety_notes`, `department_calls`, `person_times` |
 
 Never people's contact details, project settings, files, pictures, sketches or other media; never shot or scene
-numbers or their locks, approvals, department status, Seen, `trashed_at` and `trashed_by`, custom fields, or a frame's
-setup or lens pick. Plan items join the row in 7.6. A row's words ("What the assistant can suggest") are made from the
+numbers or their locks, approvals, department status, Seen, `trashed_at` and `trashed_by`, custom fields, a frame's
+setup or lens pick, or a scene's characters (`character_ids`: no edit of the app sets them by hand; 7.7's breakdown
+brings them back with one). Plan items join the row in 7.6. A row's words ("What the assistant can suggest") are made from the
 table, so they always say what the rule allows.
 
 Apply only does what a person could do by hand, with the same edit the app makes. So scenes have no `reorder` (no one
 can move a scene on the board today), and a suggestion can empty a field only where a person can empty it: a frame's
-title, lens, T-stop, support, height, move, own location, shoot day and gear; a scene's time of day, length and
-characters; a note's text (to ''); a day's gear list, crew call and wrap; a call sheet's notes and each call or time.
+title, lens, T-stop, support, height, move, own location, shoot day and gear; a scene's time of day and length; a
+note's text (to ''); a day's gear list, crew call and wrap; a call sheet's notes and each call or time.
 A frame's size and status and a scene's INT/EXT and location can be changed but not emptied; a frame's action and
 dialogue, and a scene's name, are emptied as text ('').
 
@@ -1812,17 +1813,20 @@ sheet, on its `callsheet` record): each field by the edit a person would make fo
 for a frame's day and a day's crew call and wrap, the Gear picker's for a gear list, the call sheet's own for its notes,
 calls and times), one after another, folded into that one op.
 
-- A list of ids (`gear_ids`, `character_ids`) keeps what a person can't see: every stored entry that isn't a live
-  record of the list's type (in the Trash, gone, not an id) stays where it is, and is left out of *changed since*. A
-  gear list changes by the Gear picker's own adds and removes: the items a person would untick come off, the ones they'd
-  tick go on at the end, so an item already listed keeps its place. A scene's characters (no edit of the app sets them
-  but a script's import) take the suggested ids in their order, around the entries kept.
+- A gear list (`gear_ids`, the row's only list of ids) keeps what a person can't see: every stored entry that isn't a
+  live gear item (in the Trash, gone, not an id) stays where it is, and is left out of *changed since*. It changes by
+  the Gear picker's own adds and removes: the items a person would untick come off, the ones they'd tick go on at the
+  end, so an item already listed keeps its place.
 - A call sheet's `department_calls` and `person_times` merge key by key, as the sheet's own edits do: a department or
   a person named is set; `null` or `''` takes that one off (a person given `null` has their call, HMU ready and on set
   taken off); every key not named stays as it is, one this version can't read included. The field itself can't be
-  taken off whole. Only the named keys are compared for *changed since*.
-- A frame goes on a day only if it is Need to shoot, as the Days tile offers it (4.11): the status it has once the
-  suggestion is applied. Any other is flagged *can't be applied*. Taking a frame off a day always can be.
+  taken off whole. Only the named keys are compared for *changed since*. `person_times` names only the day's people:
+  when the day has a list (`people_ids`, 4.2), a person not on it is refused, since the sheet shows only them; a day
+  without the list (everyone) takes any live person.
+- A frame on no live day goes onto one only if it is Need to shoot, as the Days tile offers it (4.11), where the status
+  read is the one it has after Apply (so a suggestion that sets Need to shoot too may). Any other is flagged *can't be
+  applied*. A frame already on a live day moves to another whatever its status, as the Days tile's Move to does, and
+  taking a frame off a day always can be.
 - A field whose stored value isn't even the right shape (a list, an object) is never written over.
 
 ```json
@@ -1839,8 +1843,13 @@ fields the scope row allows for that type. `target` has only `type` (the same as
 record yet. Shot numbers come from the project's own rule, never from the file: a new frame is numbered as one added on
 the board, and a new scene takes the board's number for its place (4A after 4, one past the highest at the end), made
 by the board's own add. A scene goes only where a person can add one: after a live scene, or (its `after_id` gone) at
-the end. A scene with `after_id` `null` (first on the board) is flagged *can't be applied*: no one can add one there
-by hand, so Apply doesn't either.
+the end. A scene with `after_id` `null` (first on the board) on a board that has a live scene is flagged *can't be
+applied*: no one can add one before the first by hand, so Apply doesn't either. On a board with no live scene (empty,
+or only scenes in the Trash), first and last are the same place: it is added as + Add Scene adds one.
+
+An `after_id` equal to the suggestion's own id, or a chain of `after_id`s through `create`s of the same file that comes
+back to it, is flagged *can't be applied* on `after_id`, never *waiting*: it would wait on itself. The same for
+`after_suggestion` when its chain of parents comes back round.
 
 `parent_id` may instead name another `create` suggestion of the same file, for a new scene's new frames; the record
 then names it in `after_suggestion`. Such a suggestion can be applied only once that one has been, and is flagged
@@ -1893,7 +1902,7 @@ decision 3: it never writes the .sbd). Its props:
 | note | The suggester's words, shown as text |
 | data | Kind-specific (above) |
 | suggested_at | When it was suggested (`created_at` in the file) |
-| decided_by, decided_at | Who applied or rejected it, the author as the op log records it, and when: the decision's own op group's time, the same as the `updated_at` (and, for a `trash`, the `trashed_at`) its group writes |
+| decided_by, decided_at | Who applied or rejected it, the author as the op log records it, and when: the time of the op group that applied or rejected it, as `trashed_at` keeps its trash's time (a bring_back keeps it, as it keeps `trashed_at`) |
 | created_id | For an applied `create`: the id of the record it made |
 | after_suggestion | For a `create` whose parent is another `create` of the same file: that suggestion's id |
 
@@ -1912,7 +1921,7 @@ title or a scene's name, 10,000 for an action, a dialogue, a note or a call shee
 field's own range (a focal length above 0 to 2000 mm and inside a picked lens's range, a T-stop from the Inspector's
 list, a scene's length from 1 to 7,992 eighths); choices from their lists (shot sizes, statuses, supports, heights,
 moves, INT/EXT, times of day, department ids); times as `HH:MM`; ids naming a live record of the right type (a
-location, a shoot day, gear items, characters, people), each once in a list. An update or create names at most 50
+location, a shoot day, gear items, people), each once in a list. An update or create names at most 50
 fields. A suggestion with a value that fails is kept, flagged "can't be applied" naming the field, and never applied.
 The record is read bounded and rebuilt clean (as a settings preset is) before anything is shown; no key, however it's
 spelled (`__proto__` among them), reaches anything but a field lookup.
@@ -1938,8 +1947,10 @@ suggestion.ts, which 7.5's server shares):
 - *Outside the scope*: a kind, type or field the row doesn't allow: kept, listed as refused, never applied "for
   review".
 - *Can't be applied*: a value that fails its field's check, or `data` that can't be read for its kind; and, each with
-  its own words, what the app can't do by hand: a scene first on the board, a frame onto a day while it isn't Need to
-  shoot.
+  its own words, what the app can't do by hand: a scene before the board's first live scene, a frame on no day onto
+  one while it isn't Need to shoot (its status after Apply). A `create` placed after itself, directly or round a chain,
+  is *can't be applied* on `after_id` (or `after_suggestion`), never *waiting*; times for someone not on the day are
+  refused on `person_times`.
 - *Needs a newer Storiiboard*: an unknown kind, status or field (of the record, or of its `data`): kept as it is.
 - *No change*: the project already reads as suggested (an update that would write only a key order, a reorder to where
   it is); Apply writes only the decision.

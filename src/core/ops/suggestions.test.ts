@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '../i18n';
 import type { JsonValue, Props, SbdRecord } from '../model/record';
-import { flagWords, reviewSuggestion, type SuggestionFlag } from '../model/suggestion';
+import { flagWords, foldEdits, reviewSuggestion, type SuggestionFlag } from '../model/suggestion';
 import { nodeDriver } from '../storage/nodeDriver';
 import { createProject, type Project } from '../storage/project';
 import { makeTestFolder, type TestFolder } from '../storage/testFolder';
@@ -42,7 +42,8 @@ function harbor(): Record<string, SbdRecord> {
     record('sc5', 'scene', 'p', { number: '5', name: 'Lighthouse' }, 'V'),
     record('c', 'shot', 'sc5', { number: '5A', status: 'need' }, 'V'),
     record('loc1', 'location', 'p', { name: 'Pier 9' }),
-    record('d1', 'shoot_day', 'p', { date: '2026-12-01', people_ids: [] }),
+    // No people_ids: nobody has chosen who's on it, so everyone is (4.2), and every person can have times on its sheet.
+    record('d1', 'shoot_day', 'p', { date: '2026-12-01' }),
     record('g1', 'gear_item', 'p', { name: 'C-stand', quantity: 4, source: 'owned' }, 'M'),
     record('g2', 'gear_item', 'p', { name: 'Dolly', quantity: 1, source: 'rental' }, 'V'),
     record('lens', 'gear_item', 'p', { name: 'Zoom', kind: 'lens', focal_min_mm: 24, focal_max_mm: 70 }, 'h'),
@@ -459,11 +460,13 @@ describe('Round 2: a list keeps what the person can’t see (item 2)', () => {
     expect(writes(records)).toEqual(gearListChange(withG2Trashed, 'b', ['g3'], true));
   });
 
-  it('a scene’s characters keep one gone in its place, the suggested ones in their order around it', () => {
+  it('a scene’s characters are outside the scope (round 3, item 2: no hand edit sets them)', () => {
     const base = on(harborPlus(), record('sc4', 'scene', 'p', { number: '4', name: 'Dock', character_ids: ['ch1', 'gone-character', 'ch2'] }, 'M'));
     const s = suggestion('s1', { kind: 'update', ...target('sc4', 'scene'), data: { props: { character_ids: ['ch2', 'ch1'] }, before: { character_ids: ['ch1', 'ch2'] } } });
-    expect(writes(on(base, s))).toEqual([{ kind: 'update', id: 'sc4', set: { character_ids: ['ch2', 'gone-character', 'ch1'] } }]);
-    expect(flagsOf(on(base, s)).some((f) => f.kind === 'changed_since')).toBe(false);
+    expect(flagsOf(on(base, s))).toContainEqual({ kind: 'outside_scope', what: 'field', name: 'character_ids' });
+    expect(applySuggestionChanges(on(base, s), 'p', 's1', decision).changes).toBeNull();
+    const created = suggestion('s1', { kind: 'create', target_type: 'scene', data: { type: 'scene', parent_id: 'p', after_id: 'sc5', props: { character_ids: ['ch1'] } } });
+    expect(flagsOf(on(base, created))).toContainEqual({ kind: 'outside_scope', what: 'field', name: 'character_ids' });
   });
 });
 
@@ -627,6 +630,151 @@ describe('Round 2: the words for the new flags', () => {
     expect(flagWords({ kind: 'cant_apply', why: 'scene_first' })).toBe('No se puede aplicar: una escena se agrega después de otra escena o al final del storyboard, nunca al principio.');
     expect(flagWords({ kind: 'waiting_after', on: 's1' })).toBe('En espera: va después de algo que agrega otra sugerencia. Aplica esa primero.');
     setLocale('en');
+  });
+});
+
+// Round 3 (7.0): the second review. Each test names its item.
+const approved = (s: SbdRecord, createdId: string): SbdRecord => ({ ...s, props: { ...s.props, status: 'approved', created_id: createdId } });
+const sceneCreate = (id: string, afterId: string | null, props: Props = {}) =>
+  suggestion(id, { kind: 'create', target_type: 'scene', target_label: 'New scene', data: { type: 'scene', parent_id: 'p', after_id: afterId, props } });
+const frameCreate = (id: string, afterId: string | null) => suggestion(id, { kind: 'create', target_type: 'shot', data: { type: 'shot', parent_id: 'sc4', after_id: afterId, props: {} } });
+
+describe('Round 3: a first scene on a board with no live scene (item 1)', () => {
+  /** The scene + Add Scene makes, with the suggestion's fields, as Apply writes it. */
+  const added = (records: Record<string, SbdRecord>, after: string | null, props: Props) =>
+    ui(() => addSceneChanges(records, 'p', after)).changes.map((c) => (c.kind === 'create' ? { ...c, record: { ...c.record, props: { ...c.record.props, ...props } } } : c));
+
+  it('on an empty board, it is added as + Add Scene adds one', () => {
+    const empty = recordsOf(record('p', 'project', null, { title: 'Harbor Lights' }));
+    const s = sceneCreate('s1', null, { name: 'Gangway' });
+    expect(flagsOf(on(empty, s)).some((f) => f.kind === 'cant_apply')).toBe(false);
+    const board = added(empty, null, { name: 'Gangway' });
+    resetIds();
+    expect(writes(on(empty, s))).toEqual(board);
+    expect(board[0]).toMatchObject({ kind: 'create', record: { type: 'scene', parentId: 'p', props: { number: '1', name: 'Gangway' } } });
+  });
+
+  it('with only scenes in the Trash, too; with a live scene it is still refused', () => {
+    const base = harbor();
+    const binned = on(base, trashedRecord(base.sc4), trashedRecord(base.sc5));
+    const s = sceneCreate('s1', null);
+    expect(flagsOf(on(binned, s)).some((f) => f.kind === 'cant_apply')).toBe(false);
+    const board = added(binned, null, {});
+    resetIds();
+    expect(writes(on(binned, s))).toEqual(board);
+    // Trashed scenes keep their numbers, so the new one takes the next: 6.
+    expect(board[0]).toMatchObject({ record: { props: { number: '6' } } });
+    expect(flagsOf(on(base, s))).toContainEqual({ kind: 'cant_apply', why: 'scene_first' });
+  });
+
+  it('a chain s1 → s2: s2 waits for s1, then goes after the scene s1 made', () => {
+    const empty = recordsOf(record('p', 'project', null, { title: 'Harbor Lights' }));
+    const s1 = sceneCreate('s1', null, { name: 'Gangway' });
+    const s2 = sceneCreate('s2', 's1', { name: 'Deck' });
+    const pending = on(empty, s1, s2);
+    expect(canApply(pending, 's1')).toBe(true);
+    expect(flagsOf(pending, 's2')).toContainEqual({ kind: 'waiting_after', on: 's1' });
+    expect(canApply(pending, 's2')).toBe(false);
+    const applied = on(empty, approved(s1, 'scA'), s2, record('scA', 'scene', 'p', { number: '1', name: 'Gangway' }, 'M'));
+    expect(canApply(applied, 's2')).toBe(true);
+    const board = added(applied, 'scA', { name: 'Deck' });
+    resetIds();
+    expect(writes(applied, 's2')).toEqual(board);
+    // Now the board has a live scene: another scene first is refused.
+    expect(flagsOf(on(applied, sceneCreate('s3', null)), 's3')).toContainEqual({ kind: 'cant_apply', why: 'scene_first' });
+  });
+});
+
+describe('Round 3: the Need-to-shoot rule matches the Days tile (item 3)', () => {
+  const day2 = record('d2', 'shoot_day', 'p', { date: '2026-12-02' });
+  const move = (to: string) => suggestion('s1', { kind: 'update', ...target('b', 'shot'), data: { props: { shoot_day_id: to }, before: {} } });
+
+  it('a frame already on a day moves to another whatever its status, as Move to does', () => {
+    const onDay = on(harbor(), day2, record('b', 'shot', 'sc4', { number: '4B', status: 'have', shoot_day_id: 'd1' }, 'V'));
+    expect(flagsOf(on(onDay, move('d2'))).some((f) => f.kind === 'cant_apply')).toBe(false);
+    expect(writes(on(onDay, move('d2')))).toEqual(scheduleFrames(onDay, ['b'], 'd2'));
+    // The status read is the one after Apply: set to Source in the same suggestion, it still moves.
+    const both = suggestion('s1', { kind: 'update', ...target('b', 'shot'), data: { props: { status: 'source', shoot_day_id: 'd2' }, before: {} } });
+    expect(canApply(on(onDay, both))).toBe(true);
+  });
+
+  it('a frame on no live day (none, one in the Trash, one gone) needs Need to shoot after Apply', () => {
+    const base = on(harbor(), day2);
+    const binnedDay = on(base, trashedRecord(base.d1), record('b', 'shot', 'sc4', { number: '4B', status: 'have', shoot_day_id: 'd1' }, 'V'));
+    expect(flagsOf(on(binnedDay, move('d2')))).toContainEqual({ kind: 'cant_apply', why: 'not_need' });
+    const goneDay = on(base, record('b', 'shot', 'sc4', { number: '4B', status: 'have', shoot_day_id: 'old-day' }, 'V'));
+    expect(flagsOf(on(goneDay, move('d2')))).toContainEqual({ kind: 'cant_apply', why: 'not_need' });
+    // On a day, and set to Have in the same suggestion, it moves; on none, Have can't go on one.
+    const onDay = on(base, record('b', 'shot', 'sc4', { number: '4B', status: 'need', shoot_day_id: 'd1' }, 'V'));
+    const toHave = suggestion('s1', { kind: 'update', ...target('b', 'shot'), data: { props: { status: 'have', shoot_day_id: 'd2' }, before: {} } });
+    expect(canApply(on(onDay, toHave))).toBe(true);
+    expect(flagsOf(on(base, toHave))).toContainEqual({ kind: 'cant_apply', why: 'not_need' });
+  });
+});
+
+describe('Round 3: a create can’t wait on itself (item 5)', () => {
+  it('after_id its own id, or a chain of after_ids that comes back round, is invalid on after_id, never waiting', () => {
+    const self = on(harbor(), frameCreate('s1', 's1'));
+    expect(flagsOf(self)).toContainEqual({ kind: 'invalid', field: 'after_id', problem: 'not_found' });
+    expect(flagsOf(self).some((f) => f.kind === 'waiting_after')).toBe(false);
+    expect(canApply(self)).toBe(false);
+    const round = on(harbor(), frameCreate('s1', 's2'), frameCreate('s2', 's3'), frameCreate('s3', 's1'));
+    for (const id of ['s1', 's2', 's3']) {
+      expect(flagsOf(round, id)).toContainEqual({ kind: 'invalid', field: 'after_id', problem: 'not_found' });
+      expect(flagsOf(round, id).some((f) => f.kind === 'waiting_after')).toBe(false);
+    }
+    // A chain that ends waits as before.
+    const chain = on(harbor(), frameCreate('s1', 'a'), frameCreate('s2', 's1'));
+    expect(flagsOf(chain, 's2')).toContainEqual({ kind: 'waiting_after', on: 's1' });
+  });
+
+  it('a parent chain (after_suggestion) that loops is invalid on after_suggestion, never waiting', () => {
+    const under = (id: string, parent: string) =>
+      suggestion(id, { kind: 'create', target_type: 'shot', after_suggestion: parent, data: { type: 'shot', parent_id: parent, after_id: null, props: {} } });
+    const self = on(harbor(), under('s1', 's1'));
+    expect(flagsOf(self)).toContainEqual({ kind: 'invalid', field: 'after_suggestion', problem: 'not_found' });
+    expect(flagsOf(self).some((f) => f.kind === 'waiting')).toBe(false);
+    const round = on(harbor(), under('s1', 's2'), under('s2', 's1'));
+    for (const id of ['s1', 's2']) {
+      expect(flagsOf(round, id)).toContainEqual({ kind: 'invalid', field: 'after_suggestion', problem: 'not_found' });
+      expect(flagsOf(round, id).some((f) => f.kind === 'waiting')).toBe(false);
+    }
+  });
+});
+
+describe('Round 3: foldEdits folds only creates and updates (item 6)', () => {
+  it('throws on any other kind, so no write is lost', () => {
+    const base = harbor();
+    expect(() => foldEdits(base, [() => [{ kind: 'trash', id: 'b' }]])).toThrow(/trash/);
+    expect(() => foldEdits(base, [() => [{ kind: 'move', id: 'b', parentId: 'sc5', sortKey: 'Z' }]])).toThrow(/move/);
+    expect(() => foldEdits(base, [() => [{ kind: 'update', id: 'b', set: { size: 'CU' } }], () => [{ kind: 'restore', id: 'b' }]])).toThrow(/restore/);
+    expect(foldEdits(base, [() => [{ kind: 'update', id: 'b', set: { size: 'CU' } }]])).toEqual([{ kind: 'update', id: 'b', set: { size: 'CU' } }]);
+  });
+});
+
+describe('Round 3: a call sheet’s times only for people on the day (item 7)', () => {
+  it('a day with a list refuses someone not on it; a day without one takes any live person', () => {
+    const listed = on(harborPlus(), record('d1', 'shoot_day', 'p', { date: '2026-12-01', people_ids: ['robin'] }));
+    expect(flagsOf(on(listed, sheetUpdate({ person_times: { sam: { call: '07:00' } } })))).toContainEqual({ kind: 'invalid', field: 'person_times', problem: 'not_on_day' });
+    expect(flagsOf(on(listed, sheetUpdate({ person_times: { sam: null } })))).toContainEqual({ kind: 'invalid', field: 'person_times', problem: 'not_on_day' });
+    expect(applySuggestionChanges(on(listed, sheetUpdate({ person_times: { sam: { call: '07:00' } } })), 'p', 's1', decision).changes).toBeNull();
+    resetIds();
+    expect(writes(on(listed, sheetUpdate({ person_times: { robin: { call: '07:00' } } })))).toEqual(ui(() => personTimeChange(listed, 'd1', 'robin', 'call', '07:00')));
+    // An empty list is nobody on the day.
+    const nobody = on(harborPlus(), record('d1', 'shoot_day', 'p', { date: '2026-12-01', people_ids: [] }));
+    expect(flagsOf(on(nobody, sheetUpdate({ person_times: { robin: { call: '07:00' } } })))).toContainEqual({ kind: 'invalid', field: 'person_times', problem: 'not_on_day' });
+    const everyone = harborPlus();
+    resetIds();
+    expect(writes(on(everyone, sheetUpdate({ person_times: { sam: { call: '07:00' } } })))).toEqual(ui(() => personTimeChange(everyone, 'd1', 'sam', 'call', '07:00')));
+  });
+});
+
+describe('Round 3: stamp names only decided_at (item 8)', () => {
+  it('is typed so', () => {
+    const ok: Change = { kind: 'update', id: 's1', stamp: ['decided_at'] };
+    // @ts-expect-error -- only decided_at takes the step's time
+    const other: Change = { kind: 'update', id: 's1', stamp: ['updated_at'] };
+    expect([ok, other]).toHaveLength(2);
   });
 });
 

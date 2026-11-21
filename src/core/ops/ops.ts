@@ -48,9 +48,10 @@ export type Change =
   /**
    * Sets the props in `set` and removes the ones in `unset`; every other prop stays as it was. `stamp` names props set
    * to the op group's own time (stepTime's), which no caller knows before the group is written: a suggestion's
-   * `decided_at` (7.0), so it is exactly the step's time, never a clock read before it.
+   * `decided_at` (7.0), so it is exactly the step's time, never a clock read before it. Only that prop (7.0 round 3):
+   * another joins the type when it needs the step's time too.
    */
-  | { kind: 'update'; id: string; set?: Props; unset?: readonly string[]; stamp?: readonly string[] }
+  | { kind: 'update'; id: string; set?: Props; unset?: readonly string[]; stamp?: readonly 'decided_at'[] }
   | { kind: 'move'; id: string; parentId: string | null; sortKey: string }
   /** Changes the type and keeps every prop, so a reference image can become a frame without losing anything. */
   | { kind: 'retype'; id: string; type: RecordType }

@@ -44,7 +44,7 @@ import {
 // dayEdits, gearEdits, callsheetEdits), never a copy of one: a frame added by a suggestion is numbered, placed and keyed
 // exactly as one added on the board; a gear list changes by the Gear picker's adds and removes; a call sheet by its own
 // per-key edits. Where a suggestion names several fields, the edits a person would make one after another are folded
-// into one op on the record (foldEdits). A placement the app can't make by hand (a scene first on the board) is
+// into one op on the record (foldEdits). A placement the app can't make by hand (a scene before the board's first) is
 // flagged "can't be applied", never made by an edit of its own. The engine (src/core/ops/suggestions.ts) adds the
 // suggestion's own update and writes the group.
 //
@@ -129,8 +129,8 @@ export type SuggestionFlag =
   | { kind: 'no_change' };
 
 /**
- * Why the app can't apply it by hand: a scene first on the board (a person adds one after a scene or at the end), a
- * frame onto a day while it isn't Need to shoot (the Days tile offers only those, 4.11).
+ * Why the app can't apply it by hand: a scene before the first live scene on the board (a person adds one after a
+ * scene or at the end), a frame on no day onto one while it isn't Need to shoot (the Days tile offers only those, 4.11).
  */
 export type CantApply = 'scene_first' | 'not_need';
 
@@ -347,14 +347,21 @@ export interface ProposedChange {
 }
 
 /** Each field's check, as flags: outside the row, or a value that fails. */
-function checkFields(entry: ScopeType, props: ReadonlyMap<string, JsonValue>, records: Records, record: SbdRecord | null, flags: SuggestionFlag[]): void {
+function checkFields(
+  entry: ScopeType,
+  props: ReadonlyMap<string, JsonValue>,
+  records: Records,
+  record: SbdRecord | null,
+  flags: SuggestionFlag[],
+  day: SbdRecord | null = null,
+): void {
   for (const [field, value] of props) {
     const rule = scopeField(entry, field);
     if (!rule) {
       flags.push({ kind: 'outside_scope', what: 'field', name: cleanText(field, MAX_WORD) || '?' });
       continue;
     }
-    const problem = rule.check(value, { records, record });
+    const problem = rule.check(value, { records, record, day });
     if (problem) flags.push({ kind: 'invalid', field, problem });
   }
 }
@@ -387,7 +394,7 @@ function seen(records: Records, field: string, rule: ScopeField, value: JsonValu
 }
 
 /** One edit, worked out from the records as the edits before it in the same Apply left them. */
-type Step = (now: Records) => Change[];
+export type Step = (now: Records) => Change[];
 
 /** A record into the working copy as data, never assigned: an id can't reach the object's prototype, however it is spelled. */
 const put = (records: Record<string, SbdRecord>, id: string, record: SbdRecord): void => {
@@ -398,9 +405,11 @@ const put = (records: Record<string, SbdRecord>, id: string, record: SbdRecord):
  * The edits a person would make one by one, folded into one op per record they write (7.0 round 2): each is the app's
  * own edit (the Inspector's set, the Days tile's, the Gear picker's, the call sheet's per key), run on the records the
  * edits before it left, so what they write together is exactly what they'd write in turn; then each record gets one
- * op, its create or its update. Nothing is written for a record that reads as it was but for key order.
+ * op, its create or its update. Nothing is written for a record that reads as it was but for key order. A change of
+ * any other kind (a move, a trash) throws (7.0 round 3): folding it would lose it, so a step that makes one can't be
+ * added here without folding it first.
  */
-function foldEdits(records: Records, steps: readonly Step[]): Change[] {
+export function foldEdits(records: Records, steps: readonly Step[]): Change[] {
   const now: Record<string, SbdRecord> = { ...records };
   const order: string[] = [];
   const made = new Map<string, Extract<Change, { kind: 'create' }>>();
@@ -420,6 +429,8 @@ function foldEdits(records: Records, steps: readonly Step[]): Change[] {
         const props = Object.fromEntries(Object.entries({ ...record.props, ...change.set }).filter(([key]) => !gone.has(key)));
         put(now, change.id, { ...record, props });
         if (!order.includes(change.id)) order.push(change.id);
+      } else {
+        throw new Error(`foldEdits can't fold a ${change.kind} change.`);
       }
     }
   }
@@ -434,23 +445,6 @@ function foldEdits(records: Records, steps: readonly Step[]): Change[] {
     if (Object.keys(set).length === 0 && unset.length === 0) return [];
     return [{ kind: 'update', id, ...(Object.keys(set).length > 0 ? { set } : {}), ...(unset.length > 0 ? { unset } : {}) }];
   });
-}
-
-/**
- * A list of ids as a suggestion leaves it, with what a person can't see kept (7.0 round 2): each stored entry that
- * isn't a live record of `type` (in the Trash, gone, not an id) stays in its place, and the suggested ids fill the
- * others in their order, the rest after. For a list no edit of the app keeps (a scene's characters, set by a script's
- * import); a gear list goes through the Gear picker's own edit instead.
- */
-function keptList(records: Records, stored: JsonValue | undefined, wanted: readonly string[], type: string): JsonValue[] {
-  const list = Array.isArray(stored) ? stored : [];
-  const out: JsonValue[] = [];
-  let next = 0;
-  for (const entry of list) {
-    if (!liveOf(records, entry, type)) out.push(entry);
-    else if (next < wanted.length) out.push(wanted[next++] ?? null);
-  }
-  return [...out, ...wanted.slice(next)];
 }
 
 /** A field set as data, never assigned: a field named __proto__ can't reach here (no row has one), and this keeps it so. */
@@ -488,9 +482,9 @@ function updateSteps(entry: ScopeType, props: ReadonlyMap<string, JsonValue>, re
       const time = off || typeof value !== 'string' ? '' : value;
       steps.push((now) => dayChange(now, target.id, prop, time));
     } else if (rule.listOf !== undefined) {
-      const wanted = off || !Array.isArray(value) ? [] : value.filter((id): id is string => typeof id === 'string');
-      const written = keptList(records, stored, wanted, rule.listOf);
-      if (!same(written, stored)) define(set, field, written);
+      // Every list in the row is a gear list (7.0 round 3: a scene's characters left it): a new one needs the edit a
+      // person makes for it, which keeps what they can't see, never a whole list written over.
+      throw new Error(`No edit for the list ${field}.`);
     } else if (!same(value, stored)) {
       if (!off) define(set, field, value);
       else if (stored !== undefined) unset.push(field);
@@ -545,12 +539,17 @@ function createdProps(entry: ScopeType, props: ReadonlyMap<string, JsonValue>): 
 }
 
 /**
- * A frame goes on a day only while it is Need to shoot, as the Days tile offers it (4.11): the status it would have
- * once the suggestion is applied, so one that sets Need to shoot too may.
+ * A frame goes onto a day only while it is Need to shoot, as the Days tile offers it (4.11): the status it would have
+ * once the suggestion is applied, so one that sets Need to shoot too may. A frame already on a live day moves to
+ * another whatever its status, as the Days tile's Move to does (MoveFrame, 7.0 round 3), so only a frame on no day is held.
  */
-function offDayStatus(day: JsonValue | undefined, status: JsonValue | undefined): boolean {
-  return typeof day === 'string' && (status ?? 'need') !== 'need';
+function offDayStatus(records: Records, wasDay: JsonValue | undefined, day: JsonValue | undefined, status: JsonValue | undefined): boolean {
+  return typeof day === 'string' && !liveOf(records, wasDay, 'shoot_day') && (status ?? 'need') !== 'need';
 }
+
+/** Whether the project has a live scene: with none, a scene added first is where + Add Scene puts one (7.0 round 3). */
+const hasLiveScene = (records: Records, projectId: string): boolean =>
+  Object.values(records).some((record) => record.type === 'scene' && record.parentId === projectId && record.trashedAt === null);
 
 /** Whether these flags leave Apply open. */
 const open = (flags: readonly SuggestionFlag[]): boolean => flags.every(flagAllowsApply);
@@ -591,9 +590,10 @@ export function proposedChange(records: Records, projectId: string, proposal: Pr
     else if (!entry.parents.includes(parent.type) || (parent.type === 'project' && parent.id !== projectId)) flags.push({ kind: 'invalid', field: 'parent_id', problem: 'type' });
     else if (parent.trashedAt !== null) flags.push({ kind: 'trashed', what: 'parent' });
     checkFields(entry, data.props, records, null, flags);
-    if (proposal.targetType === 'shot' && offDayStatus(data.props.get('shoot_day_id'), data.props.get('status'))) flags.push({ kind: 'cant_apply', why: 'not_need' });
-    // A person adds a scene at the end of the board or after a scene ("/" menu), never first: neither does Apply.
-    if (proposal.targetType === 'scene' && data.afterId === null) flags.push({ kind: 'cant_apply', why: 'scene_first' });
+    if (proposal.targetType === 'shot' && offDayStatus(records, undefined, data.props.get('shoot_day_id'), data.props.get('status'))) flags.push({ kind: 'cant_apply', why: 'not_need' });
+    // A person adds a scene at the end of the board or after a scene ("/" menu), never before the first: neither does
+    // Apply. On a board with no live scene, first and last are one place, where + Add Scene puts it (7.0 round 3).
+    if (proposal.targetType === 'scene' && data.afterId === null && hasLiveScene(records, projectId)) flags.push({ kind: 'cant_apply', why: 'scene_first' });
     if (!parent || !open(flags)) return none();
     const afterGone = data.afterId !== null && !liveSibling(records, parent.id, data.afterId, null);
     if (afterGone) flags.push({ kind: 'gone', what: 'after' });
@@ -628,10 +628,10 @@ export function proposedChange(records: Records, projectId: string, proposal: Pr
 
   if (data.kind === 'update') {
     const record = isSheet ? dayCallsheet(records, target.id) : target;
-    checkFields(entry, data.props, records, record, flags);
+    checkFields(entry, data.props, records, record, flags, isSheet ? target : null);
     if (target.type === 'shot' && data.props.has('shoot_day_id') && !same(data.props.get('shoot_day_id'), target.props.shoot_day_id)) {
       const status = data.props.has('status') ? data.props.get('status') : shotFields(target.props).status;
-      if (offDayStatus(data.props.get('shoot_day_id'), status)) flags.push({ kind: 'cant_apply', why: 'not_need' });
+      if (offDayStatus(records, target.props.shoot_day_id, data.props.get('shoot_day_id'), status)) flags.push({ kind: 'cant_apply', why: 'not_need' });
     }
     const changed: ChangedField[] = [];
     for (const [field, value] of data.props) {
@@ -712,6 +712,27 @@ function madeBy(records: Records, id: string, changeFileId: string | null): { su
   return { suggestion: other };
 }
 
+/** Most links a chain of places is followed through; a longer one is left to wait, as one that doesn't loop. */
+const MAX_CHAIN = 500;
+
+/**
+ * Whether following `next` from a suggestion (its after_id, or the parent its after_suggestion names) through pending
+ * creates of the same file comes back to it (7.0 round 3): naming itself, or a chain that comes back round. Such a
+ * create would wait on itself for ever, so it is flagged invalid instead.
+ */
+function loopsBack(records: Records, start: Suggestion, next: (suggestion: Suggestion) => string | null): boolean {
+  const passed = new Set<string>();
+  let id = next(start);
+  while (id !== null && !passed.has(id) && passed.size < MAX_CHAIN) {
+    if (id === start.id) return true;
+    passed.add(id);
+    const other = madeBy(records, id, start.changeFileId);
+    if (other?.suggestion.status !== 'pending') return false;
+    id = next(other.suggestion);
+  }
+  return false;
+}
+
 /** One suggestion against the project as it is now: what Apply would write, and every flag. Null for a record that isn't one. */
 export function reviewSuggestion(records: Records, projectId: string, suggestionId: string, slate: SlateNumbers = NO_SLATE_NUMBERS): SuggestionReview | null {
   const record = recordOf(records, suggestionId);
@@ -729,7 +750,9 @@ export function reviewSuggestion(records: Records, projectId: string, suggestion
   if (suggestion.kind !== null && data !== null) {
     if (data.kind === 'create') {
       const parentBy = suggestion.afterSuggestion;
-      if (parentBy !== null) {
+      // A parent chain that comes back round would wait for ever: it can't be applied (7.0 round 3).
+      if (parentBy !== null && loopsBack(records, suggestion, (s) => s.afterSuggestion)) flags.push({ kind: 'invalid', field: 'after_suggestion', problem: 'not_found' });
+      else if (parentBy !== null) {
         const parent = data.parentId === parentBy ? madeBy(records, parentBy, suggestion.changeFileId) : undefined;
         if (!parent) flags.push({ kind: 'invalid', field: 'after_suggestion', problem: 'not_found' });
         else if (parent.suggestion.status === 'approved' && parent.suggestion.createdId !== null) data = { ...data, parentId: parent.suggestion.createdId };
@@ -742,7 +765,10 @@ export function reviewSuggestion(records: Records, projectId: string, suggestion
       // waits for it (a rejected one made nothing, so the place reads as gone: at the end).
       const afterId = data.afterId;
       const after = afterId === null ? undefined : madeBy(records, afterId, suggestion.changeFileId);
-      if (after?.suggestion.status === 'approved' && after.suggestion.createdId !== null) data = { ...data, afterId: after.suggestion.createdId };
+      // After itself, or after a chain of creates that comes back to it: it would wait for ever (7.0 round 3).
+      if (data.kind === 'create' && loopsBack(records, suggestion, (s) => (s.data?.kind === 'create' ? s.data.afterId : null))) {
+        flags.push({ kind: 'invalid', field: 'after_id', problem: 'not_found' });
+      } else if (after?.suggestion.status === 'approved' && after.suggestion.createdId !== null) data = { ...data, afterId: after.suggestion.createdId };
       else if (afterId !== null && after?.suggestion.status === 'pending') flags.push({ kind: 'waiting_after', on: afterId });
     }
     const waiting = flags.some((f) => f.kind === 'waiting' || f.kind === 'waiting_after' || (f.kind === 'gone' && f.what === 'parent') || f.kind === 'invalid');
