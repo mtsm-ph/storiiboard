@@ -20,6 +20,10 @@ change to the file format or"). Still his, and nothing waits on them:
 - **The cut-off end of the Nov 20 night note**: the session reads it as the standing list (any other format or schema
   change, a dependency not approved, anything on main, anything that deletes, a screenshot change no item explains, a
   red job it can't explain).
+- **Readings he can overrule** (all merged; each is a small change): the playback copies' cap and floor still save at
+  once (as drafts they broke video.spec:136); the export's label is "Printed units" ("Units on paper" clashed with
+  "Paper"); "tick" became "check" in English; a settled undo never joins a new run of undos.
+- **The Rust file-locks brief** (`private/briefs/rust-file-locks.md`): his read, no build yet. Unblocks: the build.
 
 ## What a cloud session can and can't do
 
@@ -364,7 +368,23 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 21, early; written at 00:20 EST)
+### Next session: start here (Nov 21, morning; written at 03:00 EST)
+
+**Merged on `checkpoint/nov21-d`** (run 44876688397: Linux 682, Mac WebKit 679, nothing failed or flaky): item 8's
+second stack, #248 Settings, #250 undoing from History with `bring_back`, #252 American spelling. Earlier, after
+nov21-c: #253 (a clip's dead destination). `v2`'s code equals nov21-d's tree. All the night note's items are merged
+except the tile accent (Kevin's pick) and the Rust file locks (brief only).
+
+**nov21-d's Mac installer was red once:** this machine read no canvas back (worker and page both "The object is in an
+invalid state."), the accents step passed by the canvas rule, then `worker-policy` reached the 90 s limit. Rerun:
+green, accents read by the worker, image `macos-26-arm64`. Next: a time limit with its own words on each worker
+script's fetch in `workerPolicy` (src/app/launchCheck/launchCheck.ts), so a hang after a canvas failure names itself;
+then `checkpoint/launch-3` (allowed tonight).
+
+**Follow-ups:** #241's low ones (a store pending count, test gaps); a unit test seen flaky once locally,
+`switchBackup.test.ts` "makes no copy on the reopen path…" (passed alone and on rerun).
+
+### Earlier: start here (Nov 21, early; written at 00:20 EST)
 
 **Merged on `checkpoint/nov21-b`** (run 44864801159; every job green, Linux 671, Mac WebKit 668, nothing flaky; the
 Mac's launch check passed with its accents read by the worker, image `macos-26-arm64`): the launch stack #206, #213,
