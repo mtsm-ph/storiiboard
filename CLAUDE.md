@@ -85,7 +85,9 @@
   the step passes by the page and says so, and scripts/launchCheck.sh refuses such a pass unless it is given
   `--accents-by-page-ok`, which only the Mac installer job gives (6.27r, Kevin, Nov 20: GitHub's Mac has a virtual
   GPU; Windows and a real Mac stay strict). A branch named `checkpoint/launch-<name>` runs only the ffmpeg sources
-  and the two installers, launch check included: about a quarter of an hour, never a checkpoint to merge on.
+  and the two installers, launch check included: about a quarter of an hour. It is a checkpoint to merge on only for a
+  PR that changes the launch check alone (its page file, its Rust module, its script, their tests, docs; Kevin, Nov 21),
+  since no other run exercises it; for anything else, never.
 - src/app/tauriContract.test.ts checks every call the page makes against the commands in lib.rs (6.14), and the
   commands are tested in Rust through tauri's `test` feature (6.16). No HTML5 drag and drop anywhere in the app
   (lint and src/app/noHtmlDrag.test.ts, 6.15).
