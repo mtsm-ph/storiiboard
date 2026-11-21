@@ -4052,4 +4052,31 @@ export const en = {
   // src/features/export/ExportDialog.tsx: Units on paper
   'export.plan.units': 'Printed units',
   'export.plan.bothBars': 'Scale bar in meters and feet',
+  // src/core/model/suggestionScope.ts: what a scope row lets a suggestion touch, made from the table (7.0; Settings in 7.6)
+  'suggestionScope.assistant': 'What the assistant can suggest',
+  'suggestionScope.type.shot': 'Frames',
+  'suggestionScope.type.scene': 'Scenes',
+  'suggestionScope.type.note': 'Notes',
+  'suggestionScope.type.shootDay': 'Shoot days',
+  'suggestionScope.type.callsheet': 'Call sheets',
+  'suggestionScope.kind.trash': 'move to the Trash',
+  'suggestionScope.kind.update': 'change',
+  'suggestionScope.kind.create': 'add',
+  'suggestionScope.kind.reorder': 'reorder',
+  'suggestionScope.line': '{type}: {kinds}. Fields: {fields}.',
+  // src/features/history/summary.ts: a suggestion applied or rejected (7.0). Applied is followed by the change's own line.
+  'history.suggestion.applied': 'Applied a suggestion: ',
+  'history.suggestion.rejected': 'Rejected a suggestion: ',
+  'history.suggestion.trash': 'move {label} to the Trash',
+  'history.suggestion.update': 'change {label}',
+  'history.suggestion.create': 'add {label}',
+  'history.suggestion.reorder': 'move {label}',
+  'history.suggestion.unknown': 'a change this version can’t read',
+  'history.suggestion.anItem': 'an item',
+  'history.suggestion.appliedNothing': 'Applied a suggestion that changed nothing',
+  // src/core/model/suggestion.ts (flagWords): a suggestion the app can't apply by hand, or one waiting for another (7.0)
+  'suggestion.flag.sceneFirst': 'Can’t be applied: a scene is added after another scene or at the end of the board, never before the first scene.',
+  'suggestion.flag.notNeed': 'Can’t be applied: only frames marked Need to shoot go on a shoot day.',
+  'suggestion.flag.waitingAfter': 'Waiting: it goes after something another suggestion adds. Apply that one first.',
+  'suggestion.flag.loop': 'Can’t be applied: it would wait on itself.',
 };

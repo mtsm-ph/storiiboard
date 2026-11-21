@@ -25,7 +25,7 @@ import {
   gearTextChange,
   newGearItem,
   trashGearItem,
-} from './gearEdits';
+} from '../../core/ops/gearEdits';
 
 // The Gear tile (3.9a), in the Production workspace: the project's gear catalogue, each item named once with how many,
 // whose it is (owned, or a rental house's), its day rate and its department. Shoot days and frames pick from it (3.9b).

@@ -22,6 +22,8 @@ import { CAMERA_ICON, DIFFUSION_ICON, FLAG_ICON, gripFields, iconIdOf, LIGHT_ICO
 import { aFrame, anIcon } from '../birdseye/plan/iconWords';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
+import { readSuggestion } from '../../core/model/suggestion';
+import type { SuggestionKind } from '../../core/model/suggestionScope';
 import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, projectStoryboard, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
 import { letterIndex, lettersOf } from '../../core/model/shotNumbers';
 import type { GroupKind, KeptEdit, LoggedOp, OpGroup } from '../../core/ops/ops';
@@ -1896,6 +1898,41 @@ export function stepPictures(ops: readonly LoggedOp[]): string[] {
   });
 }
 
+/** The op that decided a suggestion in a step (its status turned approved or rejected), or null. */
+function suggestionDecision(ops: readonly LoggedOp[]): { op: LoggedOp; record: SbdRecord; status: 'approved' | 'rejected' } | null {
+  for (const op of ops) {
+    if (op.kind !== 'update' || op.after?.type !== 'suggestion') continue;
+    const status = op.after.props.status;
+    if ((status === 'approved' || status === 'rejected') && op.before?.props.status !== status) return { op, record: op.after, status };
+  }
+  return null;
+}
+
+const SUGGESTION_WHAT: Readonly<Record<SuggestionKind, MessageKey>> = {
+  trash: 'history.suggestion.trash',
+  update: 'history.suggestion.update',
+  create: 'history.suggestion.create',
+  reorder: 'history.suggestion.reorder',
+};
+
+/**
+ * What a suggestion would have done, by its kind and its target: by the target's own name as the step left it (steps.ts
+ * asks for it in `around`), as every other line names a record; by the label the suggester saw (read clean, as text)
+ * only when the record is gone, or for a `create`, which has none.
+ */
+function suggestionWhat(record: SbdRecord, around: ReadonlyMap<string, SbdRecord>): Part[] {
+  const { kind, targetId, targetType, targetLabel } = readSuggestion(record);
+  if (kind === null) return [t('history.suggestion.unknown')];
+  const isSheet = targetType === 'callsheet';
+  const target = targetId === null ? undefined : around.get(targetId);
+  if (target && target.type === (isSheet ? 'shoot_day' : targetType)) {
+    // A call sheet is named by its day (4.1).
+    const name: Part = isSheet ? t('history.callsheetOf', { day: dayDateLabel(shootDayFields(target.props).date) || t('history.undatedDay') }) : nameOf(target, around);
+    return line(SUGGESTION_WHAT[kind], { label: name });
+  }
+  return line(SUGGESTION_WHAT[kind], {}, { label: targetLabel || t('history.suggestion.anItem') });
+}
+
 /**
  * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
  * names without writing them (a sketch's frame, a scene's location), as they were then. `unsure`: a record of the
@@ -1911,6 +1948,16 @@ export function describeEdit(
   trashed: ReadonlySet<string> = new Set(),
 ): Line {
   if (opsIn.length === 0) return [t('history.noChange')];
+  // A suggestion applied or rejected (7.0): its own update says which. Applied, the step reads as the change it wrote;
+  // rejected, as what it would have done, named as the suggester saw it.
+  const decided = suggestionDecision(opsIn);
+  if (decided) {
+    if (decided.status === 'rejected') return [t('history.suggestion.rejected'), ...suggestionWhat(decided.record, around)];
+    const applied = opsIn.filter((op) => op !== decided.op);
+    // The project read as suggested already: the step wrote only the decision.
+    if (applied.length === 0) return [t('history.suggestion.appliedNothing')];
+    return [t('history.suggestion.applied'), ...describeEdit(applied, stored, around, unit, unsure, trashed)];
+  }
   // A call sheet made with its first note reads as that note being set, not as a call sheet added (4.1): its create
   // is read as an update from a record with no props.
   const ops = opsIn.map((op): LoggedOp =>

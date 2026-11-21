@@ -297,6 +297,11 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
 - [ ] [Mac] [Kevin] Trackpad mode is on by default: two fingers pan, a pinch zooms, on plans and boards. (6.5.3)
 - [ ] [Mac] [Kevin] A big plan on your Mac: pan, zoom, drag and a held turn key feel smooth. (6.11, 6.26)
 
+## Suggestions and the assistant (Phase 7)
+
+7.0 (suggestions in the model) has nothing to try by hand: it has no screen. The first lines here come with 7.2, the
+review screen.
+
 ## Settings, presets, themes, Dark view and accessibility
 
 - [ ] [Kevin] A project theme from its logo or key image, in light and dark: the accent and backgrounds look right and
