@@ -3,8 +3,10 @@ import type { AppDataStore } from '../core/storage/appData';
 import type { BackupOptions } from '../core/storage/backups';
 import type { LockHolder, SqlDriver } from '../core/storage/driver';
 import { copyBeside } from '../core/storage/openBackup';
-import { fileName } from '../core/storage/paths';
+import { fileName, fileStem } from '../core/storage/paths';
 import { createProject, openProject, type Project } from '../core/storage/project';
+import { rememberCloseBackupFailure, takeCloseBackupFailure } from '../core/storage/settings';
+import { showInfo, showNotice } from './notice';
 import { whileOpeningProject } from './openingProject';
 import type { ProjectState } from './projectStore';
 import { localizeError, t } from '../core/i18n';
@@ -51,23 +53,28 @@ export async function openProjectFile(path: string, options: OpenFileOptions): P
   return openChecked(path, options);
 }
 
+/** How the project open now closes once the new one is in: `flush: false` makes no queued backup of it. */
+interface CloseOld {
+  flush?: boolean;
+}
+
 /**
  * Opens the project at `path` again, even though it's the one open: after a sync replaced the file, this loads the
  * newer version. The old connection, still on the replaced file, closes once the new one is open.
  */
-export async function reopenProjectFile(path: string, options: OpenFileOptions): Promise<boolean> {
-  return openChecked(path, options);
+export async function reopenProjectFile(path: string, options: OpenFileOptions, closeOld: CloseOld = {}): Promise<boolean> {
+  return openChecked(path, options, closeOld);
 }
 
 /**
  * Whether it opened: Cancel at the "open on another computer" question opens nothing. Shown as opening from the
  * first step (the lock is read through the driver too), so the sidebar's sections wait for the whole of it.
  */
-function openChecked(path: string, options: OpenFileOptions): Promise<boolean> {
-  return whileOpeningProject(() => openUnlocked(path, options));
+function openChecked(path: string, options: OpenFileOptions, closeOld: CloseOld = {}): Promise<boolean> {
+  return whileOpeningProject(() => openUnlocked(path, options, closeOld));
 }
 
-async function openUnlocked(path: string, options: OpenFileOptions): Promise<boolean> {
+async function openUnlocked(path: string, options: OpenFileOptions, closeOld: CloseOld): Promise<boolean> {
   const holder = options.askWhenLocked ? await options.driver.lockHolder(path) : null;
   const choice = holder && options.askWhenLocked ? await options.askWhenLocked(holder, path) : 'anyway';
   if (choice === 'cancel') return false;
@@ -79,7 +86,7 @@ async function openUnlocked(path: string, options: OpenFileOptions): Promise<boo
       throw new OpenFileError(path, error);
     }
   }
-  await replaceWith(target, options, openProject);
+  await replaceWith(target, options, openProject, closeOld);
   return true;
 }
 
@@ -92,6 +99,7 @@ async function replaceWith(
   path: string,
   { store, driver, recent, backups, backupsNextToProject }: OpenFileOptions,
   start: typeof openProject,
+  closeOld: CloseOld = {},
 ): Promise<void> {
   let project: Project;
   try {
@@ -100,6 +108,14 @@ async function replaceWith(
       ...(recent ? { recent } : {}),
       ...(backups ? { backups } : {}),
       backupsNextToProject: backupsNextToProject?.() ?? false,
+      // This file's last close (a hand backup made at a switch) has run past its time limit: the open goes on.
+      onStillClosing: () => {
+        showInfo(t('backups.stillClosing', { project: fileStem(path) }));
+      },
+      // Kept on this computer for the next time this file opens, as this project's sign can't show it now.
+      onCloseBackupFailed: (error) => {
+        rememberCloseBackupFailure(path, error instanceof Error ? error.message : String(error));
+      },
     });
   } catch (error) {
     throw new OpenFileError(path, error);
@@ -107,8 +123,11 @@ async function replaceWith(
   // Open replaces the project in place: the one open now closes once the new one's records are in, so the window
   // never shows "no project" (the Projects screen and the kit's colours) in between.
   try {
-    await store.getState().open(project);
+    await store.getState().open(project, closeOld);
   } catch (error) {
     throw new OpenFileError(path, error);
   }
+  // A backup this file's last close was to make, and couldn't: said once, now that this project is the one open.
+  const failed = store.getState().project === project ? takeCloseBackupFailure(path) : null;
+  if (failed !== null) showNotice(t('backups.closeFailed', { project: fileStem(path), reason: localizeError(failed) }));
 }

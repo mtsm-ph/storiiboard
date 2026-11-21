@@ -362,6 +362,8 @@ export const es: Messages = {
   'storage.switched': 'Se abrió otro proyecto mientras decidías, así que no se borró nada.',
   // src/app/openFiles.ts
   'open.failed': 'No se pudo abrir “{name}”. {reason}',
+  'backups.stillClosing': 'El respaldo de “{project}” todavía se está haciendo. Puedes seguir trabajando.',
+  'backups.closeFailed': 'El respaldo pedido al cerrar “{project}” no se pudo hacer: {reason}',
   // src/app/openVersion.ts
   'project.noneOpenSentence': 'No hay ningún proyecto abierto.',
   // src/app/project/BackupsPanel.tsx

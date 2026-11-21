@@ -42,8 +42,9 @@ interface Gap {
   /** A textarea, where Enter types a line break; in a one-line field Enter does something else. */
   multiline: boolean;
   /**
-   * Set at a key that moves on (Tab, an arrow, Escape, Enter in a one-line field): what follows it was meant for
-   * another place, so it's dropped; what came before still goes into the field.
+   * Set at a key that moves on (Tab, an arrow, Escape, Home, a function key): what follows it was meant for another
+   * place, so it's dropped; what came before still goes into the field. Enter in a one-line field and a shortcut are
+   * taken without stopping it (round 2's test of "x, Ctrl+Z, y, Ctrl+S, Enter, z" typing "xyz").
    */
   stopped: boolean;
   /** Set at a pointerdown: the person went elsewhere (WebKit on a Mac moves no focus on a click), so nothing comes back. */
@@ -76,8 +77,8 @@ function gapKey(event: KeyEvent, mac: boolean, multiline: boolean): GapEdit | 'n
   if (plain && event.key === 'Delete') return { kind: 'forwardDelete' };
   if (plain && event.key === 'Enter' && multiline) return { kind: 'text', text: '\n' };
   // Taken as round 2 has it, and collecting goes on: the key again, Enter in a one-line field, and other shortcuts
-  // (Ctrl+Z). A shortcut stopping the collecting too, as round 3's item 3 asks, would change round 2's test of "x,
-  // Ctrl+Z, y, Ctrl+S, Enter, z" typing "xyz"; that's left for the main session to decide.
+  // (Ctrl+Z). A shortcut stopping the collecting too, as round 3's item 3 asked, would change round 2's test of "x,
+  // Ctrl+Z, y, Ctrl+S, Enter, z" typing "xyz"; left as is (#244 round 4).
   if (isSaveShortcut(event, mac) || event.key === 'Enter' || !plain) return 'none';
   // Any other key that doesn't type (Tab, an arrow, Escape, Home, a function key) moves on.
   return 'stop';

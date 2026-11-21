@@ -370,16 +370,28 @@ describe('a backup asked for by hand (Ctrl+S, Back up now; Kevin, Nov 18)', () =
     schedule.stop();
   });
 
-  it('replaces a timed backup under 5 minutes old, the new copy complete before the old is deleted', async () => {
+  // Kevin, Nov 20 (#244 round 4): a press after a tick's own copy makes a new one; it replaces only a hand copy.
+  it('never replaces a tick’s own copy; replacing a hand copy, the new copy is complete before the old is deleted', async () => {
     const schedule = await start();
     await edit('1A');
     clock = at(5);
     await schedule.runNow();
     await edit('1B');
     clock = at(7);
-    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'replaced', created: name(7), replaced: name(5), deleted: [] });
-    expect(calls).toEqual([`copy ${name(5)}`, `copied ${name(5)}`, `copy ${name(7)}`, `copied ${name(7)}`, `delete ${name(5)}`]);
-    expect(await names()).toEqual([name(7)]);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'created', created: name(7), deleted: [] });
+    await edit('1C');
+    clock = at(9);
+    await expect(schedule.backUpByHand()).resolves.toEqual({ kind: 'replaced', created: name(9), replaced: name(7), deleted: [] });
+    expect(calls).toEqual([
+      `copy ${name(5)}`,
+      `copied ${name(5)}`,
+      `copy ${name(7)}`,
+      `copied ${name(7)}`,
+      `copy ${name(9)}`,
+      `copied ${name(9)}`,
+      `delete ${name(7)}`,
+    ]);
+    expect(await names()).toEqual([name(5), name(9)]);
     schedule.stop();
   });
 
@@ -498,8 +510,14 @@ describe('a backup asked for by hand (Ctrl+S, Back up now; Kevin, Nov 18)', () =
   /**
    * The review's chain (#244, round 2): the 5-minute ticks, and an edit then a press at each of these times, as minutes
    * and seconds. Without presses, the same edits with the ticks alone. Returns the copies left and what each press did.
+   * `times` replaces the review's; `editAfter` makes one more edit after each press, for the tick that follows.
    */
-  async function chain(where: TestFolder, presses: boolean) {
+  async function chain(
+    where: TestFolder,
+    presses: boolean,
+    times: readonly (readonly [number, number])[] = [[4, 10], [6, 10], [8, 10], [10, 30], [12, 30], [16, 10]],
+    editAfter = false,
+  ) {
     const of = await nodeDriver.create(where.path('Bey.sbd'));
     await of.tx([{ sql: 'CREATE TABLE shots (id TEXT)' }]);
     const schedule = await startBackups(of, { now: () => clock });
@@ -517,12 +535,16 @@ describe('a backup asked for by hand (Ctrl+S, Back up now; Kevin, Nov 18)', () =
       elapsed = ms;
     };
     const results: HandBackup['kind'][] = [];
-    for (const [minutes, seconds] of [[4, 10], [6, 10], [8, 10], [10, 30], [12, 30], [16, 10]] as const) {
+    for (const [minutes, seconds] of times) {
       const pressAt = (minutes * 60 + seconds) * 1000;
       await until(pressAt - 10_000);
       await of.tx([{ sql: 'INSERT INTO shots VALUES (?)', params: [String(pressAt)] }]);
       await until(pressAt);
       if (presses) results.push((await schedule.backUpByHand()).kind);
+      if (editAfter) {
+        await until(pressAt + 5_000);
+        await of.tx([{ sql: 'INSERT INTO shots VALUES (?)', params: [`${String(pressAt)} after`] }]);
+      }
     }
     // And the tick at 20 minutes.
     await until(20 * 60 * 1000);
@@ -546,10 +568,27 @@ describe('a backup asked for by hand (Ctrl+S, Back up now; Kevin, Nov 18)', () =
     expect(pressed.left.length).toBeGreaterThanOrEqual(timed.left.length);
   });
 
-  // Kevin's rule as written (a copy "itself a timed or hand backup" may be replaced): a press may replace the copy a tick
-  // wrote, and the next tick then adopts the press's. Pressing just before each tick so keeps one copy per two
-  // intervals. Pinned so that changing it is a decision (#244 round 3; the question is Kevin's).
-  it('lets a press replace a tick’s own copy, which the next tick then adopts: one copy per two intervals', async () => {
+  // The reviewer's chain (#244 round 4): an edit and a press just before each tick, and an edit after the press for the
+  // tick to back up. Under round 3's rule each press replaced the tick before's copy.
+  it('keeps one copy per tick at least when the presses come just before each tick', async () => {
+    const times = [[4, 50], [9, 50], [14, 50], [19, 50]] as const;
+    const other = makeTestFolder();
+    const pressed = await chain(other, true, times, true);
+    other.remove();
+    const alone = makeTestFolder();
+    const timed = await chain(alone, false, times, true);
+    alone.remove();
+    const ticks = [name(5), name(10), name(15), name(20)];
+    expect(timed.left).toEqual(ticks);
+    expect(pressed.results).toEqual(['created', 'created', 'created', 'created']);
+    // Every tick's own copy stays, beside the presses'.
+    expect(pressed.left).toEqual(expect.arrayContaining(ticks));
+    expect(pressed.left).toEqual([name(4), name(5), name(9), name(10), name(14), name(15), name(19), name(20)]);
+  });
+
+  // Kevin, Nov 20 (#244 round 4): "a press replaces only a hand copy made since the last tick. A tick's own copy is
+  // never replaced by a press, so there's a copy for every 5 minutes whoever presses." Round 3 pinned the rule before.
+  it('never lets a press replace a tick’s own copy: each tick’s copy stays', async () => {
     const schedule = await start({ intervalMs: BACKUP_INTERVAL_MS });
     const results: HandBackup[] = [];
     for (const interval of [0, 10]) {
@@ -564,10 +603,10 @@ describe('a backup asked for by hand (Ctrl+S, Back up now; Kevin, Nov 18)', () =
       await vi.advanceTimersByTimeAsync(BACKUP_INTERVAL_MS);
     }
     expect(results).toEqual([
-      { kind: 'replaced', created: name(9), replaced: name(5), deleted: [] },
-      { kind: 'replaced', created: name(19), replaced: name(15), deleted: [] },
+      { kind: 'created', created: name(9), deleted: [] },
+      { kind: 'created', created: name(19), deleted: [] },
     ]);
-    expect(await names()).toEqual([name(9), name(19)]);
+    expect(await names()).toEqual([name(5), name(9), name(15), name(19)]);
     schedule.stop();
   });
 
@@ -747,6 +786,85 @@ describe('a backup asked for by hand (Ctrl+S, Back up now; Kevin, Nov 18)', () =
     await flushing;
     other.stop();
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('counts a press’s copy under way as pending, and at a close waits for it and hands back its failure', async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const onError = vi.fn();
+    const schedule = await startBackups(
+      {
+        ...watched(),
+        backup: async (kind, backup) => {
+          calls.push(`copy ${backup}`);
+          await held;
+          if (failNext) throw new Error('The disk is full.');
+          await file.backup(kind, backup);
+        },
+      },
+      { intervalMs: 3_600_000, now: () => clock, onError },
+    );
+    await edit('1A');
+    failNext = true;
+    // A press made at once (nothing queued), its copy held.
+    const press = schedule.backUpByHand();
+    await vi.waitFor(() => {
+      expect(calls).toContain(`copy ${name(0)}`);
+    });
+    expect(schedule.pending()).toBe(true);
+    let flushed = false;
+    const flushing = schedule.flushQueued().then((failed) => {
+      flushed = true;
+      return failed;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(flushed).toBe(false);
+    release();
+    await expect(press).rejects.toThrow('The disk is full.');
+    const failed = await flushing;
+    expect(failed?.error).toBeInstanceOf(Error);
+    expect((failed?.error as Error).message).toBe('The disk is full.');
+    expect(schedule.pending()).toBe(false);
+    expect(onError).not.toHaveBeenCalled();
+    schedule.stop();
+  });
+
+  it('hands back null from a close whose copy is made, and stops the 5-minute timer as the close begins', async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let hold = false;
+    const schedule = await startBackups(
+      {
+        ...watched(),
+        backup: async (kind, backup) => {
+          calls.push(`copy ${backup}`);
+          if (hold) await held;
+          await file.backup(kind, backup);
+        },
+      },
+      { intervalMs: BACKUP_INTERVAL_MS, now: () => clock },
+    );
+    await edit('1A');
+    await schedule.backUpByHand();
+    await edit('1B');
+    clock = at(0, 30);
+    await expect(schedule.backUpByHand()).resolves.toMatchObject({ kind: 'queued' });
+    // The 5-minute timer and the queued one's.
+    expect(vi.getTimerCount()).toBe(2);
+    hold = true;
+    const flushing = schedule.flushQueued();
+    await vi.waitFor(() => {
+      expect(calls).toContain(`copy ${backupFileName('Bey', at(0), 2)}`);
+    });
+    // The copy hangs, and no timer is left to queue another run behind it.
+    expect(vi.getTimerCount()).toBe(0);
+    release();
+    await expect(flushing).resolves.toBeNull();
+    schedule.stop();
   });
 });
 

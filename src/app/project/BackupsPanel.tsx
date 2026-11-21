@@ -7,7 +7,7 @@ import { showNotice } from '../notice';
 import { isTauriApp } from '../fileAccess';
 import { openBackup } from '../projects/actions';
 import { syncServiceOf } from '../projects/synced';
-import { useProject } from '../projectStore';
+import { projectStore, useProject } from '../projectStore';
 import { BackupsView, type BackupEntry } from './BackupsView';
 import { t } from '../../core/i18n';
 
@@ -73,12 +73,15 @@ export function BackupsPanel() {
       status={status}
       onBackUpNow={() => {
         const schedule = project?.backups;
-        if (!schedule) return;
+        if (!project || !schedule) return;
+        // The answer is this project's: one switched to meanwhile never shows it, as with Ctrl+S (pressSave).
+        const stillOpen = () => projectStore.getState().project === project;
         // The hand-backup rule (Kevin, Nov 18), one with Ctrl+S: a press under a minute after the newest backup waits
         // until that minute is up.
         schedule
           .backUpByHand()
           .then((run) => {
+            if (!stillOpen()) return;
             setStatus(
               run.kind === 'nothing'
                 ? t('backups.nothingChanged')
@@ -88,7 +91,9 @@ export function BackupsPanel() {
             );
             setGeneration((n) => n + 1);
           })
-          .catch(showNotice);
+          .catch((error: unknown) => {
+            if (stillOpen()) showNotice(error);
+          });
       }}
       onShowBackups={() => {
         project?.file.showBackups().catch(showNotice);
