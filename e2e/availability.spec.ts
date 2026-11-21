@@ -49,12 +49,13 @@ test('a stretch marked in Cast and crew shows on the call sheet and the Calendar
   await from.fill('2026-11-24');
   const to = unavailable.getByLabel('To');
   await expect(to).toHaveValue('2026-11-24');
-  // The To typed from the keyboard, cleared first: once touched it stops following the From, so an empty To (a date
-  // typed part by part is empty until it's whole) is never put back to the From's date under the typing.
+  // The To cleared from the keyboard: once touched it stops following the From, so an empty To (a date typed part by
+  // part is empty until it's whole) is never put back to the From's date. The new date is then put in whole: each
+  // engine's date field takes typed digits in its own segment order (WebKit's isn't Chromium's; nov21-h).
   await to.focus();
   await page.keyboard.press('Backspace');
   await expect(to).toHaveValue('');
-  await to.pressSequentially('11282026');
+  await to.fill('2026-11-28');
   await expect(to).toHaveValue('2026-11-28');
   // A From changed after that leaves the To as typed.
   await from.fill('2026-11-25');
