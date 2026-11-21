@@ -22,14 +22,15 @@ import { CAMERA_ICON, DIFFUSION_ICON, FLAG_ICON, gripFields, iconIdOf, LIGHT_ICO
 import { aFrame, anIcon } from '../birdseye/plan/iconWords';
 import type { JsonValue, Props, SbdRecord } from '../../core/model/record';
 import { SHOT_STATUS_LABELS } from '../../core/model/shotStatus';
-import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
+import { HEIGHT_LABEL, MOVE_LABEL, pageLabel, projectStoryboard, sceneFields, sceneLabel, SHOT_SIZE_LABEL, shotFields, SUPPORT_LABEL } from '../../core/model/storyboard';
+import { letterIndex, lettersOf } from '../../core/model/shotNumbers';
 import type { GroupKind, LoggedOp, OpGroup } from '../../core/ops/ops';
 import { POSITION_LABEL, POSITIONS } from '../export/watermark';
 import { formatNumber, getLocale, labels, t, tn, type MessageKey, type Params, type PluralBase } from '../../core/i18n';
 
 // What each step in History says (1.22): one line for an op group, in the board's words ("Added frame 4C", "4A: lens
-// 35 → 50"), worked out from its ops' before and after. A drag that renumbers a scene is one step, "Moved 4B"; the
-// renumbering it carried isn't listed apart. Undo, redo and restore name the step they went back to.
+// 35 → 50"), worked out from its ops' before and after. A drag that renumbers a scene is one step, "Moved 4B to after
+// 4C"; the renumbering it carried isn't listed apart. Undo, redo and restore name the step they went back to.
 
 /**
  * A piece of a line: words, or a technical value (a shot or scene number, a lens, a T-stop) that the tile sets in
@@ -1501,11 +1502,380 @@ function presetLine(ops: readonly LoggedOp[]): Line | null {
   return line('history.presetReplaced', {}, { name });
 }
 
+const recordOf = (op: LoggedOp): SbdRecord | null => op.after ?? op.before;
+const byKey = (a: SbdRecord, b: SbdRecord): number => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/** What a move's neighbours are, by the kind of record moved: frames for a frame or a note, scenes, a deck's pages. */
+type MovedKind = 'frame' | 'scene' | 'page';
+function movedKind(record: SbdRecord | null | undefined): MovedKind | null {
+  if (record?.type === 'shot' || record?.type === 'note') return 'frame';
+  if (record?.type === 'scene') return 'scene';
+  return record?.type === 'board_item' && itemFields(record.props)?.kind === 'page' ? 'page' : null;
+}
+
+/**
+ * A deck's items written afresh with a page in the same step, other kinds among them: a page dragged in a deck whose
+ * keys couldn't be read (6.23, movePageChanges writes every item of the deck), its pages' neighbours the pages.
+ */
+const deckRekey = (moves: readonly LoggedOp[]): boolean =>
+  moves.some((op) => movedKind(op.after) === 'page') && moves.some((op) => movedKind(op.after) !== 'page') && moves.every((op) => op.after?.type === 'board_item');
+
+/** The kind of a step's moves (movedKind), a deck's items written afresh with a page as pages; null when mixed. */
+function movesKind(moves: readonly LoggedOp[]): MovedKind | null {
+  if (deckRekey(moves)) return 'page';
+  const kind = movedKind(moves[0]?.after);
+  return kind !== null && moves.every((op) => movedKind(op.after) !== null) ? kind : null;
+}
+
+/**
+ * Where a step's moves went, when they all went under one parent and are frames, notes, scenes or pages (or a deck's
+ * items written afresh with a page): the parent's id, for the History reader (steps.ts) to read that parent's records as
+ * they were before the step. Null otherwise.
+ */
+export function moveTarget(ops: readonly LoggedOp[]): string | null {
+  const moves = ops.filter((op) => op.kind === 'move' && op.after);
+  const target = moves[0]?.after?.parentId ?? null;
+  if (target === null || !moves.every((op) => op.after?.parentId === target) || movesKind(moves) === null) return null;
+  return target;
+}
+
+/**
+ * The one scene every record a step wrote sits in (a frame's or a note's scene, or the scene itself), when the step
+ * wrote more than one record; null otherwise. Its records then name it: "Changed 3 items in SC 12".
+ */
+export function stepScene(ops: readonly LoggedOp[], around?: ReadonlyMap<string, SbdRecord>): string | null {
+  let scene: string | null = null;
+  const ids = new Set<string>();
+  for (const op of ops) {
+    const record = op.after ?? op.before;
+    const id = record?.type === 'scene' ? record.id : record?.type === 'shot' || record?.type === 'note' ? record.parentId : null;
+    if (id === null || (scene !== null && id !== scene)) return null;
+    scene = id;
+    ids.add(op.recordId);
+  }
+  if (scene === null || ids.size < 2) return null;
+  if (!around) return scene;
+  const written = ops.find((op) => op.recordId === scene);
+  const record = (written ? (written.after ?? written.before) : null) ?? around.get(scene);
+  return record?.type === 'scene' ? scene : null;
+}
+
+/** A step that only put frames of one scene into a shoot day or out of it: that scene's id, else null. */
+export function scheduledScene(ops: readonly LoggedOp[]): string | null {
+  const only = ops.every((op) => op.kind === 'update' && op.before?.type === 'shot' && op.after && changedProps(op.before, op.after).every((prop) => prop === 'shoot_day_id'));
+  return only ? stepScene(ops) : null;
+}
+
+/** The scene a step's records sit in, by name as the step left it, or null when they aren't all in one. */
+function sceneOfStep(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Part | null {
+  const id = stepScene(ops, around);
+  if (id === null) return null;
+  const written = ops.find((op) => op.recordId === id);
+  const scene = (written ? (written.after ?? written.before) : null) ?? around.get(id) ?? null;
+  return nameOf(scene);
+}
+
+/** The start of the project (a scene moved first): its own words, "al principio del proyecto" in Spanish. */
+type MovedWhere = { after: Part } | { start: Part } | { projectStart: true } | { to: Part };
+
+/** Whether a record is a neighbour of this kind of move: frames for a frame or a note, scenes, a deck's pages. */
+const neighbourOf = (kind: MovedKind) => (r: SbdRecord): boolean =>
+  kind === 'frame' ? r.type === 'shot' : kind === 'scene' ? r.type === 'scene' : r.type === 'board_item' && itemFields(r.props)?.kind === 'page';
+
+/** Each record as the step left it: its last op's after, else as it was (`around`). */
+function asLeft(ops: readonly LoggedOp[]): (record: SbdRecord) => SbdRecord {
+  const last = new Map<string, SbdRecord>();
+  for (const op of ops) if (op.after) last.set(op.recordId, op.after);
+  return (record) => last.get(record.id) ?? record;
+}
+
+/**
+ * Whether a step's moves wrote a whole place afresh (6.23): several, all readable, under one parent, and every record
+ * the place held then among them (the Trash's too); else the person moved them all. A deck's items written afresh
+ * with a page are all its items, not only its pages.
+ */
+function rekeyedPlace(moves: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): boolean {
+  const target = moveTarget(moves);
+  const kind = movesKind(moves);
+  if (moves.length < 2 || target === null || kind === null || moves.some(purged)) return false;
+  const ids = new Set(moves.map((op) => op.recordId));
+  const rekeyed = deckRekey(moves);
+  const held = [...around.values()].filter(
+    (r) => r.parentId === target && (kind === 'frame' ? r.type === 'shot' || r.type === 'note' : rekeyed ? r.type === 'board_item' : neighbourOf(kind)(r)),
+  );
+  return held.every((r) => ids.has(r.id));
+}
+
+/**
+ * A step's moves without those of records then in the Trash and since deleted for good (`trashed`, steps.ts), when the
+ * rest wrote their whole place afresh: a re-key (6.23) writes the Trash's records too, and a record in the Trash can't
+ * be what the person dragged. Otherwise all of them, the emptied ones kept, so the line neither counts nor places them
+ * as known (movedLine).
+ */
+function withoutTrashed(moves: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>, trashed: ReadonlySet<string>): readonly LoggedOp[] {
+  if (trashed.size === 0) return moves;
+  const rest = moves.filter((op) => !(purged(op) && trashed.has(op.recordId)));
+  return rest.length < moves.length && rekeyedPlace(rest, around) ? rest : moves;
+}
+
+/**
+ * What the person moved, of a step's moves. A drag in a file whose sort keys couldn't be read (6.23) writes every
+ * record of its scene afresh in the same step (board.ts, `rekeys`), so the moves are all of them: then the re-keyed
+ * ones keep their order among themselves, and what moved is what changed place among them (the first written when
+ * either of two could have; a longest run kept in order when several moved). Any other step: all its moves.
+ */
+function personMoves(moves: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): readonly LoggedOp[] {
+  const target = moveTarget(moves);
+  if (target === null || !rekeyedPlace(moves, around)) return moves;
+  const stayed = moves.flatMap((op) => (op.before?.parentId === target && op.after ? [{ op, before: op.before, after: op.after }] : []));
+  const others = moves.filter((op) => op.before?.parentId !== target);
+  const was = [...stayed].sort((a, b) => byKey(a.before, b.before)).map((s) => s.op.recordId);
+  const now = [...stayed].sort((a, b) => byKey(a.after, b.after)).map((s) => s.op.recordId);
+  const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
+  // Their order unchanged: only what came from elsewhere moved; nothing did, and it's the step's moves as they are.
+  if (same(was, now)) return others.length > 0 ? others : moves;
+  for (const { op } of stayed) {
+    const without = (list: readonly string[]) => list.filter((id) => id !== op.recordId);
+    if (same(without(was), without(now))) return [op, ...others];
+  }
+  // Several moved: the longest run still in its old order stayed (a longest increasing run of old places, in new order).
+  const place = new Map(was.map((id, i) => [id, i]));
+  const seq = now.map((id) => place.get(id) ?? 0);
+  const tails: number[] = [];
+  const tailAt: number[] = [];
+  const prev: number[] = seq.map(() => -1);
+  seq.forEach((value, i) => {
+    let lo = 0;
+    let hi = tails.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if ((tails[mid] ?? 0) < value) lo = mid + 1;
+      else hi = mid;
+    }
+    tails[lo] = value;
+    tailAt[lo] = i;
+    prev[i] = lo > 0 ? (tailAt[lo - 1] ?? -1) : -1;
+  });
+  const kept = new Set<string>();
+  for (let i = tailAt[tails.length - 1] ?? -1; i !== -1; i = prev[i] ?? -1) kept.add(now[i] ?? '');
+  return [...stayed.flatMap(({ op }) => (kept.has(op.recordId) ? [] : [op])), ...others];
+}
+
+/**
+ * Whether a frame's place is proven by its number, with records of its scene since deleted for good: in a scene whose
+ * numbers follow the board, the step left every live frame lettered by its place, so the first moved frame's letter
+ * counts the live frames before it. Its count of the known ones before it the same: none is missing there. And the
+ * known live frames after it carry the next letters in order, so the step did re-letter the scene: a move that didn't
+ * (an older version's file, a step not made by moveItem) keeps its old letter, which proves nothing. So the step must
+ * have written the moved frame's letter itself, or every frame after its new place may be gone and prove nothing.
+ */
+function placeProven(first: SbdRecord, before: readonly SbdRecord[], target: string, ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): boolean {
+  if (first.type !== 'shot') return false;
+  const left = asLeft(ops);
+  const known = around.get(target);
+  const scene = known ? left(known) : ops.find((op) => op.recordId === target)?.after;
+  if (scene?.type !== 'scene' || sceneFields(scene.props).numbersLocked) return false;
+  const sceneNumber = sceneFields(scene.props).number;
+  const letters = lettersOf(shotFields(left(first).props).number, sceneNumber);
+  if (letters === null) return false;
+  // The step wrote the moved frame's letter: one it kept from before says where it was, not where it went.
+  const lettered = ops.some((op) => op.recordId === first.id && op.before?.type === 'shot' && op.after?.type === 'shot' && shotFields(op.before.props).number !== shotFields(op.after.props).number);
+  if (!lettered) return false;
+  // The frames after it as the step left them: the step's own (the other frames it moved) and the known ones.
+  const records = new Map<string, SbdRecord>();
+  for (const r of around.values()) records.set(r.id, left(r));
+  for (const op of ops) if (op.after) records.set(op.recordId, op.after);
+  const after = [...records.values()]
+    .filter((r) => r.parentId === target && r.type === 'shot' && r.trashedAt === null && r.id !== first.id && byKey(r, left(first)) > 0)
+    .sort(byKey)
+    .map((r) => lettersOf(shotFields(r.props).number, sceneNumber));
+  if (after.some((l) => l === null)) return false;
+  // The project's I and O setting when the step knows the project (as it left it); else only letters both settings read
+  // alike.
+  const written = ops.find((op) => op.after?.type === 'project');
+  const project = written?.after ?? [...around.values()].find((r) => r.type === 'project');
+  const options = project ? [{ skipIO: projectStoryboard(project.props).skipIO }] : [{ skipIO: true }, { skipIO: false }];
+  return options.every(
+    (option) => letterIndex(letters, option) === before.length && after.every((l, i) => l !== null && letterIndex(l, option) === before.length + 1 + i),
+  );
+}
+
+/**
+ * Where a step's moves put them (Kevin, Nov 18: every line says where), from the records the step's target held just
+ * before it (`around`, steps.ts): after the frame, scene or page before the first one moved, as numbered when it was
+ * dragged; at the start of the scene, the deck or the project when nothing was before it; in the scene when the one
+ * before has no number. Each neighbour's place is where the step left it, which a re-keyed one's (6.23) isn't before.
+ * Null when the target isn't known (the step's records since deleted for good), or when a record of the project then
+ * has since been deleted for good (`unsure`, steps.ts) and the place can't be proven without it: the line says what moved.
+ */
+function moveWhere(
+  moves: readonly LoggedOp[],
+  ops: readonly LoggedOp[],
+  around: ReadonlyMap<string, SbdRecord>,
+  unsure: boolean,
+): MovedWhere | null {
+  const target = moveTarget(moves);
+  const kind = movedKind(moves[0]?.after);
+  // A move among them since emptied (Empty Trash) is a record whose place then can't be read: no place is said.
+  if (target === null || kind === null || moves.some(purged)) return null;
+  const written = ops.find((op) => op.recordId === target);
+  // A scene's place is the project, whose words are fixed: its record isn't needed (nor in the log, ensureProjectRecord).
+  const parent = (written ? (written.after ?? written.before) : null) ?? around.get(target);
+  if (!parent && kind !== 'scene') return null;
+  const ids = new Set(moves.map((op) => op.recordId));
+  const placed = moves.flatMap((op) => (op.after ? [op.after] : [])).sort(byKey);
+  const first = placed[0];
+  if (!first) return null;
+  const left = asLeft(ops);
+  const neighbour = neighbourOf(kind);
+  const earlier = [...around.values()]
+    .filter((r) => r.parentId === target && !ids.has(r.id) && r.trashedAt === null && neighbour(r) && byKey(left(r), first) < 0)
+    .sort((a, b) => byKey(left(a), left(b)));
+  if (unsure && !placeProven(first, earlier, target, ops, around)) return null;
+  const before = earlier.at(-1);
+  if (kind === 'scene' || !parent) return before ? { after: nameOf(before) } : { projectStart: true };
+  if (kind === 'page') return before ? { after: pageName(before, moves, target, around, unsure) } : { start: t('history.deckNamed', { name: lineText([nameOf(parent)]) }) };
+  const place = nameOf(parent);
+  if (!before) return { start: place };
+  if (before.type === 'shot' && shotFields(before.props).number === '') return { to: place };
+  return { after: nameOf(before) };
+}
+
+/**
+ * A deck's page in a move's line: by its name, as the deck lines say it, or by its number among the deck's pages as
+ * they were before the step (as Trash numbers one), never "a page" when it can be told. Not by its number when a record
+ * of the project then has since been deleted for good (`unsure`): a purged page isn't counted, so the number could be
+ * wrong; then "a page".
+ */
+function pageName(page: SbdRecord, moves: readonly LoggedOp[], target: string, around: ReadonlyMap<string, SbdRecord>, unsure: boolean): Part {
+  const fields = itemFields(page.props);
+  if (unsure || (fields?.kind === 'page' && fields.name.trim() !== '')) return nameOf(page);
+  const ids = new Set(moves.map((op) => op.recordId));
+  const pages = [
+    ...[...around.values()].filter((r) => !ids.has(r.id)),
+    ...moves.flatMap((op) => (op.before ? [op.before] : [])),
+  ].filter((r) => r.parentId === target && r.trashedAt === null && neighbourOf('page')(r));
+  const at = pages.sort(byKey).findIndex((r) => r.id === page.id);
+  return at === -1 ? nameOf(page) : t('history.pageNumbered', { number: at + 1 });
+}
+
+/** What several records moved together are: "3 frames", "2 scenes", "2 pages"; "3 items" when they're of mixed kinds. */
+function movedThings(moves: readonly LoggedOp[], n: number): string {
+  const records = moves.map((op) => op.after ?? op.before);
+  const types = new Set(records.map((r) => r?.type));
+  const [type] = [...types];
+  if (types.size !== 1 || type === undefined) return tn('count.items', n);
+  if (type === 'board_item') return records.every((r) => movedKind(r) === 'page') ? tn('count.pages', n) : itemsCount(records, n);
+  return count(type, n);
+}
+
+/** A move's line, with where it went when that's known; only what the person moved is counted and placed (personMoves). */
+function movedLine(all: readonly LoggedOp[], ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>, tag: string, unsure: boolean): Line {
+  const moves = personMoves(all, around);
+  const where = moveWhere(moves, ops, around, unsure);
+  const n = new Set(moves.map((op) => op.recordId)).size;
+  const moved = moves[0];
+  if (n > 1 || !moved) {
+    // Some of them since deleted for good and not known to be the Trash's: how many the person moved isn't known.
+    if (moves.some(purged)) return [t('history.movedSomeLost')];
+    const things = movedThings(moves, n);
+    if (!where) return [t('history.movedCount', { things })];
+    if ('after' in where) return line('history.movedCountAfter', { after: where.after }, { things });
+    if ('start' in where) return line('history.movedCountToStart', { place: where.start }, { things });
+    if ('projectStart' in where) return [t('history.movedCountToProjectStart', { things })];
+    return line('history.movedCountTo', { place: where.to }, { things });
+  }
+  if (purged(moved)) return [t('history.movedLost')];
+  const record = recordOf(moved);
+  // A deck's page by its name or its number then, as the deck lines name one.
+  const target = moveTarget(moves);
+  const name = record && movedKind(record) === 'page' && target !== null ? pageName(moved.before ?? record, moves, target, around, unsure) : nameOf(record);
+  const said = !where
+    ? line('history.moved', { name })
+    : 'after' in where
+      ? line('history.movedAfter', { name, after: where.after })
+      : 'start' in where
+        ? line('history.movedToStart', { name, place: where.start })
+        : 'projectStart' in where
+          ? line('history.movedToProjectStart', { name })
+          : line('history.movedTo', { name, place: where.to });
+  return tag === '' ? said : [...said, tag];
+}
+
+/**
+ * Several records changed in one step, when they're a scene's shot numbers: renumbered with the scene's own number or
+ * on their own, or locked or unlocked with the scene's lock. Null for any other step.
+ */
+function numbersLine(updates: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>, tag: string): Line | null {
+  const sceneOps = updates.filter((op) => op.after?.type === 'scene');
+  const shots = updates.filter((op) => op.after?.type === 'shot');
+  if (shots.length === 0 || sceneOps.length + shots.length !== updates.length || sceneOps.length > 1) return null;
+  if (!shots.every((op) => op.before && op.after && changedProps(op.before, op.after).every((prop) => prop === 'number'))) return null;
+  const sceneOp = sceneOps[0];
+  const sceneId = sceneOp?.recordId ?? shots[0]?.after?.parentId ?? null;
+  if (sceneId === null || !shots.every((op) => op.after?.parentId === sceneId)) return null;
+  const scene = sceneOp?.after ?? around.get(sceneId) ?? null;
+  if (scene?.type !== 'scene') return null;
+  const name = nameOf(scene);
+  if (!sceneOp?.before || !sceneOp.after) return line('history.shotsRenumbered', { scene: name }, { tag });
+  const changed = changedProps(sceneOp.before, sceneOp.after);
+  if (changed.length === 1 && changed[0] === 'numbers_locked') {
+    return line(sceneOp.after.props.numbers_locked === true ? 'history.numbersLocked' : 'history.numbersUnlocked', { scene: name }, { tag });
+  }
+  if (changed.length === 1 && changed[0] === 'number') return line('history.sceneRenumbered', { from: nameOf(sceneOp.before), scene: name }, { tag });
+  return null;
+}
+
+/**
+ * Several records of one kind with the same one field changed ("Changed the lens of 3 frames in SC 12"), or null.
+ */
+function oneFieldLine(updates: readonly LoggedOp[], ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>, tag: string): Line | null {
+  const types = new Set(updates.map((op) => op.after?.type));
+  const [type] = [...types];
+  if (types.size !== 1 || type === undefined) return null;
+  const labels = new Set<string>();
+  for (const op of updates) {
+    if (!op.before || !op.after) return null;
+    const changes = fieldChanges(op.before, op.after);
+    const [only] = changes;
+    if (changes.length !== 1 || !only) return null;
+    labels.add(changeLabel(only, around));
+  }
+  const [field] = [...labels];
+  if (labels.size !== 1 || field === undefined) return null;
+  const things = type === 'board_item' ? itemsCount(updates.map(recordOf), new Set(updates.map((op) => op.recordId)).size) : count(type, new Set(updates.map((op) => op.recordId)).size);
+  const scene = sceneOfStep(ops, around);
+  return scene ? line('history.fieldOfManyIn', { scene }, { field, things, tag }) : line('history.fieldOfMany', {}, { field, things, tag });
+}
+
+/**
+ * Whether a step's frames into a day are the whole of their scene: every live Need-to-shoot frame of it on that day as
+ * the step left it (`around` holds the scene's frames then, steps.ts, the step's own among them).
+ */
+function wholeSceneOnDay(updates: readonly LoggedOp[], day: string, around: ReadonlyMap<string, SbdRecord>): SbdRecord | null {
+  const sceneId = updates[0]?.after?.parentId ?? null;
+  if (sceneId === null || !updates.every((op) => op.after?.parentId === sceneId && around.get(op.recordId)?.parentId === sceneId)) return null;
+  const scene = around.get(sceneId);
+  if (scene?.type !== 'scene') return null;
+  const frames = [...around.values()].filter((r) => r.type === 'shot' && r.parentId === sceneId && r.trashedAt === null);
+  const on = (r: SbdRecord) => r.props.shoot_day_id === day || shotFields(r.props).status !== 'need';
+  return frames.every(on) ? scene : null;
+}
+
 /**
  * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
- * names without writing them (a sketch's frame, a scene's location), as they were then.
+ * names without writing them (a sketch's frame, a scene's location), as they were then. `unsure`: a record of the
+ * project then has since been deleted for good (steps.ts), so a place read from `around` says only what it can prove.
+ * `trashed`: the records the step wrote while they were in the Trash, since deleted for good (steps.ts).
  */
-export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<string>, around: ReadonlyMap<string, SbdRecord> = new Map(), unit: PlanUnit = planUnitNow()): Line {
+export function describeEdit(
+  opsIn: readonly LoggedOp[],
+  stored: ReadonlySet<string>,
+  around: ReadonlyMap<string, SbdRecord> = new Map(),
+  unit: PlanUnit = planUnitNow(),
+  unsure = false,
+  trashed: ReadonlySet<string> = new Set(),
+): Line {
   if (opsIn.length === 0) return [t('history.noChange')];
   // A call sheet made with its first note reads as that note being set, not as a call sheet added (4.1): its create
   // is read as an update from a record with no props.
@@ -1657,17 +2027,23 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     const lost = ops.filter((op) => op.kind === kind && purged(op));
     if (lost.length > 0) return [t(LOST[kind], { items: items(lost.length), tag })];
   }
-  const moves = of('move');
+  const moves = withoutTrashed(of('move'), around, trashed);
   const moved = moves[0];
   if (moved) {
-    // One page moved to another place in the deck (5.5).
-    if (moves.length === 1 && itemFields(record(moved)?.props ?? {})?.kind === 'page') return [...line('history.moved', { name: nameOf(record(moved)) }), tag];
+    // One page moved to another place in the deck (5.5), after the page before it.
+    if (moves.length === 1 && itemFields(record(moved)?.props ?? {})?.kind === 'page') return movedLine(moves, ops, around, tag, unsure);
+    // The same in a deck whose keys couldn't be read (6.23): its items written afresh with the page, the page the one
+    // whose place among them changed (personMoves).
+    if (moves.length > 1 && moves.every((op) => record(op)?.type === 'board_item') && moveTarget(moves) !== null) {
+      const person = personMoves(moves, around);
+      if (person.length === 1 && movedKind(person[0]?.after) === 'page') return movedLine(moves, ops, around, tag, unsure);
+    }
     // A scene's setups put in another order (6.0): their numbers follow.
     if (moves.every((op) => record(op)?.type === 'setup')) return line('history.setupsReordered', { scene: setupScene(record(moved), ops, around) });
     // A board's items sent forward or back (5.0): their stacking order, not a move across the board.
     if (moves.every((op) => record(op)?.type === 'board_item')) return [t('history.boardItemsReordered', { things: itemsCount(moves.map((op) => record(op)), new Set(moves.map((op) => op.recordId)).size) })];
-    if (moves.length > 1) return [t('history.movedCount', { things: tn('count.items', moves.length) })];
-    return purged(moved) ? [t('history.movedLost')] : line('history.moved', { name: nameOf(record(moved)) });
+    // Frames, notes and scenes, by where they went: "Moved 4A to after 3C".
+    return movedLine(moves, ops, around, '', unsure);
   }
   const updates = ops.filter((op) => op.kind === 'update' && op.before && op.after);
   const lostUpdates = ops.filter((op) => op.kind === 'update' && purged(op));
@@ -1763,13 +2139,40 @@ export function describeEdit(opsIn: readonly LoggedOp[], stored: ReadonlySet<str
     const frames = tn('count.frames', updates.length);
     if (typeof to !== 'string') return [t('history.framesUnscheduled', { frames, tag })];
     const day = around.get(to);
-    return [...line('history.framesScheduled', { day: day ? nameOf(day) : t('history.aShootDay') }, { frames, tag })];
+    const dayName = day ? nameOf(day) : t('history.aShootDay');
+    // A whole scene at once (3.7: a scene at a time): named as the scene.
+    const scene = unsure ? null : wholeSceneOnDay(updates, to, around);
+    if (scene) return line('history.sceneScheduled', { scene: nameOf(scene), day: dayName }, { tag });
+    return [...line('history.framesScheduled', { day: dayName }, { frames, tag })];
   }
   if (updates.length > 0) {
-    // A renumber or a lock touches many frames: named by the scene they share when they share one.
-    return [t('history.changedCount', { things: tn('count.items', new Set(updates.map((op) => op.recordId)).size), tag })];
+    // A renumber or a lock touches many frames: said as that, named by the scene they share.
+    const numbered = numbersLine(updates, around, tag);
+    if (numbered) return numbered;
+    const field = oneFieldLine(updates, ops, around, tag);
+    if (field) return field;
+    const things = tn('count.items', new Set(updates.map((op) => op.recordId)).size);
+    const scene = sceneOfStep(ops, around);
+    return scene ? line('history.changedCountIn', { scene }, { things, tag }) : [t('history.changedCount', { things, tag })];
   }
-  return [t('history.changes', { things: tn('count.changes', ops.length), tag })];
+  // The last fallback: how many changes, to what kind of record and in which scene, as far as the step can say.
+  const things = tn('count.changes', ops.length);
+  const scene = sceneOfStep(ops, around);
+  const types = new Set(ops.map((op) => record(op)?.type));
+  const [type] = [...types];
+  const n = new Set(ops.map((op) => op.recordId)).size;
+  // Board items and attachments by the nouns the other lines give them, not the table's rectangles and pictures.
+  const all = ops.map(record);
+  const counted =
+    types.size !== 1 || type === undefined || COUNT[type] === undefined
+      ? null
+      : type === 'board_item'
+        ? itemsCount(all, n)
+        : type === 'media' && all.every((r) => r && attachmentFields(r.props))
+          ? tn('count.attachments', n)
+          : count(type, n);
+  if (counted !== null) return scene ? line('history.changesOfIn', { scene }, { things, records: counted, tag }) : [t('history.changesOf', { things, records: counted, tag })];
+  return scene ? line('history.changesIn', { scene }, { things, tag }) : [t('history.changes', { things, tag })];
 }
 
 /** The scene a setup sits in, as the step left it or as it was then (`around`): `SC 04`, or "a scene". */
@@ -1838,10 +2241,12 @@ export function describeGroup(
   stored: ReadonlySet<string>,
   around: ReadonlyMap<string, SbdRecord> = new Map(),
   unit: PlanUnit = planUnitNow(),
+  unsure = false,
+  trashed: ReadonlySet<string> = new Set(),
 ): Line {
   switch (group.kind) {
     case 'edit':
-      return describeEdit(ops, stored, around, unit);
+      return describeEdit(ops, stored, around, unit, unsure, trashed);
     case 'undo':
       return [t('history.undid'), ...(titles.get(group.targetGroupId ?? '') ?? [t('history.aStep')])];
     case 'redo':
