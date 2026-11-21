@@ -10,6 +10,11 @@ interface SelectionState {
   shotId: string | null;
   /** A note the keys are on: it keeps the board's Tab stop, though the inspector shows its scene. */
   noteId: string | null;
+  /**
+   * Counts every pick, the item already selected picked again too: what was picked latest wins over a shoot day's own
+   * history (historyDay.ts), which a pick that changes no id would otherwise leave on.
+   */
+  picks: number;
   /** Picking a scene elsewhere (sidebar, Scenes tile) keeps the frame only if it's in that scene. */
   selectScene: (sceneId: string | null) => void;
   /** Picking a frame makes its scene the active one. */
@@ -22,15 +27,16 @@ export const selectionStore = createStore<SelectionState>()((set, get) => ({
   sceneId: null,
   shotId: null,
   noteId: null,
+  picks: 0,
   selectScene: (sceneId) => {
     const same = sceneId === get().sceneId;
-    set({ sceneId, shotId: same ? get().shotId : null, noteId: same ? get().noteId : null });
+    set({ sceneId, shotId: same ? get().shotId : null, noteId: same ? get().noteId : null, picks: get().picks + 1 });
   },
   selectShot: (shotId, sceneId) => {
-    set({ shotId, noteId: null, sceneId: sceneId ?? get().sceneId });
+    set({ shotId, noteId: null, sceneId: sceneId ?? get().sceneId, picks: get().picks + 1 });
   },
   selectNote: (noteId, sceneId) => {
-    set({ noteId, shotId: null, sceneId: sceneId ?? get().sceneId });
+    set({ noteId, shotId: null, sceneId: sceneId ?? get().sceneId, picks: get().picks + 1 });
   },
 }));
 

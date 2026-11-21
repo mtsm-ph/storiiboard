@@ -1017,6 +1017,98 @@ export async function opsSince(file: ProjectFile, seq: number, recordIds: readon
   return rows.map(loggedOp);
 }
 
+/** The records a shoot day's history has found in the log so far (dayOpsSince): every write to each is the day's. */
+export interface DayRecords {
+  /** What the log puts under the day: its call sheets, and what's under them (an issued PDF). */
+  under: string[];
+  /** Every record whose `shoot_day_id` is or was the day, in some write's before or after: its frames, then and now. */
+  frames: string[];
+  /** What the log puts under one of those frames: its strokes and its picture, as the frame's own History reads them. */
+  kids: string[];
+}
+
+export const NO_DAY_RECORDS: DayRecords = { under: [], frames: [], kids: [] };
+
+/**
+ * The writes after `seq` that touched a shoot day (a day's own history, Kevin, Nov 18): to the day; to the records the
+ * log puts under it (`under`: its call sheets and what's under them); and every write to a frame whose `shoot_day_id`
+ * is or was the day, its whole log as its own History reads it (frameOps: its writes, its strokes and its picture),
+ * from before it was scheduled too, so a sketch on a frame of the day is the day's and a frame moved off the day stays
+ * in it. A record found for the first time is read whole, every write since the log began, as a fresh read would
+ * have found it. Read as the log still says: a write Empty Trash emptied no longer says where it was.
+ *
+ * The first pass puts a plain text search first (instr, as mediaInLog does): a write can only sit under the day, carry
+ * its `shoot_day_id` or sit under one of its frames if its JSON holds that id, so the sketch writes that make up most
+ * of a long log are passed over before any JSON is read. A pass for the records it found (from the log's start) reads
+ * each write's parent_id directly: instr costs a read of the text per id asked, so with 30 frames it took ten times
+ * as long as the JSON read (768 against 74 ms on 20,000 sketch writes). With `seq` 0 the first pass looks through
+ * every op for the day's id, a second for the frames and call sheets it found; after that only the ops after `seq`
+ * (seq is indexed), unless a record new to the day turns up, which is read from the log's start as a fresh read would.
+ */
+export async function dayOpsSince(file: ProjectFile, seq: number, dayId: string, known: DayRecords): Promise<DayRecords & { ops: LoggedOp[] }> {
+  const found = new Map<string, LoggedOp>();
+  const under = new Set(known.under);
+  const frames = new Set(known.frames);
+  const kids = new Set(known.kids);
+  const isKnown = (id: string) => id === dayId || under.has(id) || frames.has(id) || kids.has(id);
+  // What each pass reads every write of, and the parents whose children it finds.
+  let whole = [dayId, ...under, ...frames, ...kids];
+  let parents = [dayId, ...under, ...frames];
+  let from = seq;
+  let first = true;
+  while (whole.length > 0) {
+    const all = JSON.stringify(whole);
+    const asked = JSON.stringify(parents);
+    // Every parent the day already has: a pass with none asked reads only records' own writes, through ops_by_record,
+    // and leaves out those already found under one of them.
+    const had = JSON.stringify([dayId, ...under, ...frames]);
+    const rows = await file.query(
+      parents.length > 0
+        ? `SELECT ${LOGGED_COLUMNS} FROM ops o
+            JOIN op_groups g ON g.id = o.group_id WHERE o.seq > ?
+            AND (o.record_id IN (SELECT value FROM json_each(?))
+              OR (${first ? 'EXISTS (SELECT 1 FROM json_each(?) k WHERE instr(o.before, k.value) > 0 OR instr(o.after, k.value) > 0)' : '1'}
+                AND (json_extract(o.before, '$.parent_id') IN (SELECT value FROM json_each(?))
+                  OR json_extract(o.after, '$.parent_id') IN (SELECT value FROM json_each(?))
+                  ${first ? "OR json_extract(o.before, '$.props.shoot_day_id') = ? OR json_extract(o.after, '$.props.shoot_day_id') = ?" : ''})))
+            ORDER BY o.seq`
+        : `SELECT ${LOGGED_COLUMNS} FROM ops o
+            JOIN op_groups g ON g.id = o.group_id WHERE o.seq > ? AND o.record_id IN (SELECT value FROM json_each(?))
+            AND coalesce(json_extract(o.before, '$.parent_id') IN (SELECT value FROM json_each(?)), 0) = 0
+            AND coalesce(json_extract(o.after, '$.parent_id') IN (SELECT value FROM json_each(?)), 0) = 0
+            ORDER BY o.seq`,
+      parents.length > 0 ? (first ? [from, all, asked, asked, asked, dayId, dayId] : [from, all, asked, asked]) : [from, all, had, had],
+    );
+    const fresh = { under: new Set<string>(), frames: new Set<string>(), kids: new Set<string>() };
+    for (const op of rows.map(loggedOp)) {
+      found.set(op.id, op);
+      const id = op.recordId;
+      if (isKnown(id) || fresh.under.has(id) || fresh.frames.has(id) || fresh.kids.has(id)) continue;
+      const sides = [op.before, op.after];
+      const parentIn = (set: ReadonlySet<string>) => sides.some((r) => typeof r?.parentId === 'string' && set.has(r.parentId));
+      if (sides.some((r) => r?.props.shoot_day_id === dayId)) fresh.frames.add(id);
+      else if (parentIn(new Set([dayId, ...under]))) fresh.under.add(id);
+      else if (parentIn(frames)) fresh.kids.add(id);
+    }
+    for (const id of fresh.under) under.add(id);
+    for (const id of fresh.frames) frames.add(id);
+    for (const id of fresh.kids) kids.add(id);
+    // A record new to the day: all of its writes, as a fresh read finds them; and, for one under the day or a frame,
+    // what the log puts under it. A frame's strokes and picture have nothing of the frame's under them.
+    whole = [...fresh.under, ...fresh.frames, ...fresh.kids];
+    parents = [...fresh.under, ...fresh.frames];
+    from = 0;
+    first = false;
+  }
+  return { ops: [...found.values()].sort((a, b) => a.seq - b.seq), under: [...under], frames: [...frames], kids: [...kids] };
+}
+
+/** Whether Empty Trash ran after `seq`: it empties older writes, so what was read before may no longer be provable. */
+export async function purgedSince(file: ProjectFile, seq: number): Promise<boolean> {
+  const rows = await file.query("SELECT 1 AS hit FROM ops WHERE seq > ? AND kind = 'purge' LIMIT 1", [seq]);
+  return rows.length > 0;
+}
+
 /**
  * Each record as its last write before `seq` left it, in the order asked; null where there's none (or Empty Trash
  * took its data). For naming a record a step touched without writing it, as it was then: a sketch's frame.

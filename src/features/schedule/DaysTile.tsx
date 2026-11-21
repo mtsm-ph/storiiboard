@@ -33,6 +33,8 @@ import { showDay, useShownDay } from './shownDay';
 import { GearPicker } from '../gear/GearPicker';
 import { gearListChange } from '../gear/gearEdits';
 import { ROLE_LABELS } from '../../core/model/role';
+import { useWorkspaceId } from '../../app/shell/workspaceContext';
+import { openDayHistory } from '../history/historyDay';
 
 // The Days tile (3.7), in the Production workspace: the shoot's days, each with its date, call and wrap, the frames shot
 // that day and what that adds up to (frames, setups, hours at the project's minutes per setup); and the "Need to shoot"
@@ -283,6 +285,7 @@ interface DayEditorProps {
 
 function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule, onCrew, onGear, onDelete }: DayEditorProps) {
   const headingId = useId();
+  const workspaceId = useWorkspaceId();
   const crewId = useId();
   const editor = useRef<HTMLElement>(null);
   useScrollLane(editor);
@@ -368,6 +371,16 @@ function DayEditor({ day, days, records, projectId, minutes, onField, onSchedule
         }}
       >
         {t('days.plansPdf')}
+      </Button>
+      {/* The day's own history (Kevin, Nov 18): History, filtered to the day, its call sheet and its frames. */}
+      <Button
+        className="self-start"
+        aria-label={t('days.historyOf', { day: label })}
+        onClick={() => {
+          openDayHistory(workspaceId, id);
+        }}
+      >
+        {t('days.history')}
       </Button>
       <TextArea
         key={`notes:${day.fields.notes}`}

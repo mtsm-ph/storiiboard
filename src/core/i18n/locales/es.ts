@@ -1352,6 +1352,12 @@ export const es: Messages = {
   'history.item.shot': 'el cuadro {name}',
   'history.item.scene': 'la escena {name}',
   'history.item.note': 'esta nota',
+  // src/features/history/DayHistory.tsx: el historial propio de un día de rodaje, abierto desde el día en Días de rodaje o el Calendario.
+  'history.only.day': 'Solo el día de rodaje {name}',
+  'history.item.day': 'el día de rodaje {name}',
+  'history.dayStepsOf': 'Pasos en {title}, del más reciente al más antiguo',
+  'days.history': 'Historial',
+  'days.historyOf': 'Historial de {day}',
   // src/features/history/ItemHistory.tsx
   'history.noChangesTo': 'Todavía no hay cambios en {title}.',
   'history.changesTo': 'Cambios en {title}, del más reciente al más antiguo',

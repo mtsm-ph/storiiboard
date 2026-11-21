@@ -1350,6 +1350,12 @@ export const en = {
   'history.item.shot': 'frame {name}',
   'history.item.scene': 'scene {name}',
   'history.item.note': 'this note',
+  // src/features/history/DayHistory.tsx: a shoot day's own history, opened from the day in Shoot days or the Calendar.
+  'history.only.day': 'Only shoot day {name}',
+  'history.item.day': 'shoot day {name}',
+  'history.dayStepsOf': 'Steps on {title}, newest first',
+  'days.history': 'History',
+  'days.historyOf': 'History of {day}',
   // src/features/history/ItemHistory.tsx
   'history.noChangesTo': 'No changes to {title} yet.',
   'history.changesTo': 'Changes to {title}, newest first',

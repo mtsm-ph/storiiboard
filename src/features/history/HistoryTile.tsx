@@ -13,6 +13,9 @@ import { versionName, type NamedVersion } from '../../core/storage/versions';
 import { Button } from '../../ui/Button';
 import { TextField, Toggle } from '../../ui/fields';
 import { useSelection } from '../storyboard/selection';
+import { dayDateLabel, shootDayFields } from '../../core/model/shootDay';
+import { DayHistory } from './DayHistory';
+import { useHistoryDay } from './historyDay';
 import { ItemHistory } from './ItemHistory';
 import { LineText } from './LineText';
 import { putBackProblem, putBackStep } from './putBack';
@@ -61,6 +64,8 @@ export function HistoryTile() {
   const shotId = useSelection((s) => s.shotId);
   const noteId = useSelection((s) => s.noteId);
   const sceneId = useSelection((s) => s.sceneId);
+  const historyDayId = useHistoryDay((s) => s.dayId);
+  const onlyDay = useHistoryDay((s) => s.only);
   const [count, setCount] = useState(PAGE);
   const [onlyItem, setOnlyItem] = useState(false);
   // Each read keeps the records it was read for, so a restore can tell when the rows show what it did.
@@ -86,7 +91,12 @@ export function HistoryTile() {
     return record?.type === type && record.trashedAt === null ? record : undefined;
   };
   const item = liveRecord(shotId, 'shot') ?? liveRecord(noteId, 'note') ?? liveRecord(sceneId, 'scene');
-  const filtered = onlyItem && item !== undefined;
+  // A shoot day's own history (Kevin, Nov 18), asked from the day in Shoot days or the Calendar: the tile's item until
+  // a frame, a note or a scene is picked (historyDay.ts).
+  const day = liveRecord(historyDayId, 'shoot_day');
+  // Its switch is kept with the day (historyDay.ts), so the day's History button can turn it on from another tile.
+  const filteredDay = onlyDay && day !== undefined;
+  const filtered = onlyItem && day === undefined && item !== undefined;
   const list = useRef<HTMLOListElement>(null);
   const olderAsked = useRef(false);
   // One restore or Put back at a time (writeGate.ts): a click on a row that just moved under the pointer is dropped.
@@ -212,7 +222,11 @@ export function HistoryTile() {
   };
 
   const named = item ? itemName(item) : null;
-  const label = named ? (
+  // Named by its date, as History's lines name a day.
+  const dayName = day ? dayDateLabel(shootDayFields(day.props).date) || t('history.undatedDay') : null;
+  const label = dayName !== null ? (
+    <Trans k="history.only.day" parts={{ name: <span className="font-mono">{dayName}</span> }} />
+  ) : named ? (
     named.mono === '' ? (
       t(named.only === 'history.only.shot' ? 'history.only.unnumbered' : named.only)
     ) : (
@@ -324,10 +338,22 @@ export function HistoryTile() {
         )}
       </section>
       <div className="flex flex-wrap items-center gap-3 border-b border-border p-3">
-        <Toggle label={label} checked={filtered} disabled={!item} onChange={setOnlyItem} />
+        <div data-history-only="" className="contents">
+          <Toggle
+            label={label}
+            checked={day ? filteredDay : filtered}
+            disabled={!item && !day}
+            onChange={(on) => {
+              if (day) useHistoryDay.setState({ only: on });
+              else setOnlyItem(on);
+            }}
+          />
+        </div>
         <RestoreStatus restoring={restoring} opening={opening} />
       </div>
-      {filtered && named ? (
+      {filteredDay && dayName !== null ? (
+        <DayHistory dayId={day.id} title={t('history.item.day', { name: dayName })} />
+      ) : filtered && named ? (
         itemOps?.id === item.id ? (
           <ItemHistory
             item={item}

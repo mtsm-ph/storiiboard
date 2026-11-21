@@ -1,6 +1,6 @@
 import type { PlanUnit } from '../../core/model/length';
 import type { SbdRecord } from '../../core/model/record';
-import { childrenInLog, lastOpSeq, log, logOf, opsOfGroups, opsOfRecords, opsSince, placesBefore, projectAt, recordsBefore, storedPictures, undoTops, type GoneRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { childrenInLog, dayOpsSince, lastOpSeq, log, logOf, NO_DAY_RECORDS, opsOfGroups, opsOfRecords, opsSince, placesBefore, projectAt, purgedSince, recordsBefore, storedPictures, undoTops, type DayRecords, type GoneRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
 import { listVersions, type NamedVersion } from '../../core/storage/versions';
 import { byStep, describeGroup, lineText, moveTarget, peopleDiff, scheduledScene, stepPictures, stepScene, type Line } from './summary';
@@ -362,6 +362,72 @@ export async function moreItemLog(file: ProjectFile, item: SbdRecord, known: Ite
   const added = since.filter((op) => !have.has(op.id));
   if (added.length === 0) return { ...known, through: Math.max(known.through, through) };
   return { itemId: item.id, ops: [...known.ops, ...added].sort((a, b) => a.seq - b.seq), through: Math.max(known.through, through) };
+}
+
+/** A shoot day's own history as last read (readDayLog): its steps, newest first, each worded as History words it. */
+export interface DayLog extends DayRecords {
+  dayId: string;
+  steps: { group: OpGroup; line: Line }[];
+  /** The newest op's seq when the read began: writes after it are the next read's. */
+  through: number;
+}
+
+/**
+ * A shoot day's own history (Kevin, Nov 18): only a view, nothing stored. Every step that wrote the day, its call sheet
+ * (and what's under it), or a frame whose `shoot_day_id` is or was the day, with the frame's whole log as its own
+ * History reads it (its strokes and picture too, and its steps from before it was scheduled), so a frame moved off
+ * the day stays in it ("Moved 4A to shoot day Wed, Nov 25" in both days'). Undos, redos and restores of those steps
+ * write the same records, so they're found by the same rule. Each line is History's own (describeSteps).
+ *
+ * Opening costs two or three passes over the whole log, each a plain text search for the ids asked before any JSON is
+ * read (dayOpsSince): one for the day's id, one for the frames and call sheets it found; then a read of their strokes
+ * and pictures by record; and the lines of the day's steps: each edit's ops and the steps an undo, redo or restore
+ * names. A later read (moreDayLog) costs what the new steps wrote, unless one of them brings a record new to the day
+ * (a frame scheduled on it, a call sheet, a sketch's stroke): that record is read from the log's start, as here.
+ */
+export async function readDayLog(file: ProjectFile, dayId: string, unit?: PlanUnit): Promise<DayLog> {
+  // Taken first, so a write landing during the read is read again next time rather than missed (kept once, by group).
+  const through = await lastOpSeq(file);
+  const { ops, ...found } = await dayOpsSince(file, 0, dayId, NO_DAY_RECORDS);
+  return { dayId, ...found, through, steps: await dayLines(file, ops, new Set(), unit) };
+}
+
+/**
+ * The same history after more steps: only the writes since `known` are read. After an Empty Trash it's read afresh,
+ * since older writes it emptied no longer say where they were, so a fresh read and this one always agree.
+ */
+export async function moreDayLog(file: ProjectFile, dayId: string, known: DayLog, unit?: PlanUnit): Promise<DayLog> {
+  if (known.dayId !== dayId) return readDayLog(file, dayId, unit);
+  // Taken before the Empty Trash check: one landing between the two is then either seen by it or after `through`, for
+  // the next read's check, never skipped.
+  const through = await lastOpSeq(file);
+  if (await purgedSince(file, known.through)) return readDayLog(file, dayId, unit);
+  const { ops, ...found } = await dayOpsSince(file, known.through, dayId, known);
+  const have = new Set(known.steps.map((step) => step.group.id));
+  const added = await dayLines(file, ops, have, unit);
+  return { dayId, ...found, through: Math.max(known.through, through), steps: [...added, ...known.steps].sort((a, b) => b.group.seq - a.group.seq) };
+}
+
+/** The steps these ops belong to, leaving out those already `have`, each with its line, newest first. */
+async function dayLines(file: ProjectFile, ops: readonly LoggedOp[], have: ReadonlySet<string>, unit?: PlanUnit): Promise<DayLog['steps']> {
+  const ids = [...new Set(ops.map((op) => op.groupId))].filter((id) => !have.has(id));
+  if (ids.length === 0) return [];
+  // The steps, and every step an undo, redo or restore among them names (and those name), for their lines.
+  const found = new Map<string, OpGroup>();
+  let pending = ids;
+  while (pending.length > 0) {
+    const read = await logOf(file, pending);
+    for (const group of read) found.set(group.id, group);
+    pending = [...new Set(read.flatMap((g) => [g.targetGroupId, g.restoreTo]))].filter((id): id is string => id !== null && !found.has(id));
+  }
+  // Only an edit's own ops are read, as the top bar's lines read them: an undo or a restore is named by the step it
+  // names, and a Restore to here can hold about 125k ops (#241).
+  const { titles } = await describeSteps(file, [...found.values()].sort((a, b) => a.seq - b.seq), unit, { everyOp: false });
+  return ids
+    .map((id) => found.get(id))
+    .filter((group): group is OpGroup => group !== undefined)
+    .sort((a, b) => b.seq - a.seq)
+    .map((group) => ({ group, line: titles.get(group.id) ?? [t('history.aStep')] }));
 }
 
 /**
