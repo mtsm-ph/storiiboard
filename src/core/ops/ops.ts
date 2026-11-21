@@ -1357,90 +1357,171 @@ export async function opsSince(file: ProjectFile, seq: number, recordIds: readon
   return rows.map(loggedOp);
 }
 
-/** The records a shoot day's history has found in the log so far (dayOpsSince): every write to each is the day's. */
+/** The records a shoot day's history has found in the log so far (dayOpsSince), and when its frames were on it. */
 export interface DayRecords {
-  /** What the log puts under the day: its call sheets, and what's under them (an issued PDF). */
+  /** What the log puts under the day: its call sheets, and what's under them (an issued PDF): every write to each is the day's. */
   under: string[];
   /** Every record whose `shoot_day_id` is or was the day, in some write's before or after: its frames, then and now. */
   frames: string[];
-  /** What the log puts under one of those frames: its strokes and its picture, as the frame's own History reads them. */
+  /** What the log puts under one of those frames (a stroke, a picture) with a write made while the frame was on the day. */
   kids: string[];
+  /**
+   * Each frame's arrivals on the day (`on`) and leavings, by the seq of the write that made them, oldest first: a frame
+   * is on the day from an arrival to the next leaving, so a stretch is known only from a write that proves its start.
+   */
+  turns: { frameId: string; seq: number; on: boolean }[];
 }
 
-export const NO_DAY_RECORDS: DayRecords = { under: [], frames: [], kids: [] };
+export const NO_DAY_RECORDS: DayRecords = { under: [], frames: [], kids: [], turns: [] };
 
 /**
- * The writes after `seq` that touched a shoot day (a day's own history, Kevin, Nov 18): to the day; to the records the
- * log puts under it (`under`: its call sheets and what's under them); and every write to a frame whose `shoot_day_id`
- * is or was the day, its whole log as its own History reads it (frameOps: its writes, its strokes and its picture),
- * from before it was scheduled too, so a sketch on a frame of the day is the day's and a frame moved off the day stays
- * in it. A record found for the first time is read whole, every write since the log began, as a fresh read would
- * have found it. Read as the log still says: a write Empty Trash emptied no longer says where it was.
+ * The writes after `seq`, up to `through`, that are a shoot day's (its own history, Kevin, Nov 18 and 21): what happened
+ * to the day, never a frame's life before it arrived or after it left. A write is the day's when it writes:
+ * 1. the day itself;
+ * 2. one of its call sheets or what's under one (`under`): found where a write's before or after puts it under the day
+ *    or under one of them, then every write to it, from the log's start, as before;
+ * 3. a frame onto the day or off it (the day is its `shoot_day_id` on one side of the write only), and
+ * 4. a frame while it's on the day (the day on both sides): together, every write with the day on either side;
+ * 5. a frame's stroke or picture (a record whose parent is the frame) while the frame is on the day: from a write that
+ *    brought it there to the next that took it off (`turns`), each stretch apart, none of the time between.
+ * Read as the log still says: a write Empty Trash emptied no longer says where it was, so it proves nothing, and a
+ * stroke written where no arrival before it is known (before the day existed, or its frame's writes emptied) is left
+ * out. Capped at `through`, so a write landing during the read is the next read's, and every read sees each frame's
+ * turns up to the same op as the writes it judges by them.
  *
- * The first pass puts a plain text search first (instr, as mediaInLog does): a write can only sit under the day, carry
- * its `shoot_day_id` or sit under one of its frames if its JSON holds that id, so the sketch writes that make up most
- * of a long log are passed over before any JSON is read. A pass for the records it found (from the log's start) reads
- * each write's parent_id directly: instr costs a read of the text per id asked, so with 30 frames it took ten times
- * as long as the JSON read (768 against 74 ms on 20,000 sketch writes). With `seq` 0 the first pass looks through
- * every op for the day's id, a second for the frames and call sheets it found; after that only the ops after `seq`
- * (seq is indexed), unless a record new to the day turns up, which is read from the log's start as a fresh read would.
+ * The first pass puts a plain text search first (instr, as mediaInLog does): a write can only be the day's, under it,
+ * carry its `shoot_day_id` or sit under one of its frames if its JSON holds that id, so the sketch writes that make up
+ * most of a long log are passed over before any JSON is read. With `seq` 0 it looks through every op for the day's id
+ * alone; later only the ops after `seq` (seq is indexed), for the day's id, its call sheets' and its frames'. A frame
+ * new to the day has its strokes and picture read from its first write with the day, never before: only the parent_id
+ * of each write is read there (instr costs a read of the text per id asked, so with 30 frames it took ten times as long
+ * as the JSON read: 768 against 74 ms on 20,000 sketch writes). A call sheet new to the day is read from the log's
+ * start, by its id and what the log puts under it, as a fresh read would, with the same text search first over the
+ * call sheets' ids (a day has one or two), so it reads no JSON a write without one of them would cost.
  */
-export async function dayOpsSince(file: ProjectFile, seq: number, dayId: string, known: DayRecords): Promise<DayRecords & { ops: LoggedOp[] }> {
+export async function dayOpsSince(
+  file: ProjectFile,
+  seq: number,
+  through: number,
+  dayId: string,
+  known: DayRecords,
+): Promise<DayRecords & { ops: LoggedOp[] }> {
   const found = new Map<string, LoggedOp>();
+  const take = (rows: readonly Row[]): LoggedOp[] => {
+    const ops = rows.map(loggedOp);
+    for (const op of ops) found.set(op.id, op);
+    return ops;
+  };
   const under = new Set(known.under);
   const frames = new Set(known.frames);
   const kids = new Set(known.kids);
-  const isKnown = (id: string) => id === dayId || under.has(id) || frames.has(id) || kids.has(id);
-  // What each pass reads every write of, and the parents whose children it finds.
-  let whole = [dayId, ...under, ...frames, ...kids];
-  let parents = [dayId, ...under, ...frames];
-  let from = seq;
-  let first = true;
-  while (whole.length > 0) {
-    const all = JSON.stringify(whole);
-    const asked = JSON.stringify(parents);
-    // Every parent the day already has: a pass with none asked reads only records' own writes, through ops_by_record,
-    // and leaves out those already found under one of them.
-    const had = JSON.stringify([dayId, ...under, ...frames]);
-    const rows = await file.query(
-      parents.length > 0
-        ? `SELECT ${LOGGED_COLUMNS} FROM ops o
-            JOIN op_groups g ON g.id = o.group_id WHERE o.seq > ?
-            AND (o.record_id IN (SELECT value FROM json_each(?))
-              OR (${first ? 'EXISTS (SELECT 1 FROM json_each(?) k WHERE instr(o.before, k.value) > 0 OR instr(o.after, k.value) > 0)' : '1'}
-                AND (json_extract(o.before, '$.parent_id') IN (SELECT value FROM json_each(?))
-                  OR json_extract(o.after, '$.parent_id') IN (SELECT value FROM json_each(?))
-                  ${first ? "OR json_extract(o.before, '$.props.shoot_day_id') = ? OR json_extract(o.after, '$.props.shoot_day_id') = ?" : ''})))
-            ORDER BY o.seq`
-        : `SELECT ${LOGGED_COLUMNS} FROM ops o
-            JOIN op_groups g ON g.id = o.group_id WHERE o.seq > ? AND o.record_id IN (SELECT value FROM json_each(?))
-            AND coalesce(json_extract(o.before, '$.parent_id') IN (SELECT value FROM json_each(?)), 0) = 0
-            AND coalesce(json_extract(o.after, '$.parent_id') IN (SELECT value FROM json_each(?)), 0) = 0
-            ORDER BY o.seq`,
-      parents.length > 0 ? (first ? [from, all, asked, asked, asked, dayId, dayId] : [from, all, asked, asked]) : [from, all, had, had],
-    );
-    const fresh = { under: new Set<string>(), frames: new Set<string>(), kids: new Set<string>() };
-    for (const op of rows.map(loggedOp)) {
-      found.set(op.id, op);
+  const sides = (op: LoggedOp) => [op.before, op.after];
+  const carriesDay = (op: LoggedOp) => sides(op).some((r) => r?.props.shoot_day_id === dayId);
+  const parentIn = (op: LoggedOp, set: ReadonlySet<string>) => sides(op).some((r) => typeof r?.parentId === 'string' && set.has(r.parentId));
+  // Call sheets, and what's under them, new to the day in these writes.
+  const newUnder = (ops: readonly LoggedOp[]): string[] => {
+    const fresh = new Set<string>();
+    const parents = new Set([dayId, ...under]);
+    for (const op of ops) {
       const id = op.recordId;
-      if (isKnown(id) || fresh.under.has(id) || fresh.frames.has(id) || fresh.kids.has(id)) continue;
-      const sides = [op.before, op.after];
-      const parentIn = (set: ReadonlySet<string>) => sides.some((r) => typeof r?.parentId === 'string' && set.has(r.parentId));
-      if (sides.some((r) => r?.props.shoot_day_id === dayId)) fresh.frames.add(id);
-      else if (parentIn(new Set([dayId, ...under]))) fresh.under.add(id);
-      else if (parentIn(frames)) fresh.kids.add(id);
+      if (id === dayId || under.has(id) || frames.has(id) || carriesDay(op)) continue;
+      if (parentIn(op, parents)) fresh.add(id);
     }
-    for (const id of fresh.under) under.add(id);
-    for (const id of fresh.frames) frames.add(id);
-    for (const id of fresh.kids) kids.add(id);
-    // A record new to the day: all of its writes, as a fresh read finds them; and, for one under the day or a frame,
-    // what the log puts under it. A frame's strokes and picture have nothing of the frame's under them.
-    whole = [...fresh.under, ...fresh.frames, ...fresh.kids];
-    parents = [...fresh.under, ...fresh.frames];
-    from = 0;
-    first = false;
+    return [...fresh];
+  };
+  const asked = JSON.stringify([dayId, ...under, ...frames]);
+  const first = take(
+    await file.query(
+      `SELECT ${LOGGED_COLUMNS} FROM ops o
+        JOIN op_groups g ON g.id = o.group_id WHERE o.seq > ? AND o.seq <= ?
+        AND (o.record_id IN (SELECT value FROM json_each(?))
+          OR (EXISTS (SELECT 1 FROM json_each(?) k WHERE instr(o.before, k.value) > 0 OR instr(o.after, k.value) > 0)
+            AND (json_extract(o.before, '$.parent_id') IN (SELECT value FROM json_each(?))
+              OR json_extract(o.after, '$.parent_id') IN (SELECT value FROM json_each(?))
+              OR json_extract(o.before, '$.props.shoot_day_id') = ? OR json_extract(o.after, '$.props.shoot_day_id') = ?)))
+        ORDER BY o.seq`,
+      [seq, through, JSON.stringify([dayId, ...under]), asked, asked, asked, dayId, dayId],
+    ),
+  );
+  // A call sheet new to the day: every write to it and to what the log puts under it, from the log's start. The same
+  // text search goes first, over the call sheets' ids (a day has one or two), so no JSON is read for a write that
+  // can't name one.
+  let fresh = newUnder(first);
+  while (fresh.length > 0) {
+    for (const id of fresh) under.add(id);
+    const ids = JSON.stringify(fresh);
+    const rows = take(
+      await file.query(
+        `SELECT ${LOGGED_COLUMNS} FROM ops o
+          JOIN op_groups g ON g.id = o.group_id WHERE o.seq <= ?
+          AND (o.record_id IN (SELECT value FROM json_each(?))
+            OR (EXISTS (SELECT 1 FROM json_each(?) k WHERE instr(o.before, k.value) > 0 OR instr(o.after, k.value) > 0)
+              AND (json_extract(o.before, '$.parent_id') IN (SELECT value FROM json_each(?))
+                OR json_extract(o.after, '$.parent_id') IN (SELECT value FROM json_each(?)))))
+          ORDER BY o.seq`,
+        [through, ids, ids, ids, ids],
+      ),
+    );
+    fresh = newUnder(rows);
   }
-  return { ops: [...found.values()].sort((a, b) => a.seq - b.seq), under: [...under], frames: [...frames], kids: [...kids] };
+  // Each frame's turns: the known ones, then these writes' in order. A write with the day on one side only is an arrival
+  // or a leaving; one with it on both changes nothing.
+  const turns = new Map<string, { seq: number; on: boolean }[]>();
+  const turnsOf = (frameId: string) => {
+    let list = turns.get(frameId);
+    if (!list) turns.set(frameId, (list = []));
+    return list;
+  };
+  for (const turn of known.turns) turnsOf(turn.frameId).push({ seq: turn.seq, on: turn.on });
+  const onAt = (frameId: string, at: number): boolean => {
+    let on = false;
+    for (const turn of turns.get(frameId) ?? []) {
+      if (turn.seq >= at) break;
+      on = turn.on;
+    }
+    return on;
+  };
+  const firstSeen = new Map<string, number>();
+  for (const op of [...found.values()].sort((a, b) => a.seq - b.seq)) {
+    if (!carriesDay(op)) continue;
+    if (!frames.has(op.recordId) && !firstSeen.has(op.recordId)) firstSeen.set(op.recordId, op.seq);
+    frames.add(op.recordId);
+    const on = op.after?.props.shoot_day_id === dayId;
+    const list = turnsOf(op.recordId);
+    if ((list.at(-1)?.on ?? false) !== on) list.push({ seq: op.seq, on });
+  }
+  // A frame new to the day: its strokes and picture from its first write with the day on, never before.
+  if (firstSeen.size > 0) {
+    const ids = JSON.stringify([...firstSeen.keys()]);
+    const from = Math.max(seq, [...firstSeen.values()].reduce((min, at) => Math.min(min, at), Number.MAX_SAFE_INTEGER) - 1);
+    take(
+      await file.query(
+        `SELECT ${LOGGED_COLUMNS} FROM ops o
+          JOIN op_groups g ON g.id = o.group_id WHERE o.seq > ? AND o.seq <= ?
+          AND (json_extract(o.before, '$.parent_id') IN (SELECT value FROM json_each(?))
+            OR json_extract(o.after, '$.parent_id') IN (SELECT value FROM json_each(?)))
+          ORDER BY o.seq`,
+        [from, through, ids, ids],
+      ),
+    );
+  }
+  const ops = [...found.values()]
+    .sort((a, b) => a.seq - b.seq)
+    .filter((op) => {
+      const id = op.recordId;
+      if (id === dayId || under.has(id) || carriesDay(op)) return true;
+      if (frames.has(id)) return false;
+      const kid = sides(op).some((r) => typeof r?.parentId === 'string' && frames.has(r.parentId) && onAt(r.parentId, op.seq));
+      if (kid) kids.add(id);
+      return kid;
+    });
+  return {
+    ops,
+    under: [...under],
+    frames: [...frames],
+    kids: [...kids],
+    turns: [...turns].flatMap(([frameId, list]) => list.map((turn) => ({ frameId, ...turn }))).sort((a, b) => a.seq - b.seq),
+  };
 }
 
 /** Whether Empty Trash ran after `seq`: it empties older writes, so what was read before may no longer be provable. */

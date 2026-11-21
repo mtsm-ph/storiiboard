@@ -9,9 +9,11 @@ import { LineText } from './LineText';
 import { moreDayLog, readDayLog, type DayLog } from './steps';
 import { who } from './summary';
 
-// A shoot day's own history (Kevin, Nov 18): only a view, nothing stored. Every step that touched the day, its call
-// sheet or a frame that is or was on it, each line as History words it, with who and when as the main feed shows them.
-// No Put back and no Restore to here: each frame keeps its own History for that.
+// A shoot day's own history (Kevin, Nov 18 and 21): only a view, nothing stored. What happened to the day: every step
+// that wrote the day, its call sheet (and what's under it), a frame arriving on it or leaving it, or a frame (its
+// strokes and picture too) while it was on the day; never a frame's life before it arrived or after it left (readDayLog).
+// Each line as History words it, with who and when as the main feed shows them. No Put back and no Restore to here:
+// each frame keeps its own History for that.
 
 /** The day's steps, newest first; `title` names it in a sentence ("shoot day Mon, Nov 16"). */
 export function DayHistory({ dayId, title }: { dayId: string; title: string }) {
