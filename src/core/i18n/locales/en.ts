@@ -4275,4 +4275,9 @@ export const en = {
   'history.putBackUnavailable': 'Put back {name}’s unavailable dates {dates}',
   'history.changedUnavailable': 'Changed {name}’s unavailable dates',
   'history.someUnavailableDates': 'unavailable dates',
+  // In a person's own history, which is titled by them.
+  'history.markedUnavailableHere': 'Marked unavailable {dates}',
+  'history.tookOffUnavailableHere': 'Took off unavailable dates {dates}',
+  'history.putBackUnavailableHere': 'Put back unavailable dates {dates}',
+  'history.changedUnavailableHere': 'Changed unavailable dates',
 };

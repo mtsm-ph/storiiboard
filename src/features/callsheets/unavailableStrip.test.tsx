@@ -35,6 +35,7 @@ const project = (...more: SbdRecord[]): Records =>
     away('a', 'robin', '2026-11-24', '2026-11-28'),
     ...more,
   );
+const withDate = (records: Records, date: string): Records => ({ ...records, d: { ...(records.d as SbdRecord), props: { ...records.d?.props, date } } });
 const unavailable = (records: Records): CallSheetFinding[] => callSheetChecks(records, 'p', 'd').findings.filter((f) => f.kind === 'unavailable-on-day');
 
 beforeEach(() => {
@@ -72,18 +73,38 @@ describe('the call sheet strip’s unavailable dates', () => {
     const records = project();
     const [robin] = unavailable(records);
     if (!robin) throw new Error('a finding');
-    expect(findingWords(robin, records, 'metric')).toMatch(/^Se llama a Robin Vale \(Gaffer\) el jue, 26 nov\.?, pero marcó que no está disponible 24 nov\.? – 28 nov\.?$/);
+    expect(findingWords(robin, records, 'metric')).toMatch(/^Robin Vale \(Gaffer\) tiene llamado el jue, 26 nov\.?, pero marcó que no está disponible 24 nov\.? – 28 nov\.?$/);
+    const bare = { ...records, robin: { ...(records.robin as SbdRecord), props: { name: 'Robin Vale' } } };
+    expect(findingWords(robin, bare, 'metric')).toMatch(/^Robin Vale tiene llamado el jue, 26 nov\.?, pero marcó que no está disponible 24 nov\.? – 28 nov\.?$/);
+  });
+
+  it('gives the year of a stretch that isn’t wholly in the day’s year, beside the day', () => {
+    const records = withDate(project(away('b', 'robin', '2026-12-30', '2027-01-02')), '2027-01-01');
+    const [robin] = unavailable(records);
+    if (!robin) throw new Error('a finding');
+    expect(findingWords(robin, records, 'metric')).toBe('Robin Vale (Gaffer) is called on Fri, Jan 1 but marked unavailable Dec 30, 2026 – Jan 2, 2027');
   });
 
   it('draws it with the warning sign, and a Show that goes to them in “Who’s on the day”', () => {
     const records = project();
     const findings = callSheetChecks(records, 'p', 'd').findings;
-    const html = renderToString(<CallSheetChecks findings={findings} records={records} canAddPeople />);
+    const html = renderToString(<CallSheetChecks findings={findings} records={records} canAddPeople peopleOdd={false} />);
     expect(html).toContain('data-check="unavailable-on-day"');
     expect(html).toContain('Robin Vale (Gaffer) is called on Thu, Nov 26 but marked unavailable Nov 24 – Nov 28');
     expect(html).toContain('▲ ');
     const [robin] = unavailable(records);
     if (!robin) throw new Error('a finding');
     expect(findingTarget(robin, true)).toBe('[data-take-off="robin"], [data-choose-people]');
+  });
+
+  it('has no Show on a day whose list of people can’t be read, which offers nothing to press', () => {
+    const records = { ...project(), d: record('d', 'shoot_day', 'p', { date: '2026-11-26', call_time: '07:00', people_ids: 'robin' }) };
+    const findings = callSheetChecks(records, 'p', 'd').findings;
+    const [robin] = unavailable(records);
+    if (!robin) throw new Error('a finding: an odd list reads as everyone');
+    expect(findingTarget(robin, true, true)).toBeNull();
+    const html = renderToString(<CallSheetChecks findings={findings} records={records} canAddPeople={false} peopleOdd />);
+    expect(html).toContain('data-check="unavailable-on-day"');
+    expect(html).not.toContain('Show');
   });
 });

@@ -47,15 +47,26 @@ test('a stretch marked in Cast and crew shows on the call sheet and the Calendar
   const from = unavailable.getByLabel('From');
   await expect(from).toBeFocused();
   await from.fill('2026-11-24');
-  await expect(unavailable.getByLabel('To')).toHaveValue('2026-11-24');
-  // A date field's own Tab stops are its month, day and year, so each field is filled, as typing into it would.
-  await unavailable.getByLabel('To').fill('2026-11-28');
+  const to = unavailable.getByLabel('To');
+  await expect(to).toHaveValue('2026-11-24');
+  // The To typed from the keyboard, cleared first: once touched it stops following the From, so an empty To (a date
+  // typed part by part is empty until it's whole) is never put back to the From's date under the typing.
+  await to.focus();
+  await page.keyboard.press('Backspace');
+  await expect(to).toHaveValue('');
+  await to.pressSequentially('11282026');
+  await expect(to).toHaveValue('2026-11-28');
+  // A From changed after that leaves the To as typed.
+  await from.fill('2026-11-25');
+  await expect(to).toHaveValue('2026-11-28');
+  await from.fill('2026-11-24');
   await unavailable.getByLabel('Note').focus();
   await page.keyboard.type('Family wedding');
   await page.keyboard.press('Enter');
   const stretch = unavailable.locator('[data-stretch]');
   await expect(stretch).toHaveCount(1);
-  await expect(stretch).toContainText('Nov 24 – Nov 28');
+  // Standing alone, a stretch says its year.
+  await expect(stretch).toContainText('Nov 24 – Nov 28, 2026');
   await expect(stretch).toContainText('Family wedding');
   // Back to Add dates once it's saved.
   await expect(addDates).toBeFocused();
@@ -81,12 +92,15 @@ test('a stretch marked in Cast and crew shows on the call sheet and the Calendar
   // The call sheet's strip names them.
   const check = sheet(page).locator('[data-checks] [data-check="unavailable-on-day"]');
   await expect(check).toHaveText(/Robin Vale \(Gaffer\) is called on Thu, Nov 26 but marked unavailable Nov 24 – Nov 28/);
+  // Its Show goes to Robin's Take off in "Who's on the day", where it's fixed.
+  await check.getByRole('button', { name: /^Show: Robin Vale/ }).click();
+  await expect(sheet(page).getByRole('button', { name: /^Take off Robin Vale from / })).toBeFocused();
 
   // The Calendar marks the shoot day and a date with no shoot, each with a count, and picking the day lists who.
   const grid = calendar(page).getByRole('grid', { name: 'November 2026' });
   const shootDate = grid.locator('[data-date="2026-11-26"]');
   await expect(shootDate.locator('[data-away="1"]')).toBeVisible();
-  await expect(shootDate).toHaveAccessibleName(/Thursday, November 26, ?Day 1\s*, ?1 unavailable$/);
+  await expect(shootDate).toHaveAccessibleName(/Thursday, November 26, ?Day 1, 1 unavailable$/);
   await expect(grid.locator('[data-date="2026-11-24"] [data-away="1"]')).toBeVisible();
   await expect(grid.locator('[data-date="2026-11-29"] [data-away]')).toHaveCount(0);
   await shootDate.focus();
@@ -100,7 +114,7 @@ test('a stretch marked in Cast and crew shows on the call sheet and the Calendar
   await expect(away).toContainText('Family wedding');
 
   // Removed from the keyboard: the strip and the marks go, and focus goes back to Add dates.
-  const remove = unavailable.getByRole('button', { name: 'Remove unavailable dates Nov 24 – Nov 28' });
+  const remove = unavailable.getByRole('button', { name: 'Remove unavailable dates Nov 24 – Nov 28, 2026', exact: true });
   await remove.focus();
   await page.keyboard.press('Enter');
   await expect(unavailable).toContainText('No dates marked unavailable.');
@@ -112,12 +126,20 @@ test('a stretch marked in Cast and crew shows on the call sheet and the Calendar
   // One ⌘Z brings it back; ⌘⇧Z takes it off again.
   const key = await mod(page);
   await page.keyboard.press(`${key}+z`);
-  await expect(stretch).toContainText('Nov 24 – Nov 28');
+  await expect(stretch).toContainText('Nov 24 – Nov 28, 2026');
   await expect(check).toHaveCount(1);
   await expect(shootDate.locator('[data-away="1"]')).toBeVisible();
   await page.keyboard.press(`${key}+Shift+z`);
   await expect(stretch).toHaveCount(0);
   await expect(check).toHaveCount(0);
+
+  // Back again, and a second shoot day on the same date: each item's words end in the separator, with no stray space.
+  await page.keyboard.press(`${key}+z`);
+  await expect(stretch).toHaveCount(1);
+  await days(page).getByRole('button', { name: '+ New day' }).click();
+  await day(page).getByLabel('Date').fill('2026-11-26');
+  await day(page).getByLabel('Date').blur();
+  await expect(shootDate).toHaveAccessibleName(/Thursday, November 26, ?Day 1, Day 2, 1 unavailable$/);
 });
 
 test('dates out of order are refused in words, and Escape leaves the form without adding', async ({ page }) => {
@@ -128,9 +150,30 @@ test('dates out of order are refused in words, and Escape leaves the form withou
   await unavailable.getByRole('button', { name: 'Add dates…' }).click();
   await unavailable.getByLabel('From').fill('2026-11-28');
   await unavailable.getByLabel('To').fill('2026-11-24');
-  await unavailable.getByRole('button', { name: 'Add dates', exact: true }).click();
-  await expect(unavailable.getByRole('alert')).toHaveText('▲ Pick a From date, and a To date on or after it, at most 366 days later.');
+  const add = unavailable.getByRole('button', { name: 'Add dates', exact: true });
+  await expect(unavailable.getByLabel('From')).not.toHaveAttribute('aria-invalid');
+  await add.click();
+  const alert = unavailable.getByRole('alert');
+  await expect(alert).toHaveText('▲ Pick a From date, and a To date on or after it, at most 366 days later.');
   await expect(unavailable.locator('[data-stretch]')).toHaveCount(0);
+  // Both date fields say they're refused, and are described by the words.
+  for (const label of ['From', 'To']) {
+    await expect(unavailable.getByLabel(label)).toHaveAttribute('aria-invalid', 'true');
+    await expect(unavailable.getByLabel(label)).toHaveAccessibleDescription('Pick a From date, and a To date on or after it, at most 366 days later.');
+  }
+  // A second bad Add says it again: the words are drawn afresh, so a screen reader hears them again.
+  const said = await alert.elementHandle();
+  await add.click();
+  await expect(alert).toHaveText('▲ Pick a From date, and a To date on or after it, at most 366 days later.');
+  expect(await said.evaluate((node) => node.isConnected)).toBe(false);
+  // Escape from anywhere in the form, the Add dates button too, leaves it without adding.
+  await add.focus();
+  await page.keyboard.press('Escape');
+  await expect(unavailable.getByRole('button', { name: 'Add dates…' })).toBeFocused();
+  await expect(unavailable).toContainText('No dates marked unavailable.');
+  await expect(unavailable.locator('[data-add-stretch]')).toHaveCount(0);
+  // And from a field, as before.
+  await page.keyboard.press('Enter');
   await unavailable.getByLabel('To').focus();
   await page.keyboard.press('Escape');
   await expect(unavailable.getByRole('button', { name: 'Add dates…' })).toBeFocused();

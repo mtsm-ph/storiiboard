@@ -72,9 +72,19 @@ describe('a person’s stretches', () => {
       record('x6', 'availability', 'robin', { date: '2026-11-24', shoot_day_id: 'd1' }),
     ];
     const records = base(...odd, away('ok', 'robin', '2026-11-24', '2026-11-24', { note: 42 }));
+    const kept = structuredClone(odd.map((r) => r.props));
     expect(personStretches(records, 'robin').map((s) => [s.record.id, s.note])).toEqual([['ok', '']]);
-    // Nothing offers to remove what can't be read either: it's never shown.
-    for (const r of odd) expect(records[r.id]).toBe(r);
+    // An unrelated edit (another stretch added to Robin) writes only its own record, and a read after it leaves the odd
+    // ones exactly as they were; nothing offers to remove what can't be read either: it's never shown.
+    const changes = addStretch(records, 'robin', '2026-12-01', '2026-12-02', '', 'new');
+    expect(changes.map((c) => (c.kind === 'create' ? c.record.id : c.kind))).toEqual(['new']);
+    const after: Records = { ...records };
+    const [made] = changes;
+    if (made?.kind !== 'create') throw new Error('a create');
+    after.new = record('new', 'availability', 'robin', made.record.props ?? {}, null, made.record.sortKey);
+    expect(personStretches(after, 'robin').map((s) => s.record.id)).toEqual(['ok', 'new']);
+    expect(odd.map((r) => after[r.id]?.props)).toEqual(kept);
+    expect(odd.map((r) => after[r.id]?.trashedAt)).toEqual(odd.map(() => null));
   });
 
   it('skips a removed stretch, and every stretch of a person in the Trash, who keeps them for a restore', () => {
@@ -101,13 +111,27 @@ describe('a person’s stretches', () => {
 });
 
 describe('the label', () => {
-  it('reads "Nov 24 – Nov 28", one date alone, and the year on both ends across a new year', () => {
-    expect(stretchLabel('2026-11-24', '2026-11-28')).toBe('Nov 24 – Nov 28');
-    expect(stretchLabel('2026-11-24', '2026-11-24')).toBe('Nov 24');
+  it('reads "Nov 24 – Nov 28, 2026" standing alone, one date alone, and the year on both ends across a new year', () => {
+    expect(stretchLabel('2026-11-24', '2026-11-28')).toBe('Nov 24 – Nov 28, 2026');
+    expect(stretchLabel('2026-11-24', '2026-11-24')).toBe('Nov 24, 2026');
     expect(stretchLabel('2026-12-30', '2027-01-02')).toBe('Dec 30, 2026 – Jan 2, 2027');
     expect(stretchLabel('nope', '2026-11-24')).toBe('');
     setLocale('es');
-    expect(stretchLabel('2026-11-24', '2026-11-28')).toMatch(/^24 nov\.? – 28 nov\.?$/);
+    expect(stretchLabel('2026-11-24', '2026-11-28')).toMatch(/^24 nov\.? – 28 nov\.? 2026$/);
+  });
+
+  it('reads a 2027 stretch differently from the same dates in 2026', () => {
+    expect(stretchLabel('2027-11-24', '2027-11-28')).toBe('Nov 24 – Nov 28, 2027');
+    expect(stretchLabel('2027-11-24', '2027-11-28')).not.toBe(stretchLabel('2026-11-24', '2026-11-28'));
+    expect(stretchLabel('2027-11-24', '2027-11-24')).not.toBe(stretchLabel('2026-11-24', '2026-11-24'));
+  });
+
+  it('keeps the short form beside a day’s date only when the stretch is wholly in that day’s year', () => {
+    expect(stretchLabel('2026-11-24', '2026-11-28', '2026-11-26')).toBe('Nov 24 – Nov 28');
+    expect(stretchLabel('2026-11-24', '2026-11-24', '2026-11-24')).toBe('Nov 24');
+    expect(stretchLabel('2026-11-24', '2026-11-28', '2027-01-04')).toBe('Nov 24 – Nov 28, 2026');
+    expect(stretchLabel('2026-12-30', '2027-01-02', '2027-01-01')).toBe('Dec 30, 2026 – Jan 2, 2027');
+    expect(stretchLabel('2026-12-30', '2027-01-02', '2026-12-31')).toBe('Dec 30, 2026 – Jan 2, 2027');
   });
 });
 

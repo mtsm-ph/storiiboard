@@ -97,12 +97,19 @@ export function awayOn(records: Records, projectId: string, date: string): Map<s
 const short = (date: string, year: boolean): string =>
   formatDate(new Date(`${date}T12:00:00Z`), { month: 'short', day: 'numeric', ...(year ? { year: 'numeric' } : {}), timeZone: 'UTC' });
 
-/** "Nov 24 – Nov 28", one date alone as "Nov 24"; the year on both ends when the stretch crosses into the next. */
-export function stretchLabel(from: string, to: string): string {
+/**
+ * A stretch's dates. Standing alone (Cast and crew's rows, the Remove buttons' names, History) it always says its
+ * year: "Nov 24 – Nov 28, 2026", one date as "Nov 24, 2026", and the year on both ends across a new year, so two
+ * stretches a year apart never read alike. `beside` is a day's own date the words sit next to (the call sheet's strip,
+ * the Calendar's list): then a stretch wholly in that day's year keeps the short form, "Nov 24 – Nov 28".
+ */
+export function stretchLabel(from: string, to: string, beside?: string): string {
   if (!isDayDate(from) || !isDayDate(to)) return '';
-  if (from === to) return short(from, false);
-  const year = from.slice(0, 4) !== to.slice(0, 4);
-  return t('availability.range', { from: short(from, year), to: short(to, year) });
+  const fromYear = from.slice(0, 4);
+  const across = fromYear !== to.slice(0, 4);
+  const dated = beside === undefined || across || beside.slice(0, 4) !== fromYear;
+  if (from === to) return short(from, dated);
+  return t('availability.range', { from: short(from, across), to: short(to, dated) });
 }
 
 /** A new stretch under a live person: nothing when the dates don't make one. The note is kept as typed, trimmed. */

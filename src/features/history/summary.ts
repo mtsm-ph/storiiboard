@@ -2503,6 +2503,17 @@ function childLine(type: SbdRecord['type'] | undefined, kind: LoggedOp['kind'], 
 }
 
 /**
+ * A step on one of a person's stretches, in their own history (7.3), where the person is the history's own title: the
+ * dates, never the note. A step that wrote several, or a change this version doesn't make, says only that they changed.
+ */
+function stretchRow(op: LoggedOp, n: number): string {
+  const record = op.after ?? op.before;
+  const stretch = record ? stretchOf({ ...record, trashedAt: null }) : null;
+  const key = n !== 1 || !stretch ? null : op.kind === 'create' ? 'history.markedUnavailableHere' : op.kind === 'trash' ? 'history.tookOffUnavailableHere' : op.kind === 'restore' ? 'history.putBackUnavailableHere' : null;
+  return key === null || !stretch ? t('history.changedUnavailableHere') : t(key, { dates: stretchLabel(stretch.from, stretch.to) });
+}
+
+/**
  * Ops by the step they're in, each step's in the order given. Pushed onto, never copied: one step can be tens of
  * thousands of ops (a Restore to here, an Empty Trash, a big erase), and copying a step's list for every op in it takes
  * seconds there, on the UI thread, every time History is read again.
@@ -2540,7 +2551,7 @@ export function frameRows(ops: readonly LoggedOp[], itemId: string): FrameRow[] 
       const first = group[0] ?? op;
       const type = (first.after ?? first.before)?.type;
       const same = group.filter((o) => o.kind === first.kind && (o.after ?? o.before)?.type === type).length;
-      const base = childLine(type, first.kind, same);
+      const base = type === 'availability' ? stretchRow(first, same) : childLine(type, first.kind, same);
       const change = byWay(op.groupKind, base);
       return [{ key: `${op.groupId}:children`, op, change, field: null }];
     }

@@ -556,7 +556,7 @@ describe('project data as JSON (2.9)', () => {
     );
     await apply(file, [{ kind: 'trash', id: 'av2' }], { author: 'Kevin', now: at });
     const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(file, at())));
-    const copy = folder.path('Bey County (availability).sbd');
+    const copy = folder.path('Harbor Lights (availability).sbd');
     await importProjectJson(nodeDriver, copy, data, at());
     const imported = await openProject(copy, { driver: nodeDriver, backups: false });
     try {

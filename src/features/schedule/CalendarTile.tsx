@@ -207,16 +207,28 @@ function Calendar({ projectId }: { projectId: string }) {
                       {Number(date.slice(8))}
                     </span>
                     <span className="sr-only">{`${said.join(sep)}${shoots.length > 0 || away > 0 ? sep : ''}`}</span>
-                    {shoots.map((d, i) => (
-                      <span key={d.record.id} className="max-w-full truncate border border-current px-1 font-mono text-[10px]">
-                        {i > 0 && <span className="sr-only">{sep}</span>}
-                        {chipText(d, view)}
-                      </span>
-                    ))}
+                    {/* The separator ends the words of the item before the next, in the same text (the date's words
+                        above, a chip's here): the browser puts a space round every flex item and every sr-only span, so
+                        a separator of its own would stand after a space ("Day 1 , 1 unavailable"). A chip followed by
+                        another item is said by its own words and the separator, and shown by the words alone. */}
+                    {shoots.map((d, i) => {
+                      const chip = chipText(d, view);
+                      return (
+                        <span key={d.record.id} className="max-w-full truncate border border-current px-1 font-mono text-[10px]">
+                          {i < shoots.length - 1 || away > 0 ? (
+                            <>
+                              <span aria-hidden="true">{chip}</span>
+                              <span className="sr-only">{`${chip}${sep}`}</span>
+                            </>
+                          ) : (
+                            chip
+                          )}
+                        </span>
+                      );
+                    })}
                     {/* A sign and a count, and words for a screen reader: never colour alone (DESIGN.md). */}
                     {away > 0 && (
                       <span data-away={away} className="max-w-full truncate font-mono text-[10px]">
-                        {shoots.length > 0 && <span className="sr-only">{sep}</span>}
                         <span aria-hidden="true">⊘ {away}</span>
                         <span className="sr-only">{tn('calendar.away', away)}</span>
                       </span>
@@ -282,7 +294,7 @@ function AwayList({ date, people }: { date: string; people: readonly AwayPerson[
               </p>
               {stretches.map((stretch) => (
                 <p key={stretch.record.id} className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="font-mono text-[12px]">{stretchLabel(stretch.from, stretch.to)}</span>
+                  <span className="font-mono text-[12px]">{stretchLabel(stretch.from, stretch.to, date)}</span>
                   {stretch.note !== '' && <span data-user-text="">{stretch.note}</span>}
                 </p>
               ))}

@@ -1334,7 +1334,7 @@ records as they are and shows nothing of them.
   someone on a live shoot day (`people_ids`, everyone live while the day has no list) whose stretch takes in the day's
   date, cast and crew alike. A day with no date, a person in the Trash or a stretch that can't be read finds nothing.
 - Where they go: Project data and Full archive (JSON) carry every `availability` record as every record is carried; as
-  Project data, a removed stretch and the stretches of a person in the Trash are left out with the Trash (they are
+  Project data, a removed stretch and the stretches of a person in the Trash are left out with the Trash (trashed, or
   under a trashed record). No other export (call sheet PDF, shot list CSV, storyboard PDF, plans, decks) writes them,
   and no change-file suggestion may touch them (they aren't on the list in "What a suggestion may touch").
 

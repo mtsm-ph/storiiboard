@@ -57,7 +57,7 @@ export function findingWords(finding: CallSheetFinding, records: Records, units:
       return t('callSheet.check.hmuShort', { name, ready: finding.hmuReady, call: finding.call, gap: finding.gap, minimum: finding.minimum });
     }
     case 'unavailable-on-day': {
-      const params = { name: personName(records, finding.personId), day: dayDateLabel(finding.date), dates: list(finding.stretches.map((s) => stretchLabel(s.from, s.to))) };
+      const params = { name: personName(records, finding.personId), day: dayDateLabel(finding.date), dates: list(finding.stretches.map((s) => stretchLabel(s.from, s.to, finding.date))) };
       const part = personPartName(records, finding.personId);
       return part === null ? t('callSheet.check.unavailable', params) : t('callSheet.check.unavailableAs', { ...params, part });
     }
@@ -72,8 +72,12 @@ export function findingWords(finding: CallSheetFinding, records: Records, units:
   }
 }
 
-/** Where on the call sheet a finding is fixed or seen: a selector inside the tile, or null. */
-export function findingTarget(finding: CallSheetFinding, canAddPeople: boolean): string | null {
+/**
+ * Where on the call sheet a finding is fixed or seen: a selector inside the tile, or null. `peopleOdd`: the day's
+ * `people_ids` is there but can't be read (a later version's), so "Who's on the day" offers neither a Take off nor a
+ * Choose.
+ */
+export function findingTarget(finding: CallSheetFinding, canAddPeople: boolean, peopleOdd = false): string | null {
   switch (finding.kind) {
     case 'location-missing':
       return `[data-sheet-location="${CSS.escape(finding.locationId)}"]`;
@@ -83,7 +87,9 @@ export function findingTarget(finding: CallSheetFinding, canAddPeople: boolean):
     case 'hmu-too-short':
       return `[data-sheet-cast="${CSS.escape(finding.personId)}"] [data-time="hmu_ready"]`;
     case 'unavailable-on-day':
-      // Fixed by taking them off the day, in "Who's on the day"; while nobody has chosen, by choosing who is.
+      // Fixed by taking them off the day, in "Who's on the day"; while nobody has chosen, by choosing who is. With a list
+      // that can't be read, there is neither: no Show, rather than one that does nothing.
+      if (peopleOdd) return null;
       return `[data-take-off="${CSS.escape(finding.personId)}"], [data-choose-people]`;
     case 'golden-hour-midday':
     case 'exterior-rain':

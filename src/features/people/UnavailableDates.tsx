@@ -25,28 +25,26 @@ export function UnavailableDates({ stretches, onAdd, onRemove }: Props) {
   const [adding, setAdding] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  // Whether the To has been edited: until then it shows the From's date; after, only its own, even when cleared, so a
+  // To typed part by part (an empty value until it's whole) is never overwritten by the From.
+  const [toTouched, setToTouched] = useState(false);
   const [note, setNote] = useState('');
-  const [bad, setBad] = useState(false);
-  // The To shown: the From's date until a To of its own is picked.
-  const until = to === '' ? from : to;
+  // How many refusals in a row: 0 for none. The words are drawn afresh at each, so a second bad Add is said again.
+  const [bad, setBad] = useState(0);
+  const until = toTouched ? to : from;
 
   const close = () => {
     setAdding(false);
     setFrom('');
     setTo('');
+    setToTouched(false);
     setNote('');
-    setBad(false);
+    setBad(0);
     requestAnimationFrame(() => addButton.current?.focus());
-  };
-  // Escape in any of the form's fields leaves it without adding.
-  const onEscape = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Escape') return;
-    event.stopPropagation();
-    close();
   };
   const submit = () => {
     if (!isStretch(from, until)) {
-      setBad(true);
+      setBad((n) => n + 1);
       return;
     }
     void onAdd(from, until, note).then((done) => {
@@ -97,6 +95,7 @@ export function UnavailableDates({ stretches, onAdd, onRemove }: Props) {
         </ul>
       )}
       {adding ? (
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape leaves the form; the fields and buttons inside are the controls
         <form
           data-add-stretch=""
           // Our own words for dates out of order, not the browser's bubble for the To field's min.
@@ -105,6 +104,12 @@ export function UnavailableDates({ stretches, onAdd, onRemove }: Props) {
           onSubmit={(event) => {
             event.preventDefault();
             submit();
+          }}
+          // Escape anywhere in the form (a field, Add dates, Cancel) leaves it without adding.
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape') return;
+            event.stopPropagation();
+            close();
           }}
         >
           <div className="grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-2">
@@ -115,11 +120,11 @@ export function UnavailableDates({ stretches, onAdd, onRemove }: Props) {
               mono
               value={from}
               data-stretch-from=""
-              aria-describedby={bad ? badId : undefined}
-              onKeyDown={onEscape}
+              aria-invalid={bad > 0 || undefined}
+              aria-describedby={bad > 0 ? badId : undefined}
               onChange={(event) => {
                 setFrom(event.currentTarget.value);
-                setBad(false);
+                setBad(0);
               }}
             />
             <TextField
@@ -129,11 +134,12 @@ export function UnavailableDates({ stretches, onAdd, onRemove }: Props) {
               value={until}
               min={from || undefined}
               data-stretch-to=""
-              aria-describedby={bad ? badId : undefined}
-              onKeyDown={onEscape}
+              aria-invalid={bad > 0 || undefined}
+              aria-describedby={bad > 0 ? badId : undefined}
               onChange={(event) => {
                 setTo(event.currentTarget.value);
-                setBad(false);
+                setToTouched(true);
+                setBad(0);
               }}
             />
           </div>
@@ -142,13 +148,12 @@ export function UnavailableDates({ stretches, onAdd, onRemove }: Props) {
             value={note}
             data-stretch-note=""
             autoComplete="off"
-            onKeyDown={onEscape}
             onChange={(event) => {
               setNote(event.currentTarget.value);
             }}
           />
-          {bad && (
-            <p id={badId} role="alert" className="text-[12px] text-warning dark:text-text">
+          {bad > 0 && (
+            <p key={bad} id={badId} role="alert" className="text-[12px] text-warning dark:text-text">
               <span aria-hidden="true">▲ </span>
               {t('person.unavailableBad')}
             </p>
