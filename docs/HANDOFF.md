@@ -389,7 +389,25 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20, evening; written at 18:15 EST)
+### Next session: start here (Nov 20, night; written at 19:40 EST)
+
+Kevin's afternoon note is in `private/NOV20_AFTERNOON.md` with the session's status under it; the day's report went
+to Kevin at about 18:10 EST. Nothing merged since nov20-f's four (the section below); no checkpoint is left until
+Kevin names one (Only Kevin).
+
+**Open, each built, reviewed and pushed (each round's brief in `docs/briefs/` on its branch):**
+
+| PR | What | State |
+|---|---|---|
+| #222 | the scroll lane (6.29) | round 6 (reorder.spec opens 1440 × 900; the lane's start waits a frame, which WebKit needed for a dialog's focus), 6b (the lane only where the content overflows without it; Layers rows one height in both engines), 6c (inner scroll positions kept; the reading without the lane only once a resize holds): Chromium 71 and WebKit on Windows 23 passed locally, visual.spec against the Windows baselines; 6c being re-reviewed. Playwright's WebKit on Windows reproduced both Mac-only failures of nov20-f, so WebKit runs here for this lane's specs |
+| #235 | the encoder's leftovers | round 3 green on Linux; waits for a checkpoint |
+| #240 | History lines (6.30) | round 2 after a review (a scene's place from a real file; never a wrong place after a purge; "del proyecto"; one scan per load); round 3 building (`history-lines-3.md`: a page's number when unsure, "unsure" narrowed, the letters after the frame checked) |
+| #241 | Undo and Redo buttons (6.31), on #240 | round 2 after three reviews; round 3 queued (`private/briefs/undo-redo-buttons-3.md`): it first merges #240's rounds 2 and 3 |
+
+**Then:** Ctrl+S (`private/briefs/ctrl-s.md`, stacked on #241), a shoot day's own history, Settings, the tile accent
+(Kevin's option), and `checkpoint/baselines-nov20b` at the stack's end, once Kevin names the checkpoints.
+
+### Earlier: start here (Nov 20, evening; written at 17:55 EST)
 
 Kevin's afternoon note is in `private/NOV20_AFTERNOON.md` with the session's status under it.
 
