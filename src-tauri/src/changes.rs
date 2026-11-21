@@ -89,12 +89,15 @@ fn refused(message: &str) -> io::Error {
     io::Error::other(message.to_owned())
 }
 
-/// Opens a regular file without following a link at its last step, and checks the file opened is the one looked at.
-/// Windows opens it as any program does, so a OneDrive or Dropbox placeholder is read through its cloud filter, and
-/// refuses the opened handle if its own reparse tag is a name surrogate (a link or a junction: std counts those as
-/// links, as originals.rs relies on). A Mac opens it with O_NOFOLLOW and O_NONBLOCK, so neither a link nor a FIFO (an
-/// open that would wait for a writer) holds it, and Linux (tests only) refuses a FIFO before the open, as close as std
-/// allows; elsewhere than Windows the opened file's device and inode must be the ones the path had.
+/// Opens a regular file, refusing a link or a junction at its last step, and checks the file opened is the one looked
+/// at. First the path's own entry is looked at without following it (`symlink_metadata`): a link, a junction or
+/// anything not a regular file is refused before any open. Windows then opens it as any program does, so a OneDrive or
+/// Dropbox placeholder is read through its cloud filter; that open follows a link put there after the look, and the
+/// handle it gives is the target's, so its own type can't tell. What protects there is the look before the open and,
+/// for the folder's files, the caller's check that the opened handle's final path is `<real folder>/<name>`
+/// (`opened_path`). A Mac opens it with O_NOFOLLOW and O_NONBLOCK, so neither a link nor a FIFO (an open that would
+/// wait for a writer) holds it, and Linux (tests only) refuses a FIFO by the look before the open, as close as std
+/// allows; elsewhere than Windows the opened file's device and inode must also be the ones the path had.
 fn open_regular(path: &Path) -> io::Result<(fs::File, fs::Metadata)> {
     let before = fs::symlink_metadata(path)?;
     if !before.file_type().is_file() {
@@ -109,6 +112,8 @@ fn open_regular(path: &Path) -> io::Result<(fs::File, fs::Metadata)> {
     }
     let file = options.open(path)?;
     let meta = file.metadata()?;
+    // What was opened must be a regular file (a FIFO or a folder swapped in after the look is refused here). The handle's
+    // `is_symlink` is kept, but protects nothing on its own: an open that followed a link gives the target's handle.
     if !meta.file_type().is_file() || meta.file_type().is_symlink() {
         return Err(refused("not a regular file"));
     }
@@ -440,11 +445,33 @@ fn rename_new(from: &Path, to: &Path) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;
     let source = CString::new(from.as_os_str().as_bytes()).map_err(|_| refused("NUL in path"))?;
     let dest = CString::new(to.as_os_str().as_bytes()).map_err(|_| refused("NUL in path"))?;
-    // SAFETY: both paths are NUL-terminated and outlive the call.
-    if unsafe { libc::renamex_np(source.as_ptr(), dest.as_ptr(), libc::RENAME_EXCL) } == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
+    excl_or_plain(
+        || {
+            // SAFETY: both paths are NUL-terminated and outlive the call.
+            if unsafe { libc::renamex_np(source.as_ptr(), dest.as_ptr(), libc::RENAME_EXCL) } == 0 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        },
+        || fs::rename(from, to),
+        libc::ENOTSUP,
+    )
+}
+
+/// The exclusive rename, or, on a volume that can't do one (`unsupported`: a Mac's exFAT, FAT and some SMB shares answer
+/// ENOTSUP to RENAME_EXCL), the plain rename after the caller's check that nothing of the name is there. That plain
+/// rename leaves the gap the exclusive one closes: a folder made in the moment between would be replaced, only if it
+/// is empty (a rename never replaces a folder that holds anything). Any other error stops it.
+#[cfg(any(target_os = "macos", test))]
+fn excl_or_plain(
+    excl: impl FnOnce() -> io::Result<()>,
+    plain: impl FnOnce() -> io::Result<()>,
+    unsupported: i32,
+) -> io::Result<()> {
+    match excl() {
+        Err(error) if error.raw_os_error() == Some(unsupported) => plain(),
+        done => done,
     }
 }
 
@@ -494,15 +521,16 @@ fn rename_folder(project: &Path, project_id: &str, from: &str) -> Result<(), Str
     rename_new(&source, &dest).map_err(|_| no())
 }
 
-/// A file the person picked or dropped: only one Rust was given, taken out of the set as it's read (once, as
-/// export.rs takes a chosen file), only a `.sbdchanges`, at most 5 MB.
+/// A file the person picked or dropped: only a `.sbdchanges` (checked first, so asking for a picture dropped beside it
+/// leaves the picture's path for the picture), only one Rust was given, taken out of the set as it's read (once, as
+/// export.rs takes a chosen file), at most 5 MB.
 fn read_offered(offered: &Offered, path: &Path) -> Result<Vec<u8>, String> {
-    if !offered.take(path) {
-        return Err(NOT_OFFERED.to_owned());
-    }
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     if !is_change_file_name(name) {
         return Err(NOT_SBDCHANGES.to_owned());
+    }
+    if !offered.take(path) {
+        return Err(NOT_OFFERED.to_owned());
     }
     let (file, meta) = open_regular(path).map_err(|_| UNREADABLE.to_owned())?;
     if meta.len() > MAX_CHANGE_FILE_BYTES {
@@ -1037,5 +1065,60 @@ mod tests {
             .unwrap();
         offered.offer(std::slice::from_ref(&big));
         assert_eq!(read_offered(&offered, &big).unwrap_err(), TOO_LARGE);
+    }
+
+    #[test]
+    fn a_picture_asked_for_as_changes_stays_offered_for_the_picture() {
+        // Round 3: the name is checked before the path is taken out of the set.
+        let dir = temp_dir("name-first");
+        let offered = Offered::default();
+        let picture = dir.join("still.jpg");
+        fs::write(&picture, [0xff, 0xd8]).unwrap();
+        offered.offer(std::slice::from_ref(&picture));
+        assert_eq!(
+            read_offered(&offered, &picture).unwrap_err(),
+            NOT_SBDCHANGES
+        );
+        assert!(offered.has(&picture));
+    }
+
+    #[test]
+    fn a_volume_without_an_exclusive_rename_falls_back_to_the_checked_plain_one() {
+        // Round 3: as renamex_np's ENOTSUP on exFAT, FAT or some SMB shares, played here by a made-up error number.
+        const UNSUPPORTED: i32 = 45;
+        let plain_ran = std::cell::Cell::new(false);
+        let plain = || {
+            plain_ran.set(true);
+            Ok(())
+        };
+        excl_or_plain(
+            || Err(io::Error::from_raw_os_error(UNSUPPORTED)),
+            plain,
+            UNSUPPORTED,
+        )
+        .unwrap();
+        assert!(plain_ran.get());
+        // Any other error stops it: an existing target is never replaced by the fallback.
+        plain_ran.set(false);
+        let other = excl_or_plain(
+            || Err(io::Error::from(io::ErrorKind::AlreadyExists)),
+            || {
+                plain_ran.set(true);
+                Ok(())
+            },
+            UNSUPPORTED,
+        );
+        assert!(other.is_err() && !plain_ran.get());
+        // A rename that worked is the end of it.
+        excl_or_plain(
+            || Ok(()),
+            || {
+                plain_ran.set(true);
+                Ok(())
+            },
+            UNSUPPORTED,
+        )
+        .unwrap();
+        assert!(!plain_ran.get());
     }
 }

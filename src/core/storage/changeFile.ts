@@ -23,8 +23,11 @@ export const MAX_TEXT = 10_000;
 /** Any key: a field's name, a person's or a department's id. */
 export const MAX_KEY = 100;
 
-/** The largest one suggestion may be, as JSON in UTF-8 (7.1 round 2): 7.0 applies at most 50 fields, never one this big. */
-export const MAX_SUGGESTION_BYTES = 64 * 1024;
+/**
+ * The largest one suggestion may be, as JSON in UTF-8 (7.1 round 3): a bound chosen, not one 7.0 implies, to fit two
+ * full 10,000-character fields with their `before` in any script (four such strings take at most 120,000 bytes).
+ */
+export const MAX_SUGGESTION_BYTES = 256 * 1024;
 
 /** The format's own fields of the file, the only names a refusal ever says: never a key the file itself wrote. */
 export type ChangeFileField = 'version' | 'id' | 'project_id' | 'project_name' | 'created_by' | 'created_at' | 'people' | 'suggestions';

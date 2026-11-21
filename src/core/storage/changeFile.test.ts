@@ -147,16 +147,18 @@ describe('a change file refused whole (7.1)', () => {
     expect(refusalWords(refusal(changeFile({ suggestions: [suggestion({ target: { type: 'shot', label: 'x', [key]: 1 }, [`target_${key}`]: 2 })] })) ?? { kind: 'not_json' })).not.toContain('Robin');
   });
 
-  it('with a suggestion over 64 KB as JSON, which 7.0 could never apply (round 2)', () => {
-    // 50 fields of 1,400 characters: under every string's bound, over 64 KB together.
-    const set = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`f${String(i)}`, 'é'.repeat(700)]));
-    const big = suggestion({ id: S2, kind: 'update', data: { set } });
+  it('with a suggestion over 256 KB as JSON, a bound chosen to fit two full fields with their before (round 3)', () => {
+    expect(MAX_SUGGESTION_BYTES).toBe(256 * 1024);
+    // Ten fields of 10,000 three-byte characters: each under every string's bound, over 256 KB together.
+    const full = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`f${String(i)}`, '中'.repeat(10_000)]));
+    const big = suggestion({ id: S2, kind: 'update', data: { props: full(5), before: full(5) } });
     expect(new TextEncoder().encode(JSON.stringify(big)).byteLength).toBeGreaterThan(MAX_SUGGESTION_BYTES);
     expect(refusal(changeFile({ suggestions: [suggestion(), big] }))).toEqual({ kind: 'suggestion_too_large', position: 2 });
-    expect(refusalWords({ kind: 'suggestion_too_large', position: 2 })).toBe('This change file wasn’t brought in: suggestion 2 is larger than 64 KB.');
-    // Just under, it passes.
-    const under = suggestion({ id: S2, kind: 'update', data: { set: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`f${String(i)}`, 'é'.repeat(700)])) } });
-    expect(passed(changeFile({ suggestions: [under] })).suggestions).toHaveLength(1);
+    expect(refusalWords({ kind: 'suggestion_too_large', position: 2 })).toBe('This change file wasn’t brought in: suggestion 2 is larger than 256 KB.');
+    // Two full fields with their before, in a script of three bytes a character: it passes.
+    const two = suggestion({ id: S2, kind: 'update', data: { props: full(2), before: full(2) } });
+    expect(new TextEncoder().encode(JSON.stringify(two)).byteLength).toBeGreaterThan(64 * 1024);
+    expect(passed(changeFile({ suggestions: [two] })).suggestions).toHaveLength(1);
   });
 
   it('when a suggestion sets one of the record’s own props, which only the app writes', () => {

@@ -1,6 +1,6 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useEffect } from 'react';
-import { bringInDropped, bringInFolder, changeFileAtPath, findInFolder } from './changeFiles';
+import { bringInDropped, bringInFolder, changeFileAtPath, dropFolderNotice, findInFolder } from './changeFiles';
 import { isTauriApp } from './fileAccess';
 import { onChangeFilesDrop } from './pictures';
 import { useProject } from './projectStore';
@@ -13,6 +13,8 @@ import { useProject } from './projectStore';
 export function ChangeFilesHost() {
   const project = useProject((s) => s.project);
   useEffect(() => {
+    // A switch or a close: the folder's line and Bring in about the project left behind go (7.1 round 3).
+    dropFolderNotice();
     if (project) void bringInFolder();
   }, [project]);
 

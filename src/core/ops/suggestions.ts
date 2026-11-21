@@ -164,8 +164,8 @@ export function bringInManyChanges(
 
 /** What the log says was ever brought in: every suggestion id and change file id a create of a suggestion named. */
 export interface EverBroughtIn {
-  suggestions: ReadonlySet<string>;
-  files: ReadonlySet<string>;
+  suggestions: Set<string>;
+  files: Set<string>;
 }
 
 /**
@@ -173,11 +173,17 @@ export interface EverBroughtIn {
  * folder skips a file or a suggestion id named here, so an undone bring-in stays undone. An undo's op keeps the kind it
  * reverses with its sides swapped, so both sides are read. Import changes… by hand doesn't ask: a person who chose a
  * file again wants it.
+ *
+ * Cheap on a long log (7.1 round 3): a snapshot is written by ops.ts's `snapshot`, its `id` first and its `type` second,
+ * so `"type":"suggestion"` sits in its first 300 characters; only rows that pass that look at the start of the text are
+ * parsed as JSON, and the JSON still decides.
  */
 export async function everBroughtIn(file: ProjectFile): Promise<EverBroughtIn> {
   const rows = await file.query(
     `SELECT record_id AS id, coalesce(json_extract(after, '$.props.change_file_id'), json_extract(before, '$.props.change_file_id')) AS file
-      FROM ops WHERE kind = 'create' AND (json_extract(after, '$.type') = 'suggestion' OR json_extract(before, '$.type') = 'suggestion')`,
+      FROM ops WHERE kind = 'create'
+        AND (instr(substr(after, 1, 300), '"type":"suggestion"') > 0 OR instr(substr(before, 1, 300), '"type":"suggestion"') > 0)
+        AND (json_extract(after, '$.type') = 'suggestion' OR json_extract(before, '$.type') = 'suggestion')`,
   );
   const suggestions = new Set<string>();
   const files = new Set<string>();

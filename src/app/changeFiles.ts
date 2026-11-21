@@ -1,12 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
-import { localizeError, t, tn } from '../core/i18n';
+import { t, tn } from '../core/i18n';
 import { cleanText } from '../core/model/suggestion';
 import { bringInManyChanges, everBroughtIn, type BroughtIn } from '../core/ops/suggestions';
 import { readChangeFile, refusalWords, type ChangeFile, type ChangeFileRefusal } from '../core/storage/changeFile';
 import type { Project } from '../core/storage/project';
 import { ask } from './ask';
 import { isTauriApp } from './fileAccess';
-import { showInfo, showNotice } from './notice';
+import { clearNotice, noticeStore, showInfo, showNotice, type NoticeAction } from './notice';
 import { projectStore } from './projectStore';
 
 // Change files in (7.1, docs/SBD_FORMAT.md "Change files"): Import changes…, a `.sbdchanges` dropped on the window, and
@@ -100,7 +100,9 @@ async function bringInRead(opened: Project, files: readonly ChangeFile[], skip?:
     found.value = many.each;
     return { changes: many.changes };
   });
-  return written ? found.value : null;
+  if (!written || found.value === null) return null;
+  noteBroughtIn(opened, files, found.value);
+  return found.value;
 }
 
 /**
@@ -185,24 +187,43 @@ interface FolderListing {
   renameFrom: string | null;
 }
 
-/** At most this many files are read in one pass; the rest wait for Bring in. */
+// Two budgets a pass (7.1 round 3): what it reads to find what's new, and what it brings in. A file brought in before
+// costs only the read budget, so a folder of 205 files already in and one new one brings the new one in at open.
+
+/** At most this many files are read in one pass to find what's new, a failed read counted. */
+export const MAX_READ_FILES = 1000;
+/** At most this many bytes of change files are read in one pass, by the larger of the listed and the read size. */
+export const MAX_READ_BYTES = 50 * 1024 * 1024;
+/** At most this many new files come in in one pass; the rest wait for Bring in. */
 export const MAX_PASS_FILES = 200;
-/** At most this many bytes of change files are read in one pass. */
+/** At most this many bytes of new change files come in in one pass. */
 export const MAX_PASS_BYTES = 10 * 1024 * 1024;
 /** At most this many suggestions come in in one pass (one op group). */
 export const MAX_PASS_SUGGESTIONS = 2000;
 
+/** What the log says was ever brought in, read once per open and added to as each bring-in writes (the log only grows). */
+interface Ever {
+  suggestions: Set<string>;
+  files: Set<string>;
+}
+
 /** What one open project's folder has done this session. */
 interface FolderState {
-  /** The files read already, by name, size and time: one rewritten with the same size inside a coarse time waits for the next open. */
+  /**
+   * The files settled already, by name, size and time: brought in, refused, or brought in before. One rewritten with the
+   * same size inside a coarse time waits for the next open. A file that couldn't be read is never settled: the next
+   * pass tries it again.
+   */
   read: Set<string>;
   /** The lines said already, so a later pass or a focus doesn't say the same one again. */
   said: Set<string>;
   /** Whether the open pass ran: a project's first request, whatever asked, is its pass. */
   opened: boolean;
   renameOffered: boolean;
-  /** The waiting files a focus last said, so it says nothing new until they change. */
+  /** The waiting files last said (by a find or a pass's own line), so a find says nothing until they change. */
   lastWaiting: string;
+  /** everBroughtIn's answer for this open, once read; null until a pass needs it. */
+  ever: Ever | null;
 }
 
 const states = new WeakMap<Project, FolderState>();
@@ -210,9 +231,28 @@ const states = new WeakMap<Project, FolderState>();
 function stateOf(opened: Project): FolderState {
   const known = states.get(opened);
   if (known) return known;
-  const made: FolderState = { read: new Set(), said: new Set(), opened: false, renameOffered: false, lastWaiting: '' };
+  const made: FolderState = { read: new Set(), said: new Set(), opened: false, renameOffered: false, lastWaiting: '', ever: null };
   states.set(opened, made);
   return made;
+}
+
+/** What a bring-in just wrote, added to this open's `ever`: the log is append-only, so it is never read again. */
+function noteBroughtIn(opened: Project, files: readonly ChangeFile[], each: readonly BroughtIn[]): void {
+  const ever = states.get(opened)?.ever;
+  if (!ever) return;
+  for (const [i, file] of files.entries()) {
+    const made = each[i]?.changes ?? [];
+    for (const change of made) if (change.kind === 'create' && change.record.id !== undefined) ever.suggestions.add(change.record.id);
+    if (made.length > 0) ever.files.add(file.id);
+  }
+}
+
+async function everOf(opened: Project, state: FolderState): Promise<Ever> {
+  if (state.ever) return state.ever;
+  const read = await everBroughtIn(opened.file);
+  // A bring-in by hand while the log was read is in the log already, so nothing is lost by keeping the first answer.
+  state.ever ??= { suggestions: new Set(read.suggestions), files: new Set(read.files) };
+  return state.ever;
 }
 
 const keyOf = (file: Listed): string => `${file.name}\u0000${String(file.bytes)}\u0000${String(file.modified)}`;
@@ -227,35 +267,45 @@ function sayOnce(state: FolderState, words: string, warning: boolean): void {
 /** What a request asks: the open pass, a pass (Bring in), or only finding what's new (the window back in front). */
 type FolderAsk = 'open' | 'pass' | 'find';
 
-/** The run now, one at a time; what was asked meanwhile runs after it, for whichever project is open then. */
-let running: Promise<void> | null = null;
+/**
+ * The run now, one at a time; what was asked meanwhile runs after it, for whichever project is open then. `busy` is
+ * cleared in the run's own body, in the same turn as its last look at `again`, so a request made in any microtask as a
+ * run ends either is seen by the loop or starts a run of its own (7.1 round 3): none is lost.
+ */
+let busy = false;
+let running: Promise<void> = Promise.resolve();
 let again: FolderAsk | null = null;
 
 const stronger = (a: FolderAsk | null, b: FolderAsk): FolderAsk => (a === 'pass' || b === 'pass' ? 'pass' : a === 'open' || b === 'open' ? 'open' : 'find');
 
 function request(ask: FolderAsk): Promise<void> {
   if (!isTauriApp) return Promise.resolve();
-  if (running) {
+  if (busy) {
     again = stronger(again, ask);
     return running;
   }
+  busy = true;
+  again = null;
   running = (async () => {
     let next: FolderAsk | null = ask;
-    while (next !== null) {
-      again = null;
-      const opened = projectStore.getState().project;
-      if (opened) {
-        try {
-          await runFolder(opened, next);
-        } catch (error) {
-          sayOnce(stateOf(opened), error instanceof Error ? error.message : String(error), true);
+    try {
+      while (next !== null) {
+        const opened = projectStore.getState().project;
+        if (opened) {
+          try {
+            await runFolder(opened, next);
+          } catch (error) {
+            // Said only into the project the run began in: a switch meanwhile leaves the new one's line alone.
+            if (projectStore.getState().project === opened) sayOnce(stateOf(opened), error instanceof Error ? error.message : String(error), true);
+          }
         }
+        next = again;
+        again = null;
       }
-      next = again;
+    } finally {
+      busy = false;
     }
-  })().finally(() => {
-    running = null;
-  });
+  })();
   return running;
 }
 
@@ -266,15 +316,30 @@ export const findInFolder = (): Promise<void> => request('find');
 /** Bring in, pressed: one more pass, one more op group. */
 export const bringInWaiting = (): Promise<void> => request('pass');
 
-/** The waiting line with its Bring in button. */
-function waitingAction() {
-  return {
+/** The project each Bring in button was made for. */
+const actionProjects = new WeakMap<NoticeAction, Project>();
+
+/** A switch or a close: the folder's line about the project left behind goes with it (7.1 round 3). */
+export function dropFolderNotice(): void {
+  const action = noticeStore.getState().action;
+  const made = action === null ? undefined : actionProjects.get(action);
+  if (made !== undefined && made !== projectStore.getState().project) clearNotice();
+}
+
+/** The Bring in button, for the project it was made for only: pressed after a switch, it takes its line away. */
+function waitingAction(opened: Project): NoticeAction {
+  const action: NoticeAction = {
     label: t('changes.bringIn'),
     run: () => {
-      void bringInWaiting();
+      if (projectStore.getState().project !== opened) dropFolderNotice();
+      else void bringInWaiting();
     },
   };
+  actionProjects.set(action, opened);
+  return action;
 }
+
+const keysOf = (files: readonly Listed[]): string => files.map(keyOf).join('\u0001');
 
 async function runFolder(opened: Project, ask: FolderAsk): Promise<void> {
   const handle = opened.file.nativeHandle;
@@ -291,12 +356,11 @@ async function runFolder(opened: Project, ask: FolderAsk): Promise<void> {
   const folder = cleanText(listing.folder, 200);
   const waiting = listing.files.filter((file) => !state.read.has(keyOf(file)));
   if (mode === 'find') {
-    const keys = waiting.map(keyOf).join('\u0001');
-    if (waiting.length > 0 && keys !== state.lastWaiting) showInfo(tn('changes.waiting', waiting.length, { folder }), { action: waitingAction() });
+    const keys = keysOf(waiting);
+    if (waiting.length > 0 && keys !== state.lastWaiting) showInfo(tn('changes.waiting', waiting.length, { folder }), { action: waitingAction(opened) });
     state.lastWaiting = keys;
     return;
   }
-  state.lastWaiting = '';
   await pass(opened, state, handle, folder, waiting);
 }
 
@@ -338,34 +402,46 @@ async function listFolder(opened: Project, state: FolderState, handle: number): 
 }
 
 /**
- * One pass: the waiting files read in name order, at most 200 files, 10 MB and 2,000 suggestions, then brought in as one
- * op group. A file or a suggestion the log ever brought in, undone ones included, is skipped, so an undone pass stays
- * undone. What's left waits, with a line and Bring in.
+ * One pass: the waiting files read in name order, at most 1,000 files and 50 MB read to find what's new, of which at
+ * most 200 files, 10 MB and 2,000 suggestions are brought in, as one op group. A file or a suggestion the log ever
+ * brought in, undone ones included, is skipped and costs only the read budget, so an undone pass stays undone. A file
+ * that couldn't be read costs the read budget by its listed size and waits for the next pass; however many there are,
+ * the pass says them in one counted line. What's left waits, with a line and Bring in.
  */
 async function pass(opened: Project, state: FolderState, handle: number, folder: string, waiting: readonly Listed[]): Promise<void> {
-  const ever = await everBroughtIn(opened.file);
+  if (waiting.length === 0) {
+    state.lastWaiting = '';
+    return;
+  }
+  const ever = await everOf(opened, state);
   const taken: { name: string; key: string; file: ChangeFile }[] = [];
   /** Read and done with: refused, or brought in before. Marked read at once, as nothing of them is written. */
   const settled: string[] = [];
-  let bytes = 0;
+  let readFiles = 0;
+  let readBytes = 0;
+  let takenBytes = 0;
   let suggestions = 0;
-  let reads = 0;
+  /** Files whose read failed: said in the pass's one counted line, never settled. */
+  const unread = new Set<string>();
   for (const listed of waiting) {
-    if (reads >= MAX_PASS_FILES || bytes + listed.bytes > MAX_PASS_BYTES) break;
+    if (taken.length >= MAX_PASS_FILES || readFiles >= MAX_READ_FILES || readBytes + listed.bytes > MAX_READ_BYTES) break;
+    // A new file this large would take the pass past 10 MB: it waits, unread, for the next pass.
+    if (taken.length > 0 && takenBytes + listed.bytes > MAX_PASS_BYTES) break;
     if (projectStore.getState().project !== opened) return;
     const key = keyOf(listed);
+    readFiles += 1;
+    readBytes += listed.bytes;
     let raw: Uint8Array;
     try {
       raw = new Uint8Array(await invoke<ArrayBuffer>('changes_folder_read', { handle, name: listed.name }));
-    } catch (error) {
-      // Said with its name, and not read again until the file changes or the project opens again.
-      sayOnce(state, t('changes.inFile', { file: cleanText(listed.name, 120), message: localizeError(error instanceof Error ? error.message : String(error)) }), true);
-      state.read.add(key);
+    } catch {
+      // Counted, said once for the pass, never settled: the next pass reads it again.
+      unread.add(key);
       continue;
     }
-    reads += 1;
     // By the larger of the listed size and what was read: a file that grew after the listing counts as it is now.
-    bytes += Math.max(listed.bytes, raw.byteLength);
+    const size = Math.max(listed.bytes, raw.byteLength);
+    readBytes += size - listed.bytes;
     const read = readChangeFile(raw, opened.projectId);
     if (!read.ok) {
       const words = outcomeWords({ kind: 'refused', refusal: read.refusal }, listed.name);
@@ -378,9 +454,11 @@ async function pass(opened: Project, state: FolderState, handle: number, folder:
       continue;
     }
     const fresh = read.file.suggestions.filter((suggestion) => !ever.suggestions.has(suggestion.id)).length;
-    // A file that would take the pass past 2,000 waits for the next; one alone always fits (a file holds at most 2,000).
-    if (taken.length > 0 && suggestions + fresh > MAX_PASS_SUGGESTIONS) break;
+    // A file that would take the pass past 2,000 suggestions or 10 MB waits for the next; one alone always fits (a file
+    // holds at most 2,000 and 5 MB).
+    if (taken.length > 0 && (suggestions + fresh > MAX_PASS_SUGGESTIONS || takenBytes + size > MAX_PASS_BYTES)) break;
     suggestions += fresh;
+    takenBytes += size;
     taken.push({ name: listed.name, key, file: read.file });
   }
   for (const key of settled) state.read.add(key);
@@ -406,9 +484,18 @@ async function pass(opened: Project, state: FolderState, handle: number, folder:
     }
     // A file already brought in says nothing: the folder is read at every open.
   }
-  const left = waiting.filter((file) => !state.read.has(keyOf(file))).length;
+  const left = waiting.filter((file) => !state.read.has(keyOf(file)));
+  // The pass's own line names what's left, so a find straight after says nothing over it.
+  state.lastWaiting = keysOf(left);
   const brought = files === 1 && last ? outcomeWords(last) : files > 1 ? tn('changes.broughtInFiles', added, { files }) : null;
-  const wait = left > 0 ? tn('changes.waiting', left, { folder }) : null;
-  if (wait !== null) showInfo(brought === null ? wait : `${brought} ${wait}`, { step: brought !== null, action: waitingAction() });
-  else if (brought !== null) showInfo(brought, { step: true });
+  const failed = unread.size > 0 ? tn('changes.unread', unread.size, { folder }) : null;
+  // The waiting line counts what wasn't looked at or brought in; the files that couldn't be read have their own line.
+  const notLooked = left.filter((file) => !unread.has(keyOf(file))).length;
+  const wait = notLooked > 0 ? tn('changes.waiting', notLooked, { folder }) : null;
+  const words = [brought, failed, wait].filter((part) => part !== null).join(' ');
+  if (words === '') return;
+  // Bring in tries again whatever is left, the files that couldn't be read included.
+  const action = left.length === 0 ? null : waitingAction(opened);
+  if (failed !== null) showNotice(words, { action });
+  else showInfo(words, { step: brought !== null, action });
 }

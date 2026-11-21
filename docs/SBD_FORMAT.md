@@ -1737,7 +1737,7 @@ A change file is one UTF-8 JSON object:
 | Field | Notes |
 |---|---|
 | format, version | `version` goes up only for a change an older app can't read safely. Adding a kind or an optional field doesn't change it. An app refuses a newer version with "made by a newer Storiiboard" |
-| id | This file's id: a UUID, lowercase |
+| id | This file's id: a UUID, lowercase. A writer never adds to a change file it already wrote: more suggestions go in a new file with a new id (7.1 round 3), since the folder skips, whole, a file whose id it has brought in. 7.6's assistant writes this way |
 | project_id | The project record's id. A file for another project is refused |
 | project_name | Optional (7.1): the project's name as the writer saw it, shown as text when the file is refused for another project |
 | review_copy | Optional (7.1): the published review copy the suggestions were made on. Read by nothing yet |
@@ -1988,8 +1988,9 @@ A file is refused whole, nothing stored, with words that say why (never a stack 
 - holding a string over its bound, wherever it is: an id 100 characters (the file's, a person's, a target's, a
   `person_id`); `created_by` and a person's name 100; a Team role, a kind and a target's type 40; a target's label 200;
   a time 40; a note 2,000; any other string, `data` and unknown fields included, 10,000; any key 100;
-- holding a suggestion larger than 64 KB (65,536 bytes) as JSON in UTF-8 (7.1 round 2): 7.0 applies at most 50 fields,
-  so one that size could never be applied;
+- holding a suggestion larger than 256 KB (262,144 bytes) as JSON in UTF-8 (7.1 round 3): a bound chosen, not one 7.0
+  implies, set to fit two full 10,000-character fields with their `before` in any script (four strings of 10,000
+  UTF-16 units take at most 120,000 bytes in UTF-8, with room left for the rest);
 - holding a suggestion that isn't an object, has no lowercase UUID `id`, or shares its `id` with another in the file; a
   person with no `id` or one shared; or a suggestion field named as one of the record's own props (`status`, `source`,
   `change_file_id`, `target_id`, `target_type`, `target_label`, `target_updated_at`, `suggested_at`, `decided_by`,
@@ -2046,9 +2047,14 @@ Rejecting a suggestion changes nothing in the project; the suggestion stays, `re
   ```
 
 - The app brings the folder in when the project opens: one pass, as **one** op group, so one undo takes the whole pass
-  back. A pass reads at most 200 files, 10 MB of change files (10,485,760 bytes) and 2,000 suggestions; what's left
-  waits, with a line ("4 change files are waiting in Harbor Lights Suggestions") and Bring in, each press one more pass
-  and one more op group. When the window comes back to the front (the window's own focus event) the folder is only
+  back. A pass has two budgets (7.1 round 3): it reads at most 1,000 files and 50 MB (52,428,800 bytes) to find what's
+  new, and of what's new brings in at most 200 files, 10 MB (10,485,760 bytes) and 2,000 suggestions. A file brought in
+  before costs only the read budget. A file that couldn't be read costs the read budget by its listed size and is tried
+  again at the next pass; however many there are, the pass says them in one counted line ("3 change files in Harbor
+  Lights Suggestions couldn't be read"). What's left waits, with a line that counts only the files not yet looked at or
+  not yet brought in ("4 change files not looked at yet in Harbor Lights Suggestions") and Bring in, each press one more
+  pass and one more op group. A Bring in pressed after a switch to another project only takes its line away, and a
+  switch or a close takes the line about the project left behind away. When the window comes back to the front (the window's own focus event) the folder is only
   looked at: what's new is said with the same line and Bring in, and nothing is brought in, so coming back to the app
   never changes what ⌘Z and ⌘⇧Z do. One look at the folder runs at a time; one asked for meanwhile runs after it, for
   whichever project is open then, and a project switched to always gets its own pass at open.
@@ -2059,12 +2065,16 @@ Rejecting a suggestion changes nothing in the project; the suggestion stays, `re
   the files it hasn't read, in name order.
 - It never follows a link or a Windows junction. The folder must be a real folder, not a link, whose real parent is the
   project's own folder: by identity, never by comparing names (a name in another case, or the other Unicode spelling of
-  an accent, is the same folder). A file in it is opened as any program opens it (on Windows without opening the
+  an accent, is the same folder). A file in it is looked at by its own entry first, never followed: a link or a junction
+  there is refused before anything is opened. It is then opened as any program opens it (on Windows without opening the
   reparse point itself, so a OneDrive or Dropbox placeholder is read through its cloud filter; on a Mac with
-  `O_NOFOLLOW` and `O_NONBLOCK`, so a link or a FIFO is refused rather than waited on), then refused unless it is a
-  regular file whose own handle isn't a link or junction, and it is "checked to be the file opened": the real path of
-  the open handle must be the folder's real path, found once, joined with the file's name, so a folder swapped for a
-  junction between the listing and the read is refused. The marker is never read as a change file; it is read at most
+  `O_NOFOLLOW` and `O_NONBLOCK`, so a link or a FIFO is refused rather than waited on), refused unless what was opened is
+  a regular file, and it is "checked to be the file opened": the real path of the open handle must be the folder's real
+  path, found once, joined with the file's name. On Windows those two are what protect: a link put in place between
+  the look and the open would be followed by the open, and its handle is the target's, so the handle's final path,
+  somewhere other than `<real folder>/<name>`, is what refuses it; the same check refuses a folder swapped for a
+  junction between the listing and the read. (A Mac and Linux also check that the opened file's device and inode are
+  the ones looked at.) The marker is never read as a change file; it is read at most
   64 KB. A folder whose marker names another project is skipped, with a line saying so; one with no marker, or a marker
   that can't be read, is read (a person may have made it). Each file then goes through the checks above, as one
   dropped would.
@@ -2081,7 +2091,9 @@ Rejecting a suggestion changes nothing in the project; the suggestion stays, `re
   Renaming is the only write, through Rust, only after the person says so, only from such a folder beside the project,
   only to that name, and never over an existing file or folder: checked first, and refused by the rename itself (on a
   Mac `renamex_np` with `RENAME_EXCL`, on Windows `MoveFileEx` without replacing; Linux, which no release ships for,
-  keeps a plain rename after the check). Until it is renamed its files aren't brought in.
+  keeps a plain rename after the check). A Mac volume that can't do an exclusive rename (exFAT, FAT, some SMB shares
+  answer `ENOTSUP`) gets the plain rename after the check instead, which a folder made in the moment between could be
+  replaced by only if it is empty. Until it is renamed its files aren't brought in.
 
 ## Project data as JSON (2.9)
 

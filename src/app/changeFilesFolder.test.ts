@@ -18,7 +18,7 @@ import { log } from '../core/ops/ops';
 import { nodeDriver } from '../core/storage/nodeDriver';
 import { createProject, openProject, type Project } from '../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../core/storage/testFolder';
-import { bringInBytes, bringInFolder, findInFolder } from './changeFiles';
+import { bringInBytes, bringInFolder, bringInWaiting, dropFolderNotice, findInFolder, MAX_READ_BYTES } from './changeFiles';
 import { noticeStore } from './notice';
 import { projectStore } from './projectStore';
 
@@ -27,6 +27,8 @@ interface FakeFile {
   modified: number;
   /** The size the listing says, when a test needs it larger than the bytes (the 10 MB bound). */
   listed?: number;
+  /** Its read fails, as a file locked or gone between the listing and the read would. */
+  fails?: boolean;
 }
 
 interface FakeFolder {
@@ -38,13 +40,15 @@ interface FakeFolder {
   renameFrom: string | null;
   /** A listing held until the test lets it go. */
   hold: Promise<void> | null;
+  /** The listing fails, after its hold. */
+  listFails: boolean;
 }
 
 const folders = new Map<number, FakeFolder>();
 const reads: string[] = [];
 
 const fakeFolder = (handle: number, name: string): FakeFolder => {
-  const made: FakeFolder = { name, state: 'read', otherProjectName: null, files: new Map(), capped: false, renameFrom: null, hold: null };
+  const made: FakeFolder = { name, state: 'read', otherProjectName: null, files: new Map(), capped: false, renameFrom: null, hold: null, listFails: false };
   folders.set(handle, made);
   return made;
 };
@@ -54,6 +58,7 @@ invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => 
   if (!folder) throw new Error('That project isn’t open.');
   if (cmd === 'changes_folder') {
     if (folder.hold) await folder.hold;
+    if (folder.listFails) throw new Error('Storiiboard couldn’t read this project’s suggestions folder.');
     const files = [...folder.files.entries()]
       .sort(([a], [b]) => (a < b ? -1 : 1))
       .map(([name, file]) => ({ name, bytes: file.listed ?? file.bytes.byteLength, modified: file.modified }));
@@ -71,6 +76,7 @@ invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => 
     const file = folder.files.get(String(args.name));
     if (!file) throw new Error('Storiiboard couldn’t read that change file.');
     reads.push(String(args.name));
+    if (file.fails) throw new Error('Storiiboard couldn’t read that change file.');
     return file.bytes.slice().buffer;
   }
   if (cmd === 'changes_folder_rename') {
@@ -157,7 +163,7 @@ describe('the suggestions folder, brought in (7.1 round 2)', () => {
     await bringInFolder();
     expect(suggestions()).toHaveLength(200);
     expect(reads).toHaveLength(200);
-    expect(notice().message).toBe('Brought in 200 suggestions from 200 change files. 5 change files are waiting in Harbor Lights Suggestions.');
+    expect(notice().message).toBe('Brought in 200 suggestions from 200 change files. 5 change files not looked at yet in Harbor Lights Suggestions.');
     expect(notice().action?.label).toBe('Bring in');
     // The first 200 are in: the next 5 come in, as one more step, and only they are read.
     reads.length = 0;
@@ -178,7 +184,7 @@ describe('the suggestions folder, brought in (7.1 round 2)', () => {
     await openAs(project, 7);
     await bringInFolder();
     expect(suggestions()).toHaveLength(1500);
-    expect(notice().message).toBe('Brought in 1500 suggestions from Robin Vale. 1 change file is waiting in Harbor Lights Suggestions.');
+    expect(notice().message).toBe('Brought in 1500 suggestions from Robin Vale. 1 change file not looked at yet in Harbor Lights Suggestions.');
 
     // Listed at 4 MB each: two fit in a pass, the third waits.
     await projectStore.getState().close();
@@ -189,7 +195,7 @@ describe('the suggestions folder, brought in (7.1 round 2)', () => {
     reads.length = 0;
     await bringInFolder();
     expect(reads).toEqual(['1.sbdchanges', '2.sbdchanges']);
-    expect(notice().message).toContain('1 change file is waiting in Saltmarsh Suggestions.');
+    expect(notice().message).toContain('1 change file not looked at yet in Saltmarsh Suggestions.');
   });
 
   it('only finds what’s new when the window comes back to the front, and leaves undo and redo as they were', async () => {
@@ -205,7 +211,7 @@ describe('the suggestions folder, brought in (7.1 round 2)', () => {
     expect(reads).toEqual([]);
     expect(await groups()).toBe(before);
     expect(projectStore.getState().canRedo).toBe(true);
-    expect(notice().message).toBe('3 change files are waiting in Harbor Lights Suggestions.');
+    expect(notice().message).toBe('3 change files not looked at yet in Harbor Lights Suggestions.');
     // The same three found again: nothing new to say.
     const seq = notice().seq;
     await findInFolder();
@@ -296,5 +302,165 @@ describe('the suggestions folder, brought in (7.1 round 2)', () => {
     expect(projectStore.getState().project).toBe(other);
     expect(suggestions()).toHaveLength(3);
     expect(reads).toEqual(['s.sbdchanges']);
+  });
+});
+
+describe('the suggestions folder, round 3: two budgets, one line, nothing left behind', () => {
+  const listings = () => invoke.mock.calls.filter(([cmd]) => cmd === 'changes_folder').length;
+
+  it('brings a new file in at open past 205 already in, which cost only the read budget, with no waiting line', async () => {
+    for (let n = 0; n < 205; n += 1) disk.files.set(`${String(n).padStart(3, '0')}.sbdchanges`, { bytes: changeFile(project.projectId, n), modified: 1 });
+    await openAs(project, 7);
+    await bringInFolder();
+    await bringInWaiting();
+    expect(suggestions()).toHaveLength(205);
+    await projectStore.getState().close();
+
+    disk.files.set('999.sbdchanges', { bytes: changeFile(project.projectId, 999), modified: 2 });
+    project = await openAs(await openProject(folder.path('Harbor Lights.sbd'), { driver: nodeDriver, backups: false }), 7);
+    reads.length = 0;
+    await bringInFolder();
+    expect(suggestions()).toHaveLength(206);
+    expect(reads).toHaveLength(206);
+    expect(notice().message).toBe('Brought in 1 suggestion from Robin Vale.');
+    expect(notice().action).toBeNull();
+  });
+
+  it('counts a failed read toward the read budget by its listed size, says them in one line, and tries them again', async () => {
+    // 300 files of 200 KB as listed, every read failing: the 50 MB read budget stops the pass at 256.
+    for (let n = 0; n < 300; n += 1) disk.files.set(`${String(n).padStart(3, '0')}.sbdchanges`, { bytes: changeFile(project.projectId, n), modified: 1, listed: 200 * 1024, fails: true });
+    await openAs(project, 7);
+    const seq = notice().seq;
+    await bringInFolder();
+    expect(reads).toHaveLength(MAX_READ_BYTES / (200 * 1024));
+    expect(notice().seq).toBe(seq + 1);
+    expect(notice().kind).toBe('warning');
+    expect(notice().message).toBe('256 change files in Harbor Lights Suggestions couldn’t be read. 44 change files not looked at yet in Harbor Lights Suggestions.');
+    expect(notice().action?.label).toBe('Bring in');
+    // Never settled: found again as waiting, and read again by the next pass.
+    for (const file of disk.files.values()) {
+      file.fails = false;
+      delete file.listed;
+    }
+    reads.length = 0;
+    await bringInWaiting();
+    expect(reads.slice(0, 3)).toEqual(['000.sbdchanges', '001.sbdchanges', '002.sbdchanges']);
+    expect(suggestions()).toHaveLength(200);
+  });
+
+  it('keeps the pass’s own line when the window comes back to the front straight after', async () => {
+    disk.files.set('a.sbdchanges', { bytes: changeFile(project.projectId, 1, 1500), modified: 1 });
+    disk.files.set('b.sbdchanges', { bytes: changeFile(project.projectId, 2, 1500), modified: 1 });
+    await openAs(project, 7);
+    await bringInFolder();
+    const said = notice().message;
+    expect(said).toBe('Brought in 1500 suggestions from Robin Vale. 1 change file not looked at yet in Harbor Lights Suggestions.');
+    const seq = notice().seq;
+    await findInFolder();
+    expect(notice().seq).toBe(seq);
+    expect(notice().message).toBe(said);
+  });
+
+  it('never brings back a bring-in undone this session, from the log read once at open and what each pass wrote', async () => {
+    disk.files.set('1.sbdchanges', { bytes: changeFile(project.projectId, 1), modified: 1 });
+    await openAs(project, 7);
+    await bringInFolder();
+    disk.files.set('2.sbdchanges', { bytes: changeFile(project.projectId, 2, 2), modified: 1 });
+    await bringInWaiting();
+    expect(suggestions()).toHaveLength(3);
+    await projectStore.getState().undo();
+    expect(suggestions()).toHaveLength(1);
+    // The same file rewritten (a new time): read again, and skipped whole, as its id was brought in.
+    disk.files.set('2.sbdchanges', { bytes: changeFile(project.projectId, 2, 2), modified: 5 });
+    reads.length = 0;
+    await bringInWaiting();
+    expect(reads).toEqual(['2.sbdchanges']);
+    expect(suggestions()).toHaveLength(1);
+  });
+
+  it('reads nothing of the log when no file is waiting', async () => {
+    await openAs(project, 7);
+    const query = vi.spyOn(project.file, 'query');
+    await bringInFolder();
+    expect(query.mock.calls.some(([sql]) => sql.includes('FROM ops'))).toBe(false);
+    query.mockRestore();
+  });
+
+  it('leaves nothing behind on a switch: the line goes, and a Bring in pressed after it brings nothing in', async () => {
+    disk.files.set('1.sbdchanges', { bytes: changeFile(project.projectId, 1), modified: 1 });
+    await openAs(project, 7);
+    await bringInFolder();
+    disk.files.set('2.sbdchanges', { bytes: changeFile(project.projectId, 2), modified: 1 });
+    await findInFolder();
+    const stale = notice().action;
+    expect(stale?.label).toBe('Bring in');
+
+    const other = await createProject(folder.path('Saltmarsh.sbd'), { driver: nodeDriver, backups: false });
+    fakeFolder(8, 'Saltmarsh Suggestions');
+    await openAs(other, 8);
+    // Pressed for Harbor Lights while Saltmarsh is open: its line goes, and nothing is read or brought in.
+    const before = listings();
+    reads.length = 0;
+    stale?.run();
+    await Promise.resolve();
+    expect(notice().message).toBeNull();
+    expect(listings()).toBe(before);
+    expect(reads).toEqual([]);
+
+    // The shell's switch and close: a line about the open project stays; one about a project left behind goes.
+    const saltmarsh = folders.get(8);
+    saltmarsh?.files.set('a.sbdchanges', { bytes: changeFile(other.projectId, 1, 1500), modified: 1 });
+    saltmarsh?.files.set('b.sbdchanges', { bytes: changeFile(other.projectId, 2, 1500), modified: 1 });
+    await bringInFolder();
+    expect(notice().action?.label).toBe('Bring in');
+    dropFolderNotice();
+    expect(notice().action?.label).toBe('Bring in');
+    await projectStore.getState().close();
+    dropFolderNotice();
+    expect(notice().message).toBeNull();
+  });
+
+  it('says nothing into another project when a run fails after a switch', async () => {
+    let release = () => {};
+    disk.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    disk.listFails = true;
+    await openAs(project, 7);
+    const first = bringInFolder();
+    const other = await createProject(folder.path('Saltmarsh.sbd'), { driver: nodeDriver, backups: false });
+    fakeFolder(8, 'Saltmarsh Suggestions');
+    await openAs(other, 8);
+    const second = bringInFolder();
+    release();
+    await first;
+    await second;
+    expect(notice().message).toBeNull();
+  });
+
+  it('loses no request made in any microtask as a run ends', async () => {
+    await openAs(project, 7);
+    await bringInFolder();
+    for (let depth = 0; depth < 12; depth += 1) {
+      disk.files.set(`${String(depth)}.sbdchanges`, { bytes: changeFile(project.projectId, 100 + depth), modified: 1 });
+      const before = listings();
+      const late: { run: Promise<void> | null } = { run: null };
+      // The pass's last line is said in the run's last turn: a find asked `depth` microtasks later.
+      const stop = noticeStore.subscribe(() => {
+        stop();
+        let chain = Promise.resolve();
+        for (let i = 0; i < depth; i += 1) chain = chain.then(() => undefined);
+        void chain.then(() => {
+          late.run = findInFolder();
+        });
+      });
+      await bringInWaiting();
+      await vi.waitFor(() => {
+        expect(late.run).not.toBeNull();
+      });
+      await late.run;
+      // The pass listed once, and the find after it once more: none lost.
+      expect(listings() - before).toBe(2);
+    }
   });
 });
