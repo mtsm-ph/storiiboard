@@ -368,7 +368,22 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 21, afternoon; written at 13:00 EST)
+### Next session: start here (Nov 21, evening; written at 16:30 EST)
+
+**Merged on `checkpoint/nov21-i`** (run 44945317175, every job green first time: Linux 698, Mac WebKit 695, nothing
+failed or flaky): #266 7.3 unavailable dates and the seventh check, #267 7.4 the Checks tile. `v2` equals nov21-i's tree.
+Before it, nov21-h was green but for 7.3's own WebKit test typing a date digit by digit (fixed in the test); flaky there
+once each, untouched by the PRs: `e2e/moodboard.spec.ts:602` and `e2e/scrollLane.spec.ts:177`.
+
+**Open:** #269 7.5 the MCP server's read tools (four rounds; three reviews, one only to break it; the last guard
+replaces a contact found in typed text, never refuses an answer). 7.6 checking and proposing (branch
+`feat/7.6-mcp-propose`, on 7.5 with 7.4 merged in; two reviews running). 7.6 adds the Settings → AI assistant tab, so the
+four Settings pictures change in every engine (20 files): regenerate them on `checkpoint/baselines-nov21b` once 7.6 is
+reviewed, then the last allowed full checkpoint, `nov21-j`, for 7.5 and 7.6.
+
+**Left by a builder:** an empty folder `mcp/.away` (from a rename for a check; untracked); Kevin deletes it.
+
+### Earlier: start here (Nov 21, afternoon; written at 13:00 EST)
 
 **Merged on `checkpoint/nov21-g`** (run 44923836382): #261 7.0 suggestions in the model, #262 7.1 change files in, #264
 7.2 the review screen, #265 planUnderlay split (6.41). Linux 693 and Mac WebKit 690, nothing failed or flaky; the Mac
