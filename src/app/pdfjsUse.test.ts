@@ -82,6 +82,14 @@ describe('pdf.js stays a text reader (the pdfjs-dist ignore, Nov 18)', () => {
     expect(options).toMatch(/^\s*useWasm: false,\s*$/m);
   });
 
+  it('reads a page’s text through a stream reader, never getTextContent (6.27p, Nov 20)', () => {
+    // pdf.js 5.7's getTextContent gathers its chunks with `for await … of` a ReadableStream, which Safari's engine
+    // (macOS's webview) doesn't have: reading a PDF failed in the installed Mac app while every Chromium and
+    // Playwright WebKit run passed. readPdf.ts reads the stream with getReader() instead.
+    expect(shipped.filter((path) => read(path).includes('getTextContent('))).toEqual([]);
+    expect(read(READER)).toContain('streamTextContent(');
+  });
+
   it('never loads the viewer, the scripting sandbox, an annotation layer or scripting, anywhere', () => {
     // The viewer and the sandbox by their import (osv-scanner.toml's reason names the folder in words); the other two
     // by name at all.

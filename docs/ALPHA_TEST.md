@@ -76,6 +76,9 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
 
 - [ ] Import your real script as Fountain, Final Draft (.fdx) and PDF: the preview shows its scenes; scenes,
   locations and characters are made; scene numbers match the script. (1.17, 1.18)
+- [ ] [Mac] The PDF above on the Mac above all: before 6.27p the Mac app could not read any PDF (its webview lacks a
+  feature pdf.js used; every test passed because Playwright's WebKit has it). The launch check now reads a small PDF
+  in the built app at every checkpoint; a real screenplay is still worth one look. (6.27p)
 - [ ] A Spanish script: INT./EXT. headings in Spanish read as scenes. (P7)
 - [ ] [Kevin] The Phase 1 gate: board a real scene in one sitting, from script import to finished frames, and export
   it as a PDF. (Phase 1)
