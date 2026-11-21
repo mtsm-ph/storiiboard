@@ -403,7 +403,7 @@
   workspaces…; kept in this computer's settings, never in a project. At its foot: the web
   version (Phase 9), Hide sidebar, a Settings gear (Settings is an in-app window, not a section) and the person's
   local profile.
-  - Project menu, top right: History, Watermark Settings, Export Project, Archive Project.
+  - Project menu, top right: History, Watermark Settings, Export Project, Import changes… (7.1), Archive Project.
   - Switching projects opens the other .sbd in place, without reloading the window.
 - Project themes (Phase 1): colours come from the project's logo or key image, worked out on the device.
   - The accent is the most saturated usable colour, adjusted only as far as AA needs. Backgrounds come from 12
@@ -416,6 +416,13 @@
     canvas.ts) falls back to a `<canvas>` where there is none (macOS 13.0 to 13.2).
 - Export (Phase 1): src/features/export is a registry; a format is one file plus one line. Per scene or whole
   project. Exports skip the Trash, and files go to disk through src/core/storage.
+- Suggestions (7.0 to 7.2, built Nov 21): a `suggestion` record does one of four kinds (`trash`, `update`, `create`,
+  `reorder`), only within the assistant's row of one scope table (src/core/model/suggestionScope.ts; departments add
+  rows later); Apply runs the app's own edits (moved into src/core/ops), each Apply and Reject one op group. A change
+  file is untrusted input (src/core/storage/changeFile.ts; src-tauri/src/changes.rs reads only what the dialog, a drop
+  or the `<Project> Suggestions/` folder beside the project gives it, never following a link); bringing one in only
+  adds pending suggestions. The Suggestions tile (src/features/suggestions) reviews them one by one, with Apply the
+  rest for unflagged adds only; words are Apply and Reject, never "Approve" (Kevin, Nov 16).
 - Review (Phase 7 desktop, Phase 9 web): web suggestions come back as a change file (.sbdchanges, in
   docs/SBD_FORMAT.md). Importing one opens the review screen; nothing applies without a person approving it, one by
   one. An approved deletion is a trash op, never a hard delete.
