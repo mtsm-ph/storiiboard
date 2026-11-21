@@ -9,6 +9,7 @@ import { ASSISTANT_TOOLS } from '../../src/core/model/assistantTools';
 import type { SbdRecord } from '../../src/core/model/record';
 import { readSuggestion, reviewSuggestion } from '../../src/core/model/suggestion';
 import { apply, type Change } from '../../src/core/ops/ops';
+import { bringInChangeFile } from '../../src/core/ops/suggestions';
 import { readChangeFile } from '../../src/core/storage/changeFile';
 import { nodeDriver } from '../../src/core/storage/nodeDriver';
 import { openProject } from '../../src/core/storage/project';
@@ -189,7 +190,7 @@ describe('the propose tools over stdio (7.6)', () => {
       // A phone number typed into a frame's action.
       const phone = await call(c, 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { action: 'Call the pier on 555 867 5309 first.' } }] });
       expect(phone).toEqual({ isError: true, text: 'Nothing was written. SC 12 · 12B: action holds what reads as a phone number, an email, an address, coordinates or a map link. Contact details are never suggested: leave them out.' });
-      // One the project stores, typed again, in a note.
+      // An email in a note: refused by the free-text rule, which reads the note alone (stored or not makes no difference).
       const stored = await call(c, 'suggest_trash', { items: [{ frame: '12B' }], note: `Robin says so (${CONTACTS.robinEmail}).` });
       expect(stored.isError).toBe(true);
       expect(stored.text).toContain('the note holds what reads as');
@@ -357,24 +358,66 @@ describe('the propose tools, round 2', () => {
       expect(stored).toEqual(neither);
       expect(stored.text).toMatch(/^Nothing was written\. SC 12 · 12B: /);
       expect(existsSync(join(dir, SUGGESTIONS))).toBe(false);
+    } finally {
+      await c.close();
+    }
+  });
 
-      // Written alike: a stored address typed in an action and in a note is left out of the file, and never said. (The
-      // folder made first, so both answers find it there.)
+  it('writes exactly what was sent and answers alike, stored value or not, at every bound (round 3)', async () => {
+    const { dir, path } = freshProject();
+    const c = await connect(path);
+    try {
+      // Real fields reach the contact path. Each case twice, a stored value and one no record holds, of the same
+      // length (a stored address, a stored latitude to 4 places, a stored phone's 7 digits): the same answer and a file
+      // of the same length, holding exactly what was sent. (The folder made first, so both answers find it there.)
       expect((await call(c, 'suggest_trash', { items: [{ frame: '12B' }] })).isError).toBe(false);
-      let before = changeFiles(dir);
-      const typedAgain = await call(c, 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { action: `She walks to ${CONTACTS.address}.` } }], note: `Gate at ${CONTACTS.address}.` });
-      const fileOfStored = writtenText(dir, before);
-      before = changeFiles(dir);
-      const typedNew = await call(c, 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { action: 'She walks to 9 Elm Row, Bayport.' } }], note: 'Gate at 9 Elm Row, Bayport.' });
-      const fileOfNew = writtenText(dir, before);
-      expect(typedAgain.isError, typedAgain.text).toBe(false);
-      expect(typedNew.isError, typedNew.text).toBe(false);
-      expect(alike(typedAgain.text)).toBe(alike(typedNew.text));
-      expect(typedAgain.text).not.toContain('contact left out');
-      expect(fileOfStored).not.toContain(CONTACTS.address);
-      expect(fileOfStored).toContain('She walks to [contact left out].');
-      expect(fileOfStored).toContain('Gate at [contact left out].');
-      expect(fileOfNew).toContain('She walks to 9 Elm Row, Bayport.');
+      const pairs: [string, string][] = [
+        [CONTACTS.address, '1300 Ocean Avenue, Bayport'],
+        ['40.8677', '40.8679'],
+        ['5550123', '5550124'],
+      ];
+      const pad = (filler: string, value: string, length: number) => filler.repeat(length - value.length) + value;
+      /** The calls, by what each holds: at each bound, and padded with ﬀ, which NFKC makes two characters. */
+      const cases = (value: string): { name: string; arguments: Record<string, unknown> }[] => [
+        { name: 'suggest_shot_changes', arguments: { changes: [{ frame: '12B', fields: { title: `Outside ${value}`, action: `She walks to ${value}.` } }], note: `Gate at ${value}.` } },
+        { name: 'suggest_trash', arguments: { items: [{ frame: '12B' }], note: pad('n', value, 2000) } },
+        { name: 'suggest_shot_changes', arguments: { changes: [{ frame: '12B', fields: { action: pad('x', value, 10_000) } }] } },
+        { name: 'suggest_shot_changes', arguments: { changes: [{ frame: '12B', fields: { action: pad('ﬀ', value, 10_000) } }] } },
+        { name: 'suggest_shot_changes', arguments: { changes: Array.from({ length: 25 }, () => ({ frame: '12B', fields: { action: pad('x', value, 10_000) } })) } },
+      ];
+      for (const [storedValue, unstoredValue] of pairs) {
+        const one = cases(storedValue);
+        const other = cases(unstoredValue);
+        for (const [i, call1] of one.entries()) {
+          const call2 = other[i];
+          if (!call2) throw new Error('no case');
+          let before = changeFiles(dir);
+          const answer1 = await call(c, call1.name, call1.arguments);
+          expect(answer1.isError, `${storedValue} ${String(i)} ${answer1.text}`).toBe(false);
+          const file1 = writtenText(dir, before);
+          before = changeFiles(dir);
+          const answer2 = await call(c, call2.name, call2.arguments);
+          expect(answer2.isError, `${unstoredValue} ${String(i)} ${answer2.text}`).toBe(false);
+          const file2 = writtenText(dir, before);
+          expect(alike(answer1.text), `${storedValue} ${String(i)}`).toBe(alike(answer2.text));
+          expect(answer1.text).not.toContain('contact left out');
+          expect(file1.length, `${storedValue} ${String(i)}`).toBe(file2.length);
+          // Exactly what was sent: every value and the note, the stored one included.
+          const sent = JSON.parse(file1) as { suggestions: { note: string; data: { props?: Record<string, unknown> } }[] };
+          const given = call1.arguments as { note?: string; changes?: { fields: Record<string, unknown> }[] };
+          sent.suggestions.forEach((s, at) => {
+            expect(s.note).toBe(given.note ?? '');
+            const fields = given.changes?.[at]?.fields;
+            if (fields) expect(s.data.props).toEqual(fields);
+          });
+          expect(file1).not.toContain('contact left out');
+        }
+      }
+      // One character past a bound is refused alike, stored or not.
+      for (const [storedValue, unstoredValue] of pairs) {
+        const over = (value: string) => call(c, 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { action: pad('x', value, 10_001) } }] });
+        expect(await over(storedValue)).toEqual(await over(unstoredValue));
+      }
     } finally {
       await c.close();
     }
@@ -488,7 +531,7 @@ describe('the propose tools, round 2', () => {
     expect(readdirSync(folder.dir).sort()).toEqual(['Harbor Lights.db', 'Harbor.Lights Suggestions', 'Harbor.Lights.sbd']);
   });
 
-  it('refuses a folder already holding 1,000 change files or 50 MB of them, writing nothing', async () => {
+  it('refuses a folder whose waiting change files reach 1,000 or 50 MB with the new one, writing nothing', async () => {
     const { dir, path } = freshProject();
     const data = await readProject(path);
     const suggestionsDir = join(dir, SUGGESTIONS);
@@ -500,7 +543,7 @@ describe('the propose tools, round 2', () => {
     try {
       expect(await call(c, 'suggest_trash', { items: [{ frame: '12B' }] })).toEqual({
         isError: true,
-        text: 'The Suggestions folder already holds 1,000 change files: nothing was written. Bring them in from the Suggestions tile first.',
+        text: `1,000 change files are waiting in ${SUGGESTIONS}: bring them in (Bring in, in the status line) or move some out of the folder.`,
       });
       expect(listing(suggestionsDir)).toEqual(before);
       for (const name of readdirSync(suggestionsDir).filter((n) => n.endsWith('.sbdchanges'))) unlinkSync(join(suggestionsDir, name));
@@ -509,7 +552,7 @@ describe('the propose tools, round 2', () => {
       truncateSync(join(suggestionsDir, 'large.sbdchanges'), 50 * 1024 * 1024);
       expect(await call(c, 'suggest_trash', { items: [{ frame: '12B' }] })).toEqual({
         isError: true,
-        text: 'The Suggestions folder already holds 50 MB of change files: nothing was written. Bring them in from the Suggestions tile first.',
+        text: `50 MB of change files are waiting in ${SUGGESTIONS}: bring them in (Bring in, in the status line) or move some out of the folder.`,
       });
       expect(readdirSync(suggestionsDir).sort()).toEqual(['large.sbdchanges', MARKER_NAME].sort());
     } finally {
@@ -548,7 +591,7 @@ describe('the propose tools, round 2', () => {
     expect(left.filter((n) => n.endsWith('.sbdchanges'))).toHaveLength(1);
   });
 
-  it('looks in a frame’s title and a scene’s name as names: a place named as its address stays', async () => {
+  it('writes a frame’s title, its action and a scene’s name as sent: nothing is matched against what is stored (round 3)', async () => {
     const { dir, path } = freshProject();
     const c = await connect(path);
     try {
@@ -556,7 +599,7 @@ describe('the propose tools, round 2', () => {
       expect(answer.isError, answer.text).toBe(false);
       const text = writtenText(dir, []);
       expect(text).toContain(`"title": "Outside ${CONTACTS.address}"`);
-      expect(text).toContain('"action": "Outside [contact left out]"');
+      expect(text).toContain(`"action": "Outside ${CONTACTS.address}"`);
       const scene = await call(c, 'suggest_new_shots', { new_scene: { name: CONTACTS.address }, frames: [] });
       expect(scene.isError, scene.text).toBe(false);
     } finally {
@@ -589,4 +632,151 @@ describe('the propose tools, round 2', () => {
     expect(() => writeProposal(context, suggestTrash(context, { items: [{ frame: '12B' }] }), failing)).toThrow(FolderRefused);
     expect(readdirSync(join(dir, SUGGESTIONS))).toEqual(['kept.sbdchanges']);
   });
+});
+
+// Round 3: nothing the assistant sends is matched against what the project stores; its own suggestions listed without
+// their values; names looked up as the view gives them; the room counts only files not yet brought in.
+
+describe('the propose tools, round 3', () => {
+  it('lists an assistant’s suggestion without its values or its note, alike whether a value it sent is stored', async () => {
+    const listed: string[] = [];
+    const written: string[] = [];
+    // 40.8677 is the pier's stored latitude to 4 places; 40.8679 is no one's.
+    for (const value of ['40.8677', '40.8679']) {
+      const { dir, path } = freshProject();
+      const c = await connect(path);
+      try {
+        const answer = await call(c, 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { action: `Mark at ${value}.` } }], note: `Mark at ${value}.` });
+        expect(answer.isError, answer.text).toBe(false);
+      } finally {
+        await c.close();
+      }
+      const bytes = readFileSync(join(dir, SUGGESTIONS, changeFiles(dir)[0] ?? ''));
+      written.push(bytes.toString('utf8'));
+      const data = await readProject(path);
+      const project = await openProject(path, { driver: nodeDriver, backups: false });
+      try {
+        expect((await bringInChangeFile(project.file, data.projectId, new Uint8Array(bytes))).ok).toBe(true);
+      } finally {
+        await project.close();
+      }
+      const again = await connect(path);
+      try {
+        const answer = await call(again, 'list_suggestions', {});
+        expect(answer.isError, answer.text).toBe(false);
+        listed.push(answer.text);
+      } finally {
+        await again.close();
+      }
+    }
+    // The file holds what was sent; the list never says it back.
+    expect(written[0]).toContain('"action": "Mark at 40.8677."');
+    const times = (text: string) => alike(text).replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g, 'TIME');
+    expect(times(listed[0] ?? '')).toBe(times(listed[1] ?? ''));
+    for (const text of listed) expect(text).not.toContain('Mark at');
+    const { suggestions } = JSON.parse(listed[0] ?? '') as { suggestions: Record<string, unknown>[] };
+    const fromFile = suggestions.find((s) => (s.target as { id: string }).id === IDS.shotB);
+    expect(fromFile).toEqual({
+      id: expect.any(String) as unknown,
+      kind: 'update',
+      status: 'pending',
+      target: { id: IDS.shotB, type: 'shot', label: 'SC 12 · 12B' },
+      source: 'mcp',
+      suggested_at: expect.any(String) as unknown,
+      decided_at: null,
+      fields: ['action'],
+      flags: [],
+      can_apply: true,
+    });
+  });
+
+  it('refuses a name to look up that reads as a contact without saying what matched, and compares names as the view gives them', async () => {
+    const { path } = await changedProject([{ kind: 'update', id: IDS.panel, set: { name: 'SkyPanel 555 867 5309' } }]);
+    const c = await connect(path);
+    const words = (what: string, list: string) => ({
+      isError: true,
+      text: `A name to look up can't hold what reads as a phone number, an email, an address, coordinates or a map link: give the ${what}'s id (${list}).`,
+    });
+    try {
+      // The name it holds and a name no record holds: the same words.
+      const gear = words('gear item', 'list_gear lists them');
+      expect(await call(c, 'suggest_gear_for_day', { day: '1', remove: ['SkyPanel 555 867 5309'] })).toEqual(gear);
+      expect(await call(c, 'suggest_gear_for_day', { day: '1', remove: ['SkyPanel 555 867 5310'] })).toEqual(gear);
+      expect(await call(c, 'suggest_call_sheet_notes', { day: '1', person_times: { 'Sam 555 867 5309': { hmu_ready: '05:45' } } })).toEqual(words('person', 'list_people lists them'));
+      expect(await call(c, 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { location: `Pier ${CONTACTS.contactPhone}` } }] })).toEqual(words('location', 'list_locations lists them'));
+      // The name as list_gear gives it finds the item, as its id does.
+      const byViewName = await call(c, 'suggest_gear_for_day', { day: '1', remove: ['SkyPanel [contact left out]'] });
+      expect(byViewName.isError, byViewName.text).toBe(false);
+      const byId = await call(c, 'suggest_gear_for_day', { day: '1', remove: [IDS.panel] });
+      expect(byId.isError, byId.text).toBe(false);
+    } finally {
+      await c.close();
+    }
+  });
+
+  it('says records’ names in a refusal through the view and the guard, and the assistant’s own words back as they came', async () => {
+    const data = await readProject(original);
+    const p = data.projectId;
+    const twins = ['30000000-0000-4000-8000-000000000201', '30000000-0000-4000-8000-000000000202'];
+    // "5550123" is Robin's stored phone's 7 digits, written so the free-text rule doesn't read a phone in it.
+    const { path } = await changedProject(
+      twins.map((id, i): Change => ({ kind: 'create', record: { id, type: 'gear_item', parentId: p, sortKey: `z${String(i)}`, props: { name: 'Cam 5550123', department: 'camera' } } })),
+    );
+    const c = await connect(path);
+    try {
+      expect(await call(c, 'suggest_gear_for_day', { day: '1', add: ['Cam 5550123'] })).toEqual({
+        isError: true,
+        text: 'Two gear items are named "Cam [contact left out]": give its id (list_gear lists them).',
+      });
+      const notOnList = await call(c, 'suggest_gear_for_day', { day: '1', remove: [twins[0]] });
+      expect(notOnList.isError).toBe(true);
+      expect(notOnList.text).toMatch(/^Cam \[contact left out\] isn't on Day 1/);
+      // A pure function of what was sent: the same words for a stored value and for one no record holds.
+      expect(await call(c, 'suggest_trash', { items: [{ frame: '5550123' }] })).toEqual({ isError: true, text: 'There\'s no frame numbered "5550123". list_shots lists them.' });
+      expect(await call(c, 'suggest_trash', { items: [{ frame: '5550124' }] })).toEqual({ isError: true, text: 'There\'s no frame numbered "5550124". list_shots lists them.' });
+    } finally {
+      await c.close();
+    }
+  });
+
+  it('counts only the change files not yet brought in, with the one it writes', async () => {
+    const data = await readProject(original);
+    const hex = (i: number) => (0x10000000 + i).toString(16);
+    const byName = Array.from({ length: 500 }, (_, i) => `${hex(i)}-0000-4000-8000-000000000000`);
+    const byContent = Array.from({ length: 500 }, (_, i) => `${hex(1000 + i)}-0000-4000-8000-000000000001`);
+    // Brought in before: each file's suggestion in the project, naming its change file.
+    const { dir, path } = await changedProject(
+      [...byName, ...byContent].map(
+        (fileId, i): Change => ({
+          kind: 'create',
+          record: { id: `40000000-0000-4000-8000-${String(i).padStart(12, '0')}`, type: 'suggestion', parentId: data.projectId, sortKey: `y${String(i).padStart(4, '0')}`, props: { status: 'rejected', source: 'mcp', change_file_id: fileId } },
+        }),
+      ),
+    );
+    const suggestionsDir = join(dir, SUGGESTIONS);
+    mkdirSync(suggestionsDir);
+    writeFileSync(join(suggestionsDir, MARKER_NAME), JSON.stringify({ format: MARKER_FORMAT, project_id: data.projectId, project_name: 'Harbor Lights' }));
+    // Half known by the 8 hex of a name the server wrote, half by the id inside.
+    for (const id of byName) writeFileSync(join(suggestionsDir, `2026-11-21 10-00-00Z Claude Desktop ${id.slice(0, 8)}.sbdchanges`), '{}');
+    byContent.forEach((id, i) => {
+      writeFileSync(join(suggestionsDir, `in ${String(i)}.sbdchanges`), JSON.stringify({ id }));
+    });
+    // And 998 waiting: with two new ones, 1,000.
+    for (let i = 0; i < 998; i += 1) writeFileSync(join(suggestionsDir, `waiting ${String(i)}.sbdchanges`), '{}');
+    const c = await connect(path);
+    try {
+      for (let i = 0; i < 2; i += 1) {
+        const answer = await call(c, 'suggest_trash', { items: [{ frame: '12B' }] });
+        expect(answer.isError, answer.text).toBe(false);
+      }
+      const before = listing(suggestionsDir);
+      expect(await call(c, 'suggest_trash', { items: [{ frame: '12B' }] })).toEqual({
+        isError: true,
+        text: `1,000 change files are waiting in ${SUGGESTIONS}: bring them in (Bring in, in the status line) or move some out of the folder.`,
+      });
+      expect(listing(suggestionsDir)).toEqual(before);
+    } finally {
+      await c.close();
+    }
+  }, 30_000);
 });

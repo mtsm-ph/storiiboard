@@ -267,7 +267,11 @@ describe('the MCP server over stdio', () => {
   it('lists suggestions with the app’s flags in words, a contact field left out', async () => {
     const { suggestions } = (await json('list_suggestions')) as { suggestions: Record<string, unknown>[] };
     expect(suggestions.map((s) => s.id)).toEqual([IDS.lensSuggestion, IDS.phoneSuggestion]);
-    expect(suggestions[0]).toMatchObject({ kind: 'update', status: 'pending', target: { id: IDS.shotA, type: 'shot', label: 'SC 12 · 12A' }, data: { props: { t_stop: 4 }, before: { t_stop: 2.8 } }, can_apply: true });
+    // An assistant's suggestion (source mcp, 7.6 round 3): its field names and its target as the records name it, never
+    // its values or its note.
+    expect(suggestions[0]).toMatchObject({ kind: 'update', status: 'pending', target: { id: IDS.shotA, type: 'shot', label: 'SC 12 · 12A' }, fields: ['t_stop'], can_apply: true });
+    expect(suggestions[0]).not.toHaveProperty('data');
+    expect(suggestions[0]).not.toHaveProperty('note');
     expect(suggestions[1]).toMatchObject({ data: { props: { title: 'DP' }, before: {} }, fields_left_out: ['phone'], can_apply: false });
     expect((suggestions[1]?.flags as { words: string }[]).every((f) => f.words.length > 0)).toBe(true);
   });

@@ -1,4 +1,4 @@
-import { assistantView, suggestionFieldsLeftOut, NO_DEPARTMENT_FLAGS, viewText, withoutContacts, type DepartmentAccess } from '../../src/core/model/assistantView';
+import { assistantView, knownProp, suggestionFieldsLeftOut, suggestionType, NO_DEPARTMENT_FLAGS, viewText, withoutContacts, type DepartmentAccess } from '../../src/core/model/assistantView';
 import { callSheet, callSheetIssues } from '../../src/core/model/callsheet';
 import { bodyFields, frameLens, gearKind, lensFields } from '../../src/core/model/cameraGear';
 import { departmentStates, departmentStatuses } from '../../src/core/model/departmentStatus';
@@ -26,7 +26,7 @@ import type { JsonValue, Props, SbdRecord } from '../../src/core/model/record';
 import { projectStateOf } from '../../src/core/model/project';
 import { dayCrew, dayLocations, dayPeopleIds, dayScenes } from '../../src/core/model/schedule';
 import { sceneSetups, frameSetup, type Setup } from '../../src/core/model/setup';
-import { dayFrames, dayTotals, frameDayId, projectShootDays, setupMinutes, unscheduledFrames, type ShootDay } from '../../src/core/model/shootDay';
+import { dayFrames, dayLabel, dayTotals, frameDayId, projectShootDays, setupMinutes, unscheduledFrames, type ShootDay } from '../../src/core/model/shootDay';
 import { lightReferenceOf } from '../../src/core/model/scoutPhoto';
 import { pagesText, projectStoryboard, sceneFields, sceneLabel, shotFields } from '../../src/core/model/storyboard';
 import { reviewFlagWords, reviewSuggestion } from '../../src/core/model/suggestion';
@@ -708,6 +708,58 @@ export function getPlan(context: ToolContext, args: { scene: string; setup?: str
 
 // -- list_suggestions --------------------------------------------------------------------------------------------------
 
+/** What a suggestion's target is called, made from the project's records alone (round 3), never from what it says. */
+function targetWords(r: Read, record: SbdRecord, targetType: string): string {
+  const targetId = record.props.target_id;
+  const target = typeof targetId === 'string' && Object.hasOwn(r.scoped, targetId) ? r.scoped[targetId] : undefined;
+  const sceneOf = (id: string | null) => (id !== null && Object.hasOwn(r.scoped, id) && r.scoped[id]?.type === 'scene' ? r.scoped[id] : undefined);
+  if (target?.type === 'shot') {
+    const scene = sceneOf(target.parentId);
+    const number = shotFields(target.props).number;
+    return scene ? `${sceneLabel(sceneFields(scene.props).number)} · ${number}` : number;
+  }
+  if (target?.type === 'scene') return sceneLabel(sceneFields(target.props).number);
+  if (target?.type === 'note') {
+    const scene = sceneOf(target.parentId);
+    return scene ? `A note in ${sceneLabel(sceneFields(scene.props).number)}` : 'A note';
+  }
+  if (target?.type === 'shoot_day') {
+    const day = projectShootDays(r.scoped, r.projectId).find((d) => d.record.id === target.id);
+    const name = day ? dayLabel(day) : 'A shoot day';
+    return targetType === 'callsheet' ? `Call sheet, ${name}` : name;
+  }
+  if (record.props.kind === 'create') {
+    const data = record.props.data;
+    const parentId = typeof data === 'object' && data !== null && !Array.isArray(data) && typeof data.parent_id === 'string' ? data.parent_id : null;
+    const scene = sceneOf(parentId);
+    if (targetType === 'shot') return scene ? `New frame in ${sceneLabel(sceneFields(scene.props).number)}` : 'New frame';
+    if (targetType === 'scene') return 'New scene';
+  }
+  return target ? `A ${target.type.replace(/_/g, ' ')}` : 'An item no longer in the project';
+}
+
+/** The names of a suggestion's fields, known props of its target's type only; the rest counted ("2 unknown fields"). */
+function suggestedFields(records: Records, record: SbdRecord): string[] {
+  const data = record.props.data;
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return [];
+  const type = suggestionType(records, record);
+  const names = new Set<string>();
+  const unknown = new Set<string>();
+  for (const key of ['props', 'before']) {
+    const fields = data[key];
+    if (typeof fields !== 'object' || fields === null || Array.isArray(fields)) continue;
+    for (const name of Object.keys(fields)) (knownProp(type, name) ? names : unknown).add(name);
+  }
+  return [...names, ...(unknown.size === 0 ? [] : [`${String(unknown.size)} unknown field${unknown.size === 1 ? '' : 's'}`])];
+}
+
+/**
+ * list_suggestions (7.5). Round 3: a suggestion from an assistant's change file (`created_by: "mcp"`, its source `mcp`)
+ * never comes back with its values or its note, only what it is: its kind and status, its target as the project's own
+ * records name it, the names of its fields (known props only), its flags in words and whether it can be applied. What
+ * an assistant sent it holds already, and a value read back after the app stored it could say which of its guesses the
+ * project holds. A suggestion from any other source keeps round 2's answer.
+ */
 export function listSuggestions(context: ToolContext, args: { status?: 'pending' | 'approved' | 'rejected' | 'all'; include_trashed?: boolean }): Obj {
   const withTrashed = args.include_trashed === true;
   const r = read(context, withTrashed);
@@ -721,6 +773,24 @@ export function listSuggestions(context: ToolContext, args: { status?: 'pending'
       if (!review) return [];
       const s = review.suggestion;
       if (wanted !== 'all' && s.status !== wanted) return [];
+      const flags = review.flags.map((flag) => ({ kind: flag.kind, words: reviewFlagWords(flag, s.targetType) }));
+      if (s.source === 'mcp') {
+        return [
+          {
+            id: s.id,
+            kind: word(s.kind ?? s.kindName),
+            status: s.status,
+            target: { id: s.targetId, type: word(s.targetType), label: targetWords(r, record, s.targetType) },
+            source: 'mcp',
+            suggested_at: s.suggestedAt,
+            decided_at: s.decidedAt,
+            fields: suggestedFields(r.data.records, record),
+            flags,
+            can_apply: review.canApply,
+            ...trashed(record),
+          },
+        ];
+      }
       const given = givenOf(r, record.id);
       const author = given.author;
       return [
@@ -738,7 +808,7 @@ export function listSuggestions(context: ToolContext, args: { status?: 'pending'
           decided_at: s.decidedAt,
           data: given.data ?? null,
           fields_left_out: suggestionFieldsLeftOut(r.data.records, record),
-          flags: review.flags.map((flag) => ({ kind: flag.kind, words: reviewFlagWords(flag, s.targetType) })),
+          flags,
           can_apply: review.canApply,
           ...trashed(record),
         },

@@ -1,6 +1,7 @@
 import { closeSync, constants, copyFileSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, rmdirSync, unlinkSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { cleanText } from '../../src/core/model/suggestion';
+import { MAX_CHANGE_FILE_BYTES } from '../../src/core/storage/changeFile';
 import { WRITING_NAME } from './changeFile';
 import { projectStem } from './project';
 
@@ -20,11 +21,13 @@ import { projectStem } from './project';
 //   links (exFAT, FAT, some network shares) gets a copy that fails if anything of the name is there (COPYFILE_EXCL),
 //   never a rename, which would replace one (round 2). A write that fails takes its temporary file away.
 // - Round 2: the folder is the one checked. Once the temporary file is open, its real folder must be the real folder
-//   found (on POSIX the same device and inode too), and again just before the link; anything else is refused.
+//   found, with the same device and inode (round 3: on Windows too, where NTFS gives a volume serial and a file index),
+//   and again just before the link; anything else is refused.
 // - Round 2: before writing, the server takes away its own leftovers from a crash: temporary files of exactly its own
 //   name's shape (WRITING_NAME) over an hour old. Nothing else in the folder is ever removed.
-// - Round 2: a folder already holding 1,000 change files or 50 MB of them is refused in words, so the folder never grows
-//   past what the app reads in one pass.
+// - Round 2: a folder whose change files waiting to be brought in, with the new one, would be more than 1,000 files or
+//   50 MB is refused in words, so the folder never grows past what the app reads in one pass. Round 3: files the
+//   project already brought in don't count (checkRoom).
 // - Round 2: a folder made in this call is taken away again, with the marker this call wrote, when the file can't be
 //   written: only that folder, and only once it is empty.
 
@@ -51,7 +54,6 @@ type Marker = { kind: 'none' } | { kind: 'ours' } | { kind: 'other'; name: strin
 
 const missing = (error: unknown): boolean => typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
 const codeOf = (error: unknown): string => (typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' ? error.code : '');
-const POSIX = process.platform !== 'win32';
 
 /** The folder's marker, read as 7.1 reads it: a regular file of at most 64 KB; anything else reads as none. */
 function readMarker(folder: string, projectId: string): Marker {
@@ -159,7 +161,7 @@ const SWAPPED = 'The Suggestions folder changed while the file was being written
 
 /**
  * Whether `path`, a file the server just made in the folder, is in it still: its real folder is the folder's real path
- * and, on POSIX, the same device and inode as when it was checked. A path that can't be looked at isn't.
+ * and the same device and inode as when it was checked (round 3: on Windows too). A path that can't be looked at isn't.
  */
 function inFolder(folder: CheckedFolder, path: string): boolean {
   try {
@@ -167,7 +169,7 @@ function inFolder(folder: CheckedFolder, path: string): boolean {
     if (dirname(real) !== folder.path) return false;
     const now = lstatSync(dirname(real), { bigint: true });
     if (now.isSymbolicLink() || !now.isDirectory()) return false;
-    return !POSIX || (now.dev === folder.dev && now.ino === folder.ino);
+    return now.dev === folder.dev && now.ino === folder.ino;
   } catch {
     return false;
   }
@@ -239,13 +241,13 @@ export function takeAwayMade(folder: SuggestionsFolder): void {
   }
 }
 
-/** Whether the folder at its real path is still the one checked: a real folder there, on POSIX the same device and inode. */
+/** Whether the folder at its real path is still the one checked: a real folder there, the same device and inode. */
 function sameFolder(folder: CheckedFolder): boolean {
   try {
     if (realpathSync.native(folder.path) !== folder.path) return false;
     const now = lstatSync(folder.path, { bigint: true });
     if (now.isSymbolicLink() || !now.isDirectory()) return false;
-    return !POSIX || (now.dev === folder.dev && now.ino === folder.ino);
+    return now.dev === folder.dev && now.ino === folder.ino;
   } catch {
     return false;
   }
@@ -322,26 +324,79 @@ export function removeLeftovers(folder: string | CheckedFolder, now = Date.now()
   }
 }
 
-/** Refused in words when the folder already holds as many change files, or as many bytes of them, as the app reads in a pass. */
-export function checkRoom(folder: string | CheckedFolder): void {
-  const known = folderOf(folder);
-  let files = 0;
-  let bytes = 0;
-  for (const name of readdirSync(known.path)) {
+/** A name the server wrote (changeFileName): its last 8 hex are the first 8 of the file's id. */
+const SERVER_NAME = /^\d{4}-\d\d-\d\d \d\d-\d\d-\d\dZ [\p{L}\p{N} ._-]{1,40} ([0-9a-f]{8})\.sbdchanges$/u;
+
+/** A change file's own `id`, read whole only within the app's own bound for one file; null when it can't be read. */
+function fileId(path: string, size: number): string | null {
+  if (size > MAX_CHANGE_FILE_BYTES) return null;
+  let fd: number;
+  try {
+    fd = openSync(path, 'r');
+  } catch {
+    return null;
+  }
+  try {
+    if (!fstatSync(fd).isFile()) return null;
+    const buffer = Buffer.alloc(MAX_CHANGE_FILE_BYTES + 1);
+    let read = 0;
+    for (;;) {
+      const n = readSync(fd, buffer, read, buffer.length - read, read);
+      if (n === 0) break;
+      read += n;
+      if (read > MAX_CHANGE_FILE_BYTES) return null;
+    }
+    const parsed: unknown = JSON.parse(buffer.subarray(0, read).toString('utf8'));
+    return typeof parsed === 'object' && parsed !== null && 'id' in parsed && typeof parsed.id === 'string' ? parsed.id : null;
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** The folder as the room check needs it: checked, and its name beside the project for the words. */
+export interface RoomFolder extends CheckedFolder {
+  name: string;
+}
+
+/**
+ * Refused in words when the change files waiting in the folder, with the one about to be written (`adding` bytes),
+ * would be more files or more bytes than the app reads in a pass (round 3). Only files not yet brought in count: a file
+ * is known as brought in by the 8 hex of a name the server wrote, or else by its own `id` (read within the app's bound
+ * for one file, and at most the folder's byte budget read in all), against the ids the project's log names
+ * (`broughtIn`). A file that can't be read counts as waiting.
+ */
+export function checkRoom(folder: RoomFolder, broughtIn: ReadonlySet<string>, adding: number): void {
+  const prefixes = new Set([...broughtIn].map((id) => id.slice(0, 8).toLowerCase()));
+  let files = 1;
+  let bytes = adding;
+  let readBytes = 0;
+  const full = () => files > MAX_FOLDER_FILES || bytes > MAX_FOLDER_BYTES;
+  for (const name of readdirSync(folder.path)) {
     if (!/\.sbdchanges$/i.test(name)) continue;
+    const path = join(folder.path, name);
     try {
-      const stat = lstatSync(join(known.path, name));
+      const stat = lstatSync(path);
       if (!stat.isFile()) continue;
+      const hex = SERVER_NAME.exec(name)?.[1];
+      if (hex !== undefined && prefixes.has(hex)) continue;
+      if (hex === undefined && readBytes + stat.size <= MAX_FOLDER_BYTES) {
+        readBytes += stat.size;
+        const id = fileId(path, stat.size);
+        if (id !== null && broughtIn.has(id)) continue;
+      }
       files += 1;
       bytes += stat.size;
     } catch {
       // Gone meanwhile: not counted.
     }
-    if (files >= MAX_FOLDER_FILES || bytes >= MAX_FOLDER_BYTES) {
-      throw new FolderRefused(
-        `The Suggestions folder already holds ${files >= MAX_FOLDER_FILES ? '1,000 change files' : '50 MB of change files'}: nothing was written. Bring them in from the Suggestions tile first.`,
-      );
-    }
+    if (full()) break;
+  }
+  if (full()) {
+    throw new FolderRefused(
+      `${files > MAX_FOLDER_FILES ? '1,000 change files' : '50 MB of change files'} are waiting in ${folder.name}: bring them in (Bring in, in the status line) or move some out of the folder.`,
+    );
   }
 }
 

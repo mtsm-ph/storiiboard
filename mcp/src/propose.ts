@@ -1,4 +1,4 @@
-import { contactGuard, withoutContacts, withoutStoredContacts, type ContactGuard } from '../../src/core/model/assistantView';
+import { contactGuard, withoutContacts, withoutStoredContacts } from '../../src/core/model/assistantView';
 import { dayCallsheet } from '../../src/core/model/callsheet';
 import { gearFields, gearIdsOf, projectGear } from '../../src/core/model/gear';
 import { locationFields, projectLocations } from '../../src/core/model/location';
@@ -22,10 +22,18 @@ import { boardScenes, dayOf, read, sceneByNumber, ToolError, type Read, type Too
 // Round 2, no contact oracle: the bounds come first (MAX_PER_CALL suggestions, MAX_FIELDS fields of at most
 // MAX_KEY-character names and MAX_VALUE-character values, the whole call at most 256 KB in server.ts), then the scope
 // row and the fields, and only then any look for a contact. A call is refused for a contact only by the free-text rule
-// (what the assistant's own text shows: a phone number, an email, coordinates, a map link). A value the project stores,
-// typed again, is never a refusal: it is replaced with "[contact left out]" in the bytes written and the answer never
-// says so, so nothing the assistant is told differs by whether a value it gave is stored. No answer repeats a value the
-// assistant gave: it says what was written by counts and by labels from the project's own records.
+// (what the assistant's own text shows: a phone number, an email, coordinates, a map link). No answer repeats a value
+// the assistant gave: it says what was written by counts and by labels from the project's own records.
+//
+// Round 3: nothing the assistant sends is matched against the values the project stores. The guard keeps stored
+// contacts out of what goes to the assistant; whatever it sends it holds already, so matching it protects nothing, and
+// any trace of the match (a bound crossed after a replacement, a marker read back later) would say which guess was
+// stored. The file holds exactly what was sent, after the bounds, the scope and the free-text rule: one build, one
+// read, one answer, whatever the values. A name looked up (a location, gear, a person) is compared with each record's
+// name through the free-text rule, and one that rule would change is refused before any record is looked at.
+// Refusals: words made from records go through the view and the guard (`recordWords`); words that repeat the
+// assistant's own arguments ("There's no frame numbered "99Z"") are a function of those arguments alone, so they say
+// nothing of what is stored, and stay as they are.
 
 type Obj = { [key: string]: JsonValue };
 
@@ -94,19 +102,46 @@ function bounded(given: unknown, what: string, most = MAX_FIELDS): Record<string
 
 const sameText = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
+/** What the refusals say a contact detail reads as. */
+const CONTACT_WORDS = 'what reads as a phone number, an email, an address, coordinates or a map link';
+
+/** Whether a text shows a contact detail by the free-text rule alone: what the assistant's own text shows. */
+const showsContact = (text: string): boolean => withoutContacts(text) !== text;
+
+/**
+ * Words made from the project's records (a gear item's name) for a refusal, as an answer's would be (round 3): through
+ * the view's free-text rule, then the guard, as a name. A refusal leaves without the server's guard (server.ts), so it
+ * is applied here.
+ */
+function recordWords(r: Read, text: string): string {
+  return withoutStoredContacts(contactGuard(r.data.records), withoutContacts(text), { name: true });
+}
+
 /**
  * A live record by its id, else by its name; never a guess between two of one name (round 2). The refusals name only
- * what the project holds, never the value the assistant gave.
+ * what the project holds, never the value the assistant gave. Round 3: a name the free-text rule would change is
+ * refused without a look at any record, and each record's name is compared as the view gives it (`viewText`), so a
+ * phone typed in a record's name can't be confirmed by guessing it.
  */
-function oneOf<T extends { record: SbdRecord }>(live: readonly T[], value: string, nameOf: (item: T) => string, words: { none: string; two: (name: string, count: number) => string }): string {
+function oneOf<T extends { record: SbdRecord }>(
+  r: Read,
+  live: readonly T[],
+  value: string,
+  nameOf: (item: T) => string,
+  words: { none: string; contact: string; two: (name: string, count: number) => string },
+): string {
+  if (showsContact(value)) throw new ToolError(words.contact);
   const byId = live.find((item) => item.record.id === value);
   if (byId) return byId.record.id;
-  const named = live.filter((item) => sameText(nameOf(item), value));
+  const named = live.filter((item) => sameText(withoutContacts(nameOf(item)), value));
   const [first] = named;
   if (!first) throw new ToolError(words.none);
-  if (named.length > 1) throw new ToolError(words.two(nameOf(first).trim(), named.length));
+  if (named.length > 1) throw new ToolError(words.two(recordWords(r, nameOf(first)).trim(), named.length));
   return first.record.id;
 }
+
+/** A name to look up that holds what reads as a contact: refused, never said back. */
+const contactName = (what: string, list: string) => `A name to look up can't hold ${CONTACT_WORDS}: give the ${what}'s id (${list}).`;
 
 const howMany = (count: number) => (count === 2 ? 'Two' : String(count));
 
@@ -124,6 +159,7 @@ function frameByNumber(r: Read, number: string, scene?: SbdRecord): { shot: SbdR
       .map((shot) => ({ shot, scene: s })),
   );
   const [first] = found;
+  // The assistant's own argument said back (round 3): a function of what it sent alone, whatever the project stores.
   if (!first) throw new ToolError(`There's no frame numbered "${number}"${scene ? ` in ${sceneWords(scene)}` : ''}. list_shots lists them.`);
   if (found.length > 1) throw new ToolError(`More than one frame is numbered "${number}": name its scene too.`);
   return first;
@@ -139,24 +175,27 @@ function noteOf(r: Read, scene: SbdRecord, n: number): SbdRecord {
 
 /** A live location by its id or its name. */
 function locationOf(r: Read, value: string): string {
-  return oneOf(projectLocations(r.scoped, r.projectId), value, (l) => locationFields(l.record.props).name, {
+  return oneOf(r, projectLocations(r.scoped, r.projectId), value, (l) => locationFields(l.record.props).name, {
     none: "There's no location of that name. list_locations lists them.",
+    contact: contactName('location', 'list_locations lists them'),
     two: (name, count) => `${howMany(count)} locations are named "${name}": give its id (list_locations lists them).`,
   });
 }
 
 /** A live gear item of the catalogue by its id or its name. */
 function gearOf(r: Read, value: string): string {
-  return oneOf(projectGear(r.scoped, r.projectId), value, (g) => gearFields(g.record.props).name, {
+  return oneOf(r, projectGear(r.scoped, r.projectId), value, (g) => gearFields(g.record.props).name, {
     none: "There's no gear item of that name in the catalogue. list_gear lists it.",
+    contact: contactName('gear item', 'list_gear lists them'),
     two: (name, count) => `${howMany(count)} gear items are named "${name}": give its id (list_gear lists them).`,
   });
 }
 
 /** A live person by id or name. */
 function personOf(r: Read, value: string): string {
-  return oneOf(projectPeople(r.scoped, r.projectId), value, (p) => personFields(p.record.props).name, {
+  return oneOf(r, projectPeople(r.scoped, r.projectId), value, (p) => personFields(p.record.props).name, {
     none: "There's no one of that name in Cast and crew. list_people lists them.",
+    contact: contactName('person', 'list_people lists them'),
     two: (name, count) => `${howMany(count)} people are named "${name}": give their id (list_people lists them).`,
   });
 }
@@ -355,7 +394,7 @@ export function suggestGearForDay(context: ToolContext, args: GearForDayArgs): P
     return item !== undefined && item.trashedAt === null && item.type === 'gear_item';
   });
   const dayName = dayLabel(day);
-  for (const id of removes) if (!live.includes(id)) throw new ToolError(`${gearFields(r.scoped[id]?.props ?? {}).name} isn't on ${dayName}’s list.`);
+  for (const id of removes) if (!live.includes(id)) throw new ToolError(`${recordWords(r, gearFields(r.scoped[id]?.props ?? {}).name)} isn't on ${dayName}’s list.`);
   const wanted = [...live.filter((id) => !removes.includes(id)), ...adds.filter((id, i) => !live.includes(id) && adds.indexOf(id) === i)];
   const label = dayName;
   const props: Obj = { gear_ids: wanted };
@@ -451,12 +490,6 @@ function strings(value: JsonValue, out: string[] = []): string[] {
   return out;
 }
 
-/** What the refusals say a contact detail reads as. */
-const CONTACT_WORDS = 'what reads as a phone number, an email, an address, coordinates or a map link';
-
-/** Whether a text shows a contact detail by the free-text rule alone: what the assistant's own text shows. */
-const showsContact = (text: string): boolean => withoutContacts(text) !== text;
-
 /** A suggestion's fields, as named values. */
 const fieldsIn = (s: FileSuggestion): [string, JsonValue][] => {
   const props = s.data.props;
@@ -466,38 +499,14 @@ const fieldsIn = (s: FileSuggestion): [string, JsonValue][] => {
 /** A flag refuses a suggestion unless it only waits on another suggestion of the same file (a new scene's frames). */
 const waits = (flag: SuggestionFlag): boolean => flag.kind === 'waiting' || flag.kind === 'waiting_after';
 
-/** Fields that are names as people see them (a frame's title, a scene's name): looked in as the guard looks in names. */
-const NAME_FIELDS: ReadonlySet<string> = new Set(['title', 'name']);
-
-/** A value with every stored contact value in its strings replaced, however deep. */
-function storedOut(guard: ContactGuard, value: JsonValue, name: boolean): JsonValue {
-  if (typeof value === 'string') return withoutStoredContacts(guard, value, { name });
-  if (Array.isArray(value)) return value.map((inner) => storedOut(guard, inner, name));
-  if (value !== null && typeof value === 'object') {
-    const out: Obj = {};
-    for (const [key, inner] of Object.entries(value)) Object.defineProperty(out, key, { value: storedOut(guard, inner, name), enumerable: true, writable: true, configurable: true });
-    return out;
-  }
-  return value;
-}
-
-/** A suggestion with the project's stored contact values replaced in its fields and its note, as it will be written. */
-function withStoredOut(guard: ContactGuard, s: FileSuggestion): FileSuggestion {
-  const fields = fieldsIn(s);
-  const props: Obj = {};
-  for (const [field, value] of fields) Object.defineProperty(props, field, { value: storedOut(guard, value, NAME_FIELDS.has(field)), enumerable: true, writable: true, configurable: true });
-  const data = fields.length === 0 ? s.data : { ...s.data, props };
-  return { ...s, note: withoutStoredContacts(guard, s.note), data };
-}
-
 /**
  * The suggestions built as the file and read as the app will read them: the bytes through 7.1's reader within its
  * bounds, then each suggestion by 7.0's reader against the project, beside the others of the file, under the
  * assistant's scope row. The problems in words, none when it can be written.
  */
-function reviewed(context: ToolContext, suggestions: readonly FileSuggestion[], at: Date, id?: string): { built: BuiltChangeFile; problems: string[] } {
+function reviewed(context: ToolContext, suggestions: readonly FileSuggestion[], at: Date): { built: BuiltChangeFile; problems: string[] } {
   const { data } = context;
-  const built = buildChangeFile({ projectId: data.projectId, projectName: data.name, client: context.client ?? 'MCP client', suggestions, at, ...(id === undefined ? {} : { id }) });
+  const built = buildChangeFile({ projectId: data.projectId, projectName: data.name, client: context.client ?? 'MCP client', suggestions, at });
   if (built.bytes.byteLength > MAX_CHANGE_FILE_BYTES) return { built, problems: ['The change file would be larger than 5 MB. Suggest fewer at a time.'] };
   const file = readChangeFile(built.bytes, data.projectId);
   if (!file.ok) return { built, problems: [refusalWords(file.refusal)] };
@@ -530,12 +539,11 @@ function reviewed(context: ToolContext, suggestions: readonly FileSuggestion[], 
 /**
  * The proposal checked and built as the file it will be, in this order (round 2): its bounds; every suggestion as the
  * app will read it (7.1's reader on the bytes, 7.0's under the assistant's scope row, no flag but waiting on another of
- * the file); then the free-text rule on every value and note. Throws a ToolError with every problem in words. Only
- * then are the project's stored contact values replaced in what will be written, silently, and the file read once
- * more as it will be written.
+ * the file); then the free-text rule on every value and note. Throws a ToolError with every problem in words. Round 3:
+ * the file built once is the file written, exactly as the assistant sent it; nothing in it is matched against what the
+ * project stores.
  */
 export function checkedChangeFile(context: ToolContext, proposal: Proposal, at: Date = new Date()): BuiltChangeFile {
-  const { data } = context;
   if (proposal.suggestions.length === 0) throw new ToolError('Nothing to suggest.');
   if (proposal.suggestions.length > MAX_PER_CALL) throw new ToolError(`One call makes at most ${String(MAX_PER_CALL)} suggestions: suggest fewer at a time.`);
   if (proposal.suggestions.some((s) => s.note.length > SUGGESTION_BOUNDS.note)) throw new ToolError(`Nothing was written. The note is longer than ${String(SUGGESTION_BOUNDS.note)} characters.`);
@@ -551,12 +559,5 @@ export function checkedChangeFile(context: ToolContext, proposal: Proposal, at: 
     if (showsContact(s.note)) problems.push(`${s.target.label}: the note holds ${CONTACT_WORDS}. Leave contact details out.`);
   }
   if (problems.length > 0) throw new ToolError(`Nothing was written. ${[...new Set(problems)].join(' ')}`);
-
-  // A value the project stores, typed again: replaced in the bytes written, and never said.
-  const guard = contactGuard(data.records);
-  const kept = proposal.suggestions.map((s) => withStoredOut(guard, s));
-  if (JSON.stringify(kept) === JSON.stringify(proposal.suggestions)) return first.built;
-  const written = reviewed(context, kept, at, first.built.id);
-  if (written.problems.length > 0) throw new ToolError('Nothing was written. Try again.');
-  return written.built;
+  return first.built;
 }

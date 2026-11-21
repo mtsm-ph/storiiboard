@@ -5,6 +5,7 @@ import type { SbdRecord } from '../../src/core/model/record';
 import type { SlateNumbers } from '../../src/core/model/shotNumbers';
 import { cachedForecast, weatherKey } from '../../src/core/net/weather';
 import { loadRecords } from '../../src/core/ops/ops';
+import { everBroughtIn } from '../../src/core/ops/suggestions';
 import type { ProjectFile } from '../../src/core/storage/driver';
 import { loadLookup } from '../../src/core/storage/lookups';
 import { SCHEMA_VERSION } from '../../src/core/storage/migrations';
@@ -34,6 +35,22 @@ export interface ProjectData {
   /** The forecasts held in the file, by location id, and when each was fetched (7.6); none when left out. */
   forecasts?: HeldForecasts;
   forecastsFetchedAt?: ReadonlyMap<string, string>;
+  /**
+   * The change files the project ever brought in, by id (7.6 round 3): what the log's creates of suggestions name
+   * (everBroughtIn, undone bring-ins included, as the app's folder pass skips them) and the suggestions' own
+   * `change_file_id`. The room check counts only the folder's other files. None when left out.
+   */
+  broughtIn?: ReadonlySet<string>;
+}
+
+/** The change files brought in, from the log and from the suggestions held. */
+async function broughtInFiles(file: ProjectFile, list: readonly SbdRecord[]): Promise<Set<string>> {
+  const files = new Set((await everBroughtIn(file)).files);
+  for (const record of list) {
+    const id = record.type === 'suggestion' ? record.props.change_file_id : undefined;
+    if (typeof id === 'string') files.add(id);
+  }
+  return files;
 }
 
 /** Each live location's held forecast, by its place as the app caches it (weatherKey), read from the file alone. */
@@ -78,6 +95,7 @@ export async function readProject(path: string): Promise<ProjectData> {
       const seen = await loadSeen(file);
       const slate = await loadSlateNumbers(file);
       const held = await heldForecasts(file, list, project.id);
+      const broughtIn = await broughtInFiles(file, list);
       return {
         path,
         name: stem,
@@ -88,6 +106,7 @@ export async function readProject(path: string): Promise<ProjectData> {
         slate,
         forecasts: held.forecasts,
         forecastsFetchedAt: held.fetchedAt,
+        broughtIn,
       };
     });
   } finally {

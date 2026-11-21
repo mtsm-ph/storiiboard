@@ -30,7 +30,8 @@ export function writeProposal(context: ToolContext, proposal: Proposal, hooks: W
   try {
     if (!folder.made) {
       removeLeftovers(folder);
-      checkRoom(folder);
+      // Only files not yet brought in count, with this one (round 3).
+      checkRoom(folder, data.broughtIn ?? new Set(), built.bytes.byteLength);
     }
     writeChangeFile(folder, built.name, built.bytes, hooks);
   } catch (error) {

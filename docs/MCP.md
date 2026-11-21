@@ -145,15 +145,22 @@ existing file.
   phone number, an email, coordinates or a map link by the free-text rule (what the assistant's own text shows) is
   refused: contact details are never suggested. A refusal says why in words and writes nothing, so the assistant can
   try again.
-- **No contact oracle** (round 2). A value the project stores (a phone, an email, an address, coordinates), typed
-  again in a form the free-text rule can't recognise, is never a refusal: it is replaced with `[contact left out]` in
-  the bytes written (a frame's title and a scene's name are looked in as names are: stored phones and emails only), the
-  file is read once more as it will be written, and the answer never says so. No answer repeats a value the assistant
+- **No contact oracle** (rounds 2 and 3). Nothing the assistant sends is matched against the values the project
+  stores: the guard keeps stored contacts out of what goes *to* the assistant, and what it sends it holds already, so
+  a match would protect nothing and its trace (a replacement, a bound crossed after one) would say which guess was
+  stored. A value the project stores, typed again in a form the free-text rule can't recognise, is written exactly as
+  sent, like any other: one build, one read, one answer, whatever the values. No answer repeats a value the assistant
   gave: it says what was written by counts and by labels made from the project's own records ("Change SC 12 · 12B: 2
-  fields."), through the free-text rule; a name the call gave that matches nothing is refused without repeating it.
-  So nothing the assistant is told differs by whether a value it gave is one the project stores.
+  fields."), through the free-text rule and the guard; a name the call gave that matches nothing is refused without
+  repeating it. A refusal that repeats the assistant's own argument (`There's no frame numbered "99Z"`) is a function
+  of that argument alone. So nothing the assistant is told differs by whether a value it gave is one the project
+  stores.
 - **A name two records share** (round 2) is refused, never guessed: "Two gear items are named "SkyPanel S60": give its
-  id (list_gear lists them)"; likewise people and locations. Each also takes its id.
+  id (list_gear lists them)"; likewise people and locations, each record's name through the free-text rule and the
+  guard. Each also takes its id. Round 3: a name is compared with each record's name as the view gives it (through the
+  free-text rule, so "SkyPanel [contact left out]" finds what list_gear lists so), and a name to look up that the
+  free-text rule would change is refused without a look at any record ("A name to look up can't hold what reads as a
+  phone number…: give the gear item's id"), so a phone typed in a record's name can't be confirmed by guessing it.
 - **The file**: 7.1's format, `format: "storiiboard.changes"`, `version: 1`, a new `id` every call (a writer never adds
   to a file it wrote), `project_id` and `project_name` from the project as read, `created_by: "mcp"`, and one person,
   `{ "id": "a", "name": <the client's own name>, "role": "assistant" }`: the name the assistant's app gave itself in
@@ -170,15 +177,21 @@ existing file.
   (`COPYFILE_EXCL`), then the temporary file taken away; never a rename, which would replace a file. A write that
   fails takes its temporary file away.
 - **The folder it checked** (round 2): once the temporary file is open, its real folder must be the real folder found
-  (on macOS and Linux the same device and inode too), and again just before the link; a folder swapped for another or
+  with the same device and inode (round 3: on Windows too, where NTFS gives a volume serial and a file index), and again
+  just before the link; a folder swapped for another or
   for a link meanwhile is refused ("The Suggestions folder changed while the file was being written").
 - **Its own leftovers** (round 2): before it writes, the server takes away temporary files a crash left in the folder:
   only regular files named exactly as its own temporary files are
   (`.<YYYY-MM-DD HH-mm-ssZ> <client> <8 hex>.sbdchanges.<8 hex>.writing`) and over an hour old. Nothing else in the
   folder is ever removed.
-- **Never past what the app reads** (round 2): a folder already holding 1,000 change files, or 50 MB of them, is
-  refused in words ("Bring them in from the Suggestions tile first"). The app reads the files it hasn't brought in
-  newest first, so a new one comes in even when old ones fill what one pass reads.
+- **Never past what the app reads** (rounds 2 and 3): a call is refused when the change files waiting in the folder,
+  with the one it would write, would be more than 1,000 files or 50 MB, in words that say what the person can do
+  ("1,000 change files are waiting in Harbor Lights Suggestions: bring them in (Bring in, in the status line) or move
+  some out of the folder."). Only files not yet brought in count: the server reads the change-file ids the project's
+  log names (the app's own `everBroughtIn`, and each suggestion's `change_file_id`) and knows a file by the 8 hex of a
+  name it wrote, or else by the file's own `id` (each read within the app's 5 MB, at most 50 MB read in all); a file it
+  can't read counts as waiting. The app reads the files it hasn't brought in newest first, so a new one comes in even
+  when old ones fill what one pass reads.
 - **A late failure leaves nothing** (round 2): when the marker or the file can't be written after this call made the
   folder, the call takes that folder away again with the marker it wrote (only a folder it made, only once empty), and
   answers in words.
@@ -448,6 +461,13 @@ by the app's own reader (`reviewSuggestion`); `data`'s fields are given or left 
 type when the target is in the project), every value scrubbed, and `fields_left_out` names those left out that are
 known props (a suggested phone number, say) and counts the rest (`"2 unknown fields"`). A person applies each one in
 the app.
+
+Round 3: a suggestion from an assistant's change file (`created_by: "mcp"`, its `source` `mcp`) comes back without its
+values, its note or its author: `{ id, kind, status, target: { id, type, label }, source, suggested_at, decided_at,
+fields, flags: [{ kind, words }], can_apply, trashed? }`, its `label` made from the project's records ("SC 12 · 12B",
+"Call sheet, Day 1 · …", "New frame in SC 12") through the view and the guard, never the label the file gave, and
+`fields` the names of its fields that are known props of the target's type, the rest counted. What the assistant sent
+it holds already; a value read back after the app stored it could say which of its guesses the project holds.
 
 ### run_checks
 

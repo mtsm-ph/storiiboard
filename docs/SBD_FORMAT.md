@@ -2084,8 +2084,10 @@ Rejecting a suggestion changes nothing in the project; the suggestion stays, `re
 
   The MCP server (7.6) writes one new file per call, named `<YYYY-MM-DD HH-mm-ssZ> <client> <8 hex>.sbdchanges` (the
   time in UTC), first as a temporary file ending in `.writing` (a name this listing skips), never over an existing file;
-  it makes the folder with its marker when there is none, and refuses to write into one already holding 1,000 change
-  files or 50 MB of them (7.6 round 2). docs/MCP.md, "The one write", has the whole of it.
+  it makes the folder with its marker when there is none, and refuses to write when the files waiting in it, with the
+  new one, would be more than 1,000 files or 50 MB (7.6 round 2; round 3: files the project's log names as brought in
+  don't count). The file holds exactly what the assistant sent (round 3): nothing in it is matched against what the
+  project stores. docs/MCP.md, "The one write", has the whole of it.
 
 - The app brings the folder in when the project opens: one pass, as **one** op group, so one undo takes the whole pass
   back. It reads the files it hasn't brought in newest first by their modified time (7.6 round 2). A pass has two budgets (7.1 round 3): it reads at most 1,000 files and 50 MB (52,428,800 bytes) to find what's
