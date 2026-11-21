@@ -1,6 +1,6 @@
 import { allChecks, type CheckFinding, type CheckTarget } from '../../src/core/checks/allChecks';
 import { t } from '../../src/core/i18n';
-import { assistantView, NO_DEPARTMENT_FLAGS } from '../../src/core/model/assistantView';
+import { assistantView, NO_DEPARTMENT_FLAGS, viewText } from '../../src/core/model/assistantView';
 import type { JsonValue, SbdRecord } from '../../src/core/model/record';
 import { sceneSetups } from '../../src/core/model/setup';
 import { projectShootDays, type ShootDay } from '../../src/core/model/shootDay';
@@ -14,7 +14,8 @@ import type { ToolContext } from './tools';
 // (read from the file by project.ts): the server never fetches one. No zone is looked up either (the desktop app asks
 // Rust for a place's zone), so a location needs its time zone typed for its light and rain to be checked, and says so.
 // The checks run on the records the assistant view keeps (the Trash and a hidden department's material left out) with
-// their props, as the readers need them; only what's picked below goes out, through the server's text rule and guard.
+// their props, as the readers need them; only what's picked below goes out, every string of it through the view's text
+// rule (round 2: a phone typed in a location's, a person's or a gear item's name never comes back), then the guard.
 
 type Obj = { [key: string]: JsonValue };
 
@@ -67,7 +68,7 @@ export function runChecks(context: ToolContext): Obj {
     day: dayOut(found.dayId),
     target: targetOut(found.target),
   });
-  return {
+  return viewText({
     findings: result.findings.map(findingOut),
     skipped: result.skipped.map((skip) => ({
       id: skip.id,
@@ -88,5 +89,5 @@ export function runChecks(context: ToolContext): Obj {
     note:
       'The same checks as the Project checks tile, from the same function. The rain check reads only the forecasts the project already holds (these tools never fetch one), ' +
       "and a location's light and rain are checked only when its time zone is typed: no zone is looked up here. Amounts are metric.",
-  };
+  }) as Obj;
 }

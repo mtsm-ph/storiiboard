@@ -374,16 +374,20 @@ screen, the Suggestions tile (Layout menu → Open tile), shows them and decides
   it in the app first, and the file is unchanged. (7.5)
 - [ ] With the project closed in the app, ask Claude Desktop to propose two new frames for a scene and a gear change for
   a shoot day. It says it wrote two change files; beside the project, a "<Project> Suggestions" folder holds them and
-  its marker, and nothing else changed (the .sbd's modified time is the same). (7.6)
+  its marker, and nothing else changed (the .sbd's modified time is the same). Each file is named by its time in UTC
+  (ending in Z) and by the client as it names itself (Claude Desktop may say "claude-ai"). (7.6)
 - [ ] Open the project: the status line says it brought the suggestions in from Claude Desktop (one ⌘Z takes the pass
   back); the Suggestions tile shows each file as its own group, "From Claude Desktop, through the assistant". Apply one
   frame and reject the gear change; ⌘Z undoes each. With the project open, ask for another change and bring the app to
   the front: it offers the new file with Bring in, and brings nothing in by itself. (7.6)
 - [ ] Ask the assistant to put a crew member's phone number in a frame's action, or a lens outside the frame's picked
   lens: it is told why in words and no file appears. Ask it to run the checks: its findings match the Project checks
-  tile's, and a location with no time zone typed is said as skipped. (7.6)
+  tile's, except locations with no time zone typed, which the assistant reports as skipped. (7.6)
+- [ ] Give two gear items the same name and ask the assistant to add that gear to a day: it asks for the item's id
+  (list_gear lists them) and writes nothing; with the id it writes the file. In Notifications, the import's row reads
+  "1 suggestion from Claude Desktop, through the assistant". (7.6 round 2)
 - [ ] Settings → AI assistant lists every tool with its line, what the assistant can suggest, and that stored contact
-  details are never read; in Spanish too. (7.6)
+  details are never sent to the assistant (the server reads them only to keep them out); in Spanish too. (7.6)
 - [ ] In Cast and crew, mark a crew member unavailable for a week with a note ("Add dates…", From, To, Note), then a
   single date: both show under Unavailable, the week as "Nov 24 – Nov 28", the single date alone. (7.3)
 - [ ] Pick the dates with the keyboard only (type them into the date fields, and with the browser's picker): the To

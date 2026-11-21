@@ -54,7 +54,7 @@ test('the assistant’s change file arrives named by its client, and Apply adds 
   // As suggest_new_shots writes it: one frame at the end of scene 1, from Claude Desktop.
   const context = { data: await projectData(page), client: 'Claude Desktop' };
   const built = checkedChangeFile(context, suggestNewShots(context, { scene: '1', frames: [{ size: 'CU', action: 'Her hand on the latch.' }], note: 'An insert for the latch.' }));
-  expect(built.name).toMatch(/^\d{4}-\d\d-\d\d \d\d-\d\d-\d\d Claude Desktop [0-9a-f]{8}\.sbdchanges$/);
+  expect(built.name).toMatch(/^\d{4}-\d\d-\d\d \d\d-\d\d-\d\dZ Claude Desktop [0-9a-f]{8}\.sbdchanges$/);
   await importChanges(page, Buffer.from(built.bytes), built.name);
   await expect(page.locator('[data-notice]')).toContainText('Brought in 1 suggestion from Claude Desktop.');
 
@@ -69,19 +69,30 @@ test('the assistant’s change file arrives named by its client, and Apply adds 
   await expect(frames.nth(2)).toHaveText(/1CCU/);
 });
 
-test('a second suggestion from the assistant is its own file and its own group, and Reject leaves the frame as it was', async ({ page }) => {
+test('two suggestions from the assistant are two files and two groups, and Reject leaves the frame as it was', async ({ page }) => {
   await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
   await expect(board(page).locator('[data-shot-id]')).toHaveCount(1);
 
-  // As suggest_shot_changes writes it: 1A to a CU.
+  // As suggest_new_shots writes it (one call), then suggest_shot_changes (another): two files, each its own group.
   const context = { data: await projectData(page), client: 'Claude Desktop' };
-  const built = checkedChangeFile(context, suggestShotChanges(context, { changes: [{ frame: '1A', fields: { size: 'CU' } }] }));
+  const first = checkedChangeFile(context, suggestNewShots(context, { scene: '1', frames: [{ size: 'WS' }] }));
+  await importChanges(page, Buffer.from(first.bytes), first.name);
+  await expect(page.locator('[data-notice]')).toContainText('Brought in 1 suggestion from Claude Desktop.');
+  const change = suggestShotChanges(context, { changes: [{ frame: '1A', fields: { size: 'CU' } }] });
+  const built = checkedChangeFile(context, change);
+  expect(built.id).not.toBe(first.id);
+  expect(built.name).not.toBe(first.name);
   await importChanges(page, Buffer.from(built.bytes), built.name);
+  // The second line reads as the first did: wait for its suggestion to be in, so Review is the second import's.
+  await expect.poll(async () => (await projectData(page)).records[change.suggestions[0]?.id ?? '']?.type).toBe('suggestion');
   await expect(page.locator('[data-notice]')).toContainText('Brought in 1 suggestion from Claude Desktop.');
   await page.locator('[data-notice]').getByRole('button', { name: 'Review', exact: true }).press('Enter');
+  await expect(tile(page).locator('[data-suggestion-group]')).toHaveCount(2);
+  await expect(tile(page).locator(`[data-suggestion-group="${first.id}"]`)).toHaveCount(1);
   const group = tile(page).locator(`[data-suggestion-group="${built.id}"]`);
   await expect(group.getByRole('heading', { name: /From Claude Desktop, through the assistant/ })).toBeVisible();
+  await expect(detail(page)).toHaveAttribute('data-suggestion-detail', change.suggestions[0]?.id ?? '');
   await detail(page).getByRole('button', { name: 'Reject', exact: true }).press('Enter');
   await expect(page.locator('[data-notice]')).toContainText('Rejected the suggestion.');
   await expect(board(page).getByRole('list', { name: 'Frames in SC 01' }).getByRole('button', { name: /Need to shoot$/ })).not.toHaveText(/1ACU/);

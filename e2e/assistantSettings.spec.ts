@@ -28,7 +28,9 @@ test('lists every tool with its line, what the assistant can suggest, and that c
   await expect(panel.locator('[data-assistant-tool="get_plan"]')).toContainText('A setup’s bird’s-eye plan in metres');
   await expect(panel.locator('[data-assistant-tool="suggest_trash"]')).toContainText('Writes a change file suggesting frames, scenes or notes to move to the Trash.');
   await expect(panel.getByRole('region', { name: 'Suggests (writes a change file)' }).locator('[data-assistant-tool]')).toHaveCount(6);
-  await expect(panel.locator('[data-assistant-privacy]')).toContainText('Stored contact details are never read');
+  await expect(panel.locator('[data-assistant-privacy]')).toContainText(
+    'Stored contact details (phone numbers, emails, addresses, parking, coordinates) are never sent to the assistant; the server reads them only to keep them out of what it sends. Sun times worked out from a location’s place are sent. Text people type goes as typed, with phone numbers, emails, coordinates and map links taken out where they can be recognised.',
+  );
   await expect(panel).toContainText('“Harbor Lights Suggestions” folder beside the project');
   const scope = panel.locator('[data-assistant-scope]');
   await expect(scope.getByRole('heading', { name: 'What the assistant can suggest' })).toBeVisible();
@@ -47,7 +49,7 @@ test('in Spanish: Asistente de IA, its tools and what it can suggest', async ({ 
   await expect(panel.locator('[data-assistant-tool]')).toHaveCount(ASSISTANT_TOOLS.length);
   await expect(panel.getByRole('heading', { name: 'Las herramientas del asistente' })).toBeVisible();
   await expect(panel.locator('[data-assistant-tool="suggest_trash"]')).toContainText('Escribe un archivo de cambios que sugiere cuadros, escenas o notas para enviar a la Papelera.');
-  await expect(panel.locator('[data-assistant-privacy]')).toContainText('Los datos de contacto guardados nunca se leen');
+  await expect(panel.locator('[data-assistant-privacy]')).toContainText('Los datos de contacto guardados (teléfonos, correos, direcciones, estacionamiento, coordenadas) nunca se envían al asistente');
   await expect(panel.locator('[data-assistant-scope]').getByRole('heading', { name: 'Lo que el asistente puede sugerir' })).toBeVisible();
   await closeSettings(page);
 });

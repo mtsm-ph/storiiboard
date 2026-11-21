@@ -1790,7 +1790,7 @@ export const en = {
   // src/app/preferences/AssistantTab.tsx (7.6): Settings → AI assistant, the MCP server's tools from src/core/model/assistantTools.ts
   'settings.tab.assistant': 'AI assistant',
   'assistant.intro': 'An AI assistant such as Claude Desktop or Claude Code can read this project and suggest changes through Storiiboard’s MCP server, started from the assistant’s own app. Whatever it reads goes to the assistant’s maker.',
-  'assistant.privacy': 'Stored contact details are never read: phone numbers, emails, addresses, parking, places on the map and coordinates. Text people type (notes, action, dialogue) goes to the assistant as typed, with phone numbers, emails, coordinates and map links taken out where they can be recognised.',
+  'assistant.privacy': 'Stored contact details (phone numbers, emails, addresses, parking, coordinates) are never sent to the assistant; the server reads them only to keep them out of what it sends. Sun times worked out from a location’s place are sent. Text people type goes as typed, with phone numbers, emails, coordinates and map links taken out where they can be recognised.',
   'assistant.arrive': 'The assistant never changes the project. Each time it suggests something, it writes one new change file into the “{folder}” folder beside the project, and nothing else. Storiiboard brings the file in when the project opens, as one step you can undo, or offers it when its window comes back to the front; you apply or reject each suggestion in the Suggestions tile.',
   'assistant.arriveNoProject': 'The assistant never changes the project. Each time it suggests something, it writes one new change file into the project’s Suggestions folder beside it, and nothing else. Storiiboard brings the file in when the project opens, as one step you can undo, or offers it when its window comes back to the front; you apply or reject each suggestion in the Suggestions tile.',
   'assistant.tools': 'The assistant’s tools',
@@ -4249,6 +4249,7 @@ export const en = {
   'review.where.boardEnd': 'at the end of the board',
   'review.target.callsheetUndated': 'the call sheet for an undated day',
   'review.groupFromVia': 'From {from}, through {source}',
+  'review.fromVia': '{from}, through {source}',
   'review.openGroup': 'Review the suggestions from {from}',
   'review.openGroupAt': 'Review the suggestions from {from}, brought in {when}',
   'review.showMore': 'Show more',

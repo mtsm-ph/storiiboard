@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { afterAll, describe, expect, it } from 'vitest';
 import { allChecks, CHECK_KINDS } from '../../src/core/checks/allChecks';
 import type { Props, SbdRecord } from '../../src/core/model/record';
@@ -6,7 +6,7 @@ import type { Forecast, ForecastEntry } from '../../src/core/net/weather';
 import { NO_SLATE_NUMBERS } from '../../src/core/model/shotNumbers';
 import { readChangeFile } from '../../src/core/storage/changeFile';
 import { makeTestFolder } from '../../src/core/storage/testFolder';
-import { buildChangeFile, changeFileName, clientName } from '../src/changeFile';
+import { buildChangeFile, changeFileName, clientName, WRITING_NAME } from '../src/changeFile';
 import { FolderRefused, writeChangeFile } from '../src/changeFolder';
 import { runChecks } from '../src/checks';
 import type { ProjectData } from '../src/project';
@@ -51,11 +51,16 @@ describe('the change file and its write (7.6)', () => {
     }
   });
 
-  it('names the file by this computer’s time, the client and the id, and keeps the client’s name as text', () => {
-    const at = new Date(2026, 10, 21, 9, 5, 7);
-    expect(changeFileName(at, 'Claude Desktop', '8d0f3c52-5a0e-4c47-9a7e-2b1f0c6e9a11')).toBe('2026-11-21 09-05-07 Claude Desktop 8d0f3c52.sbdchanges');
-    expect(changeFileName(at, '../../evil\\name:here', '8d0f3c52-5a0e-4c47-9a7e-2b1f0c6e9a11')).toBe('2026-11-21 09-05-07 evilnamehere 8d0f3c52.sbdchanges');
-    expect(changeFileName(at, '   ', 'ab12cd34-0000-4000-8000-000000000000')).toBe('2026-11-21 09-05-07 assistant ab12cd34.sbdchanges');
+  it('names the file by the time in UTC, the client and the id, and keeps the client’s name as text', () => {
+    const at = new Date(Date.UTC(2026, 10, 21, 21, 4, 9));
+    expect(changeFileName(at, 'Claude Desktop', '8d0f3c52-5a0e-4c47-9a7e-2b1f0c6e9a11')).toBe('2026-11-21 21-04-09Z Claude Desktop 8d0f3c52.sbdchanges');
+    expect(changeFileName(at, '../../evil\\name:here', '8d0f3c52-5a0e-4c47-9a7e-2b1f0c6e9a11')).toBe('2026-11-21 21-04-09Z evilnamehere 8d0f3c52.sbdchanges');
+    expect(changeFileName(at, '   ', 'ab12cd34-0000-4000-8000-000000000000')).toBe('2026-11-21 21-04-09Z assistant ab12cd34.sbdchanges');
+    // Its temporary name is one the leftovers' pattern knows, and nothing else is.
+    expect(WRITING_NAME.test(`.${changeFileName(at, 'Claude Desktop', '8d0f3c52-5a0e-4c47-9a7e-2b1f0c6e9a11')}.1a2b3c4d.writing`)).toBe(true);
+    for (const other of ['.notes.writing', '2026-11-21 21-04-09Z Claude Desktop 8d0f3c52.sbdchanges', `.${changeFileName(at, 'Claude Desktop', '8d0f3c52-5a0e-4c47-9a7e-2b1f0c6e9a11')}.1a2b3c4d.writing.txt`]) {
+      expect(WRITING_NAME.test(other), other).toBe(false);
+    }
     expect(clientName({ name: 'claude-ai', title: 'Claude Desktop' })).toBe('Claude Desktop');
     expect(clientName({ name: 'Robin‮​bot' })).toBe('Robinbot');
     expect(clientName({ name: 'Call +1 555 0123' })).toBe('Call [contact left out]');
@@ -64,6 +69,23 @@ describe('the change file and its write (7.6)', () => {
     const built = buildChangeFile({ projectId: 'p', projectName: 'Harbor Lights', client: 'Claude Desktop', suggestions: [], at, id: '8d0f3c52-5a0e-4c47-9a7e-2b1f0c6e9a11' });
     const read = readChangeFile(built.bytes, 'p');
     expect(read.ok && read.file.createdBy).toBe('mcp');
+  });
+
+  it('refuses a folder swapped for another while the file is written, and writes into neither (round 2)', () => {
+    const dir = folder.path('Swapped Suggestions');
+    const moved = folder.path('Moved away');
+    mkdirSync(dir);
+    const bytes = new TextEncoder().encode('{}');
+    expect(() => {
+      writeChangeFile(dir, 'a.sbdchanges', bytes, {
+        afterTemp: () => {
+          renameSync(dir, moved);
+          mkdirSync(dir);
+        },
+      });
+    }).toThrow('The Suggestions folder changed while the file was being written: nothing was written.');
+    expect(readdirSync(dir)).toEqual([]);
+    expect(readdirSync(moved).filter((n) => n.endsWith('.sbdchanges'))).toEqual([]);
   });
 });
 
@@ -139,6 +161,25 @@ describe('run_checks (7.6)', () => {
     ]);
     const text = JSON.stringify(answer);
     for (const value of ['555 0107', '555 0123', '555 0144', '555 0188', 'robin.vale@example.com', 'dana@example.com', 'yard@example.com', '1 Pier Road', '40.7128', '-74.006']) expect(text, value).not.toContain(value);
+  });
+
+  it('never says back a phone typed in a location’s, a person’s or a gear item’s name (round 2)', () => {
+    const records = tripped();
+    const rename = (id: string, name: string) => {
+      const kept = records[id] as SbdRecord;
+      records[id] = { ...kept, props: { ...kept.props, name } };
+    };
+    rename('yard', 'Boat Yard 555 867 5309');
+    rename('robin', 'Robin Vale 555 867 5310');
+    rename('slider', 'Slider 555 867 5311');
+    const data: ProjectData = { path: '', name: 'Harbor Lights', projectId: 'p', schemaVersion: 0, records, seen: {}, slate: NO_SLATE_NUMBERS };
+    const answer = runChecks({ data });
+    const text = JSON.stringify(answer);
+    for (const phone of ['867 5309', '867 5310', '867 5311']) expect(text, phone).not.toContain(phone);
+    const findings = answer.findings as { kind: string; words: string; target: { location?: { name: string } } }[];
+    expect(findings.find((f) => f.kind === 'location-missing')?.target.location?.name).toBe('Boat Yard [contact left out]');
+    expect(findings.find((f) => f.kind === 'unavailable-on-day')?.words).toContain('Robin Vale [contact left out]');
+    expect(findings.find((f) => f.kind === 'gear-not-on-day')?.words).toContain('Slider [contact left out]');
   });
 
   it('says what it skipped and why: a location with no zone typed gets none looked up, nor this computer’s', () => {

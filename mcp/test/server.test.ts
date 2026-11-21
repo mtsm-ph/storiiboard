@@ -26,6 +26,9 @@ const folder = makeTestFolder();
 const project = folder.path('Harbor Lights.sbd');
 
 const TOOLS = ['project_summary', 'list_scenes', 'list_shots', 'get_schedule', 'get_call_sheet', 'list_people', 'list_gear', 'list_locations', 'get_plan', 'list_suggestions'];
+/** 7.6's seven: the check tool, read-only, and the six propose tools, which each write one change file. */
+const CHECK_TOOLS = ['run_checks'];
+const PROPOSE_TOOLS = ['suggest_shot_changes', 'suggest_new_shots', 'suggest_reorder', 'suggest_gear_for_day', 'suggest_call_sheet_notes', 'suggest_trash'];
 
 /** One call of every tool, as an assistant would make them. */
 const EVERY_CALL: { name: string; arguments: Record<string, unknown> }[] = [
@@ -104,11 +107,11 @@ afterAll(async () => {
 });
 
 describe('the MCP server over stdio', () => {
-  it('lists the ten read tools, each marked read-only and closed to the world', async () => {
+  it('lists the ten read tools and 7.6’s seven: the read tools and run_checks read-only, the propose tools not, each closed to the world', async () => {
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual([...TOOLS].sort());
+    expect(tools.map((t) => t.name).sort()).toEqual([...TOOLS, ...CHECK_TOOLS, ...PROPOSE_TOOLS].sort());
     for (const tool of tools) {
-      expect(tool.annotations?.readOnlyHint, tool.name).toBe(true);
+      expect(tool.annotations?.readOnlyHint, tool.name).toBe(!PROPOSE_TOOLS.includes(tool.name));
       expect(tool.annotations?.openWorldHint, tool.name).toBe(false);
       expect(tool.description?.length, tool.name).toBeGreaterThan(20);
     }

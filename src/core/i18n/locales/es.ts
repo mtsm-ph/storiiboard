@@ -1791,7 +1791,7 @@ export const es: Messages = {
   // src/app/preferences/AssistantTab.tsx (7.6): Configuración → Asistente de IA
   'settings.tab.assistant': 'Asistente de IA',
   'assistant.intro': 'Un asistente de IA como Claude Desktop o Claude Code puede leer este proyecto y sugerir cambios a través del servidor MCP de Storiiboard, que se inicia desde la propia app del asistente. Todo lo que lee llega a la empresa que hizo el asistente.',
-  'assistant.privacy': 'Los datos de contacto guardados nunca se leen: teléfonos, correos, direcciones, estacionamiento, lugares en el mapa y coordenadas. El texto que escribe la gente (notas, acción, diálogo) llega al asistente tal como se escribió, sin los teléfonos, correos, coordenadas y enlaces de mapas que se puedan reconocer.',
+  'assistant.privacy': 'Los datos de contacto guardados (teléfonos, correos, direcciones, estacionamiento, coordenadas) nunca se envían al asistente; el servidor solo los lee para dejarlos fuera de lo que envía. Sí se envían las horas del sol calculadas a partir del lugar de una locación. El texto que escribe la gente va tal como se escribió, sin los teléfonos, correos, coordenadas y enlaces de mapas que se puedan reconocer.',
   'assistant.arrive': 'El asistente nunca cambia el proyecto. Cada vez que sugiere algo, escribe un archivo de cambios nuevo en la carpeta “{folder}” junto al proyecto, y nada más. Storiiboard trae el archivo al abrir el proyecto, como un solo paso que puedes deshacer, o lo ofrece cuando su ventana vuelve al frente; tú aplicas o rechazas cada sugerencia en el panel Sugerencias.',
   'assistant.arriveNoProject': 'El asistente nunca cambia el proyecto. Cada vez que sugiere algo, escribe un archivo de cambios nuevo en la carpeta de sugerencias junto al proyecto, y nada más. Storiiboard trae el archivo al abrir el proyecto, como un solo paso que puedes deshacer, o lo ofrece cuando su ventana vuelve al frente; tú aplicas o rechazas cada sugerencia en el panel Sugerencias.',
   'assistant.tools': 'Las herramientas del asistente',
@@ -4243,6 +4243,7 @@ export const es: Messages = {
   'review.where.boardEnd': 'al final del storyboard',
   'review.target.callsheetUndated': 'la hoja de llamado de un día sin fecha',
   'review.groupFromVia': 'De {from}, a través de {source}',
+  'review.fromVia': '{from}, vía {source}',
   'review.openGroup': 'Revisar las sugerencias de {from}',
   'review.openGroupAt': 'Revisar las sugerencias de {from}, incorporadas {when}',
   'review.showMore': 'Mostrar más',

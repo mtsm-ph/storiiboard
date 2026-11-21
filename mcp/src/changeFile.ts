@@ -20,7 +20,7 @@ export interface FileSuggestion {
 
 export interface BuiltChangeFile {
   id: string;
-  /** `<YYYY-MM-DD HH-mm-ss> <client> <8 hex>.sbdchanges`: never the same twice (the hex is the file id's own). */
+  /** `<YYYY-MM-DD HH-mm-ssZ> <client> <8 hex>.sbdchanges`, in UTC: never the same twice (the hex is the file id's own). */
   name: string;
   bytes: Uint8Array;
   count: number;
@@ -52,12 +52,22 @@ function namePart(client: string): string {
 
 const two = (n: number) => String(n).padStart(2, '0');
 
-/** This computer's time, as a backup's name has it, with seconds: `2026-11-21 09-12-05`. */
-const stamp = (at: Date) => `${String(at.getFullYear())}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${two(at.getHours())}-${two(at.getMinutes())}-${two(at.getSeconds())}`;
+/**
+ * The time in UTC, with seconds and a Z: `2026-11-21 21-04-09Z` (round 2). Never this computer's zone: the name goes
+ * wherever the folder syncs, and the zone would say where the computer is.
+ */
+const stamp = (at: Date) =>
+  `${String(at.getUTCFullYear())}-${two(at.getUTCMonth() + 1)}-${two(at.getUTCDate())} ${two(at.getUTCHours())}-${two(at.getUTCMinutes())}-${two(at.getUTCSeconds())}Z`;
 
 export function changeFileName(at: Date, client: string, id: string): string {
   return `${stamp(at)} ${namePart(client)} ${id.slice(0, 8)}.sbdchanges`;
 }
+
+/**
+ * The temporary name changeFolder.ts writes a change file under, as it makes one: `.<file name>.<8 hex>.writing`. Only
+ * names of exactly this shape are ever taken away as the server's own leftovers (round 2).
+ */
+export const WRITING_NAME = /^\.\d{4}-\d\d-\d\d \d\d-\d\d-\d\dZ [\p{L}\p{N} ._-]{1,40} [0-9a-f]{8}\.sbdchanges\.[0-9a-f]{8}\.writing$/u;
 
 export interface ChangeFileInput {
   projectId: string;

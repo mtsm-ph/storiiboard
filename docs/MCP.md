@@ -126,33 +126,62 @@ claude mcp add storiiboard -- node /Users/robin/Code/storiiboard/mcp/dist/server
 
 The propose tools are the server's first and only write (Phase 7 decision 3: the assistant never writes the .sbd).
 Each call writes **one new change file** (`.sbdchanges`, docs/SBD_FORMAT.md "Change files") into the project's own
-`<Project> Suggestions/` folder beside it, `<Project>` being the .sbd's file name, and nothing else anywhere: never the
+`<Project> Suggestions/` folder beside it, `<Project>` being the .sbd's file name less `.sbd` (as the app names it,
+Rust's `file_stem`: `Harbor.Lights.sbd` has `Harbor.Lights Suggestions/`; the server reads only files whose names end in
+`.sbd` with something before it), and nothing else anywhere: never the
 .sbd (it is still opened read-only, as above), never another folder, never a file it didn't just make, never over an
 existing file.
 
+- **Bounds first** (round 2), before anything in the call is read: the whole arguments at most 256 KB as JSON, at most
+  200 suggestions a call, at most 50 fields an update or a create, each field's name at most 100 characters and its
+  value at most 10,000.
 - **Checked before anything is written.** Every suggestion is read by the app's own reader (`reviewSuggestion`, 7.0)
   under the assistant's scope row, beside the others of its file, against the project as it is: one with any flag
   (outside what the assistant can suggest, a value its field doesn't take, a focal length outside the lens picked, a
   frame that can't leave a locked scene, nothing to change) is refused, and so is the whole call. The one flag let
-  through is *waiting* on another suggestion of the same file (a new scene's frames, a frame after a new one). A value
-  or a note that reads as a phone number, an email, coordinates or a map link, or holds a contact detail the project
-  stores, is refused too: contact details are never suggested. Then the file's bytes are read by the app's own
-  change-file reader (7.1, src/core/storage/changeFile.ts), the very bytes that are written, within its bounds (5 MB,
-  2,000 suggestions). A refusal says why in words and writes nothing, so the assistant can try again.
+  through is *waiting* on another suggestion of the same file (a new scene's frames, a frame after a new one). The
+  file's bytes are read by the app's own change-file reader (7.1, src/core/storage/changeFile.ts), within its bounds
+  (5 MB, 2,000 suggestions). Only then is any value looked at for a contact detail: a value or a note that reads as a
+  phone number, an email, coordinates or a map link by the free-text rule (what the assistant's own text shows) is
+  refused: contact details are never suggested. A refusal says why in words and writes nothing, so the assistant can
+  try again.
+- **No contact oracle** (round 2). A value the project stores (a phone, an email, an address, coordinates), typed
+  again in a form the free-text rule can't recognise, is never a refusal: it is replaced with `[contact left out]` in
+  the bytes written (a frame's title and a scene's name are looked in as names are: stored phones and emails only), the
+  file is read once more as it will be written, and the answer never says so. No answer repeats a value the assistant
+  gave: it says what was written by counts and by labels made from the project's own records ("Change SC 12 · 12B: 2
+  fields."), through the free-text rule; a name the call gave that matches nothing is refused without repeating it.
+  So nothing the assistant is told differs by whether a value it gave is one the project stores.
+- **A name two records share** (round 2) is refused, never guessed: "Two gear items are named "SkyPanel S60": give its
+  id (list_gear lists them)"; likewise people and locations. Each also takes its id.
 - **The file**: 7.1's format, `format: "storiiboard.changes"`, `version: 1`, a new `id` every call (a writer never adds
   to a file it wrote), `project_id` and `project_name` from the project as read, `created_by: "mcp"`, and one person,
   `{ "id": "a", "name": <the client's own name>, "role": "assistant" }`: the name the assistant's app gave itself in
   the MCP initialize request (its `title`, else its `name`, such as "Claude Desktop"), as text, cleaned and at most
   100 characters. Each suggestion's `before` values come from the project as read. Its name is
-  `<YYYY-MM-DD HH-mm-ss> <client> <8 hex>.sbdchanges`: this computer's time, the client's name kept to letters, digits,
-  spaces, dots, dashes and underscores (at most 40), and the first 8 hex digits of the file's id, so a name never
-  repeats.
+  `<YYYY-MM-DD HH-mm-ssZ> <client> <8 hex>.sbdchanges`: the time in UTC (round 2: never this computer's zone, which
+  would say where it is), the client's name as the client names itself (Claude Desktop may say "claude-ai"), kept to
+  letters, digits, spaces, dots, dashes and underscores (at most 40), and the first 8 hex digits of the file's id, so
+  a name never repeats. The answer gives the file's id and the folder's name, never the file's name or path.
 - **How it is written**: whole, as a temporary file in the same folder whose name the app's listing skips (it ends in
   `.writing`, not `.sbdchanges`), opened only if nothing of that name is there, flushed; then put in place under its
   name by a hard link, which fails if anything of that name is there, and the temporary name taken away. A volume with
-  no hard links (exFAT, FAT, some network shares) gets a rename once nothing of the name is there (Node has no rename
-  that refuses to replace a file, so one made in that moment would be replaced). A write that fails takes its
-  temporary file away.
+  no hard links (exFAT, FAT, some network shares) gets a copy that fails if anything of the name is there
+  (`COPYFILE_EXCL`), then the temporary file taken away; never a rename, which would replace a file. A write that
+  fails takes its temporary file away.
+- **The folder it checked** (round 2): once the temporary file is open, its real folder must be the real folder found
+  (on macOS and Linux the same device and inode too), and again just before the link; a folder swapped for another or
+  for a link meanwhile is refused ("The Suggestions folder changed while the file was being written").
+- **Its own leftovers** (round 2): before it writes, the server takes away temporary files a crash left in the folder:
+  only regular files named exactly as its own temporary files are
+  (`.<YYYY-MM-DD HH-mm-ssZ> <client> <8 hex>.sbdchanges.<8 hex>.writing`) and over an hour old. Nothing else in the
+  folder is ever removed.
+- **Never past what the app reads** (round 2): a folder already holding 1,000 change files, or 50 MB of them, is
+  refused in words ("Bring them in from the Suggestions tile first"). The app reads the files it hasn't brought in
+  newest first, so a new one comes in even when old ones fill what one pass reads.
+- **A late failure leaves nothing** (round 2): when the marker or the file can't be written after this call made the
+  folder, the call takes that folder away again with the marker it wrote (only a folder it made, only once empty), and
+  answers in words.
 - **The folder**: found as the app finds it (src-tauri/src/changes.rs): a real folder, not a link or a junction, whose
   real parent is the project's own folder. When there is none, it is made with its marker, `storiiboard-folder.json`
   (`{ "format": "storiiboard.suggestions-folder", "project_id", "project_name" }`), and nothing else. A folder of that
@@ -169,9 +198,17 @@ existing file.
   accepts it and 7.0's reader reads its suggestions unflagged; that a refused value writes nothing (the folder isn't
   even made); that the project's bytes and everything else beside it are unchanged; that names and ids never repeat;
   that another project's folder is refused; and (mcp/test/writeAndChecks.test.ts) that a failed write leaves no
-  temporary file and a file of the same name is never written over.
+  temporary file and a file of the same name is never written over. Round 2 adds the probe (an answer alike whether or
+  not a value given is stored), the bounds, names two records share, the folder named from the stem, the full folder,
+  the leftovers, the folder made and taken away, a folder swapped mid-write, and (mcp/test/noHardLinks.test.ts) the
+  copy on a volume with no hard links.
 
 ## What is never returned, and why
+
+Settings → AI assistant says it in one line (en and es): "Stored contact details (phone numbers, emails, addresses,
+parking, coordinates) are never sent to the assistant; the server reads them only to keep them out of what it sends.
+Sun times worked out from a location's place are sent. Text people type goes as typed, with phone numbers, emails,
+coordinates and map links taken out where they can be recognised."
 
 One function decides what an assistant may read of each record type: `assistantView` in
 src/core/model/assistantView.ts. Every tool reads the project through it. Its table lists every prop of every record
@@ -193,7 +230,7 @@ decided before an assistant can read it.
 - **Text people type** (notes, action, dialogue, names, titles) goes to the assistant as typed, with phone numbers,
   emails, coordinates and map links taken out where they can be recognised; so does every string a tool returns (a
   reader's own words, a cast member's character names, a suggestion's values, a refusal's words). Stored contact
-  fields are never read at all (above). The rule reads the text Unicode-aware: format characters (`\p{Cf}`: zero width
+  fields are never sent (above): the server reads them only to keep them out of what it sends (the guard, below). The rule reads the text Unicode-aware: format characters (`\p{Cf}`: zero width
   spaces, soft hyphens) are dropped and the text normalised (NFKC), so full-width digits or a "＠" read as plain ones.
   Then, replaced with `[contact left out]`:
   - map links, with everything after them to the next whitespace (a place's name in one can hold an apostrophe or
@@ -428,14 +465,18 @@ src/core/checks/allChecks.ts), in the tile's own words (English):
   note }
 ```
 
-`kind` is one of `unavailable-on-day`, `gear-not-on-day`, `golden-hour-midday`, `exterior-rain`,
+An unavailable person's words name the day they're called and the dates of their stretch ("Robin Vale is called on
+Day 1 · Sat, Nov 16 but marked unavailable Nov 16"). `kind` is one of `unavailable-on-day`, `gear-not-on-day`, `golden-hour-midday`, `exterior-rain`,
 `location-missing`, `department-missing`, `hmu-too-short`, `plan-lens-differs`; `reason` one of `no-zone`,
 `no-place`, `no-forecast`, `forecast-not-covering`, `forecast-not-hours`, `no-date`. The rain check reads only the
 forecasts the project already holds (its cache in the file): the server never fetches one. No zone is looked up: a
 location with its time zone typed is read in it, one with none typed has its light and rain skipped (`no-zone`),
 never read in the zone of the computer the server runs on. An old forecast's words leave out when it was fetched (the
 time would be this computer's); `fetched_at` is UTC. Amounts are metric. The checks run on the records the assistant
-view keeps (no Trash); only the words and targets above go out, through the same text rule and guard as every answer.
+view keeps (no Trash); only the words and targets above go out, every string through the free-text rule (round 2: a
+phone typed in a location's, a person's or a gear item's name never comes back), then the guard as every answer.
+Its findings match the Project checks tile's, except a location with no time zone typed, which the assistant reports
+as skipped where the app would look its zone up.
 
 ### The propose tools
 
@@ -443,7 +484,7 @@ Each takes `project` and `note` (words for the person who reviews it, at most 2,
 suggestions and writes them as one change file (The one write, above), and answers:
 
 ```
-{ written: { file, folder, folder_made, change_file_id, suggestions },
+{ written: { folder, folder_made, change_file_id, suggestions },
   suggestions: [{ id, kind, target, says }], next }
 ```
 
@@ -471,7 +512,8 @@ a new scene (after the scene named, else at the end of the board) with its frame
 
 `{ project, moves: [{ frame: "12B" } | { scene: "12", note: 1 }, with after: "12A" | "start", or after_note: 2, and
 to_scene?: "13"], note? }`: a `reorder` for each frame or note (a note by its number among the scene's notes, from 1);
-a frame can move to another scene, a note only within its own.
+a frame can move to another scene, a note only within its own. Each move takes `after` or `after_note`; one with
+neither is refused in words.
 
 ### suggest_gear_for_day
 
@@ -495,7 +537,7 @@ a deletion; applied, it is the board's own move to the Trash.
 - 7.7: `read_script` and `suggest_breakdown` (it needs the scene's breakdown lists, decision 9).
 - With the room review: `suggest_room` (plan items join the assistant's scope row then).
 - Settings → AI assistant's switch "Let the assistant read contact details" (decision 14) waits for a project prop
-  Kevin hasn't approved; until it is built, these tools never read contact details.
+  Kevin hasn't approved; until it is built, these tools never send contact details.
 - With departments by file: `get_room_reference`, `list_files`, `read_file` and `suggest_file_organization`, each
   obeying a file's flag (Read, Details only, Never).
 - 7.10: local HTTP. Phase 8: the Claude Desktop bundle.

@@ -294,7 +294,7 @@ const TOOLS = {
             scene: sceneNumber.optional(),
             note: z.number().int().min(1).max(10_000).optional(),
             to_scene: sceneNumber.optional(),
-            after: z.string().min(1).max(20),
+            after: z.string().min(1).max(20).optional(),
             after_note: z.number().int().min(1).max(10_000).optional(),
           }),
         )
@@ -346,9 +346,22 @@ function argumentWords(name: string, args: Record<string, unknown>, issues: read
   return `${name}: ${parts.join('; ')}.`;
 }
 
+/** The most a call's arguments may take, as JSON (round 2): checked before anything in them is read. */
+export const MAX_ARGUMENT_BYTES = 256 * 1024;
+
+/** The arguments' size as JSON, in bytes; past the bound when they can't be written as JSON. */
+function argumentBytes(raw: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(raw ?? {}), 'utf8');
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
 /** Calls a tool as the assistant asked: its arguments checked by its own rules, a wrong one told in words. */
 async function callTool(projects: readonly string[], client: string, name: string, raw: unknown): Promise<Answer> {
   if (!Object.hasOwn(TOOLS, name)) return refused(`There's no tool named ${name.slice(0, 64)}. The tools are ${Object.keys(TOOLS).join(', ')}.`);
+  if (argumentBytes(raw) > MAX_ARGUMENT_BYTES) return refused(`${name}: the arguments are larger than 256 KB. Suggest fewer at a time.`);
   const entry: Tool = TOOLS[name as ToolName];
   const args = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const parsed = z.object(entry.shape).safeParse(raw ?? {});

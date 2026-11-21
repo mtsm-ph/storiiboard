@@ -53,7 +53,20 @@ async function heldForecasts(file: ProjectFile, list: readonly SbdRecord[], proj
   return { forecasts, fetchedAt };
 }
 
+/**
+ * A project file's stem, as Storiiboard names its Suggestions folder from it (changes.rs, Rust's `file_stem`): the file
+ * name less its `.sbd`. Null for a name that doesn't end in `.sbd` or has nothing before it (round 2): the server reads
+ * only such files, so its folder's name is always the app's.
+ */
+export function projectStem(path: string): string | null {
+  const name = basename(path);
+  if (!/\.sbd$/i.test(name) || name.length <= 4) return null;
+  return name.slice(0, -4);
+}
+
 export async function readProject(path: string): Promise<ProjectData> {
+  const stem = projectStem(path);
+  if (stem === null) throw new ProjectRefused('This server reads only Storiiboard projects: files whose names end in .sbd.');
   const file = openReadOnly(path);
   try {
     return await file.snapshot(async () => {
@@ -67,7 +80,7 @@ export async function readProject(path: string): Promise<ProjectData> {
       const held = await heldForecasts(file, list, project.id);
       return {
         path,
-        name: basename(path).replace(/\.sbd$/i, ''),
+        name: stem,
         projectId: project.id,
         schemaVersion: SCHEMA_VERSION,
         records,
