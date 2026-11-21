@@ -33,5 +33,15 @@ export function stepButtonName(which: 'undo' | 'redo', step: string | null, mac:
 
 /** The keys that do what the button does, as its tip shows them: "⌘Z" on a Mac, "Ctrl+Z" elsewhere. */
 export function stepKeys(which: 'undo' | 'redo', mac: boolean): string {
-  return which === 'undo' ? t(mac ? 'topBar.undoKeysMac' : 'topBar.undoKeys') : t(mac ? 'topBar.redoKeysMac' : 'topBar.redoKeys');
+  const [first, second] = stepKeyParts(which, mac);
+  return second === undefined ? first : t('topBar.keysOr', { first, second });
+}
+
+/**
+ * The same keys one by one, for a tip that draws each in mono and the word between them ("or", "o") in the sentence's
+ * own type: one key, or two that do the same ("Ctrl+Y", "Ctrl+Shift+Z"), joined by topBar.keysOr.
+ */
+export function stepKeyParts(which: 'undo' | 'redo', mac: boolean): [string] | [string, string] {
+  if (which === 'undo') return [t(mac ? 'topBar.undoKeysMac' : 'topBar.undoKeys')];
+  return mac ? [t('topBar.redoKeysMac')] : [t('topBar.redoKeysY'), t('topBar.redoKeysShiftZ')];
 }

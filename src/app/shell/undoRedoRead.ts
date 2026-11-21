@@ -46,10 +46,17 @@ export async function readStepLines(at: ReadFor, read: (file: ProjectFile, unit:
 
 /**
  * What the buttons name now: the store says at once whether there is a step to take (null: nothing); its line is the
- * read's only while the read was for this very state, else "a step".
+ * read's only while the read was for this very state, else "a step". `inFlight`: the buttons' presses queued and not
+ * yet merged into the store (#241, round 3). Each acts on a state the store doesn't show yet (Enter pressed twice, or
+ * held at about 30 ms a repeat, before the first undo lands), so while any is, both say "a step".
  */
-export function shownLines(read: StepLinesRead | null, now: ReadFor, can: { canUndo: boolean; canRedo: boolean }): { undo: Line | null; redo: Line | null } {
-  const lines = read && sameState(read.at, now) ? read.lines : null;
+export function shownLines(
+  read: StepLinesRead | null,
+  now: ReadFor,
+  can: { canUndo: boolean; canRedo: boolean },
+  inFlight = 0,
+): { undo: Line | null; redo: Line | null } {
+  const lines = inFlight === 0 && read && sameState(read.at, now) ? read.lines : null;
   const aStep: Line = [t('history.aStep')];
   return { undo: can.canUndo ? (lines?.undo ?? aStep) : null, redo: can.canRedo ? (lines?.redo ?? aStep) : null };
 }

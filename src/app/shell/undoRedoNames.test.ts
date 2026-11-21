@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { setLocale } from '../../core/i18n';
-import { stepButtonName } from './undoRedoNames';
+import { stepButtonName, stepKeyParts, stepKeys } from './undoRedoNames';
 
 // The top bar's Undo and Redo (item 8): named by the step each would take, with this platform's keys in the tip, in
 // English and Spanish; with nothing to take, "Nothing to undo" and disabled.
@@ -42,5 +42,16 @@ describe('the top bar’s Undo and Redo names', () => {
     expect(stepButtonName('redo', 'Se movió el muro', true).tip).toBe('Rehacer: Se movió el muro · ⌘⇧Z');
     expect(stepButtonName('undo', null, true)).toMatchObject({ label: 'Nada que deshacer', tip: 'Nada que deshacer · ⌘Z', enabled: false });
     expect(stepButtonName('redo', null, false).label).toBe('Nada que rehacer');
+  });
+
+  it('give the tip its keys one by one, so the word between two is never drawn in mono with them', () => {
+    expect(stepKeyParts('undo', false)).toEqual(['Ctrl+Z']);
+    expect(stepKeyParts('undo', true)).toEqual(['⌘Z']);
+    expect(stepKeyParts('redo', true)).toEqual(['⌘⇧Z']);
+    expect(stepKeyParts('redo', false)).toEqual(['Ctrl+Y', 'Ctrl+Shift+Z']);
+    expect(stepKeys('redo', false)).toBe('Ctrl+Y or Ctrl+Shift+Z');
+    setLocale('es');
+    expect(stepKeyParts('redo', false)).toEqual(['Ctrl+Y', 'Ctrl+Mayús+Z']);
+    expect(stepKeys('redo', false)).toBe('Ctrl+Y o Ctrl+Mayús+Z');
   });
 });

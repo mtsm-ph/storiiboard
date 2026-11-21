@@ -1,10 +1,9 @@
 import type { PlanUnit } from '../../core/model/length';
 import type { SbdRecord } from '../../core/model/record';
-import { childrenBefore, childrenInLog, lastOpSeq, log, logOf, opsOfGroups, undoTops, opsOfRecords, opsSince, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { childrenInLog, lastOpSeq, log, logOf, opsOfGroups, opsOfRecords, opsSince, placesBefore, projectAt, recordsBefore, storedPictures, undoTops, type GoneRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
 import { listVersions, type NamedVersion } from '../../core/storage/versions';
-import { mediaFields } from '../../core/media/store';
-import { byStep, describeGroup, lineText, moveTarget, peopleDiff, scheduledScene, stepScene, type Line } from './summary';
+import { byStep, describeGroup, lineText, moveTarget, peopleDiff, scheduledScene, stepPictures, stepScene, type Line } from './summary';
 import { t } from '../../core/i18n';
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -67,24 +66,23 @@ async function describeSteps(
   { everyOp = true }: { everyOp?: boolean } = {},
 ): Promise<{ titles: Map<string, Line>; byGroup: Map<string, LoggedOp[]> }> {
   const kinds = new Map(groups.map((g) => [g.id, g.kind]));
-  // Only an edit's and an Empty Trash's lines read their own ops; History reads every group's too, for the records each
-  // step wrote (Notifications filters by them). An undo, redo or restore is named by the step it points at, and a
-  // Restore to here can hold about 125k ops (#241).
-  const read = everyOp ? [...kinds.keys()] : [...kinds].filter(([, kind]) => kind === 'edit' || kind === 'empty_trash').map(([id]) => id);
+  // Only an edit's line reads its own ops (an Empty Trash's counts them from the log's own count); History reads every
+  // group's too, for the records each step wrote (Notifications filters by them). An undo, redo or restore is named by
+  // the step it points at, and a Restore to here or an Empty Trash can hold about 125k ops (#241).
+  const read = everyOp ? [...kinds.keys()] : [...kinds].filter(([, kind]) => kind === 'edit').map(([id]) => id);
   const ops = await opsOfGroups(file, read);
   const byGroup = byStep(ops);
-  // Only the pictures the edits' own records name: whether each is still stored is all their lines ask (1.21).
-  const pictures = ops.flatMap((op) => {
-    const media = op.groupKind === 'edit' ? (op.after ?? op.before) : null;
-    const sha = media?.type === 'media' ? mediaFields(media.props)?.sha256 : undefined;
-    return sha === undefined ? [] : [sha];
-  });
+  // Only the pictures the edits' own records name, by describeEdit's own rule: whether each is still stored is all their
+  // lines ask (1.21).
+  const pictures = [...byGroup].flatMap(([id, written]) => (kinds.get(id) === 'edit' ? stepPictures(written) : []));
   const stored = await storedPictures(file, pictures);
   // Only an edit's line names its own records; undo, redo and restore name the step they point at.
-  const around = await namedRecords(file, new Map([...byGroup].filter(([id]) => kinds.get(id) === 'edit')));
+  const { around, unsure, trashed } = await stepRecords(file, new Map([...byGroup].filter(([id]) => kinds.get(id) === 'edit')));
   // Oldest first, so the step an undo, redo or restore names already has its line.
   const titles = new Map<string, Line>();
-  for (const group of groups) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id), unit));
+  for (const group of groups) {
+    titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id), unit, unsure.has(group.id), trashed.get(group.id)));
+  }
   return { titles, byGroup };
 }
 
@@ -121,8 +119,24 @@ export async function undoRedoLines(file: ProjectFile, unit?: PlanUnit): Promise
  * other line's does.
  */
 export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<string, readonly LoggedOp[]>): Promise<Map<string, Map<string, SbdRecord>>> {
+  return (await stepRecords(file, byGroup)).around;
+}
+
+/**
+ * namedRecords, and the steps whose place's records may not all be known any more (`unsure`): a step that reads a
+ * place (a move's, a scheduled scene's) while some record that was in the project then has since been deleted for good.
+ * Empty Trash empties a purged record's every write and keeps only their seqs and kinds (1.21), so where it was can't
+ * be read: it was there at the step unless all its writes came before the step (it was gone already), or the first
+ * one made it after the step began (in another step). The line then says only what it can prove (summary.ts).
+ * `trashed`: by step, the records the step wrote while they were in the Trash, since deleted for good.
+ */
+export async function stepRecords(
+  file: ProjectFile,
+  byGroup: ReadonlyMap<string, readonly LoggedOp[]>,
+): Promise<{ around: Map<string, Map<string, SbdRecord>>; unsure: Set<string>; trashed: Map<string, Set<string>> }> {
   const asks: { group: string; id: string; seq: number }[] = [];
   const kids: { group: string; parentId: string; seq: number }[] = [];
+  const reads: { group: string; start: number }[] = [];
   for (const [group, ops] of byGroup) {
     const stroke = ops.find((op) => (op.after ?? op.before)?.type === 'stroke');
     const shotId = stroke ? (stroke.after ?? stroke.before)?.parentId : null;
@@ -191,13 +205,17 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
     if (into !== null) {
       if (!ops.some((op) => op.recordId === into)) asks.push({ group, id: into, seq: end });
       kids.push({ group, parentId: into, seq: start });
+      reads.push({ group, start });
     }
     // The scene a step's records share, so "Changed 3 items in SC 12" can name it; a scene's frames scheduled together,
     // with its frames as the step left them, so a whole scene reads as the scene.
     const scene = stepScene(ops);
     if (scene !== null && !ops.some((op) => op.recordId === scene)) asks.push({ group, id: scene, seq: end });
     const scheduled = scheduledScene(ops);
-    if (scheduled !== null) kids.push({ group, parentId: scheduled, seq: end });
+    if (scheduled !== null) {
+      kids.push({ group, parentId: scheduled, seq: end });
+      reads.push({ group, start });
+    }
   }
   const found = await recordsBefore(file, asks);
   const around = new Map<string, Map<string, SbdRecord>>();
@@ -212,10 +230,82 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
   };
   keep(asks, found);
   // A place's records as they were then, each kept only where the step's own asks haven't named it already.
-  const children = await childrenBefore(file, kids);
+  const { children, gone } = await placesBefore(file, kids);
   kids.forEach((ask, i) => {
     const named = around.get(ask.group) ?? new Map<string, SbdRecord>();
     for (const record of children[i] ?? []) if (!named.has(record.id)) named.set(record.id, record);
+    around.set(ask.group, named);
+  });
+  const unsure = new Set<string>();
+  const trashed = new Map<string, Set<string>>();
+  // A record in the Trash at the step is never a neighbour (summary.ts keeps live ones only), so its purge since changes
+  // nothing. Empty Trash keeps each write's kind and group: its last write before the step tells. A delete (an edit's or
+  // a redo's) or an undone restore left it in the Trash; anything else, a Restore to here's revert among them, can't
+  // say so, and it counts as there. Only the writes before the latest step asked about are read; each record's are
+  // sorted once and searched, not filtered per step.
+  const writes = new Map<string, LoggedOp[]>();
+  if (reads.length > 0 && gone.length > 0) {
+    const latest = reads.reduce((max, read) => Math.max(max, read.start), 0);
+    for (const op of await opsOfRecords(file, gone.map((record) => record.id), latest)) {
+      const list = writes.get(op.recordId);
+      if (list) list.push(op);
+      else writes.set(op.recordId, [op]);
+    }
+    for (const list of writes.values()) list.sort((a, b) => a.seq - b.seq);
+  }
+  const trashedThen = (id: string, start: number): boolean => {
+    const list = writes.get(id) ?? [];
+    // The last write before `start`: the first at or after it, less one.
+    let lo = 0;
+    let hi = list.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if ((list[mid]?.seq ?? 0) < start) lo = mid + 1;
+      else hi = mid;
+    }
+    const last = list[lo - 1];
+    if (!last) return false;
+    return (last.kind === 'trash' && (last.groupKind === 'edit' || last.groupKind === 'redo')) || (last.kind === 'restore' && last.groupKind === 'undo');
+  };
+  for (const { group, start } of reads) {
+    const ops = byGroup.get(group) ?? [];
+    const own = new Set(ops.map((op) => op.recordId));
+    // The step itself brought it back out of the Trash (a restore, an undone delete, a Restore to here's revert, or made
+    // afresh), so it was in the project after the step though in the Trash before it. Not every own write: a re-key
+    // (6.23) moves the Trash's records too, and that move leaves them in the Trash.
+    const brought = new Set(
+      ops
+        .filter(
+          (op) =>
+            (op.kind === 'restore' && (op.groupKind === 'edit' || op.groupKind === 'redo')) ||
+            (op.kind === 'trash' && op.groupKind === 'undo') ||
+            op.kind === 'revert' ||
+            op.kind === 'create',
+        )
+        .map((op) => op.recordId),
+    );
+    const binned = (record: GoneRecord) => trashedThen(record.id, start) && !brought.has(record.id);
+    const there = (record: GoneRecord) => record.last >= start && (own.has(record.id) || !(record.made && record.first >= start)) && !binned(record);
+    if (gone.some(there)) unsure.add(group);
+    // The step's own writes to records then in the Trash, since deleted for good: a re-key's, which summary.ts leaves
+    // out of what the person moved.
+    const left = gone.filter((record) => own.has(record.id) && record.last >= start && binned(record)).map((record) => record.id);
+    if (left.length > 0) trashed.set(group, new Set([...(trashed.get(group) ?? []), ...left]));
+  }
+  // A frame's place is proven by its letter (summary.ts), in the project's own lettering: the project as it was at the
+  // step, which no move writes and nothing deletes, so it's named for every step that has to prove its place.
+  const proving = [...unsure].flatMap((group) => {
+    const ops = byGroup.get(group) ?? [];
+    const named = around.get(group);
+    if ([...(named?.values() ?? [])].some((r) => r.type === 'project') || ops.some((op) => (op.after ?? op.before)?.type === 'project')) return [];
+    return [{ group, seq: ops.reduce((max, op) => Math.max(max, op.seq), 0) + 1 }];
+  });
+  const projects = await projectAt(file, proving.map((ask) => ask.seq));
+  proving.forEach((ask, i) => {
+    const project = projects[i];
+    if (!project) return;
+    const named = around.get(ask.group) ?? new Map<string, SbdRecord>();
+    named.set(project.id, project);
     around.set(ask.group, named);
   });
   // An issued call sheet that already existed (4.7): its day, which only the call sheet record knows.
@@ -226,7 +316,7 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
     return issued && sheet?.parentId && !named.has(sheet.parentId) ? [{ group, id: sheet.parentId, seq: issued.seq }] : [];
   });
   keep(days, await recordsBefore(file, days));
-  return around;
+  return { around, unsure, trashed };
 }
 
 /** Every write to a frame and to what the log ever put under it (its strokes and picture), oldest first. */

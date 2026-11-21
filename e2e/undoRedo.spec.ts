@@ -163,6 +163,33 @@ test('a press while typing in a field commits the typing first, then takes it ba
   await expect(steps(page).first()).toContainText('action');
 });
 
+test('a press while typing takes the typing even from a button that said “Nothing to undo”', async ({ page }) => {
+  await newProject(page);
+  await expect(undoButton(page)).toHaveAttribute('aria-label', 'Nothing to undo');
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Production/ }).click();
+  // A project's own field, there with no step yet made.
+  const minutes = tile(page, 'Shoot days').getByLabel('Minutes per setup');
+  const before = await minutes.inputValue();
+  await minutes.fill('45');
+  await expect(minutes).toBeFocused();
+  await expect(undoButton(page)).toHaveAttribute('aria-label', 'Nothing to undo');
+  // The press commits the field, whose edit is then the newest step, and takes it back. Its pointerdown and click in
+  // one task, as on a slow file (Rust's round trips): the click comes before the field's edit has merged, while the
+  // button still says "Nothing to undo", so only the press's own commit can take it. A real mouse here is slower than
+  // the memory file's merge, and would pass with the button already named.
+  await undoButton(page).evaluate((button) => {
+    button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', isPrimary: true }));
+    if (button.getAttribute('aria-label') !== 'Nothing to undo') throw new Error('the edit merged before the click');
+    (button as HTMLButtonElement).click();
+  });
+  await expect(minutes).toHaveValue(before);
+  await expect(redoButton(page)).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(undoButton(page)).toHaveAttribute('aria-label', 'Nothing to undo');
+  await page.getByRole('banner').getByRole('button', { name: 'History', exact: true }).click();
+  await expect(steps(page)).toHaveCount(2);
+  await expect(steps(page).first()).toContainText('Undid');
+});
+
 test('the tip shows on keyboard focus, draws the numbers and keys in mono, and Escape hides a hovered tip', async ({ page }) => {
   await twoEdits(page);
   const mac = await onMac(page);
@@ -183,4 +210,18 @@ test('the tip shows on keyboard focus, draws the numbers and keys in mono, and E
   await expect(page.locator('[data-step-tip="redo"]')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-step-tip="redo"]')).toHaveCount(0);
+});
+
+test('the redo tip draws each key in mono and the word between two keys not', async ({ page }) => {
+  await twoEdits(page);
+  const mac = await onMac(page);
+  await page.getByRole('banner').getByRole('button', { name: 'Undo: Added frame 1A', exact: true }).click();
+  await redoButton(page).hover();
+  const tip = page.locator('[data-step-tip="redo"]');
+  await expect(tip).toHaveText(`Redo: Added frame 1A · ${mac ? '⌘⇧Z' : 'Ctrl+Y or Ctrl+Shift+Z'}`);
+  // Off a Mac, two keys: "or" between them is the tip's own type.
+  await expect(tip.locator('.font-mono')).toHaveText(mac ? ['1A', '⌘⇧Z'] : ['1A', 'Ctrl+Y', 'Ctrl+Shift+Z']);
+  // The names people and tools read stay as they were.
+  await expect(redoButton(page)).toHaveAttribute('aria-label', 'Redo: Added frame 1A');
+  await expect(redoButton(page)).toHaveAttribute('aria-keyshortcuts', mac ? 'Meta+Shift+Z' : 'Control+Y Control+Shift+Z');
 });

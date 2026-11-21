@@ -1260,6 +1260,7 @@ export const en = {
   'history.restoredStrokesOn': 'Restored {strokes} on {frame}',
   'history.movedCount': 'Moved {things}',
   'history.movedLost': 'Moved an item, since deleted for good',
+  'history.movedSomeLost': 'Moved items, some since deleted for good',
   'history.moved': 'Moved {name}',
   'history.movedAfter': 'Moved {name} to after {after}',
   'history.movedToStart': 'Moved {name} to the start of {place}',
@@ -1267,6 +1268,10 @@ export const en = {
   'history.movedCountAfter': 'Moved {things} to after {after}',
   'history.movedCountToStart': 'Moved {things} to the start of {place}',
   'history.movedCountTo': 'Moved {things} to {place}',
+  'history.movedToProjectStart': 'Moved {name} to the start of the project',
+  'history.movedCountToProjectStart': 'Moved {things} to the start of the project',
+  'history.deckNamed': 'deck {name}',
+  'history.pageNumbered': 'page {number}',
   'history.sceneScheduled': 'Moved {scene} to shoot day {day}{tag}',
   'history.shotsRenumbered': 'Renumbered {scene}’s shots{tag}',
   'history.sceneRenumbered': 'Renumbered {from} to {scene} and its shots{tag}',
@@ -1812,7 +1817,10 @@ export const en = {
   'topBar.undoKeysMac': '⌘Z',
   'topBar.undoKeys': 'Ctrl+Z',
   'topBar.redoKeysMac': '⌘⇧Z',
-  'topBar.redoKeys': 'Ctrl+Y or Ctrl+Shift+Z',
+  // Two keys that do the same, each drawn in mono, the word between them not.
+  'topBar.keysOr': '{first} or {second}',
+  'topBar.redoKeysY': 'Ctrl+Y',
+  'topBar.redoKeysShiftZ': 'Ctrl+Shift+Z',
   // src/app/shell/docking/LayoutMenu.tsx
   'layoutMenu.maximizeNamed': 'Maximize {title}',
   // src/features/storyboard/deleteScene.ts and ScenesView.tsx (polish 5: delete a scene)

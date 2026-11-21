@@ -29,6 +29,42 @@ export function commitTyping(doc: Pick<Document, 'activeElement'> = document): b
  * newest step, queued before this one); otherwise nothing at all.
  */
 export function takeStep(which: 'undo' | 'redo', enabled: boolean, store: StepStore = projectStore): void {
-  if (!enabled) return;
-  void (which === 'undo' ? store.getState().undo() : store.getState().redo());
+  void askStep(which, enabled, store);
+}
+
+/**
+ * takeStep, handing back the step's promise, which settles once the store has merged it: the buttons count presses in
+ * flight by it. Null when nothing was asked.
+ */
+export function askStep(which: 'undo' | 'redo', enabled: boolean, store: StepStore = projectStore): Promise<void> | null {
+  if (!enabled) return null;
+  return which === 'undo' ? store.getState().undo() : store.getState().redo();
+}
+
+/**
+ * What reaches a button during one press, as far as its "this press committed a field" flag goes. Pointer Events run
+ * pointerdown, pointerup, pointerout, pointerleave and only then the click for a touch or a pen (a mouse's click comes
+ * before it leaves), so only a mouse's leave says the press ended elsewhere.
+ */
+export type PressEvent =
+  | { type: 'pointerdown'; committed: boolean }
+  | { type: 'pointerleave'; pointerType: string }
+  | { type: 'pointercancel' }
+  | { type: 'click' };
+
+/**
+ * The flag after one event: set by a pointerdown that committed a field (each pointerdown starts the press afresh,
+ * whatever a press before it left), cleared by a mouse leaving (a press that ended elsewhere made no click, so its
+ * commit is not this button's to act on later), by a cancelled pointer of any kind, and by the click that reads it.
+ */
+export function pressCommitted(committed: boolean, event: PressEvent): boolean {
+  switch (event.type) {
+    case 'pointerdown':
+      return event.committed;
+    case 'pointerleave':
+      return event.pointerType === 'mouse' ? false : committed;
+    case 'pointercancel':
+    case 'click':
+      return false;
+  }
 }

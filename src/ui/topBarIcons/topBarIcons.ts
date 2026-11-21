@@ -9,7 +9,20 @@ const sources = import.meta.glob<string>('./*.svg', { eager: true, query: '?raw'
 /** The icons the bar draws: each must have its file here (topBarIcons.test.ts). */
 export const TOP_BAR_ICON_NAMES = ['undo', 'redo'] as const;
 
+/** An icon the bar draws: a name not in the list is a type error where it's drawn, never an empty button. */
+export type TopBarIconName = (typeof TOP_BAR_ICON_NAMES)[number];
+
 /** Each icon's SVG markup by its file's name without .svg ("undo", "redo"). */
 export const TOP_BAR_ICONS: Readonly<Record<string, string>> = Object.fromEntries(
   Object.entries(sources).map(([path, svg]) => [path.replace(/^\.\//, '').replace(/\.svg$/, ''), svg]),
 );
+
+/**
+ * A listed icon's markup, for drawing: only a name in TOP_BAR_ICON_NAMES type-checks, and its file must be here
+ * (topBarIcons.test.ts), so a missing one is said at once rather than drawn as an empty button.
+ */
+export function topBarIcon(name: TopBarIconName): string {
+  const svg = TOP_BAR_ICONS[name];
+  if (svg === undefined) throw new Error(`The top bar's icon ${name}.svg is missing.`);
+  return svg;
+}

@@ -10,7 +10,8 @@ import { lineText } from '../../features/history/summary';
 import { addShot } from '../../features/storyboard/board';
 import { noticeStore } from '../notice';
 import { createProjectStore } from '../projectStore';
-import { readStepLines, shownLines, type ReadFor, type StepLinesRead } from './undoRedoRead';
+import { askStep } from './undoRedoPress';
+import { readStepLines, sameState, shownLines, type ReadFor, type StepLinesRead } from './undoRedoRead';
 
 // The top bar's Undo and Redo (item 8, #241's review): a name is shown only for the state it was read for. Right after
 // an edit, an undo, a redo or a language change, until the new read lands, the buttons say "… a step", never the
@@ -128,6 +129,42 @@ describe('the top bar’s Undo and Redo names', () => {
     await store.getState().apply([{ kind: 'create', record: { id: 'sc9', type: 'scene', parentId: other.projectId, sortKey: 'V', props: { number: '9' } } }]);
     expect(named(read)).toEqual({ undo: 'a step', redo: null });
     expect(named(await readStepLines(now()))).toEqual({ undo: 'Added scene SC 09', redo: null });
+  });
+
+  it('say “a step” while a press is queued and not yet merged, even with a read for the state the store still shows', async () => {
+    await frame();
+    await frame();
+    const read = await readStepLines(now());
+    expect(named(read)).toEqual({ undo: 'Added frame 4B', redo: null });
+    // Counted as UndoRedoButtons counts them: one more per press that asked for a step, one less once it settled.
+    let inFlight = 0;
+    const press = () => {
+      const step = askStep('undo', true, store);
+      if (!step) throw new Error('no step asked');
+      inFlight += 1;
+      return step.finally(() => {
+        inFlight -= 1;
+      });
+    };
+    const shown = () => {
+      const { undo, redo } = shownLines(read, now(), store.getState(), inFlight);
+      return { undo: undo && lineText(undo), redo: redo && lineText(redo) };
+    };
+    // Enter pressed twice before the first undo has merged: the store still shows the state the read was for.
+    const first = press();
+    const second = press();
+    expect(sameState(read?.at ?? now(), now())).toBe(true);
+    expect(named(read)).toEqual({ undo: 'Added frame 4B', redo: null });
+    expect(inFlight).toBe(2);
+    expect(shown()).toEqual({ undo: 'a step', redo: null });
+    await first;
+    expect(inFlight).toBe(1);
+    expect(shown()).toEqual({ undo: 'a step', redo: 'a step' });
+    await second;
+    expect(inFlight).toBe(0);
+    // Both merged: the old read is for a state no longer shown, and a new one names the state two undos left.
+    expect(shown()).toEqual({ undo: 'a step', redo: 'a step' });
+    expect(named(await readStepLines(now()))).toEqual({ undo: 'Added scene SC 04', redo: 'Added frame 4A' });
   });
 
   it('fall back to “a step” quietly when a read fails: no notice, no console error', async () => {

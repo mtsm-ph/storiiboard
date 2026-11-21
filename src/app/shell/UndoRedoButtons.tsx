@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState, type FocusEvent } from 'react';
 import { LineText } from '../../features/history/LineText';
 import { lineText, type Line } from '../../features/history/summary';
-import { TOP_BAR_ICONS } from '../../ui/topBarIcons/topBarIcons';
+import { topBarIcon } from '../../ui/topBarIcons/topBarIcons';
 import { cx } from '../../ui/cx';
 import { Trans } from '../../ui/Trans';
 import { useLocale } from '../../ui/useLocale';
 import { usePlanUnit } from '../planUnits';
 import { useProject } from '../projectStore';
-import { stepButtonName, stepKeys } from './undoRedoNames';
-import { commitTyping, takeStep } from './undoRedoPress';
+import { stepButtonName, stepKeyParts } from './undoRedoNames';
+import { askStep, commitTyping, pressCommitted, type PressEvent } from './undoRedoPress';
 import { readStepLines, shownLines, type ReadFor, type StepLinesRead } from './undoRedoRead';
 import { t } from '../../core/i18n';
 
@@ -28,7 +28,17 @@ export function UndoRedoButtons({ mac }: { mac: boolean }) {
   const locale = useLocale();
   const unit = usePlanUnit();
   const [read, setRead] = useState<StepLinesRead | null>(null);
+  // Presses of either button queued and not yet merged into the store: each acts on a state the names don't show yet,
+  // so while any is, both say "a step" (shownLines).
+  const [inFlight, setInFlight] = useState(0);
   const file = project?.file ?? null;
+  const onPress = (step: Promise<void>) => {
+    setInFlight((n) => n + 1);
+    // The store's undo and redo never reject (an edit's failure is said where it's made), and settle after the merge.
+    void step.finally(() => {
+      setInFlight((n) => n - 1);
+    });
+  };
 
   useEffect(() => {
     if (!file) return;
@@ -43,13 +53,21 @@ export function UndoRedoButtons({ mac }: { mac: boolean }) {
 
   if (!file) return null;
   const now: ReadFor = { file, records, deletedForGood, locale, unit };
-  const lines = shownLines(read, now, { canUndo, canRedo });
+  const lines = shownLines(read, now, { canUndo, canRedo }, inFlight);
   return (
     <>
-      <StepButton which="undo" line={lines.undo} mac={mac} />
-      <StepButton which="redo" line={lines.redo} mac={mac} />
+      <StepButton which="undo" line={lines.undo} mac={mac} onPress={onPress} />
+      <StepButton which="redo" line={lines.redo} mac={mac} onPress={onPress} />
     </>
   );
+}
+
+/** The keys in the tip, each in mono; the word between two ("or", "o") in the tip's own type. */
+function StepKeys({ which, mac }: { which: 'undo' | 'redo'; mac: boolean }) {
+  const [first, second] = stepKeyParts(which, mac);
+  const key = (text: string) => <span className="font-mono">{text}</span>;
+  if (second === undefined) return key(first);
+  return <Trans k="topBar.keysOr" parts={{ first: key(first), second: key(second) }} />;
 }
 
 /** "Undo: Moved 4A to after 3C" with the numbers in mono, as History draws the line; or "Nothing to undo". */
@@ -58,12 +76,15 @@ function StepName({ which, line }: { which: 'undo' | 'redo'; line: Line | null }
   return <Trans k={which === 'undo' ? 'topBar.undoStep' : 'topBar.redoStep'} parts={{ step: <LineText line={line} /> }} />;
 }
 
-function StepButton({ which, line, mac }: { which: 'undo' | 'redo'; line: Line | null; mac: boolean }) {
+function StepButton({ which, line, mac, onPress }: { which: 'undo' | 'redo'; line: Line | null; mac: boolean; onPress: (step: Promise<void>) => void }) {
   const name = stepButtonName(which, line === null ? null : lineText(line), mac);
   const [tip, setTip] = useState(false);
   // The press began by committing a field being typed in: its edit is then the newest step, so the click takes it even
-  // where the button said there was nothing to take a moment ago (undoRedoPress.ts).
+  // where the button said there was nothing to take a moment ago (undoRedoPress.ts, which says when it's cleared).
   const committed = useRef(false);
+  const press = (event: PressEvent) => {
+    committed.current = pressCommitted(committed.current, event);
+  };
   // Escape hides the tip wherever the focus is (a tip opened by hover has the focus elsewhere), as the Saved sign's and
   // the tool strip's do (WCAG 1.4.13); the key keeps its own meaning there.
   useEffect(() => {
@@ -86,19 +107,23 @@ function StepButton({ which, line, mac }: { which: 'undo' | 'redo'; line: Line |
         // aria-disabled, never disabled: focus can still land on it and read "Nothing to undo".
         aria-disabled={name.enabled ? undefined : true}
         onPointerDown={() => {
-          committed.current = commitTyping();
+          press({ type: 'pointerdown', committed: commitTyping() });
+        }}
+        onPointerCancel={() => {
+          press({ type: 'pointercancel' });
         }}
         onClick={() => {
           const typed = committed.current;
-          committed.current = false;
-          takeStep(which, name.enabled || typed);
+          press({ type: 'click' });
+          const step = askStep(which, name.enabled || typed);
+          if (step) onPress(step);
         }}
         onPointerEnter={() => {
           setTip(true);
         }}
-        onPointerLeave={() => {
-          // A press that ended elsewhere made no click: its commit is not this button's to act on later.
-          committed.current = false;
+        onPointerLeave={(event) => {
+          // A touch's or a pen's leave comes before its click: only a mouse's says the press ended elsewhere.
+          press({ type: 'pointerleave', pointerType: event.pointerType });
           setTip(false);
         }}
         onFocus={(event: FocusEvent<HTMLButtonElement>) => {
@@ -121,7 +146,7 @@ function StepButton({ which, line, mac }: { which: 'undo' | 'redo'; line: Line |
         )}
       >
         {/* The app's own SVG, bundled at build time (topBarIcons.ts), never anything a person typed or opened. */}
-        <span aria-hidden="true" className="pointer-events-none block size-5 [&>svg]:block [&>svg]:size-full" dangerouslySetInnerHTML={{ __html: TOP_BAR_ICONS[which] ?? '' }} />
+        <span aria-hidden="true" className="pointer-events-none block size-5 [&>svg]:block [&>svg]:size-full" dangerouslySetInnerHTML={{ __html: topBarIcon(which) }} />
       </button>
       {tip && (
         <span
@@ -129,7 +154,7 @@ function StepButton({ which, line, mac }: { which: 'undo' | 'redo'; line: Line |
           data-step-tip={which}
           className="pointer-events-none absolute top-full right-0 z-50 mt-1 border-[1.5px] border-text bg-surface px-1.5 py-0.5 text-[12px] font-semibold whitespace-nowrap text-text"
         >
-          <Trans k="topBar.withKeys" parts={{ name: <StepName which={which} line={line} />, keys: <span className="font-mono">{stepKeys(which, mac)}</span> }} />
+          <Trans k="topBar.withKeys" parts={{ name: <StepName which={which} line={line} />, keys: <StepKeys which={which} mac={mac} /> }} />
         </span>
       )}
     </div>
