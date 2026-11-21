@@ -418,7 +418,8 @@ export interface DayLog extends DayRecords {
  *
  * Opening costs one pass over the whole log, a plain text search for the day's id before any JSON is read
  * (dayOpsSince); then, from the first frame's arrival on, a read of each write's parent for the frames' strokes and
- * pictures; for each call sheet found, its writes by record and what's under it from the log's start; and the lines
+ * pictures; for each call sheet found, its writes by record and what's under it from the log's start, the same text
+ * search for its id first, so only the writes that name it have their JSON read; and the lines
  * of the day's steps: each edit's ops and the steps an undo, redo or restore names. A later read (moreDayLog) costs
  * what the new steps wrote: one pass over the ops since the last read, and for a frame new to the day its strokes and
  * picture from its arrival, which is among them; only a call sheet new to the day is read from the log's start.
