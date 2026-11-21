@@ -71,7 +71,7 @@ async function screen(page: Page, x: number, y: number) {
 async function furnishedSetup(page: Page) {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
   await setupsTile(page).locator('[data-setup-add-frame]').first().click();
@@ -248,7 +248,7 @@ test('prints the page’s words in Spanish with the language set to es', async (
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'App language' }).selectOption('es');
   // Applied as Settings closes (Kevin, Nov 17).
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await fromPlan(page, 'plan-setup-pdf');
   const exportar = page.getByRole('dialog', { name: 'Exportar' });
   await expect(exportar.getByRole('radio', { name: 'Planta del emplazamiento (PDF)' })).toBeChecked();
@@ -528,7 +528,7 @@ test('every entry’s count is the pages it writes and its name the file it save
 test('a setup with frames and nothing drawn prints its frames, in the scene’s and the day’s plans, and the packet says what it left out', async ({ page }) => {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   // SC 01's Setup 1 with both frames and Setup 2 with none; no room, nothing drawn.
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();

@@ -62,7 +62,7 @@ async function screen(canvas: Locator, x: number, y: number) {
 async function openPlan(page: Page): Promise<Locator> {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
   await planTile(page).getByRole('button', { name: 'New room' }).click();

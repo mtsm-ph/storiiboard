@@ -86,10 +86,16 @@ function DraftButtons({ panelId }: { panelId: string }) {
         type="button"
         disabled={!waiting}
         data-settings-apply=""
-        className={cx(HEADER_BUTTON, 'border-text bg-accent font-bold text-accent-contrast')}
+        // On the accent fill the ring is accent-contrast (DESIGN.md), and Dark edges it in the accent, as Button primary.
+        className={cx(
+          HEADER_BUTTON,
+          'border-text bg-accent font-bold text-accent-contrast focus-visible:outline-accent-contrast dark:enabled:border-accent',
+        )}
         onClick={() => {
-          applyDrafts();
-          settle();
+          // Focus moves once all is written: a setting that didn't apply keeps the button active, and focus on it.
+          void applyDrafts().then((all) => {
+            if (all) settle();
+          });
         }}
       >
         {t('settings.applyChanges')}

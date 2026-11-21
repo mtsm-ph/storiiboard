@@ -1914,11 +1914,14 @@ export function Canvas({
           {path?.typed !== '' ? `${path?.typed ?? ''}▏` : scale ? scale.format(segmentLength) : String(tidy(segmentLength))}
         </div>
       )}
-      {(canvasView || trackpad || dotGrid) && (
+      {(canvasView || trackpad || dotGrid || (scale && scaleUnits)) && (
         // One row just above the zoom, clear of the left ruler as it is, so the zoom's box stays as wide as it was and
         // nothing more covers the middle of the canvas (the zoom's box is 30 px high, 8 px off the foot, and this row sits
         // 4 px over it).
         <div className={cx('absolute bottom-[42px] flex items-stretch gap-1', !scale && 'left-2')} style={scale ? { left: RULER_SIZE + 8 } : undefined}>
+          {/* m | ft (Kevin, Nov 18) first in this row, right above the scale bar it changes. Never inside the zoom's box:
+              there it widened the box over the plan, and a drag meant for an item landed on it (planLights' zoomed-out flag). */}
+          {scale && scaleUnits && <ScaleUnits value={scaleUnits.value} onChange={scaleUnits.onChange} button={BUTTON} pressed={PRESSED_IN_BOX} />}
           {canvasView && (
             // Paper or Dark (6.5.1): two pressed-or-not buttons, each reachable by Tab, the one in use an ink fill. Its
             // 1.5 px rule and 2 px of surface round the buttons, as the tool strip's (6.5.2 round 2): the pressed one's ink
@@ -2020,8 +2023,6 @@ export function Canvas({
             {percent}%
           </button>
         )}
-        {/* m | ft (Kevin, Nov 18), right by the scale bar it changes. */}
-        {scale && scaleUnits && <ScaleUnits value={scaleUnits.value} onChange={scaleUnits.onChange} button={BUTTON} pressed={PRESSED_IN_BOX} />}
         <button type="button" aria-label={t('canvas.zoomIn')} className={ZOOM_BUTTON} onClick={() => { zoomTo(view.zoom * ZOOM_STEP); }}>
           +
         </button>

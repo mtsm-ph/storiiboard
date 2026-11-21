@@ -73,6 +73,7 @@ export function BackupsPanel() {
       keep={keep}
       onKeepChange={draftKeep}
       nextToProject={nextToProject}
+      appliedNextToProject={applied.backupsNextToProject}
       onNextToProjectChange={draftNextToProject}
       project={project && found ? { folder: found.folder, backups: entries, synced: found.synced } : null}
       status={status}

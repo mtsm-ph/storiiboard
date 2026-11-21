@@ -104,7 +104,7 @@ test('the week starts as this computer’s region says, or as Settings → App s
   const weekStart = app.getByLabel('Week starts on');
   await expect(weekStart).toHaveValue('region');
   await weekStart.selectOption('monday');
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await expect(firstColumn).toHaveText('Mon');
   // In Spanish, still as set: Monday because Settings says so, not because of the language.
   await openSettings(page, 'App');
@@ -113,7 +113,7 @@ test('the week starts as this computer’s region says, or as Settings → App s
   // Spanish name.
   await applySettings(page);
   await page.getByLabel('La semana empieza el').selectOption('region');
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await expect(page.getByRole('dialog', { name: 'Configuración' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Calendario', exact: true }).getByRole('grid').getByRole('columnheader').first()).toHaveText(/^dom/);
 });

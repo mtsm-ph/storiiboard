@@ -31,7 +31,7 @@ test('Settings has an App language, English by default, kept across a restart', 
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
 });
 
-test('picking Español in Settings switches the open app at once, and English switches it back (polish 7)', async ({ page }) => {
+test('picking Español in Settings switches the open app on Apply, and English switches it back (polish 7)', async ({ page }) => {
   const language = (await openSettings(page, 'App')).getByRole('combobox', { name: 'App language' });
   await language.selectOption('es');
   // Applied (Kevin, Nov 17): the window itself, its tabs and the app behind it, without a reload.

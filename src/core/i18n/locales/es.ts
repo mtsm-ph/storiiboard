@@ -3971,6 +3971,9 @@ export const es: Messages = {
   'settings.closeAsk.title': '¿Aplicar tus cambios?',
   'settings.closeAsk.text': 'Algunos ajustes que cambiaste aún no se aplican. Aplícalos, o descártalos y conserva tu configuración como estaba.',
   'presets.applyDiscardsDrafts': 'Los cambios pendientes en Configuración que no aplicaste se descartan.',
+  'settings.notApplied': 'Un cambio no se aplicó y sigue pendiente: {reason}',
+  // src/app/project/BackupsView.tsx
+  'backups.placeAfterApply': 'Después de aplicar: {place}',
   // src/app/preferences/AppTile.tsx
   'app.measurement': 'Sistema de medidas',
   'app.measurement.region': 'Según la región de esta computadora',

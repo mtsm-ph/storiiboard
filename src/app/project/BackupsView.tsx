@@ -28,6 +28,8 @@ export interface BackupsViewProps {
   onKeepChange: (keep: BackupKeep) => void;
   /** The person's setting: keep a synced project's backups next to it instead of on this computer. */
   nextToProject: boolean;
+  /** The setting as applied, which the project's backups folder follows; `nextToProject` when not given. */
+  appliedNextToProject?: boolean;
   onNextToProjectChange: (next: boolean) => void;
   /** Null with no project open. `synced` names the sync service the project is in, if any. */
   project: { folder: string; backups: readonly BackupEntry[]; synced: string | null } | null;
@@ -59,22 +61,30 @@ interface KeepFieldProps extends Pick<BackupsViewProps, 'keep' | 'onKeepChange'>
 }
 
 function KeepField({ label, field, keep, onKeepChange, helpId }: KeepFieldProps) {
-  // The parent keys this by the saved value, so a refused entry snaps back to it.
-  const [draft, setDraft] = useState(String(keep[field]));
+  // What is typed. Each change that reads as a number in range is handed on at once (a draft waiting for Apply, as
+  // Profile's name is), so one click on Apply applies it; a refused entry snaps back when the field is left.
+  const [text, setText] = useState(String(keep[field]));
+  // The value shown changed from elsewhere (Discard, Apply, a preset): the field follows, unless it's what is typed.
+  const [shown, setShown] = useState(keep[field]);
+  if (shown !== keep[field]) {
+    setShown(keep[field]);
+    if (parseKeep(text, field) !== keep[field]) setText(String(keep[field]));
+  }
   return (
     <TextField
       label={label}
       mono
       inputMode="numeric"
-      value={draft}
+      value={text}
       aria-describedby={helpId}
       onChange={(event) => {
-        setDraft(event.currentTarget.value);
+        const typed = event.currentTarget.value;
+        setText(typed);
+        const value = parseKeep(typed, field);
+        if (value !== null && value !== keep[field]) onKeepChange({ ...keep, [field]: value });
       }}
       onBlur={() => {
-        const value = parseKeep(draft, field);
-        if (value === null) setDraft(String(keep[field]));
-        else if (value !== keep[field]) onKeepChange({ ...keep, [field]: value });
+        if (parseKeep(text, field) === null) setText(String(keep[field]));
       }}
       onKeyDown={(event) => {
         if (event.key === 'Enter') event.currentTarget.blur();
@@ -87,6 +97,7 @@ export function BackupsView({
   keep,
   onKeepChange,
   nextToProject,
+  appliedNextToProject = nextToProject,
   onNextToProjectChange,
   project,
   status,
@@ -98,8 +109,8 @@ export function BackupsView({
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className="grid max-w-[420px] grid-cols-2 gap-3">
-        <KeepField key={`r${String(keep.recent)}`} label={t('backupsView.keepTheLast')} field="recent" keep={keep} onKeepChange={onKeepChange} helpId={helpId} />
-        <KeepField key={`d${String(keep.days)}`} label={t('backupsView.plusOneADayFor')} field="days" keep={keep} onKeepChange={onKeepChange} helpId={helpId} />
+        <KeepField label={t('backupsView.keepTheLast')} field="recent" keep={keep} onKeepChange={onKeepChange} helpId={helpId} />
+        <KeepField label={t('backupsView.plusOneADayFor')} field="days" keep={keep} onKeepChange={onKeepChange} helpId={helpId} />
       </div>
       <p id={helpId} className="text-[12px] text-text-muted">
         {t('backupsView.copiesThenDaysEvery5')}
@@ -125,7 +136,13 @@ export function BackupsView({
               {status}
             </p>
           </div>
-          <p className="text-[12px]">{placeNote(project.synced, nextToProject)}</p>
+          {/* Where they go now, as the folder below it says; a change waiting for Apply says where they'd go after it. */}
+          <p className="text-[12px]">{placeNote(project.synced, appliedNextToProject)}</p>
+          {project.synced !== null && appliedNextToProject !== nextToProject && (
+            <p data-backups-after-apply="" className="text-[12px]">
+              {t('backups.placeAfterApply', { place: placeNote(project.synced, nextToProject) })}
+            </p>
+          )}
           <p className="font-mono text-[11px] text-text-muted">{project.folder}</p>
           {project.backups.length === 0 ? (
             <p className="text-[13px] text-text-muted">{t('backupsView.noBackupsYetTheFirst')}</p>

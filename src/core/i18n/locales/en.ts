@@ -3975,6 +3975,9 @@ export const en = {
   'settings.closeAsk.title': 'Apply your changes?',
   'settings.closeAsk.text': 'Some settings you changed aren’t applied yet. Apply them, or discard them and keep your settings as they were.',
   'presets.applyDiscardsDrafts': 'Changes waiting in Settings that you haven’t applied are discarded.',
+  'settings.notApplied': 'A change wasn’t applied, and still waits: {reason}',
+  // src/app/project/BackupsView.tsx: where backups go once a change waiting is applied
+  'backups.placeAfterApply': 'After Apply: {place}',
   // src/app/preferences/AppTile.tsx: the Measurement system (Kevin, Nov 18)
   'app.measurement': 'Measurement system',
   'app.measurement.region': 'By this computer’s region',
