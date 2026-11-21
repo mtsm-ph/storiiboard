@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { sheetCompany, useCompanyLogoUrl } from './sheetCompany';
 import { useDirectionsApp } from '../../app/directionsApp';
 import { setPaperChoice, usePaper, usePaperChoice } from '../../app/paper';
@@ -14,6 +14,7 @@ import type { SbdRecord } from '../../core/model/record';
 import { dayLabel, hmuMinutes, projectShootDays } from '../../core/model/shootDay';
 import type { Change } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
+import { useScrollLane } from '../../ui/scrollLane';
 import { Select } from '../../ui/fields';
 import { dayPeopleAdd, dayPeopleAddEveryone, dayPeopleChoose, dayPeopleRemove } from '../schedule/dayEdits';
 import { exportCallSheetPdf, type ExportCallSheetOptions } from './exportCallSheet';
@@ -57,6 +58,8 @@ export function CallSheetTile() {
   const logoUrl = useCompanyLogoUrl(project?.file ?? null, company?.logoSha256 ?? null);
   // One export at a time, as Issue has one: the map's tiles can take seconds, and a second press would only wait behind it.
   const [exporting, setExporting] = useState(false);
+  const scroller = useRef<HTMLDivElement>(null);
+  useScrollLane(scroller);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('callSheet.noProject')}</p>;
   const projectId = project.projectId;
   const days = projectShootDays(records, projectId);
@@ -72,7 +75,7 @@ export function CallSheetTile() {
   const edit = (build: (now: Records) => Change[]) => projectStore.getState().applyWith((now) => ({ changes: build(now) }));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-call-sheet="">
+    <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-call-sheet="">
       <div className="flex flex-wrap items-end gap-2">
         <span className="min-w-0 flex-1">
           <Select

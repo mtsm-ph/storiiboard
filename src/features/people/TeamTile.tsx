@@ -1,10 +1,11 @@
-import { useId } from 'react';
+import { useId, useRef } from 'react';
 import { useProject } from '../../app/projectStore';
 import { list, t, tn } from '../../core/i18n';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { characterName, charactersPlayedBy, peopleByDepartment, projectPeople } from '../../core/model/person';
 import { ROLE_LABELS } from '../../core/model/role';
 import { LinkedBoards } from '../moodboards/LinkedBoards';
+import { useScrollLane } from '../../ui/scrollLane';
 
 // The Team section (3.5b): who is on the project, by department in the call sheet's order, each with their title (or
 // role) and, for cast, the characters they play. Read from the same person records as Production's Cast and crew
@@ -15,11 +16,13 @@ export function TeamTile() {
   const records = useProject((s) => s.records);
   // Its own ids, so two Team tiles open at once never share one.
   const base = useId();
+  const scroller = useRef<HTMLDivElement>(null);
+  useScrollLane(scroller);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('people.noProject')}</p>;
   const people = projectPeople(records, project.projectId);
   if (people.length === 0) return <p className="p-3 text-[13px] text-text-muted">{t('team.none')}</p>;
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3">
+    <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3">
       <p className="sb-label font-mono">{tn('people.count', people.length)}</p>
       {peopleByDepartment(people).map(({ department, people: inIt }) => {
         const heading = department ? DEPARTMENT_LABELS[department] : t('team.noDepartment');

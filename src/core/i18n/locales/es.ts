@@ -3614,6 +3614,8 @@ export const es: Messages = {
   'layers.lockOf': 'Bloquear la capa {layer}',
   'layers.solo': 'Solo',
   'layers.soloOf': 'Solo la capa {layer}: visible, las demás atenuadas y bloqueadas',
+  'layers.soloTitle': 'Solo la capa {layer}: visible, las demás atenuadas y bloqueadas. En el plano, pulsa {key}.',
+  'layers.showAllTitle': 'Mostrar todas las capas, ninguna bloqueada. En el plano, pulsa {key}.',
   'layers.lockedBySolo': 'Bloqueada mientras {layer} está en solo',
   'layers.items.one': '{count} elemento',
   'layers.items.other': '{count} elementos',

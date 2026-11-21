@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { cx } from './cx';
+import { useScrollLane } from './scrollLane';
 import { keepBrowserMenuOut } from './menuKey';
 
 // A button that opens a panel of commands: the Layout menu, the project menu and the project switcher. It's a
@@ -26,6 +27,8 @@ export function Menu({ label, align = 'left', buttonClassName, buttonTitle, clas
   const panelId = useId();
   const triggerId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useScrollLane(panel);
   // By id rather than a ref: close is handed to the commands while they render.
   const focusTrigger = () => document.getElementById(triggerId)?.focus();
 
@@ -87,6 +90,7 @@ export function Menu({ label, align = 'left', buttonClassName, buttonTitle, clas
       {open && (
         // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- only keeps the browser's menu out; the commands are the controls
         <div
+          ref={panel}
           id={panelId}
           tabIndex={-1}
           // The menu key on a focused command opens no browser menu over the app's.
