@@ -1633,6 +1633,7 @@ export const es: Messages = {
   'error.notAVideo': 'Ese archivo no se puede leer como video.',
   'error.videoToolMissing': 'El lector de video de Storiiboard no pudo iniciarse. Reinstalar Storiiboard lo restablece.',
   'error.videoTooSlow': 'Ese video tardó demasiado en leerse. Si está en una unidad de red, cópialo primero a esta computadora.',
+  'error.clipDestinationStalled': 'La carpeta donde se guarda este clip dejó de responder. Si está en un disco o una unidad de red, revisa que siga conectado, o guarda el clip en otro lugar.',
   // src-tauri/src/heic.rs
   'error.heicTooBig': 'Esta foto HEIC es demasiado grande para leerla (más de 64 MB). Conviértela primero a JPEG.',
   'error.heicTooManyPixels': 'Esta foto HEIC es demasiado grande para leerla (más de 120 megapíxeles). Conviértela primero a JPEG.',

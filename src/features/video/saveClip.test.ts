@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { localizeError, setLocale } from '../../core/i18n';
+import { en } from '../../core/i18n/locales/en';
 import { lutStatements, prepareLut } from '../../core/media/lut';
 import { clipProp, videoProps, type VideoProbe } from '../../core/media/video';
 import { nodeDriver } from '../../core/storage/nodeDriver';
@@ -112,6 +114,27 @@ describe('a frame’s clip saved as a file (2.8b)', () => {
     tauri.invoke.mockResolvedValueOnce('/Exports/SC004_4A.mp4').mockRejectedValueOnce(new Error("The clip couldn't be saved there."));
     expect(await saveClip('s1')).toBe(false);
     expect(notices.said.at(-1)).toBe("The clip couldn't be saved there.");
+  });
+
+  // Kevin, Nov 20: a clip's folder that stops answering is a save, never "took too long to read".
+  it('says a folder that stopped answering in the words of a save, in the person’s language', async () => {
+    const stalled =
+      "The folder this clip is being saved to stopped responding. If it's on a drive or a network share, check it's still connected, or save the clip somewhere else.";
+    expect(en['error.clipDestinationStalled']).toBe(stalled);
+    tauri.invoke.mockResolvedValueOnce('/Exports/SC004_4A.mp4').mockRejectedValueOnce(new Error(stalled));
+    expect(await saveClip('s1')).toBe(false);
+    const said = notices.said.at(-1) ?? '';
+    expect(said).toBe(stalled);
+    // The notice bar reads it through localizeError, as it reads every error from below the UI.
+    setLocale('es');
+    try {
+      expect(localizeError(said)).toBe(
+        'La carpeta donde se guarda este clip dejó de responder. Si está en un disco o una unidad de red, revisa que siga conectado, o guarda el clip en otro lugar.',
+      );
+    } finally {
+      setLocale('en');
+    }
+    expect(localizeError(said)).toBe(stalled);
   });
   it('names a frame with no shot number by its place in its scene, as the picture export does', async () => {
     await projectStore.getState().apply([

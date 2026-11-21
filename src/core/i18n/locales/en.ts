@@ -1631,6 +1631,8 @@ export const en = {
   'error.notAVideo': 'That file can\'t be read as a video.',
   'error.videoToolMissing': 'Storiiboard\'s video reader couldn\'t start. Reinstalling Storiiboard puts it back.',
   'error.videoTooSlow': 'That video took too long to read. If it\'s on a network drive, copy it to this computer first.',
+  // A clip's folder that stopped answering while the clip was being saved there (Kevin, Nov 20): a save, not a read.
+  'error.clipDestinationStalled': 'The folder this clip is being saved to stopped responding. If it\'s on a drive or a network share, check it\'s still connected, or save the clip somewhere else.',
   // src-tauri/src/heic.rs (6.27n): a HEIC turned into a PNG on Windows; the Mac answers error.heic
   'error.heicTooBig': 'This HEIC photo is too large to read (over 64 MB). Convert it to JPEG first.',
   'error.heicTooManyPixels': 'This HEIC photo is too large to read (over 120 megapixels). Convert it to JPEG first.',
