@@ -409,22 +409,24 @@ export interface DayLog extends DayRecords {
 }
 
 /**
- * A shoot day's own history (Kevin, Nov 18): only a view, nothing stored. Every step that wrote the day, its call sheet
- * (and what's under it), or a frame whose `shoot_day_id` is or was the day, with the frame's whole log as its own
- * History reads it (its strokes and picture too, and its steps from before it was scheduled), so a frame moved off
- * the day stays in it ("Moved 4A to shoot day Wed, Nov 25" in both days'). Undos, redos and restores of those steps
- * write the same records, so they're found by the same rule. Each line is History's own (describeSteps).
+ * A shoot day's own history (Kevin, Nov 18 and 21): only a view, nothing stored. What happened to the day: every step
+ * that wrote the day, its call sheet (and what's under it), a frame arriving on it or leaving it, or a frame (its
+ * strokes and picture too) while it was on the day; never a frame's life before it arrived or after it left. A frame
+ * moved off the day keeps the move in both days' ("Moved 4A to shoot day Wed, Nov 25"), and its later edits only in
+ * the day it's on. Undos, redos and restores write the same records, so they follow the same rule (dayOpsSince). Each
+ * line is History's own (describeSteps).
  *
- * Opening costs two or three passes over the whole log, each a plain text search for the ids asked before any JSON is
- * read (dayOpsSince): one for the day's id, one for the frames and call sheets it found; then a read of their strokes
- * and pictures by record; and the lines of the day's steps: each edit's ops and the steps an undo, redo or restore
- * names. A later read (moreDayLog) costs what the new steps wrote, unless one of them brings a record new to the day
- * (a frame scheduled on it, a call sheet, a sketch's stroke): that record is read from the log's start, as here.
+ * Opening costs one pass over the whole log, a plain text search for the day's id before any JSON is read
+ * (dayOpsSince); then, from the first frame's arrival on, a read of each write's parent for the frames' strokes and
+ * pictures; for each call sheet found, its writes by record and what's under it from the log's start; and the lines
+ * of the day's steps: each edit's ops and the steps an undo, redo or restore names. A later read (moreDayLog) costs
+ * what the new steps wrote: one pass over the ops since the last read, and for a frame new to the day its strokes and
+ * picture from its arrival, which is among them; only a call sheet new to the day is read from the log's start.
  */
 export async function readDayLog(file: ProjectFile, dayId: string, unit?: PlanUnit): Promise<DayLog> {
-  // Taken first, so a write landing during the read is read again next time rather than missed (kept once, by group).
+  // Taken first, and the read stops there: a write landing during the read is the next read's (kept once, by group).
   const through = await lastOpSeq(file);
-  const { ops, ...found } = await dayOpsSince(file, 0, dayId, NO_DAY_RECORDS);
+  const { ops, ...found } = await dayOpsSince(file, 0, through, dayId, NO_DAY_RECORDS);
   return { dayId, ...found, through, steps: await dayLines(file, ops, new Set(), unit) };
 }
 
@@ -438,7 +440,7 @@ export async function moreDayLog(file: ProjectFile, dayId: string, known: DayLog
   // the next read's check, never skipped.
   const through = await lastOpSeq(file);
   if (await purgedSince(file, known.through)) return readDayLog(file, dayId, unit);
-  const { ops, ...found } = await dayOpsSince(file, known.through, dayId, known);
+  const { ops, ...found } = await dayOpsSince(file, known.through, through, dayId, known);
   const have = new Set(known.steps.map((step) => step.group.id));
   const added = await dayLines(file, ops, have, unit);
   return { dayId, ...found, through: Math.max(known.through, through), steps: [...added, ...known.steps].sort((a, b) => b.group.seq - a.group.seq) };

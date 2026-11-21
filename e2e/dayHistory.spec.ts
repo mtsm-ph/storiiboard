@@ -2,8 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { skipOnboarding } from './onboarding';
 
 // A shoot day's own history (Kevin, Nov 18) in the memory build: opened from the day in Shoot days and from the day in
-// the Calendar's schedule, it lists the steps on the day and on the frames that are or were on it, in History's own
-// words, so a frame moved to another day stays in both days' histories.
+// the Calendar's schedule, it lists what happened to the day, in History's own words: its own steps, each frame arriving
+// or leaving, and what changed on a frame while it was on the day (Kevin, Nov 21), so a frame moved to another day
+// stays in both days' histories, and its steps from before it arrived are in neither.
 
 test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -61,12 +62,12 @@ test('a day’s history from Shoot days and from the Calendar: a frame scheduled
   await expect(feed.first()).toContainText(MOVED);
   await expect(feed.nth(1)).toContainText(SCHEDULED);
 
-  // The other day's history, from the Calendar's schedule: the move, and 1A's whole log, its first day's step too.
+  // The other day's history, from the Calendar's schedule: the move, not 1A's first day's step, from before it came.
   await calendar(page).getByRole('button', { name: 'History of Day 2 · Tue, Nov 17' }).click();
   await expect(history(page).getByRole('switch', { name: 'Only shoot day Tue, Nov 17' })).toHaveAttribute('aria-checked', 'true');
   const second = daySteps(page, 'Tue, Nov 17');
   await expect(second.first()).toContainText(MOVED);
-  await expect(second.filter({ hasText: SCHEDULED })).toHaveCount(1);
+  await expect(second.filter({ hasText: SCHEDULED })).toHaveCount(0);
   await expect(second.filter({ hasText: 'Added shoot day' })).toHaveCount(1);
 
   // And the first day's again, from the Calendar: both steps.
@@ -79,7 +80,40 @@ test('a day’s history from Shoot days and from the Calendar: a frame scheduled
   await list.getByRole('button').first().click();
   await editor(page).getByLabel('Call').fill('07:00');
   await editor(page).getByLabel('Call').blur();
-  // The day added, dated and its call, and 1A's whole log: added, scheduled, moved.
-  await expect(daySteps(page, 'Mon, Nov 16')).toHaveCount(6);
+  // The day added, dated and its call, and 1A scheduled and moved; not 1A's adding, from before it came.
+  await expect(daySteps(page, 'Mon, Nov 16')).toHaveCount(5);
   await expect(daySteps(page, 'Mon, Nov 16').nth(2)).toContainText(SCHEDULED);
+});
+
+test('a day’s history leaves out a frame’s edit from before it was scheduled, and lists one made while it’s on the day', async ({ page }) => {
+  const sections = page.getByRole('navigation', { name: 'Sections' });
+  const board = page.getByRole('region', { name: 'Storyboard', exact: true });
+  const lens = page.getByRole('region', { name: 'Frame inspector', exact: true }).getByLabel('Lens (mm)');
+  const setLens = async (mm: string) => {
+    await sections.getByRole('button', { name: /^Storyboard/ }).click();
+    await board.locator('[data-shot-id]').first().click();
+    await lens.fill(mm);
+    await lens.press('Enter');
+    await expect(lens).toHaveValue(mm);
+    await sections.getByRole('button', { name: /^Production/ }).click();
+  };
+  // Before 1A is on any day.
+  await setLens('35');
+  await days(page).getByRole('button', { name: '+ New day' }).click();
+  await editor(page).getByLabel('Date').fill('2026-11-16');
+  await editor(page).getByLabel('Date').blur();
+  await editor(page).getByRole('button', { name: 'Add 1A to Day 1 · Mon, Nov 16' }).click();
+  // While it's on the day.
+  await setLens('50');
+  await days(page).getByRole('list', { name: 'Shoot days' }).getByRole('button').first().click();
+  await editor(page).getByRole('button', { name: 'History of Day 1 · Mon, Nov 16' }).click();
+  const steps = daySteps(page, 'Mon, Nov 16');
+  await expect(steps.first()).toContainText('1A: lens 35mm → 50mm');
+  await expect(steps.nth(1)).toContainText(SCHEDULED);
+  await expect(steps.filter({ hasText: 'lens' })).toHaveCount(1);
+  // The main feed has both lens changes: the first is there, only not the day's.
+  await history(page).getByRole('switch', { name: 'Only shoot day Mon, Nov 16' }).click();
+  const feed = history(page).getByRole('list', { name: 'Steps, newest first' }).getByRole('listitem');
+  await expect(feed.first()).toContainText('1A: lens 35mm → 50mm');
+  await expect(feed.filter({ hasText: 'lens' })).toHaveCount(2);
 });
