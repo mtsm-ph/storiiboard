@@ -73,7 +73,8 @@ export interface PhotoExif {
 /**
  * Why a photo's EXIF answer holds what it holds (6.27 round 3, Kevin Nov 17): `read` (its values, or none of them in
  * it), `none` (no EXIF at all), `refused` (the reader refused it: a block too costly or malformed to read), `heic` (a
- * HEIF or HEIC file, whose EXIF isn't read yet). The photo imports whatever it is.
+ * HEIF or HEIC file whose date and place couldn't be read: boxes the reader can't follow, or an EXIF item stored a way
+ * it doesn't read). The photo imports whatever it is.
  */
 export type ExifReason = 'read' | 'none' | 'refused' | 'heic';
 

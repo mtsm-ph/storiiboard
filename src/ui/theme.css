@@ -226,6 +226,23 @@ html[data-eyedropper] * {
   background-color: var(--bg);
 }
 
+/* Controls clear of an overlay scroll bar (6.27o, src/ui/scrollLane.ts): a scroller that overflows takes a lane on its
+   bar's side, the room a classic bar takes for itself, only where bars lie over the content. Outside any layer, so it
+   wins over a scroller's own padding utility on that side. */
+:root {
+  --scroll-lane: 16px;
+}
+:root[data-scrollbars='overlay'] [data-scroll-lane='y'] {
+  padding-inline-end: var(--scroll-lane);
+}
+:root[data-scrollbars='overlay'] [data-scroll-lane='x'] {
+  padding-bottom: var(--scroll-lane);
+}
+:root[data-scrollbars='overlay'] [data-scroll-lane='both'] {
+  padding-inline-end: var(--scroll-lane);
+  padding-bottom: var(--scroll-lane);
+}
+
 /* A tile or splitter drag is under way (src/app/shell/docking/textSelection.ts). */
 .sb-dragging,
 .sb-dragging * {

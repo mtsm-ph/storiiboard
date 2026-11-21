@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { t } from '../../core/i18n';
 import { commandShortcut, MenuGroup, MenuItem } from '../Menu';
 import type { AlignMode, Axis, CanvasCommand, MenuAction, Point, TidyMode } from './types';
+import { useScrollLane } from '../scrollLane';
 
 // The right-click menu (decision 11), also opened by Shift+F10 or the menu key: Copy, Cut, Paste, Duplicate, Delete and
 // the four z-order moves. A panel of buttons like the app's other menus (src/ui/Menu.tsx); Escape closes it and
@@ -46,6 +47,7 @@ const TIDIES: readonly { mode: TidyMode; label: () => string }[] = [
 
 export function CanvasMenu({ at, hasSelection, items, hasSection, canvasHeight, canPaste, mac, onCommand, onSelectContents, onClose, extras = [] }: CanvasMenuProps) {
   const panel = useRef<HTMLDivElement>(null);
+  useScrollLane(panel);
   // Moved up by its own measured height when it would run off the bottom of the canvas.
   const [top, setTop] = useState(at.y);
   useLayoutEffect(() => {

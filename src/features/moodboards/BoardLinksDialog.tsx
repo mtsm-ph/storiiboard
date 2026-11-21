@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useProject } from '../../app/projectStore';
 import { t } from '../../core/i18n';
 import { projectCharacters } from '../../core/model/person';
 import { Button } from '../../ui/Button';
+import { useScrollLane } from '../../ui/scrollLane';
 import { InAppWindow } from '../../ui/InAppWindow';
 import { board, locations } from '../storyboard/board';
 import { headingOf } from '../storyboard/ScenesView';
@@ -22,6 +23,8 @@ export function BoardLinksDialog({ boardId, onClose }: { boardId: string; onClos
   const [scenes, setScenes] = useState<readonly string[]>(now.sceneIds);
   const [characters, setCharacters] = useState<readonly string[]>(now.characterIds);
   const [places, setPlaces] = useState<readonly string[]>(now.locationIds);
+  const list = useRef<HTMLDivElement>(null);
+  useScrollLane(list);
   if (!projectId) return null;
   const toggle = (list: readonly string[], set: (next: readonly string[]) => void, id: string) => {
     set(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
@@ -49,7 +52,7 @@ export function BoardLinksDialog({ boardId, onClose }: { boardId: string; onClos
           void setBoardLinks(boardId, { sceneIds: [...scenes], characterIds: [...characters], locationIds: [...places] });
         }}
       >
-        <div className="flex max-h-[360px] flex-col gap-3 overflow-y-auto border border-border p-2">
+        <div ref={list} className="flex max-h-[360px] flex-col gap-3 overflow-y-auto border border-border p-2">
           {group(
             t('moodboard.links.scenes'),
             t('moodboard.links.noScenes'),

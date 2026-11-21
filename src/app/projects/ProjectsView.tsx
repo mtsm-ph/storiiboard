@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { PROJECT_STATE_LABEL } from '../../core/model/project';
 import type { RecentProject } from '../../core/storage/recent';
 import { Button, IconButton } from '../../ui/Button';
 import { CloseGlyph } from '../../ui/glyphs';
+import { useScrollLane } from '../../ui/scrollLane';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { Tile } from '../../ui/Tile';
 import { localDateTime } from '../format';
@@ -35,6 +36,8 @@ export function openedAtLabel(iso: string): string {
 
 export function ProjectsView({ recent, openPath, canOpen, onNew, onOpen, onOpenRecent, onForget, onOpenBackup, onImportData }: ProjectsViewProps) {
   const [shown, setShown] = useState<Shown>('recent');
+  const list = useRef<HTMLUListElement>(null);
+  useScrollLane(list);
   // An archived project leaves Recent for the Archived list (CLAUDE.md, Data model).
   const listed = recent.filter((entry) => (entry.state === 'archived') === (shown === 'archived'));
   return (
@@ -74,7 +77,7 @@ export function ProjectsView({ recent, openPath, canOpen, onNew, onOpen, onOpenR
                 : t('projectsView.noRecent')}
             </p>
           ) : (
-            <ul aria-label={shown === 'archived' ? t('projectsView.archivedProjects') : t('sidebar.recentProjects')} className="min-h-0 overflow-y-auto border-t border-border">
+            <ul ref={list} aria-label={shown === 'archived' ? t('projectsView.archivedProjects') : t('sidebar.recentProjects')} className="min-h-0 overflow-y-auto border-t border-border">
               {listed.map((entry) => {
                 const open = entry.path === openPath;
                 return (

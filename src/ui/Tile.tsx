@@ -1,8 +1,9 @@
-import { useId, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
+import { useId, useRef, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { IconButton } from './Button';
 import { cx } from './cx';
 import { CloseGlyph, GripGlyph, MaximizeGlyph, RestoreGlyph } from './glyphs';
 import { roveFocus } from './roving';
+import { useScrollLane } from './scrollLane';
 import { t } from '../core/i18n';
 
 export interface TileTab {
@@ -56,6 +57,9 @@ export function Tile({
   const baseId = useId();
   const tabId = (id: string) => `${baseId}-tab-${id}`;
   const hasTabs = tabs !== undefined && tabs.length > 0;
+  // The body is what scrolls in most tiles (it is a block, so their own roots grow with their content).
+  const body = useRef<HTMLDivElement>(null);
+  useScrollLane(body);
 
   return (
     <section
@@ -147,6 +151,7 @@ export function Tile({
       </div>
 
       <div
+        ref={body}
         data-scroll-root=""
         className="min-h-0 flex-1 overflow-auto"
         {...(hasTabs && activeTab !== undefined
