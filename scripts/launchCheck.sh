@@ -19,6 +19,9 @@
 # back …)", when the worker and the page both failed at canvas, draw or read, so no canvas there can be read back at
 # all. Without the flag it fails. With it, either pass says a "launch check: warning:" line in the log and, when
 # GITHUB_STEP_SUMMARY is set, in the job's summary too.
+#
+# The app's step lines, its failure line and its time-limit line end with the time since the check started (Nov 21),
+# for example "launch check: pdf-text ok (at 12.4 s)"; "launch check: passed" has none.
 
 set -u
 
@@ -180,6 +183,9 @@ if [ "$code" = 0 ] && tr -d '\r' <"$log" | grep -qx 'launch check: passed'; then
     exit 0
   fi
   note=${found#'launch check: accents ok ('}
+  # Each step's line ends with its time since the check started, " (at 12.4 s)" (Nov 21): the last such ending
+  # comes off first, then the note's own closing bracket. A line without one (an older app) is read as before.
+  note=${note% (at * s)}
   note=${note%)}
   if [ "$accents_by_page_ok" = true ]; then
     warning="warning: $what, as --accents-by-page-ok allows: $note"

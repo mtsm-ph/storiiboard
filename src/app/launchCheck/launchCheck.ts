@@ -33,8 +33,17 @@ const PDF_LIMIT_MS = 25_000;
 const ACCENTS_LIMIT_MS = 20_000;
 /** The page's own reading of the picture, after an `accents` failure: short, so the whole stays within Rust's 90 s. */
 const ON_PAGE_LIMIT_MS = 10_000;
-/** The worker asked once more after a pass by the page: 25 + 20 + 10 + 10 s, still within Rust's 90. */
+/** The worker asked once more after a pass by the page. */
 const AGAIN_LIMIT_MS = 10_000;
+/**
+ * Each worker script's fetch in `worker-policy` (Nov 21): one that hangs fails the step by its file's name, never by
+ * Rust's 90 s. Both scripts are asked at once, so the step waits 10 s at most, not 10 per script.
+ *
+ * The worst case of every limit, step by step: policy-watch 2 + 0.1 s, pdf-text 25, accents 20 + 10 on the page + 10
+ * asked again, worker-policy 10, no-violation 0.3: 77.4 s, which leaves 12.6 s of Rust's 90 for the app's start, the
+ * page's load and the `page` step's draw.
+ */
+const FETCH_LIMIT_MS = 10_000;
 
 /**
  * How the note of an `accents` step passed by the page begins (6.27r): scripts/launchCheck.sh looks for it to refuse
@@ -346,16 +355,26 @@ async function askAgain(deps: LaunchCheckDeps, first: unknown): Promise<string> 
   }
 }
 
-/** Exactly two worker scripts started, each JavaScript and carrying exactly the workers' policy. */
+/**
+ * Exactly two worker scripts started, each JavaScript and carrying exactly the workers' policy, each answering within
+ * 10 s.
+ */
 async function workerPolicy(deps: LaunchCheckDeps, started: readonly string[]): Promise<void> {
   const addresses = [...new Set(started)];
   if (addresses.length !== 2) {
     const names = addresses.map(fileName).join(', ') || 'none';
     fail(`${String(addresses.length)} worker scripts were started, not 2: ${names}`);
   }
-  for (const address of addresses) {
+  // Both asked at once, each within its own limit; judged in order, so the first file's failure is the one named.
+  const asks = addresses.map((address) => {
     const name = fileName(address);
-    const answer = await deps.getFile(address);
+    const ask = within(deps, FETCH_LIMIT_MS, deps.getFile(address), `${name}: no answer in 10 s`);
+    // The second ask may fail while the first one's failure is being reported: never an unhandled rejection.
+    void ask.catch(() => undefined);
+    return { name, ask };
+  });
+  for (const { name, ask } of asks) {
+    const answer = await ask;
     // Each failure names the answer's type too, so a header hidden from the page tells from one never sent.
     const wrong = (what: string): never => fail(`${name}: ${what} (answer type ${answer.type})`);
     if (answer.status !== 200) wrong(`status ${String(answer.status)}`);

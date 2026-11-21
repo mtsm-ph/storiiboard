@@ -226,6 +226,20 @@ impl Record {
 
 /// Where the check's lines go: stdout in the app, a list in a test.
 pub(crate) type Say = Box<dyn Fn(&str) + Send + Sync>;
+/// The time since the check started: `Instant`'s, which never goes backwards, in the app (`since`); a fake in a test.
+pub(crate) type Elapsed = Box<dyn Fn() -> Duration + Send + Sync>;
+
+/// The app's clock for the check: the time since `started`, run()'s first moment, measured here in Rust and never by
+/// the page, so Rust's own steps and the time limit's line are on the same clock as the page's.
+pub(crate) fn since(started: Instant) -> Elapsed {
+    Box::new(move || started.elapsed())
+}
+
+/// A step's line, a failure's and the time limit's, with the time since the check started (Nov 21): tenths of a
+/// second, so a run that ends at the limit tells where its time went. scripts/launchCheck.sh takes it off a note.
+pub(crate) fn timed(line: &str, at: Duration) -> String {
+    format!("{line} (at {:.1} s)", at.as_secs_f64())
+}
 /// What a verdict does: in the app, end the process or quit; in a test, note it.
 pub(crate) type Finish<R> = Box<dyn Fn(&AppHandle<R>, &Verdict) + Send + Sync>;
 
@@ -233,6 +247,7 @@ pub(crate) type Finish<R> = Box<dyn Fn(&AppHandle<R>, &Verdict) + Send + Sync>;
 pub(crate) struct Shared {
     record: Mutex<Record>,
     say: Say,
+    elapsed: Elapsed,
 }
 
 impl Shared {
@@ -248,11 +263,12 @@ pub(crate) struct LaunchCheck<R: Runtime> {
 }
 
 impl<R: Runtime> LaunchCheck<R> {
-    pub(crate) fn new(say: Say, finish: Finish<R>) -> Self {
+    pub(crate) fn new(say: Say, finish: Finish<R>, elapsed: Elapsed) -> Self {
         Self {
             shared: Arc::new(Shared {
                 record: Mutex::new(Record::default()),
                 say,
+                elapsed,
             }),
             finish,
         }
@@ -282,17 +298,34 @@ impl<R: Runtime> LaunchCheck<R> {
         detail: &str,
         note: Option<&str>,
     ) -> Result<(), String> {
-        let outcome = self.shared.record().report(from, step, ok, detail)?;
-        match outcome {
-            Outcome::Ignored => {}
-            Outcome::StepOk => (self.shared.say)(&ok_line(step, note)),
-            Outcome::Decided(verdict) => {
-                if verdict == Verdict::Passed {
-                    (self.shared.say)(&ok_line(step, note));
+        // The clock is read and the line said while the record is still locked, as the time limit's thread does: two
+        // reports (Rust's `loaded` and a page step, from different threads) then print in the order of their times,
+        // never a later line with an earlier time. Only for a line that is said; the finisher runs after the lock is
+        // dropped, as a pass quits the app, whose quit asks the record again.
+        let verdict = {
+            let mut record = self.shared.record();
+            match record.report(from, step, ok, detail)? {
+                Outcome::Ignored => None,
+                Outcome::StepOk => {
+                    let at = (self.shared.elapsed)();
+                    (self.shared.say)(&timed(&ok_line(step, note), at));
+                    None
                 }
-                (self.shared.say)(&verdict.line());
-                (self.finish)(app, &verdict);
+                Outcome::Decided(verdict) => {
+                    let at = (self.shared.elapsed)();
+                    // `launch check: passed` stays as it is: scripts/launchCheck.sh matches the whole line.
+                    if verdict == Verdict::Passed {
+                        (self.shared.say)(&timed(&ok_line(step, note), at));
+                        (self.shared.say)(&verdict.line());
+                    } else {
+                        (self.shared.say)(&timed(&verdict.line(), at));
+                    }
+                    Some(verdict)
+                }
             }
+        };
+        if let Some(verdict) = verdict {
+            (self.finish)(app, &verdict);
         }
         Ok(())
     }
@@ -313,8 +346,11 @@ impl<R: Runtime> LaunchCheck<R> {
         let shared = Arc::clone(&self.shared);
         thread::spawn(move || {
             thread::sleep(deadline.saturating_duration_since(Instant::now()));
-            let (line, code) = shared.record().at_time_limit();
-            (shared.say)(&line);
+            // Under the record's lock, as a report's line: no report's line can come after this one with a later
+            // time, nor before it with an earlier one. The process ends with the lock held; nothing waits on it then.
+            let record = shared.record();
+            let (line, code) = record.at_time_limit();
+            (shared.say)(&timed(&line, (shared.elapsed)()));
             end_process(code);
         });
     }
@@ -508,6 +544,55 @@ mod tests {
             ok_line("loaded", Some(SHOWN_BY_NET)),
             "launch check: loaded ok (already shown by the 3-second net)"
         );
+    }
+
+    #[test]
+    fn a_line_carries_its_time_since_the_start_in_tenths_of_a_second() {
+        assert_eq!(
+            timed(&ok_line("pdf-text", None), Duration::from_millis(12_400)),
+            "launch check: pdf-text ok (at 12.4 s)"
+        );
+        assert_eq!(
+            timed(
+                &ok_line("loaded", Some(SHOWN_BY_NET)),
+                Duration::from_millis(3_000)
+            ),
+            "launch check: loaded ok (already shown by the 3-second net) (at 3.0 s)"
+        );
+        assert_eq!(
+            timed(
+                "launch check: FAILED at pdf-text: the line is missing",
+                Duration::from_millis(61_070)
+            ),
+            "launch check: FAILED at pdf-text: the line is missing (at 61.1 s)"
+        );
+        assert_eq!(
+            timed("launch check: window ok", Duration::ZERO),
+            "launch check: window ok (at 0.0 s)"
+        );
+        // The time limit's line, as its thread says it.
+        let mut record = Record::default();
+        record.report(Reporter::Rust, "window", true, "").unwrap();
+        let (line, code) = record.at_time_limit();
+        assert_eq!(
+            timed(&line, Duration::from_millis(90_004)),
+            "launch check: FAILED: time limit (90 s) while waiting for loaded (at 90.0 s)"
+        );
+        assert_eq!(code, 32);
+    }
+
+    #[test]
+    fn the_apps_clock_counts_from_its_start_and_never_goes_back() {
+        // 5 s back where the clock allows it; just after boot (Windows) it may not, and then it counts from now.
+        let now = Instant::now();
+        let (started, back) = match now.checked_sub(Duration::from_secs(5)) {
+            Some(earlier) => (earlier, Duration::from_secs(5)),
+            None => (now, Duration::ZERO),
+        };
+        let elapsed = since(started);
+        let first = elapsed();
+        assert!(first >= back, "{first:?}");
+        assert!(elapsed() >= first);
     }
 
     #[test]

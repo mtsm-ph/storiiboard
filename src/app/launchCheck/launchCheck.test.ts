@@ -716,6 +716,69 @@ describe('the launch check’s page steps (6.27l)', () => {
       failedAt('worker-policy', 'worker-pwfgZlae.js: no content-security-policy (answer type basic)')(f.reports);
     });
 
+    /** The fake clock's time at the first fetch and at the worker-policy report. */
+    function timed(getFile: LaunchCheckDeps['getFile']): { f: Fakes; asked: () => number; reported: () => number } {
+      let asked = -1;
+      let reported = -1;
+      const f = fakes((g) => ({
+        getFile: (url) => {
+          if (asked < 0) asked = Date.now();
+          return getFile(url);
+        },
+        report: (step, ok, detail) => {
+          if (step === 'worker-policy') reported = Date.now();
+          g.reports.push([step, ok, detail]);
+          return Promise.resolve();
+        },
+      }));
+      return { f, asked: () => asked, reported: () => reported };
+    }
+
+    it('fails a fetch that never answers at 10 s, naming its file (Nov 21)', async () => {
+      const { f, asked, reported } = timed(() => never());
+      await run(f);
+      failedAt('worker-policy', `${PDF_NAME}: no answer in 10 s`)(f.reports);
+      expect(reported() - asked()).toBe(10_000);
+    });
+
+    it('asks both scripts at once: the second one hanging fails at 10 s too, by its own name', async () => {
+      const { f, asked, reported } = timed((url) => (url === ACCENT_WORKER ? never() : Promise.resolve(goodScript())));
+      await run(f);
+      failedAt('worker-policy', 'worker-pwfgZlae.js: no answer in 10 s')(f.reports);
+      expect(reported() - asked()).toBe(10_000);
+    });
+
+    it('starts both fetches together: the first answering at 9 s, the second never, fails at 10 s, not 19', async () => {
+      const times: number[] = [];
+      const { f, asked, reported } = timed((url) => {
+        times.push(Date.now());
+        if (url === ACCENT_WORKER) return never();
+        return new Promise<ScriptAnswer>((resolve) => {
+          setTimeout(() => {
+            resolve(goodScript());
+          }, 9_000);
+        });
+      });
+      await run(f);
+      failedAt('worker-policy', 'worker-pwfgZlae.js: no answer in 10 s')(f.reports);
+      // Both asked at the same moment, and the step's own limit counts from it.
+      expect(times).toHaveLength(2);
+      expect(times[1]).toBe(times[0]);
+      expect(reported() - asked()).toBe(10_000);
+    });
+
+    it('takes answers that come after 9 s, within the 10', async () => {
+      const late = () =>
+        new Promise<ScriptAnswer>((resolve) => {
+          setTimeout(() => {
+            resolve(goodScript());
+          }, 9_000);
+        });
+      const { f } = timed(late);
+      await run(f);
+      expect(f.reports).toEqual(allOk());
+    });
+
     it('fails when a script can’t be fetched at all', async () => {
       const f = fakes(() => ({ getFile: () => Promise.reject(new TypeError('Load failed')) }));
       await run(f);

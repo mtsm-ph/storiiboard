@@ -1140,11 +1140,23 @@ mod launch_check_step {
         let lines: Noted<String> = Arc::default();
         let verdicts: Noted<Verdict> = Arc::default();
         let (said, decided) = (Arc::clone(&lines), Arc::clone(&verdicts));
+        // A fake clock: each reading 1.5 s after the last, from 1.5 s, so every line's time is known.
+        let readings = Arc::new(Mutex::new(0u64));
         assert!(h.app.manage(LaunchCheck::<MockRuntime>::new(
             Box::new(move |line| said.lock().unwrap().push(line.to_owned())),
             Box::new(move |_, verdict| decided.lock().unwrap().push(verdict.clone())),
+            Box::new(move || {
+                let mut n = readings.lock().unwrap();
+                *n += 1;
+                std::time::Duration::from_millis(1_500 * *n)
+            }),
         )));
         (lines, verdicts)
+    }
+
+    /// The time the fake clock gives at its `n`th reading, as a line prints it.
+    fn at(n: u64) -> String {
+        format!("(at {:.1} s)", (1_500 * n) as f64 / 1000.0)
     }
 
     fn step(h: &Harness, step: &str, ok: bool, detail: &str) -> Result<Json, Json> {
@@ -1204,9 +1216,11 @@ mod launch_check_step {
         assert_eq!(*verdicts.lock().unwrap(), vec![Verdict::Passed]);
         assert!(check.decided());
         let said = lines.lock().unwrap().clone();
+        // Each step's line with its time (Nov 21), one clock reading each; `passed` as it always was.
         let mut expected: Vec<String> = crate::launch_check::STEPS
             .iter()
-            .map(|name| format!("launch check: {name} ok"))
+            .zip(1..)
+            .map(|(name, n)| format!("launch check: {name} ok {}", at(n)))
             .collect();
         expected.push("launch check: passed".to_owned());
         assert_eq!(said, expected);
@@ -1247,14 +1261,14 @@ mod launch_check_step {
         assert_eq!(
             said,
             vec![
-                "launch check: window ok".to_owned(),
-                "launch check: loaded ok (already shown by the 3-second net)".to_owned(),
-                "launch check: page ok".to_owned(),
-                "launch check: policy-watch ok".to_owned(),
-                "launch check: pdf-text ok".to_owned(),
-                format!("launch check: accents ok ({note})"),
-                "launch check: worker-policy ok".to_owned(),
-                "launch check: no-violation ok".to_owned(),
+                "launch check: window ok (at 1.5 s)".to_owned(),
+                "launch check: loaded ok (already shown by the 3-second net) (at 3.0 s)".to_owned(),
+                "launch check: page ok (at 4.5 s)".to_owned(),
+                "launch check: policy-watch ok (at 6.0 s)".to_owned(),
+                "launch check: pdf-text ok (at 7.5 s)".to_owned(),
+                format!("launch check: accents ok ({note}) (at 9.0 s)"),
+                "launch check: worker-policy ok (at 10.5 s)".to_owned(),
+                "launch check: no-violation ok (at 12.0 s)".to_owned(),
                 "launch check: passed".to_owned(),
             ]
         );
@@ -1264,7 +1278,11 @@ mod launch_check_step {
         assert_eq!(step(&h, "accents", true, &"y".repeat(400)), Ok(Json::Null));
         assert_eq!(
             lines.lock().unwrap().clone(),
-            vec![format!("launch check: accents ok ({})", "y".repeat(300))]
+            vec![format!(
+                "launch check: accents ok ({}) {}",
+                "y".repeat(300),
+                at(1)
+            )]
         );
     }
 
@@ -1285,7 +1303,7 @@ mod launch_check_step {
         assert_eq!(*verdicts.lock().unwrap(), vec![failed]);
         assert_eq!(
             lines.lock().unwrap().last().map(String::as_str),
-            Some("launch check: FAILED at accents: the worker gave no answer")
+            Some("launch check: FAILED at accents: the worker gave no answer (at 3.0 s)")
         );
         // Decided: a later pass of every step is ignored.
         for name in PAGE_STEPS {
