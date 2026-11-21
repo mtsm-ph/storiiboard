@@ -20,6 +20,7 @@ import { dayPeopleAdd, dayPeopleAddEveryone, dayPeopleChoose, dayPeopleRemove } 
 import { exportCallSheetPdf, type ExportCallSheetOptions } from './exportCallSheet';
 import { IssuedVersions, IssueButton } from './IssueBar';
 import { CallSheetChecks } from './CallSheetChecks';
+import { canAddPeople } from './checkWords';
 import { callsheetNoteChange, departmentCallChange, hmuMinutesChange, personTimeChange, type CallsheetNote } from './callsheetEdits';
 import { showSheetDay, useSheetDay } from './sheetDay';
 import { useHeldForecasts } from './useHeldForecasts';
@@ -70,7 +71,6 @@ export function CallSheetTile() {
   const dayId = selected.record.id;
   // Shared with the Shoot days tile's count: each tile reads its own forecasts and zones, compared by what they hold, so the same records give the one cached answer.
   const { findings } = callSheetChecks(records, projectId, dayId, held, zones);
-  const canAddPeople = sheet.peopleChosen ? sheet.notOnDay.length > 0 : !sheet.peopleOdd;
   const options: ExportCallSheetOptions = { projectId, dayId, zones, projectName: project.name, paper, app, units };
   const edit = (build: (now: Records) => Change[]) => projectStore.getState().applyWith((now) => ({ changes: build(now) }));
 
@@ -121,7 +121,7 @@ export function CallSheetTile() {
         </Button>
         <IssueButton sheet={sheet} options={options} />
       </div>
-      <CallSheetChecks findings={findings} records={records} canAddPeople={canAddPeople} peopleOdd={sheet.peopleOdd} />
+      <CallSheetChecks findings={findings} records={records} canAddPeople={canAddPeople(sheet)} peopleOdd={sheet.peopleOdd} />
       <IssuedVersions sheet={sheet} dayId={dayId} />
       <DaySection sheet={sheet} projectName={project.name} company={company} logoUrl={logoUrl} />
       <LocationsSection sheet={sheet} />

@@ -299,3 +299,63 @@ describe('an earlier default stored only because another workspace was written (
     expect(withoutOldDefault('storyboard', storyboard)).toBe(storyboard);
   });
 });
+
+describe('the Checks tile added to Production (7.4)', () => {
+  // Every key kept, so the offered flag in the settings survives a restart as the layouts do.
+  function machine(layouts: unknown) {
+    const values = new Map([[LAYOUTS_KEY, JSON.stringify(layouts)]]);
+    return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, next: string) => void values.set(key, next) };
+  }
+  // Production's default before 7.4.
+  const before = (): Layout => ({
+    root: split(
+      'row',
+      [
+        split('column', [stack(['days']), stack(['calendar'])], [404, 404]),
+        stack(['sheet']),
+        split('column', [stack(['locations']), stack(['gear']), stack(['people'])], [270, 269, 269]),
+      ],
+      [400, 680, 336],
+    ),
+    maximized: null,
+  });
+  // One the person made of it: the Calendar closed.
+  const customised = (): Layout => removeTile(before(), 'calendar');
+
+  it('is put once under the call sheet in a saved Production layout from before, and nowhere else', () => {
+    const storyboard = { root: split('row', [stack(['scenes']), stack(['board'])]), maximized: null };
+    const storage = machine({ production: { current: customised(), saved: customised() }, storyboard: { current: storyboard, saved: storyboard } });
+    const layouts = layoutsOf(createLayoutStore(storage).getState().layouts, 'production');
+    expect(tilesIn(layouts.saved)).toEqual(['days', 'sheet', 'checks', 'locations', 'gear', 'people']);
+    expect(tilesIn(layouts.current)).toEqual(tilesIn(layouts.saved));
+    expect(isUnsaved(layouts)).toBe(false);
+    // Under the call sheet, about a quarter of the column, as the new default has it.
+    const root = layouts.current.root;
+    const middle = root.kind === 'split' ? root.children[1] : undefined;
+    if (middle?.kind !== 'split') throw new Error('Expected a middle column.');
+    expect(middle.direction).toBe('column');
+    expect(middle.children.map((child) => (child.kind === 'stack' ? child.tiles[0] : 'split'))).toEqual(['sheet', 'checks']);
+    expect(middle.sizes[1]).toBeCloseTo(220 / 808, 5);
+    // Asked again, it is not added a second time; the Storyboard stays as it was.
+    const again = createLayoutStore(storage).getState().layouts;
+    expect(tilesIn(layoutsOf(again, 'production').current).filter((tile) => tile === 'checks')).toHaveLength(1);
+    expect(layoutsOf(again, 'storyboard').current.root).toEqual(storyboard.root);
+  });
+
+  it('gives a layout still exactly the old default the new default', () => {
+    const layouts = layoutsOf(createLayoutStore(machine({ production: { current: before(), saved: before() } })).getState().layouts, 'production');
+    expect(sameLayout(layouts.saved, workspaceById('production').defaultLayout())).toBe(true);
+    expect(sameLayout(layouts.current, workspaceById('production').defaultLayout())).toBe(true);
+  });
+
+  it('doesn’t come back once the person closes it, across restarts', () => {
+    const storage = machine({ production: { current: customised(), saved: customised() } });
+    const store = createLayoutStore(storage);
+    store.getState().change('production', removeTile(layoutsOf(store.getState().layouts, 'production').current, 'checks'));
+    store.getState().save('production');
+    const reopened = layoutsOf(createLayoutStore(storage).getState().layouts, 'production');
+    expect(tilesIn(reopened.current)).not.toContain('checks');
+    expect(tilesIn(reopened.saved)).not.toContain('checks');
+    expect(loadSettings(storage).tilesOffered).toContain('production:checks');
+  });
+});
