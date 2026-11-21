@@ -4,6 +4,7 @@ import { labels, t } from '../../core/i18n';
 import { cx } from '../../ui/cx';
 import { InAppWindow } from '../../ui/InAppWindow';
 import { roveFocus } from '../../ui/roving';
+import { useScrollLane } from '../../ui/scrollLane';
 import { OnlineServicesTab } from '../preferences/OnlineServicesTab';
 import { AppTile } from '../preferences/AppTile';
 import { BackupsPanel } from '../project/BackupsPanel';
@@ -109,6 +110,8 @@ export function SettingsHost() {
   const { open, tab, mount } = useStore(settingsStore);
   const baseId = useId();
   const body = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useScrollLane(panel);
   if (!open) return null;
   const Content = TAB_CONTENT[tab];
   const tabId = (id: SettingsTab) => `${baseId}-tab-${id}`;
@@ -172,7 +175,7 @@ export function SettingsHost() {
         {/* Focusable itself, so its text is reached with Tab even when it has no control (Project, with none open):
             the WAI-ARIA tabs pattern's own advice for a panel. */}
         {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */}
-        <div id={`${baseId}-panel`} role="tabpanel" tabIndex={0} aria-labelledby={tabId(tab)} className="min-h-0 min-w-0 flex-1 overflow-auto focus-visible:-outline-offset-2">
+        <div ref={panel} id={`${baseId}-panel`} role="tabpanel" tabIndex={0} aria-labelledby={tabId(tab)} className="min-h-0 min-w-0 flex-1 overflow-auto focus-visible:-outline-offset-2">
           <Content />
         </div>
       </div>

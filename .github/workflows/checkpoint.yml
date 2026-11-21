@@ -10,6 +10,8 @@ name: Checkpoint
 # regenerates the screenshot baselines instead, as the update_visual_baselines option does, for the same reason.
 # A branch named checkpoint/e2e-<anything> runs the tests without the installers: for a fix to a test that failed
 # only on the Mac, which needs the Mac's run again but not an hour of builds.
+# A branch named checkpoint/launch-<anything> runs only the ffmpeg sources and the two installers, launch check
+# included: it answers a launch-check question in about a quarter of an hour, and is never a checkpoint to merge on.
 on:
   push:
     branches: ['checkpoint/**']
@@ -30,6 +32,7 @@ permissions:
 jobs:
   smoke-linux:
     name: Smoke (Linux)
+    if: ${{ !startsWith(github.ref_name, 'checkpoint/launch-') }}
     # Pinned rather than -latest: the visual baselines depend on the image's font rendering.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -89,7 +92,7 @@ jobs:
   # show, drop to the default rather than raise a timeout.
   e2e-chromium-linux:
     name: End to end (Linux, Chromium)
-    if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
+    if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines') || startsWith(github.ref_name, 'checkpoint/launch-')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -123,6 +126,7 @@ jobs:
 
   smoke-mac:
     name: End to end (macOS, WebKit)
+    if: ${{ !startsWith(github.ref_name, 'checkpoint/launch-') }}
     # Pinned like the Linux job: the darwin baselines come from this image (macOS 26), and WebKit and font rendering
     # change between macOS versions. A Mac on another major version may need its own run of the screenshot tests.
     runs-on: macos-26
@@ -186,6 +190,7 @@ jobs:
   # Storiiboard ships, and only for that; scripts/advisories.ts decides, osv-scanner.toml holds the ignores.
   advisories:
     name: Advisories
+    if: ${{ !startsWith(github.ref_name, 'checkpoint/launch-') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -283,12 +288,19 @@ jobs:
             os: macos-26
             triple: aarch64-apple-darwin
             bundles: src-tauri/target/release/bundle/dmg/*.dmg
+            app: src-tauri/target/release/bundle/macos/Storiiboard.app/Contents/MacOS/storiiboard
+            # GitHub's Mac has a virtual GPU, so a canvas may get no backing there: two passes are allowed on it alone,
+            # each with a warning in the log and the job's summary (scripts/launchCheck.sh): the accents read by the
+            # page when the worker's canvas failed, and "this machine can't read a canvas back" when the worker's and
+            # the page's both failed. Windows stays strict.
+            launch_flags: --accents-by-page-ok
           - name: Windows
             os: windows-latest
             triple: x86_64-pc-windows-msvc
             bundles: |
               src-tauri/target/release/bundle/msi/*.msi
               src-tauri/target/release/bundle/nsis/*.exe
+            app: src-tauri/target/release/storiiboard.exe
     runs-on: ${{ matrix.os }}
     # A cold ffmpeg build under MSYS2 takes a good part of an hour before the Rust tests and the release build.
     timeout-minutes: 100
@@ -340,6 +352,7 @@ jobs:
       # With no tag or release given, tauri-action only builds. The Mac app gets an ad-hoc signature
       # (bundle.macOS.signingIdentity "-"), so Apple Silicon opens it with right-click, Open.
       - uses: tauri-apps/tauri-action@v1
+        id: build
       # Double-clicking a .sbd opens Storiiboard (0.6). The association lives in what the bundler writes, so check
       # it there rather than trust the config.
       - name: Check the .sbd file association (macOS)
@@ -395,3 +408,13 @@ jobs:
             }
           }
           if (-not (Get-ChildItem dist -Recurse -Filter *.ttf)) { throw 'No fonts in the page build.' }
+      # The launch check (6.27l, docs/briefs/launch-check.md): starts the executable the installers carry in its
+      # self-check mode, which makes the main window, loads the page under the installed policy, checks the policy is
+      # enforced, starts both workers and reads each one's policy, then quits with 0. Last, after the upload and the
+      # listing, so a fault in the check never costs the installers. It runs whenever the build succeeded, whatever the
+      # steps between did.
+      - name: Launch check
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: bash
+        timeout-minutes: 5
+        run: bash scripts/launchCheck.sh ${{ matrix.launch_flags }} "${{ matrix.app }}"

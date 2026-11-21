@@ -9,6 +9,7 @@ import { isWatts } from '../../core/model/planLight';
 import type { SbdRecord } from '../../core/model/record';
 import type { Change } from '../../core/ops/ops';
 import { Button } from '../../ui/Button';
+import { useScrollLane } from '../../ui/scrollLane';
 import { cx } from '../../ui/cx';
 import { Select, TextArea, TextField } from '../../ui/fields';
 import { SegmentedControl } from '../../ui/SegmentedControl';
@@ -63,6 +64,8 @@ export function GearTile() {
       observer.disconnect();
     };
   }, [box]);
+  const list = useRef<HTMLUListElement>(null);
+  useScrollLane(list);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('gear.noProject')}</p>;
   const projectId = project.projectId;
   const all = projectGear(records, projectId);
@@ -100,7 +103,7 @@ export function GearTile() {
         {all.length === 0 ? (
           <p className="p-3 text-[13px] text-text-muted">{t('gear.none')}</p>
         ) : (
-          <ul id={listId} aria-label={t('gear.list')} className="min-h-0 flex-1 overflow-y-auto">
+          <ul ref={list} id={listId} aria-label={t('gear.list')} className="min-h-0 flex-1 overflow-y-auto">
             {all.map(({ record, fields }) => {
               const current = record.id === selected?.record.id;
               return (
@@ -227,6 +230,8 @@ function GearEditor({ id, projectId, records, props, fields, currency, nameField
   const kind = gearKind(props);
   const headingId = useId();
   const lockedId = useId();
+  const editor = useRef<HTMLElement>(null);
+  useScrollLane(editor);
   const digits = currencyDigits(currency);
   const rateText = fields.dayRate === null ? '' : String(fields.dayRate);
   const wattsText = String(gearWatts(props) ?? '');
@@ -262,7 +267,7 @@ function GearEditor({ id, projectId, records, props, fields, currency, nameField
     );
   };
   return (
-    <section aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-gear-editor="">
+    <section ref={editor} aria-labelledby={headingId} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3" data-gear-editor="">
       <h3 id={headingId} className="sb-label">
         {fields.name || t('gear.unnamed')}
       </h3>

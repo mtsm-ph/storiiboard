@@ -8,6 +8,7 @@ import { dayCrew, dayLocations, dayScenes } from '../../core/model/schedule';
 import { dayDateLabel, dayFrames, dayLabel, dayTotals, projectShootDays, setupMinutes, type ShootDay } from '../../core/model/shootDay';
 import { sceneFields, sceneLabel } from '../../core/model/storyboard';
 import { Button, IconButton } from '../../ui/Button';
+import { useScrollLane } from '../../ui/scrollLane';
 import { cx } from '../../ui/cx';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { addDays, addMonths, monthGrid, monthOf, todayDate, weekOf } from './calendarDates';
@@ -55,6 +56,8 @@ export function CalendarTile() {
 
 function Calendar({ projectId }: { projectId: string }) {
   const records = useProject((s) => s.records);
+  const scroller = useRef<HTMLDivElement>(null);
+  useScrollLane(scroller);
   const [view, setView] = useState<View>('month');
   const today = todayDate();
   const [focus, setFocus] = useState(today);
@@ -119,7 +122,7 @@ function Calendar({ projectId }: { projectId: string }) {
   const minutes = setupMinutes(records[projectId]?.props);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div ref={scroller} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="flex flex-wrap items-end gap-2 border-b border-border p-2">
         <SegmentedControl
           label={t('calendar.view')}

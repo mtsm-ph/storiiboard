@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { heicAsked, proofHeic, useHeicStandIn } from './heicStandIn';
 import { skipOnboarding } from './onboarding';
 import { closeSettings, openSettings } from './settings';
 
@@ -300,6 +301,38 @@ test('a company profile saved once is attached to a project, with its logo, upda
   await page.keyboard.press(undo);
   await expect(copy).toHaveCount(0);
   await expect(panel.getByRole('combobox', { name: 'Company', exact: true })).toHaveValue('');
+});
+
+test('a HEIC company logo is decoded once where the webview can’t read it, shows, and is attached with the project', async ({ page }) => {
+  // Chromium, like WebView2 on Windows, can't decode a HEIC: the desktop app's decoder (a stand-in here) is asked.
+  const { engineReadsHeic } = await useHeicStandIn(page);
+  await newProject(page, 'Bey County');
+  let panel = await openSettings(page, 'App');
+  await panel.getByRole('button', { name: 'Add company' }).click();
+  const company = panel.getByRole('list', { name: 'Company profiles' }).getByRole('group').first();
+  await company.getByRole('textbox', { name: 'Name' }).fill('Zima Blue Pictures');
+  await company.getByRole('textbox', { name: 'Phone' }).click();
+  const profile = panel.getByRole('group', { name: 'Zima Blue Pictures' });
+  const chooser = page.waitForEvent('filechooser');
+  await profile.getByRole('button', { name: 'Choose logo…' }).click();
+  await (await chooser).setFiles(proofHeic());
+  const logo = profile.getByRole('img', { name: 'Logo of Zima Blue Pictures' });
+  await expect(logo).toBeVisible();
+  const shows = (img: Locator) => img.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0);
+  await expect.poll(() => shows(logo)).toBe(true);
+  // Kept as a PNG, as a JPEG's logo is.
+  expect(await logo.getAttribute('src')).toMatch(/^data:image\/png;base64,/);
+  expect(await heicAsked(page)).toBe(engineReadsHeic ? 0 : 1);
+
+  // Attached, the project's own copy shows it too, from the stored PNG: the decoder isn't asked again.
+  await page.getByRole('dialog', { name: 'Settings' }).getByRole('tab', { name: 'Project', exact: true }).click();
+  panel = page.getByRole('dialog', { name: 'Settings' }).getByRole('tabpanel', { name: 'Project', exact: true });
+  await panel.getByRole('combobox', { name: 'Company', exact: true }).selectOption({ label: 'Zima Blue Pictures' });
+  await panel.getByRole('button', { name: 'Attach', exact: true }).click();
+  const copied = panel.locator('[data-project-company]').getByRole('img', { name: 'Logo of Zima Blue Pictures' });
+  await expect(copied).toBeVisible();
+  await expect.poll(() => shows(copied)).toBe(true);
+  expect(await heicAsked(page)).toBe(engineReadsHeic ? 0 : 1);
 });
 
 test('an import whose stored files are damaged leaves them out, imports the rest, and says how many and where', async ({ page, context, browserName }) => {

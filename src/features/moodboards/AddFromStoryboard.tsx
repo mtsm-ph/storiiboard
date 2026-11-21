@@ -1,7 +1,8 @@
-import { useId, useMemo, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { useProject } from '../../app/projectStore';
 import { t, tn } from '../../core/i18n';
 import { Button } from '../../ui/Button';
+import { useScrollLane } from '../../ui/scrollLane';
 import { TextField } from '../../ui/fields';
 import { InAppWindow } from '../../ui/InAppWindow';
 import { board } from '../storyboard/board';
@@ -18,6 +19,8 @@ const CHECK = 'size-4 shrink-0 accent-text';
 export function AddFromStoryboard({ boardId, onClose }: { boardId: string; onClose: () => void }) {
   const records = useProject((s) => s.records);
   const projectId = useProject((s) => s.project?.projectId ?? null);
+  const list = useRef<HTMLDivElement>(null);
+  useScrollLane(list);
   const [query, setQuery] = useState('');
   // What is ticked, by card: "shot:<id>", "scene:<id>", "palette:<id>", "brand".
   const [ticked, setTicked] = useState<readonly string[]>([]);
@@ -67,7 +70,7 @@ export function AddFromStoryboard({ boardId, onClose }: { boardId: string; onClo
             setQuery(event.currentTarget.value);
           }}
         />
-        <div id={listId} className="flex max-h-[320px] flex-col gap-2 overflow-y-auto border border-border p-2">
+        <div ref={list} id={listId} className="flex max-h-[320px] flex-col gap-2 overflow-y-auto border border-border p-2">
           {(query.trim() === '' || ticked.includes('brand')) && <div className="border-b border-border pb-1">{box('brand', t('moodboard.live.brandKit'))}</div>}
           {shown.length === 0 && <p className="text-[13px] text-text-muted">{scenes.length === 0 ? t('moodboard.live.noScenes') : t('moodboard.live.nothingFound')}</p>}
           {shown.map((scene) => (

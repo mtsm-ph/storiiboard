@@ -110,6 +110,11 @@ export async function decodePicture(file: Blob & { name?: string }): Promise<Ima
   } catch {
     // Safari on a Mac reads HEIC; Edge WebView2 on Windows doesn't (decided Nov 2: say so; 6.27n: Rust decodes it).
   }
+  return pngBitmap(await heicPng(file));
+}
+
+/** After the webview's own decode failed: the decoder's PNG for a HEIC, asked once, or the ImageError to show. */
+async function heicPng(file: Blob & { name?: string }): Promise<Blob> {
   if (!(await looksLikeHeic(file))) throw new ImageError('This file isn’t an image Storiiboard can read. JPEG, PNG and WebP work.');
   const decoder = heicDecoder();
   if (!decoder) throw new ImageError('This is an HEIC photo, which Storiiboard can’t read on this computer yet. Convert it to JPEG first.');
@@ -120,12 +125,39 @@ export async function decodePicture(file: Blob & { name?: string }): Promise<Ima
     // Rust's own words, which localizeError puts in the person's language as every other reason.
     throw new ImageError(error instanceof Error ? error.message : String(error));
   }
+  return new Blob([png as Uint8Array<ArrayBuffer>], { type: 'image/png' });
+}
+
+/** The decoder's PNG as a bitmap, with the same options as the webview's own try; error.heicUnread when it can't be. */
+async function pngBitmap(png: Blob): Promise<ImageBitmap> {
   try {
     // Rust has applied the photo's turn already, and its PNG carries no EXIF to turn it again.
-    return await createImageBitmap(new Blob([png as Uint8Array<ArrayBuffer>], { type: 'image/png' }), { imageOrientation: 'from-image' });
+    return await createImageBitmap(png, { imageOrientation: 'from-image' });
   } catch {
     throw new ImageError('This HEIC photo couldn\'t be read. Convert it to JPEG first.');
   }
+}
+
+/**
+ * The picture as the page can read it, for a way in that hands one file to more than one reader (a key image's
+ * accents and its stored picture, a company's logo): the file itself, or for a HEIC the webview can't decode, the
+ * decoder's PNG, asked for once here, so no reader after it asks again. Only a HEIC with a decoder to ask is looked
+ * at: anything else comes back as it is and fails where it failed before, in the words it did. Throws ImageError
+ * with the decoder's refusal, or error.heicUnread when its PNG can't be read either.
+ */
+export async function readablePicture(file: Blob & { name?: string }): Promise<Blob> {
+  if (!heicDecoder() || !(await looksLikeHeic(file))) return file;
+  try {
+    // The Mac's WebKit reads HEIC itself: the file goes on as it is, as it always has.
+    (await createImageBitmap(file, { imageOrientation: 'from-image' })).close();
+    return file;
+  } catch {
+    // Edge WebView2 on Windows can't (6.27n): the decoder's PNG instead.
+  }
+  const png = await heicPng(file);
+  // Read here, so a PNG the webview can't decode says error.heicUnread rather than the generic line later.
+  (await pngBitmap(png)).close();
+  return png;
 }
 
 /** Decodes, caps, keeps the colour and makes the thumbnail. Throws ImageError with what to do for an unreadable file. */
