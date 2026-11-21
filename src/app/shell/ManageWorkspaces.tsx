@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react';
+import { useId, useRef, type ReactNode } from 'react';
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { t } from '../../core/i18n';
@@ -6,6 +6,7 @@ import { MAX_CUSTOM_WORKSPACES } from '../../core/storage/settings';
 import { Button } from '../../ui/Button';
 import { TextField } from '../../ui/fields';
 import { InAppWindow } from '../../ui/InAppWindow';
+import { useScrollLane } from '../../ui/scrollLane';
 import { confirmForGood } from '../ask';
 import { layoutsOf, layoutStore } from './docking/layoutStore';
 import {
@@ -104,6 +105,8 @@ function ManageWorkspacesWindow() {
   const active = useWorkspaceState((s) => s.active);
   const yoursId = useId();
   const builtInId = useId();
+  const body = useRef<HTMLDivElement>(null);
+  useScrollLane(body);
   const full = customs.length >= MAX_CUSTOM_WORKSPACES;
   const activeLabel = workspaceById(active).label;
   const builtIn = [...WORKSPACES.map((w) => w.id), ...departments.map(departmentWorkspaceId)];
@@ -116,7 +119,7 @@ function ManageWorkspacesWindow() {
 
   return (
     <InAppWindow title={t('manageWorkspaces.title')} onClose={closeManageWorkspaces} width={640}>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+      <div ref={body} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         <p className="text-[13px]">{t('manageWorkspaces.intro')}</p>
         <div className="flex flex-wrap items-center gap-3">
           <Button

@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { loadSettings, saveSettings, type ThemePreference } from '../../core/storage/settings';
+import { startScrollbarProbe } from '../scrollLane';
 import { applyTokens, type ProjectTheme } from './projectTheme';
 import { applyTheme, DARK_QUERY, resolveTheme, type ResolvedTheme } from './theme';
 
@@ -55,6 +56,10 @@ export function ThemeProvider({ children, projectTheme = null, onBackground }: T
     applyTokens(tokens);
     onBackground?.(tokens?.bg ?? null);
   }, [resolved, tokens, onBackground]);
+
+  // Whether scroll bars lie over the content, measured from the start and again on focus and resize, as the system can
+  // switch styles while the app runs (6.27o, src/ui/scrollLane.ts).
+  useEffect(() => startScrollbarProbe(), []);
 
   const setPreference = useCallback((next: ThemePreference) => {
     setPreferenceState(next);
