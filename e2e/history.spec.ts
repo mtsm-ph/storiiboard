@@ -153,6 +153,30 @@ test('lists every step in words, newest first, and Restore to here is a step und
   await expect(steps(page).first()).toContainText('Undid: Restored the project to');
 });
 
+test('a drag says where the frame went, and its undo says the same (Kevin, Nov 18)', async ({ page }) => {
+  // 1A pressed and let go over 1C's right part: it goes after 1C.
+  const from = frames(page).nth(0);
+  const to = frames(page).nth(2);
+  await to.scrollIntoViewIfNeeded();
+  await from.scrollIntoViewIfNeeded();
+  const start = await from.boundingBox();
+  const end = await to.boundingBox();
+  if (!start || !end) throw new Error('not on screen');
+  const id = await from.getAttribute('data-shot-id');
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 3);
+  await page.mouse.down();
+  await page.mouse.move(end.x + end.width * 0.8, end.y + end.height / 3, { steps: 8 });
+  await page.mouse.up();
+  await expect(frames(page).nth(2)).toHaveAttribute('data-shot-id', id ?? '');
+
+  await openHistory(page);
+  await expect(steps(page).first()).toContainText('Moved 1A to after 1C');
+  await frames(page).first().click();
+  await page.keyboard.press(await undoKey(page));
+  await expect(frames(page).nth(0)).toHaveAttribute('data-shot-id', id ?? '');
+  await expect(steps(page).first()).toContainText('Undid: Moved 1A to after 1C');
+});
+
 test('a second quick click on Restore to here is dropped, never restoring the step that moved under the pointer', async ({ page }) => {
   await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
   await openHistory(page);

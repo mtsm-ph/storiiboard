@@ -71,9 +71,9 @@ describe('History', () => {
       'Added frame 4B',
       'Added frame 4C',
       '4A: lens — → 50mm',
-      'Moved 4C',
-      'Undid: Moved 4C',
-      'Redid: Moved 4C',
+      'Moved 4C to the start of SC 04',
+      'Undid: Moved 4C to the start of SC 04',
+      'Redid: Moved 4C to the start of SC 04',
     ]);
   });
 
@@ -343,7 +343,7 @@ describe('Put back', () => {
       { kind: 'update', id: a, set: { shoot_day_id: 'day' } },
       { kind: 'update', id: b, set: { shoot_day_id: 'day' } },
     ]);
-    expect((await lines()).at(-1)).toBe('Moved 2 frames to shoot day Mon, Nov 16');
+    expect((await lines()).at(-1)).toBe('Moved SC 04 to shoot day Mon, Nov 16');
     await store.getState().apply([
       { kind: 'update', id: a, unset: ['shoot_day_id'] },
       { kind: 'update', id: b, unset: ['shoot_day_id'] },
