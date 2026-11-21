@@ -3,27 +3,30 @@
 // (.mcpb) with manifest.json alone and runs on the Node Claude Desktop brings: the MCP's few messages it needs (stdio,
 // one JSON message a line) are answered here by hand, the way the SDK would.
 import { mkdtempSync, rmdirSync, unlinkSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 // An error by its codes only, never its message (a message can name a path): node:sqlite's SQLite code, else Node's.
+// Typed in JSDoc, so mcp's lint reads it with the server's own rules (round 3); it stays plain JavaScript, no package.
+/** @param {unknown} error @returns {string} */
 const codeOf = (error) => {
   if (error && typeof error === 'object') {
-    if (typeof error.errcode === 'number') return `SQLite ${String(error.errcode)}`;
-    if (typeof error.code === 'string') return error.code;
+    if ('errcode' in error && typeof error.errcode === 'number') return `SQLite ${String(error.errcode)}`;
+    if ('code' in error && typeof error.code === 'string') return error.code;
   }
   return 'unknown';
 };
 
-function nodeCheck() {
+async function nodeCheck() {
   // The server needs Node 22.16 or later: setReturnArrays and columns on a statement came in 22.16 (docs/MCP.md).
+  /** @type {{ node: string, electron: string | null, sqlite: string, set_return_arrays: string | null, columns: string | null, read_only_option: string | null }} */
   const check = { node: process.version, electron: process.versions.electron ?? null, sqlite: 'not loaded', set_return_arrays: null, columns: null, read_only_option: null };
   let folder = null;
   let path = null;
   try {
-    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
+    // Loaded here, not at the top, so a Node without node:sqlite still answers (with the error's code).
+    const { DatabaseSync } = await import('node:sqlite');
     // A small file in a fresh folder of the system's temp space: made once, opened read-only, then deleted with it.
     folder = mkdtempSync(join(tmpdir(), 'storiiboard-probe-'));
     path = join(folder, 'probe.sqlite');
@@ -34,7 +37,7 @@ function nodeCheck() {
     const statement = db.prepare('SELECT sqlite_version() AS v');
     check.set_return_arrays = typeof statement.setReturnArrays;
     check.columns = typeof statement.columns;
-    check.sqlite = `opened read-only, SQLite ${String(statement.get().v)}`;
+    check.sqlite = `opened read-only, SQLite ${String(statement.get()?.v)}`;
     // Whether the readOnly option holds: a write on this connection must be refused.
     try {
       db.exec('INSERT INTO t VALUES (1)');
@@ -57,15 +60,20 @@ function nodeCheck() {
 }
 
 const TOOL = { name: 'node_check', description: "This server's Node version and whether node:sqlite opens a file read-only.", inputSchema: { type: 'object', properties: {} } };
+/** @param {Record<string, unknown>} message */
 const send = (message) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`);
 
 createInterface({ input: process.stdin }).on('line', (line) => {
-  let message;
+  /** @type {unknown} */
+  let parsed;
   try {
-    message = JSON.parse(line);
+    parsed = JSON.parse(line);
   } catch {
     return;
   }
+  if (typeof parsed !== 'object' || parsed === null) return;
+  /** @type {{ id?: unknown, method?: unknown, params?: { protocolVersion?: unknown, name?: unknown } }} */
+  const message = parsed;
   // A notification has no id and gets no answer.
   if (message.id === undefined) return;
   const { id, method, params } = message;
@@ -74,7 +82,9 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   } else if (method === 'tools/list') {
     send({ id, result: { tools: [TOOL] } });
   } else if (method === 'tools/call' && params?.name === TOOL.name) {
-    send({ id, result: { content: [{ type: 'text', text: JSON.stringify(nodeCheck()) }] } });
+    void nodeCheck().then((check) => {
+      send({ id, result: { content: [{ type: 'text', text: JSON.stringify(check) }] } });
+    });
   } else if (method === 'ping') {
     send({ id, result: {} });
   } else {

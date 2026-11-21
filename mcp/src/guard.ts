@@ -1,29 +1,30 @@
-import { contactGuard, contactIn } from '../../src/core/model/assistantView';
+import { contactGuard, withoutStoredContacts, type ContactGuard } from '../../src/core/model/assistantView';
 import type { Records } from './project';
 
-// The server's last check before an answer leaves (7.5): the answer as it will be sent, searched for every
-// contact-shaped value the project holds (assistantView.ts's `contactGuard`: phones by their last 7 digits, emails,
-// addresses, coordinates to 3 decimals, a photo's time; both sides normalised). The tools never pick one, by the view;
-// this catches a reader that ever handed one through, and refuses the whole answer rather than send it.
+// The server's last check before an answer leaves (7.5): every contact-shaped value the project holds (assistantView.ts's
+// `contactGuard`: stored phones by their last 7 digits, emails, whole addresses, coordinates to 4 places; both sides
+// normalised), looked for in the answer's typed text and replaced with "[contact left out]", as the free-text rule
+// does. The tools never pick a contact prop, by the view; this catches one typed again in a frame's action, a note or a
+// title in a form the free-text rule can't recognise.
+//
+// Round 3: it never refuses an answer (a refused answer is worse than useless on a shoot, and the stored props are
+// already left out), and it reads only strings that hold typed text: never a key, an id, a number, a date, a slate
+// number, nor a name the view gives (a person's, a location's, a scene's, a company's, a room's, a character's).
 
-/** What a refused answer suggests, by tool: a narrower call shows which item holds the detail. */
-const NARROW: Readonly<Record<string, string>> = {
-  list_shots: 'Ask for one scene or one shoot day at a time to find the frame that holds it.',
-  list_scenes: 'Ask list_shots for one scene at a time instead.',
-  get_call_sheet: "Ask for the day's scenes with list_shots, or the locations with list_locations, instead.",
-  get_plan: 'Ask for one setup at a time, or for the scene without a setup.',
-  list_suggestions: 'Ask for one status at a time (pending, approved or rejected).',
-};
+/** Keys whose strings aren't typed text: ids, slate and scene numbers, labels and names. */
+const NOT_TEXT = new Set(['id', 'number', 'label', 'name', 'company', 'file_name', 'scene', 'cast', 'characters', 'plays']);
 
-const NARROW_OTHER = 'One of its items has a contact detail typed into its text: someone can take it out in Storiiboard.';
+const notText = (key: string | null) => key !== null && (NOT_TEXT.has(key) || /_ids?$/.test(key));
 
-/** The refusal's words for a tool. */
-export function contactRefused(tool: string): string {
-  return `${tool}: this answer was held back, since it would have held a contact detail (a phone number, an email, an address, coordinates or a photo's time), which these tools never return. ${NARROW[tool] ?? NARROW_OTHER}`;
+/** A value with the guard's values replaced in its typed text; an array's items read as their array's key. */
+function guarded(guard: ContactGuard, value: unknown, key: string | null, depth: number): unknown {
+  if (typeof value === 'string') return notText(key) ? value : withoutStoredContacts(guard, value);
+  if (depth > 32 || typeof value !== 'object' || value === null) return value;
+  if (Array.isArray(value)) return value.map((inner) => guarded(guard, inner, key, depth + 1));
+  return Object.fromEntries(Object.entries(value).map(([inner, v]) => [inner, guarded(guard, v, inner, depth + 1)]));
 }
 
-/** The answer's text, or a refusal when it holds a contact detail of the project. */
-export function checkedAnswer(records: Records, tool: string, answer: unknown): { ok: true; text: string } | { ok: false; text: string } {
-  const text = JSON.stringify(answer);
-  return contactIn(contactGuard(records), text) === null ? { ok: true, text } : { ok: false, text: contactRefused(tool) };
+/** The answer as it leaves: the project's stored contact values replaced wherever they were typed again. */
+export function guardedAnswer(records: Records, answer: unknown): unknown {
+  return guarded(contactGuard(records), answer, null, 0);
 }

@@ -219,7 +219,9 @@ export function projectSummary(context: ToolContext): Obj {
 /** What every answer leaves out, said once per summary so the assistant never guesses at it. */
 export const LEFT_OUT_WORDS =
   'Contact details are never returned: phone numbers, email addresses, street addresses, parking notes, places on the map ' +
-  "and coordinates, a scout photo's place and time, the client's and the company's contact. Trashed items only when asked " +
+  "and coordinates, a scout photo's place and time, the client's and the company's contact. Text people type (notes, " +
+  'action, dialogue) is given as typed, with phone numbers, emails, coordinates and map links taken out where they can ' +
+  'be recognised. Trashed items only when asked ' +
   '(include_trashed). No stored file (picture, PDF, script) is returned.';
 
 // -- list_scenes -------------------------------------------------------------------------------------------------------

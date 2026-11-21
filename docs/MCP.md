@@ -83,8 +83,10 @@ On Windows, the same with Windows paths, each backslash doubled:
 }
 ```
 
-Two projects of the same name in two folders are both fine: the server names each by its folder, and asks for the
-path when a call names only the shared name.
+Two projects of the same name in two folders are both fine: the server numbers them in the order its arguments give
+them ("Harbor Lights (1)", "Harbor Lights (2)"), takes that label (or the path) as the project's name, and asks for one
+of them when a call names only the shared name. It never tells the assistant a folder's name, which can name a person
+or a client.
 
 Quit Claude Desktop and open it again; the ten Storiiboard tools are listed under the tools button.
 
@@ -136,22 +138,37 @@ decided before an assistant can read it.
 - **This computer's time zone**: the server looks no zone up, and a location with no zone typed gets
   `{ zone: null, missing: "noZone" }` and no sun times on a call sheet, never times in the zone of the computer the
   server runs on.
-- **Free text** that is given (notes, action, names, titles), and every string a tool returns (a reader's own words,
-  a cast member's character names, a suggestion's values), is read Unicode-aware: format characters (`\p{Cf}`: zero
-  width spaces, soft hyphens) are dropped and the text normalised (NFKC), so full-width digits or a "＠" read as plain
-  ones. Then, replaced with `[contact left out]`:
-  - map links (`maps.google.`, `goo.gl/maps`, `maps.app.goo.gl`, `maps.apple.`, `openstreetmap.org`, `osm.org`);
-  - emails, with an `@` or a lookalike: `＠`, `(at)` or `[at]`, or ` at ` before a dotted domain;
-  - coordinate pairs (two decimals of 3 or more places) and degrees-minutes-seconds;
-  - phone numbers: 7 to 15 digits (any script's) in groups joined by single spaces, any dash, dots or slashes, with
-    a leading `+` or `(`, or ending in a group of 4 or more digits, or one run of 10 or more digits (and longer runs
-    ending in a group of 4 or more). Never a date (`2026-11-18`, `18.11.2026`, `18-11-2026`, with or without a time
-    after it), a range of two groups (`1001-1096`), or groups whose last has under 4 digits (`101 102 103`,
-    `1 250 000`, `18 25 35 50 85`). Ids are never touched.
+- **Text people type** (notes, action, dialogue, names, titles) goes to the assistant as typed, with phone numbers,
+  emails, coordinates and map links taken out where they can be recognised; so does every string a tool returns (a
+  reader's own words, a cast member's character names, a suggestion's values, a refusal's words). Stored contact
+  fields are never read at all (above). The rule reads the text Unicode-aware: format characters (`\p{Cf}`: zero width
+  spaces, soft hyphens) are dropped and the text normalised (NFKC), so full-width digits or a "＠" read as plain ones.
+  Then, replaced with `[contact left out]`:
+  - map links, with everything after them: `maps.google.`, `google.<tld>/maps` (`www.google.com/maps/…!3d…!4d…`),
+    `goo.gl/maps`, `maps.app.goo.gl`, `share.google`, `maps.apple.`, `openstreetmap.org`, `osm.org`, `waze.com/ul`,
+    `bing.com/maps`, what3words (`///word.word.word`, `w3w.co`), and plus codes (`849VCWC8+R9`, with a letter in
+    them);
+  - emails, with an `@` or a lookalike: `＠`, `(at)` or `[at]`, ` at `, an `@` with a space on both sides, and ` dot `
+    or `(dot)` for a dot (`name at example dot com`). A handle (`@harbor.lights`) stays;
+  - coordinate pairs (two decimals of 4 or more places, a latitude within 90 and a longitude within 180, so frame
+    rates such as `23.976, 29.970` stay) and degrees-minutes-seconds;
+  - phone numbers: 7 or more digits (any script's) in groups joined by a space (any `\p{Zs}`), two spaces, any dash or
+    `−`, a dot, a slash, `·`, or a dash with a space each side; a letter right against the digits doesn't stop one
+    (`Robin555-0123`). A phone has a leading `+` or `(`; or is one run of 10 or more digits, or of 9 starting with 6
+    to 9 (`612345678`); or two groups, the first of 3 digits or fewer or starting with 0, the last of 4 or more
+    (`555-0123`); or three or more groups ending in one of 4 or more, or of 9 or more digits starting with 0
+    (`06 12 34 56 78`, `0475 12 34 56`), or 3-3-3 starting with 6 to 9 (`612 345 678`). Never a date (`2026-11-18`,
+    `18.11.2026`, with or without a time after it), two groups whose first has 4 or more digits and doesn't start
+    with 0 (night hours `1830-0630`, `2026-004512`), a range (two groups joined by a dash, the second 0 to 999 above
+    the first: `993-1104`), or other groups whose last has under 4 digits (`101 102 103`, `1 250 000`). Ids are never
+    touched.
+  - Text in which nothing is taken out comes back exactly as stored, not normalised. Every pattern's start is anchored,
+    so one very long word can't make the rule slow (100 KB of one word is read in well under 100 ms).
 - **Suggestions' data**: each field is given or left out by the type of the record the suggestion acts on (its real
   target's type when the target is in the project), every value through the free-text rule; `fields_left_out` names a
-  field only when it is a known prop, and counts the rest ("2 unknown fields"). Its kind, target type and source are
-  scrubbed and kept to 64 characters.
+  field only when it is a known prop, and counts the rest ("2 unknown fields"); its `type`, `parent_id` and `after_id`
+  only as text of at most 100 characters, or null. Its kind, target type and source are scrubbed and kept to 64
+  characters.
 - **Files**: no picture, video, PDF, link or script, and no file path. A frame says only whether it has a picture.
 - **The Trash**, unless a call asks with `include_trashed: true`; each trashed item is then marked `trashed`.
 - **Board items, sketches, settings presets and availability**: no 7.5 tool reads them.
@@ -167,13 +184,21 @@ decided before an assistant can read it.
 - The project's switch "Let the assistant read contact details" (decision 14) isn't built: until it is, these tools
   never return them.
 
-As a last check, the server searches every answer, as it will be sent, for the contact-shaped values the project
-holds: each stored phone by its last 7 digits against every run of digits in the answer (so `555–0123` with an en
-dash, or full-width digits, is caught), emails, each stored address and its first comma part, coordinates to 3
-decimals, and a scout photo's time; both sides normalised (NFKC, case-folded, whitespace collapsed, format characters
-dropped). A contact's name, a client's name, custom fields and parking text are not matched (they would refuse
-ordinary answers that share a word); their props stay left out. An answer holding one is held back, and the assistant
-is told which tool and what to narrow (one scene, one day, one setup, one status).
+As a last check, the server looks in every answer's typed text for the contact-shaped values the project holds, and
+replaces each it finds with `[contact left out]`, as the rule above does; it never refuses an answer. It reads only
+strings that hold typed text: never a key, an id, a number (a plan's positions are numbers), a date, a slate number, or
+a name the view gives (a person's, a location's, a scene's, a company's, a room's, a character's). What it looks for,
+both sides normalised (NFKC, case-folded, whitespace collapsed, format characters dropped):
+
+- each phone-shaped part of a stored phone field (`555-0123 / 555-0199` is two; an `x 45` tail left out), and each
+  phone number typed in left-out text (a person's notes, a location's notes, own fields' values), by its last 7
+  digits, against every run of digits in a text string, with ids and ISO dates and date-times blanked first (so
+  `555–0123` with an en dash, `5 5 5 0 1 2 3`, or full-width digits are caught);
+- a stored email, and a stored address whole;
+- a stored coordinate, written with 4 or more places, to 4 places.
+
+A contact's name, a client's name, an address's first part and parking text are not matched (they would take words out
+of ordinary answers that share them); their props stay left out.
 
 Times and zones: a location's typed time zone is used for its sun. The desktop app looks a zone up from a place on the
 map (tzf-rs, in Rust); the server looks nothing up, so a location with no zone typed has no sun in `get_plan`
@@ -185,6 +210,7 @@ Every tool takes `project`: the project's file name without `.sbd` ("Harbor Ligh
 server was started with; leave it out when it reads one project. Every answer is one JSON text. A refusal (a scene
 that isn't there, a file of another format, a bad argument) is a tool error in words, saying what there is instead;
 a wrong argument says which and what it takes (`list_scenes: include_trashed is true or false.`), never zod's list.
+A refusal's words go through the free-text rule too, since they can repeat what the assistant asked for.
 Lengths are metres, angles degrees, times `HH:mm` on a 24-hour clock in the place's zone, dates `YYYY-MM-DD`.
 
 ### project_summary

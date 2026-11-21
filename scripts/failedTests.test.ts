@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { failuresIn, playwrightFailures, startedAt, vitestFailures } from './failedTests';
+import { DEFAULT_REPORTS, failuresIn, playwrightFailures, reportsToRead, startedAt, vitestFailures } from './failedTests';
 
 // Every failed test by name (3.19): read from Vitest's and Playwright's JSON reports, in the shapes they write.
 
@@ -100,6 +100,23 @@ describe('the failed tests in a run', () => {
     expect(startedAt({ startTime: Date.UTC(2026, 10, 9, 22, 0) })).toBe(new Date(Date.UTC(2026, 10, 9, 22, 0)).toLocaleString());
     expect(startedAt({ stats: { startTime: '2026-11-09T22:00:00.000Z' } })).toBe(new Date('2026-11-09T22:00:00.000Z').toLocaleString());
     expect(startedAt({})).toBe('an unknown time');
+  });
+
+  it('reads the MCP server’s report by default too, and names its tests from mcp/ (7.5 round 3)', () => {
+    expect(DEFAULT_REPORTS).toContain('test-results/mcp-unit.json');
+    const there = new Set(['test-results/unit.json', 'test-results/mcp-unit.json']);
+    expect(reportsToRead([], (path) => there.has(path))).toEqual(['test-results/unit.json', 'test-results/mcp-unit.json']);
+    expect(reportsToRead(['test-results/mcp-unit.json'], () => false)).toEqual(['test-results/mcp-unit.json']);
+    const report = {
+      testResults: [
+        {
+          name: 'C:\\Users\\robin\\Code\\storiiboard\\mcp\\test\\tools.test.ts',
+          status: 'failed',
+          assertionResults: [{ ancestorTitles: ['the server’s last check'], title: 'passes every tool’s answer', status: 'failed' }],
+        },
+      ],
+    };
+    expect(vitestFailures(report)).toEqual([{ kind: 'failed', name: 'mcp/test/tools.test.ts › the server’s last check › passes every tool’s answer' }]);
   });
 
   it('finds none in a clean run', () => {

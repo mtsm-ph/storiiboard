@@ -302,6 +302,12 @@ describe('the MCP server over stdio', () => {
     expect(byName.isError).toBe(false);
   });
 
+  it('scrubs a refusal’s words, which can repeat what the assistant asked for (round 3)', async () => {
+    expect(await call(client, 'list_shots', { scene: '+1 555 0123' })).toEqual({ isError: true, text: 'There\'s no scene numbered "[contact left out]". The scenes are 12.' });
+    expect(await call(client, 'get_call_sheet', { day: 'r@example.com' })).toEqual({ isError: true, text: 'There\'s no shoot day "[contact left out]". The days are 1 (2026-11-18).' });
+    expect((await call(client, 'no_such_tool_5550123456', {})).text).toMatch(/^There's no tool named no_such_tool_\[contact left out\]\. The tools are /);
+  });
+
   it('refuses a missing file, a newer one and an older one in words, changing none', async () => {
     const newer = folder.path('Newer.sbd');
     const older = folder.path('Older.sbd');
@@ -356,7 +362,7 @@ describe('the MCP server over stdio', () => {
     }
   });
 
-  it('refuses a name two of its projects share, showing each by its folder’s name', async () => {
+  it('numbers a name two of its projects share, in the order it was given them, and never names their folders', async () => {
     const east = makeTestFolder();
     const west = makeTestFolder();
     try {
@@ -368,11 +374,17 @@ describe('the MCP server over stdio', () => {
       copyFileSync(project, two);
       const c = await connect([one, two]);
       try {
-        expect(await call(c, 'project_summary', { project: 'Harbor Lights' })).toEqual({
-          isError: true,
-          text: '2 projects are named Harbor Lights: the one in East and the one in West. Name it by its path.',
-        });
-        expect((await call(c, 'project_summary')).text).toBe('Name the project: Harbor Lights (in East), Harbor Lights (in West).');
+        // Round 3: numbered, never by folder (a folder can name a person or a client).
+        const shared = await call(c, 'project_summary', { project: 'Harbor Lights' });
+        expect(shared).toEqual({ isError: true, text: '2 projects are named Harbor Lights: name one as Harbor Lights (1) or Harbor Lights (2).' });
+        const unnamed = await call(c, 'project_summary');
+        expect(unnamed.text).toBe('Name the project: Harbor Lights (1), Harbor Lights (2).');
+        for (const answer of [shared, unnamed]) {
+          expect(answer.text).not.toContain('East');
+          expect(answer.text).not.toContain('West');
+        }
+        // The label it gave is a name it takes, as is a path.
+        for (const label of ['Harbor Lights (1)', 'harbor lights (2)']) expect((await call(c, 'project_summary', { project: label })).isError, label).toBe(false);
         expect((await call(c, 'project_summary', { project: two })).isError).toBe(false);
       } finally {
         await c.close();

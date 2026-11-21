@@ -44,19 +44,26 @@ jobs:
       - run: npm ci
       # The MCP server's own two packages (7.5): its tests drive it with the SDK's client.
       - run: npm ci --prefix mcp
-      # The server's own checks (7.5 round 2): the app's lint and tests leave mcp/ out, so it runs its own.
+      # The server's own checks (7.5 round 2): the app's lint and tests leave mcp/ out, so it runs its own. Each step
+      # from here runs even when one before it is red (round 3), so a red server check never hides the app's, nor
+      # one of the app's another.
       - run: npm run typecheck --prefix mcp
-      - run: npm run lint --prefix mcp
-      - run: npm test --prefix mcp
+      - if: ${{ !cancelled() }}
+        run: npm run lint --prefix mcp
+      - if: ${{ !cancelled() }}
+        run: npm test --prefix mcp
       # The ffmpeg and ffprobe sidecars (Phase 2.1): Tauri's build needs them present, and the Rust tests run them.
       # Built once per change of scripts/ffmpeg/build.sh, then cached.
-      - uses: ./.github/actions/ffmpeg
+      - if: ${{ !cancelled() }}
+        uses: ./.github/actions/ffmpeg
         with:
           triple: x86_64-unknown-linux-gnu
       # tsc, eslint, cargo fmt and clippy.
-      - run: npm run lint
+      - if: ${{ !cancelled() }}
+        run: npm run lint
       # Vitest, then cargo test.
-      - run: npm test
+      - if: ${{ !cancelled() }}
+        run: npm test
       # Every failed test by name (3.19, Kevin Nov 9): listed in the log, and Vitest's report kept as an artifact.
       - name: List the failed unit tests
         if: ${{ !cancelled() && hashFiles('test-results/unit.json') != '' }}
@@ -67,6 +74,17 @@ jobs:
         with:
           name: unit-test-report
           path: test-results/unit.json
+          retention-days: 14
+      # The MCP server's failed tests by name (round 3), and its report kept, as the app's are.
+      - name: List the failed MCP server tests
+        if: ${{ !cancelled() && hashFiles('test-results/mcp-unit.json') != '' }}
+        run: npm run failed-tests -- test-results/mcp-unit.json
+      - name: Keep the MCP server's test report
+        if: ${{ !cancelled() && hashFiles('test-results/mcp-unit.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-unit-test-report
+          path: test-results/mcp-unit.json
           retention-days: 14
 
   # Red for a known vulnerability or malware in what Storiiboard ships, and only for that (Kevin, Nov 18): an npm

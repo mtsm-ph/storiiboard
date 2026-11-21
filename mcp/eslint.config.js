@@ -9,13 +9,14 @@ import tseslint from 'typescript-eslint';
 export default defineConfig(
   { ignores: ['dist'] },
   {
-    files: ['**/*.{ts,js}'],
+    // The probe and the test's resolve hook are .mjs (round 3): the same rules.
+    files: ['**/*.{ts,js,mjs}'],
     extends: [js.configs.recommended, tseslint.configs.strictTypeChecked],
     languageOptions: {
       ecmaVersion: 2023,
       globals: globals.node,
       parserOptions: {
-        projectService: { allowDefaultProject: ['eslint.config.js'] },
+        projectService: { allowDefaultProject: ['eslint.config.js', 'probe/*.mjs', 'test/*.mjs'] },
         tsconfigRootDir: import.meta.dirname,
       },
     },

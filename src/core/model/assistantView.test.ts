@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ASSISTANT_PROPS, assistantView, contactGuard, contactIn, givenProps, suggestionFieldsLeftOut, TAKEN_OUT, withoutContacts } from './assistantView';
+import { ASSISTANT_PROPS, assistantView, contactGuard, digitsOf, givenProps, suggestionFieldsLeftOut, TAKEN_OUT, withoutContacts, withoutStoredContacts } from './assistantView';
 import { RECORD_TYPES, type Props, type RecordType, type SbdRecord } from './record';
 
 // What an assistant may read (7.5): every prop of every record type, given or left out, listed here in full, so a change
@@ -141,6 +141,149 @@ const record = (type: RecordType, props: Props, trashedAt: string | null = null)
   updatedAt: '2026-11-21T10:00:00.000Z',
 });
 
+const ROUND_2_SCRUBBED = [
+  // Phones: a leading + or (, a last group of 4 or more, one run of 10 or more; any dash, dots, slashes, spaces.
+  '+1 555 0123',
+  '+1 (555) 012-3456',
+  '(555) 012-3456',
+  '555-0123',
+  '555 0123',
+  '555.0123',
+  '555/0123',
+  '5550123456',
+  '+15550123',
+  '+44 20 7946 09',
+  '+1 555–0123',
+  '+1 555‑0123',
+  '555​-0123',
+  '+1 555­ 0123',
+  '＋１ ５５５ ０１２３',
+  '٥٥٥ ٠١٢٣',
+  '4111 1111 1111 1111 1111',
+  // Emails, with an @ or a lookalike.
+  'robin.vale@example.com',
+  'robin.vale＠example.com',
+  'robin.vale﹫example.com',
+  'robin.vale (at) example.com',
+  'robin.vale [at] example (dot) com',
+  'robin.vale at example.com',
+  'ROBIN at harbor.example',
+  // Coordinates: a pair of decimals of 4 or more places (round 3; round 2's 3 places is in ROUND_2_KEPT now), or
+  // degrees, minutes and seconds.
+  '40.867712, -73.921234',
+  '40.8677 -73.9212',
+  '40.8677° N, 73.9212° W',
+  `40°52'03.8"N`,
+  '40° 52′ 3″ N',
+  // Map links.
+  'https://maps.google.com/?q=40.8,-73.9',
+  'https://goo.gl/maps/abc123',
+  'https://maps.app.goo.gl/xyz',
+  'https://maps.apple.com/?ll=40.8,-73.9',
+  'https://www.openstreetmap.org/#map=17/40.8/-73.9',
+  'https://osm.org/go/ZWp',
+];
+
+const ROUND_2_KEPT = [
+  // Dates, with or without a time after.
+  '2026-11-18',
+  '18.11.2026',
+  '18-11-2026',
+  '11/18/2026',
+  '2026-11-18 06:30',
+  '18.11.2026 06:30',
+  '18-11-2026 06.30',
+  '2026-11-17T10:00:00.000Z',
+  // A range of two groups.
+  '1001-1096',
+  '1001–1096',
+  // Groups whose last is under 4 digits.
+  '101 102 103',
+  '1 250 000',
+  '18 25 35 50 85',
+  '555.0123.88',
+  // Short or single numbers, lengths, times, stops, pages, lenses, slates, ids.
+  '1234567',
+  '4417',
+  '4.5 m',
+  '06:30',
+  'T2.8',
+  '1 3/8',
+  '24-70',
+  'SC 12A',
+  '40.8',
+  '10000000-0000-4000-8000-000000000003',
+  'Meet at the pier.',
+  'Gate opens at 5. Night',
+  // Round 3: a pair of 3 places each is a pair of numbers, not a place (frame rates, ratios).
+  '40.867;-73.921',
+];
+
+/** Round 3's cases (items 4 to 7 of its brief, and the review's innocent film text). */
+const ROUND_3_SCRUBBED = [
+  // Phones: 3 or more groups starting with 0; 3-3-3 or one run of 9 starting with 6 to 9.
+  '06 12 34 56 78',
+  '079 123 45 67',
+  '0475 12 34 56',
+  '612 345 678',
+  '612345678',
+  // Joins: any \p{Zs}, −, ·, a spaced dash, two spaces.
+  '555 0123',
+  '555　0123',
+  '555 0123',
+  '555−0123',
+  '555·0123',
+  '555 - 0123',
+  '555  0123',
+  // Coordinates, 4 places each, on Earth.
+  '-33.8688, 151.2093',
+  '89.9999 179.9999',
+  // Map links, each with what follows it.
+  'https://www.google.com/maps/place/Pier+9/@40.8677,-73.9212,17z/data=!3m1!4b1!4m6!3m5!1s0x89c2f:0x1a2b!8m2!3d40.8677!4d-73.9212',
+  'google.es/maps?q=Madrid',
+  'https://www.google.co.uk/maps/@51.5,-0.12,15z',
+  'https://share.google/AbC123',
+  'https://waze.com/ul?ll=40.8,-73.9',
+  'https://www.bing.com/maps?cp=40.8~-73.9',
+  '///filled.count.soap',
+  'https://w3w.co/filled.count.soap',
+  '849VCWC8+R9',
+  'CWC8+R9',
+  // Emails, with words for the signs, or spaces around them.
+  'name at example dot com',
+  'robin.vale @ example . com',
+  'robin.vale@example dot com',
+  'robin (at) example (dot) com',
+];
+
+const ROUND_3_KEPT = [
+  // Two groups of four (night hours, ranges), and ranges of two groups.
+  '1830-0630',
+  '2234-5678',
+  '1001-1096',
+  '993-1104',
+  // Film text the review named.
+  '12A',
+  '01:02:03:04',
+  '24-70mm',
+  'T2.8',
+  '4K',
+  '$12,500',
+  '1 250 000',
+  '2026-11-17T10:00:00.000Z',
+  '2026-11-17T10:00:00Z',
+  'Day 3 of 12',
+  '101 102 103',
+  '23.976, 29.970',
+  '1.333 / 1.500',
+  '2026-004512',
+  "Meet at St.Mary's",
+  'DM @harbor.lights',
+  // A pair off the Earth's ranges, and a sum that only looks like a plus code.
+  '95.1234, 10.1234',
+  '2345+67',
+];
+
 describe('the assistant view', () => {
   it('says, for every prop of every record type, whether an assistant is given it or why not', () => {
     expect(Object.keys(ASSISTANT_PROPS).sort()).toEqual([...RECORD_TYPES].sort());
@@ -209,81 +352,9 @@ describe('the assistant view', () => {
   });
 
   it('scrubs free text by every rule, Unicode-aware, and keeps what only looks like a number (round 2)', () => {
-    const scrubbed = [
-      // Phones: a leading + or (, a last group of 4 or more, one run of 10 or more; any dash, dots, slashes, spaces.
-      '+1 555 0123',
-      '+1 (555) 012-3456',
-      '(555) 012-3456',
-      '555-0123',
-      '555 0123',
-      '555.0123',
-      '555/0123',
-      '5550123456',
-      '+15550123',
-      '+44 20 7946 09',
-      '+1 555–0123',
-      '+1 555‑0123',
-      '555​-0123',
-      '+1 555­ 0123',
-      '＋１ ５５５ ０１２３',
-      '٥٥٥ ٠١٢٣',
-      '4111 1111 1111 1111 1111',
-      // Emails, with an @ or a lookalike.
-      'robin.vale@example.com',
-      'robin.vale＠example.com',
-      'robin.vale﹫example.com',
-      'robin.vale (at) example.com',
-      'robin.vale [at] example (dot) com',
-      'robin.vale at example.com',
-      'ROBIN at harbor.example',
-      // Coordinates: a pair of decimals of 3 or more places, or degrees, minutes and seconds.
-      '40.867712, -73.921234',
-      '40.8677 -73.9212',
-      '40.8677° N, 73.9212° W',
-      '40.867;-73.921',
-      `40°52'03.8"N`,
-      '40° 52′ 3″ N',
-      // Map links.
-      'https://maps.google.com/?q=40.8,-73.9',
-      'https://goo.gl/maps/abc123',
-      'https://maps.app.goo.gl/xyz',
-      'https://maps.apple.com/?ll=40.8,-73.9',
-      'https://www.openstreetmap.org/#map=17/40.8/-73.9',
-      'https://osm.org/go/ZWp',
-    ];
+    const scrubbed = ROUND_2_SCRUBBED;
     for (const value of scrubbed) expect(withoutContacts(`see ${value} please`), value).toBe(`see ${TAKEN_OUT} please`);
-    const kept = [
-      // Dates, with or without a time after.
-      '2026-11-18',
-      '18.11.2026',
-      '18-11-2026',
-      '11/18/2026',
-      '2026-11-18 06:30',
-      '18.11.2026 06:30',
-      '18-11-2026 06.30',
-      '2026-11-17T10:00:00.000Z',
-      // A range of two groups.
-      '1001-1096',
-      '1001–1096',
-      // Groups whose last is under 4 digits.
-      '101 102 103',
-      '1 250 000',
-      '18 25 35 50 85',
-      '555.0123.88',
-      // Short or single numbers, lengths, times, stops, pages, lenses, slates, ids.
-      '1234567',
-      '4417',
-      '4.5 m',
-      '06:30',
-      'T2.8',
-      '1 3/8',
-      '24-70',
-      'SC 12A',
-      '40.8',
-      '10000000-0000-4000-8000-000000000003',
-      'Meet at the pier.',
-      'Gate opens at 5. Night',
-    ];
+    const kept = ROUND_2_KEPT;
     for (const value of kept) expect(withoutContacts(`see ${value} please`), value).toBe(`see ${value} please`);
     // A closing bracket the number didn't open stays with the sentence.
     expect(withoutContacts('MARA (call +1 555 0166)')).toBe(`MARA (call ${TAKEN_OUT})`);
@@ -316,27 +387,87 @@ describe('the assistant view', () => {
     expect(suggestionFieldsLeftOut({ [loose.id]: loose }, loose)).toEqual(['1 unknown field']);
   });
 
-  it('keeps for the server’s last check only contact-shaped values, and finds them however they are written', () => {
+  it('gives a suggestion’s type and ids only as text of at most 100 characters, or null (round 3)', () => {
+    const data = (props: Props) => assistantView({ s: { ...record('suggestion', { target_type: 'shot', data: props }), id: 's' } }).given.s?.props.data;
+    expect(data({ type: 'shot', parent_id: null, after_id: 'x'.repeat(100) })).toEqual({ type: 'shot', parent_id: null, after_id: 'x'.repeat(100) });
+    expect(data({ type: { phone: '+1 555 0123' }, parent_id: 'x'.repeat(101), after_id: 12 })).toEqual({});
+    expect(data({ type: ['shot'], parent_id: true })).toEqual({});
+  });
+
+  it('scrubs every case of round 3 and round 2, and keeps the film text that only looks like a contact (round 3)', () => {
+    for (const value of [...ROUND_2_SCRUBBED, ...ROUND_3_SCRUBBED]) expect(withoutContacts(`see ${value} please`), value).toBe(`see ${TAKEN_OUT} please`);
+    for (const value of [...ROUND_2_KEPT, ...ROUND_3_KEPT]) expect(withoutContacts(`see ${value} please`), value).toBe(`see ${value} please`);
+    // A letter right before or after the digits doesn't stop a phone; the letters stay.
+    expect(withoutContacts('Robin555-0123 and 555-0123ext')).toBe(`Robin${TAKEN_OUT} and ${TAKEN_OUT}ext`);
+    // A map link's whole tail goes with it, and the sentence after it stays.
+    expect(withoutContacts('Pin: https://www.google.com/maps/@40.8,-73.9,17z!3d40.86!4d-73.92 then left')).toBe(`Pin: ${TAKEN_OUT} then left`);
+    // An email's sentence keeps its full stop, the spaced form too.
+    expect(withoutContacts('Write to robin.vale @ example . com.')).toBe(`Write to ${TAKEN_OUT}.`);
+  });
+
+  it('gives back text it takes nothing out of exactly as stored, and normalises only text it changed (round 3)', () => {
+    for (const text of ['Ｆｕｌｌ ｗｉｄｔｈ', 'zero​width', 'soft­hyphen', 'ﬁne ligature', 'é combining', 'T2.8 at 06:30']) expect(withoutContacts(text), text).toBe(text);
+    expect(withoutContacts('Ｃａｌｌ ５５５ ０１２３')).toBe(`Call ${TAKEN_OUT}`);
+  });
+
+  it('reads 100 KB of one word in under 100 ms, whatever the word (round 3)', () => {
+    const words = ['a', '5', 'a.', 'a@', '1-', 'C', 'x1', '.5', '/', '+5', 'a ', '1 ', 'at ', '(5) '];
+    const times: Record<string, number> = {};
+    for (const unit of words) {
+      const text = unit.repeat(Math.ceil(100_000 / unit.length));
+      const start = performance.now();
+      withoutContacts(text);
+      times[unit] = performance.now() - start;
+    }
+    for (const unit of words) expect(times[unit], `"${unit}" × 100 KB took ${String(Math.round(times[unit] ?? 0))} ms`).toBeLessThan(100);
+  });
+
+  it('reads any script’s digits, plain ones by a fast path', () => {
+    expect(digitsOf('555-0123')).toBe('5550123');
+    expect(digitsOf('٥٥٥ ٠١٢٣')).toBe('5550123');
+    expect(digitsOf('５５５ ０１２３ and 4')).toBe('55501234');
+  });
+
+  it('keeps for the server’s last check only contact-shaped values, and replaces them however they are written (round 3)', () => {
     const location = record('location', {
       name: 'Pier 9',
       address: '1200 Ocean Avenue, Bayport',
       latitude: 40.867712,
       parking: 'Lot C behind the shed',
       contact_name: 'Dana Pierce',
-      custom: { Gate: 'North side' },
+      contact_phone: '555-0107 / 555-0199 x45',
+      custom: { Gate: 'North side', 'Owner cell': 'ring 0475 12 34 56' },
       map_name: 'Pier 9 Ferry Terminal',
+      notes: 'Guard: 612 345 678.',
     });
-    const person = record('person', { name: 'Robin Vale', phone: '+1 555 0123', email: 'Robin.Vale@Example.com' });
+    const person = record('person', { name: 'Robin Vale', phone: '+1 555 0123', email: 'Robin.Vale@Example.com', notes: 'Home 555 0161' });
     const photo = record('media', { kind: 'image', taken_at: '2026-10-02T07:41:09' });
     const project = record('project', { client: { name: 'Bayport Tourism', phone: '+1 555 0142' }, company: { name: 'Harbor Pictures', address: '88 Wharf Street, Bayport' } });
     const guard = contactGuard({ [location.id]: location, [person.id]: person, [photo.id]: photo, [project.id]: project });
-    expect([...guard.phones].sort()).toEqual(['5550123', '5550142']);
-    expect([...guard.texts].sort()).toEqual(['1200 ocean avenue', '1200 ocean avenue, bayport', '2026-10-02t07:41:09', '88 wharf street', '88 wharf street, bayport', 'robin.vale@example.com']);
+    // Both parts of a split phone field, its "x45" tail left out; the numbers typed in left-out and given notes.
+    expect([...guard.phones].sort()).toEqual(['5123456', '2345678', '5550107', '5550123', '5550142', '5550161', '5550199'].sort());
+    // Whole addresses and emails only: no first comma part, no photo's time.
+    expect([...guard.texts].sort()).toEqual(['1200 ocean avenue, bayport', '88 wharf street, bayport', 'robin.vale@example.com']);
     expect(guard.coordinates).toEqual([40.867712]);
-    for (const text of ['555 0123', '555–0123', '555‑0123', '(555) 0123', '+１ ５５５ ０１２３', 'ROBIN.VALE@EXAMPLE.COM', '1200  ocean avenue', '40.868', '40.8677', '-40.867'])
-      expect(contactIn(guard, `"${text}"`), text).not.toBeNull();
-    for (const text of ['Dana Pierce', 'Lot C behind the shed', 'North side', 'Pier 9 Ferry Terminal', 'Bayport Tourism', 'Bayport', '40.86', '2026-10-02', '555 012'])
-      expect(contactIn(guard, `"${text}"`), text).toBeNull();
+    for (const text of ['555 0123', '555–0123', '555‑0123', '(555) 0123', '+１ ５５５ ０１２３', '5 5 5 0 1 6 1', 'ROBIN.VALE@EXAMPLE.COM', '1200  ocean avenue, BAYPORT', '40.8677', '40.86771', '-40.8677'])
+      expect(withoutStoredContacts(guard, `call ${text} now`), text).toBe(`call ${TAKEN_OUT} now`);
+    for (const text of [
+      'Dana Pierce',
+      'Lot C behind the shed',
+      'North side',
+      'Pier 9 Ferry Terminal',
+      'Bayport Tourism',
+      'Bayport',
+      // An address's first part, a coordinate to 3 places, a photo's time, a short run.
+      '1200 Ocean Avenue',
+      '40.868',
+      '2026-10-02T07:41:09',
+      '555 012',
+      // Ids and ISO dates whose digits hold a stored phone's.
+      '10000000-0000-4000-8000-000005550123',
+      '5550-12-30',
+    ])
+      expect(withoutStoredContacts(guard, `call ${text} now`), text).toBe(`call ${text} now`);
   });
 
   it('hides a department’s material unless the reader is exempt from that department', () => {

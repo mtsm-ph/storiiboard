@@ -11,7 +11,7 @@ import { dayCrew } from '../../src/core/model/schedule';
 import { sunReadingOf } from '../../src/core/model/sunSources';
 import { windowSunsOf } from '../../src/core/model/windowSun';
 import { makeTestFolder } from '../../src/core/storage/testFolder';
-import { checkedAnswer, contactRefused } from '../src/guard';
+import { guardedAnswer } from '../src/guard';
 import { readProject, type ProjectData } from '../src/project';
 import { OPEN_ONCE, SAVING } from '../src/readOnlyFile';
 import { getCallSheet, getPlan, getSchedule, listGear, listLocations, listPeople, listScenes, listShots, listSuggestions, projectSummary, type ToolContext } from '../src/tools';
@@ -34,20 +34,25 @@ afterAll(() => {
   folder.remove();
 });
 
+/** Every tool's answer, by the tool's name. */
+function answers(context: ToolContext): Record<string, unknown> {
+  return {
+    project_summary: projectSummary(context),
+    list_scenes: listScenes(context, { include_trashed: true }),
+    list_shots: listShots(context, { include_trashed: true }),
+    get_schedule: getSchedule(context),
+    get_call_sheet: getCallSheet(context, { day: '1' }),
+    list_people: listPeople(context, { include_trashed: true }),
+    list_gear: listGear(context, { include_trashed: true }),
+    list_locations: listLocations(context, { include_trashed: true }),
+    get_plan: getPlan(context, { scene: '12', setup: '1' }),
+    list_suggestions: listSuggestions(context, { status: 'all', include_trashed: true }),
+  };
+}
+
 /** Every tool's answer, as one text. */
 function everyAnswer(context: ToolContext): string {
-  return JSON.stringify([
-    projectSummary(context),
-    listScenes(context, { include_trashed: true }),
-    listShots(context, { include_trashed: true }),
-    getSchedule(context),
-    getCallSheet(context, { day: '1' }),
-    listPeople(context, { include_trashed: true }),
-    listGear(context, { include_trashed: true }),
-    listLocations(context, { include_trashed: true }),
-    getPlan(context, { scene: '12', setup: '1' }),
-    listSuggestions(context, { status: 'all', include_trashed: true }),
-  ]);
+  return JSON.stringify(Object.values(answers(context)));
 }
 
 /** The fixture with some records changed or added: each given record replaces the one of its id. */
@@ -254,36 +259,52 @@ describe('a department marked no (Kevin, Nov 21)', () => {
 });
 
 describe('the server’s last check', () => {
-  const refused = (tool: string) => ({ ok: false, text: contactRefused(tool) });
+  // Round 3: the check replaces a stored contact value typed again, as the free-text rule does, and never refuses.
+  const guarded = (answer: unknown, records = data.records) => guardedAnswer(records, answer);
 
-  it('holds back an answer that would carry a contact detail, written any way, and says what to narrow', () => {
-    expect(checkedAnswer(data.records, 'list_locations', { name: 'Pier 9' })).toEqual({ ok: true, text: '{"name":"Pier 9"}' });
+  it('replaces a stored contact detail typed again in text, written any way', () => {
+    expect(guarded({ name: 'Pier 9' })).toEqual({ name: 'Pier 9' });
     for (const value of [
       'call +1 555 0123',
       // The stored phone typed with an en dash, with U+2011 (a non-breaking hyphen), in full-width digits, run together.
       'call 555–0123',
-      'call 555\u20110123',
+      'call 555‑0123',
       'call ５５５ ０１２３',
       'call 15550123',
-      'ROBIN.VALE@EXAMPLE.COM',
-      'robin.vale\uFF20example.com',
-      '1200 OCEAN AVENUE',
-      '1200  Ocean\u00A0Avenue, Bayport',
-      '88 Wharf Street',
-      '2026-10-02T07:41:09',
     ]) {
-      expect(checkedAnswer(data.records, 'list_shots', { note: value }), value).toEqual(refused('list_shots'));
+      expect(guarded({ note: value }), value).toEqual({ note: `call ${TAKEN_OUT}` });
     }
-    // Coordinates to 3 decimals, as stored or cut.
-    for (const n of [CONTACTS.latitude, 40.868, 40.867, -73.921, 73.921, CONTACTS.photoLatitude]) {
-      expect(checkedAnswer(data.records, 'get_plan', { place: n }), String(n)).toEqual(refused('get_plan'));
+    for (const value of ['ROBIN.VALE@EXAMPLE.COM', 'robin.vale＠example.com', '1200  Ocean Avenue, Bayport', '88 wharf street, BAYPORT']) {
+      expect(guarded({ note: `see ${value}.` }), value).toEqual({ note: `see ${TAKEN_OUT}.` });
     }
-    expect(contactRefused('list_shots')).toMatch(/^list_shots: .*one scene or one shoot day/);
-    expect(contactRefused('get_plan')).toMatch(/^get_plan: .*one setup/);
+    // Coordinates in text, 4 or more places, as stored or cut; in a list's items too.
+    for (const value of [String(CONTACTS.latitude), '40.8677', '-73.9212', '40.86555', String(CONTACTS.photoLatitude)]) {
+      expect(guarded({ notes: [`at ${value}`] }), value).toEqual({ notes: [`at ${TAKEN_OUT}`] });
+    }
   });
 
-  it('never refuses for what isn’t contact-shaped: names, a client’s name, custom values, parking text, a map’s name', () => {
-    // The five false refusals round 1 made: each value is a left-out prop of the fixture, matched as a whole string.
+  it('reads only typed text: never a number, an id, a name, a date, nor text that merely shares a part with a contact', () => {
+    const kept = {
+      // Numbers are never text: a coordinate as a number, as a plan position would be.
+      x_m: CONTACTS.latitude,
+      y_m: 40.8677,
+      // Names the view gives, even one written as a stored address.
+      name: CONTACTS.address,
+      company: 'Robin.Vale@example.com',
+      // Ids, and lists of them.
+      id: '10000000-0000-4000-8000-000005550123',
+      gear_ids: ['10000000-0000-4000-8000-000005550123'],
+      // In text: an address's first part, a photo's time, coordinates to 3 places, an id and an ISO date whose digits
+      // hold a stored phone's.
+      notes: '1200 Ocean Avenue; 88 Wharf Street; 2026-10-02T07:41:09; 40.868, -73.921',
+      action: 'See 10000000-0000-4000-8000-000005550123 and 5550-12-30.',
+    };
+    expect(guarded(kept)).toEqual(kept);
+  });
+
+  it('never touches what isn’t contact-shaped: names, a client’s name, custom values, parking text, a map’s name', () => {
+    // The five false refusals round 1 made, each a left-out prop of the fixture matched as a whole string, come back
+    // whole, as a name and as text.
     for (const value of [
       // A crew member who shares a location contact's name.
       CONTACTS.contactName,
@@ -300,12 +321,43 @@ describe('the server’s last check', () => {
       '40.5',
       '2026-11-18',
     ]) {
-      expect(checkedAnswer(data.records, 'list_people', { name: value }).ok, value).toBe(true);
+      expect(guarded({ name: value, note: value }), value).toEqual({ name: value, note: value });
     }
   });
 
-  it('passes every tool’s answer', () => {
-    for (const [tool, answer] of Object.entries(JSON.parse(everyAnswer({ data })) as unknown[])) expect(checkedAnswer(data.records, tool, answer).ok, tool).toBe(true);
+  it('gives back the review’s three innocent answers whole: a place named as its address begins, Madrid’s longitude as a position, an id ending as a phone ends', () => {
+    // The pier at Madrid's longitude, named as its address begins; a camera at 3.7038 m; a gear item whose id ends in
+    // Robin's phone's last 7 digits.
+    const gearId = '10000000-0000-4000-8000-000005550123';
+    const gear: SbdRecord = { ...withProps(IDS.boom, {}), id: gearId, props: { name: 'Second boom', department: 'sound' } };
+    const odd = changed(
+      withProps(IDS.pier, { name: '1200 Ocean Avenue', longitude: -3.70379 }),
+      withProps(IDS.camera, { x: 3.7038, y: -3.70379 }),
+      withProps(IDS.day1, { gear_ids: [IDS.body, IDS.panel, gearId] }),
+      gear,
+    );
+    for (const [tool, answer] of Object.entries(answers({ data: odd }))) expect(guarded(answer, odd.records), tool).toEqual(answer);
+    expect(JSON.stringify(answers({ data: odd }))).toContain(gearId);
+    expect(JSON.stringify(answers({ data: odd }))).toContain('"name":"1200 Ocean Avenue"');
+  });
+
+  it('catches a number typed in left-out text, or one part of a split phone field, typed again where the free-text rule can’t see it', () => {
+    const odd = changed(
+      withProps(IDS.robin, { notes: 'Home line 555 0161' }),
+      withProps(IDS.pier, { contact_phone: '555-0107 / 555-0166 x45' }),
+      withProps(IDS.shotA, { action: 'Ring 5 5 5 0 1 6 1 at the gate.', dialogue: 'Try 5550 166.' }),
+    );
+    const shots = listShots({ data: odd }, { scene: '12' }) as { shots: { action: string; dialogue: string }[] };
+    // The free-text rule leaves both: single digits, and two groups whose first has four.
+    expect(shots.shots[0]).toMatchObject({ action: 'Ring 5 5 5 0 1 6 1 at the gate.', dialogue: 'Try 5550 166.' });
+    const checked = guarded(shots, odd.records) as { shots: { action: string; dialogue: string }[] };
+    expect(checked.shots[0]).toMatchObject({ action: `Ring ${TAKEN_OUT} at the gate.`, dialogue: `Try ${TAKEN_OUT}.` });
+  });
+
+  it('passes every tool’s answer, each by its tool’s name', () => {
+    const all = answers({ data });
+    expect(Object.keys(all)).toEqual(['project_summary', 'list_scenes', 'list_shots', 'get_schedule', 'get_call_sheet', 'list_people', 'list_gear', 'list_locations', 'get_plan', 'list_suggestions']);
+    for (const [tool, answer] of Object.entries(all)) expect(guarded(answer), tool).toEqual(answer);
   });
 });
 

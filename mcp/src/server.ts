@@ -1,9 +1,10 @@
-import { basename, dirname, resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { checkedAnswer } from './guard';
+import { withoutContacts } from '../../src/core/model/assistantView';
+import { guardedAnswer } from './guard';
 import { readProject } from './project';
 import { ProjectRefused } from './readOnlyFile';
 import { getCallSheet, getPlan, getSchedule, listGear, listLocations, listPeople, listScenes, listShots, listSuggestions, projectSummary, ToolError, type ToolContext } from './tools';
@@ -24,15 +25,19 @@ export function startedWith(argv: readonly string[]): string[] {
 const same = (a: string, b: string) => (process.platform === 'win32' || process.platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b);
 const stem = (path: string) => basename(path).replace(/\.sbd$/i, '');
 
-/** A project as the assistant is told of it: its name, and its folder's name when another project shares the name. */
+/**
+ * A project as the assistant is told of it: its name; when other projects share the name, the name numbered in the
+ * order the server was given them ("Harbor Lights (1)", "Harbor Lights (2)"). Never its folder's name (round 3): a
+ * folder can name a person or a client.
+ */
 function label(path: string, projects: readonly string[]): string {
-  const shared = projects.filter((p) => same(stem(p), stem(path))).length > 1;
-  return shared ? `${stem(path)} (in ${basename(dirname(path))})` : stem(path);
+  const sharing = projects.filter((p) => same(stem(p), stem(path)));
+  return sharing.length > 1 ? `${stem(path)} (${String(sharing.indexOf(path) + 1)})` : stem(path);
 }
 
 const labels = (projects: readonly string[]) => projects.map((p) => label(p, projects)).join(', ');
 
-/** Which of the started projects a call means: by path or by name; the only one when it names none. */
+/** Which of the started projects a call means: by its label, its path or its name; the only one when it names none. */
 function chosen(projects: readonly string[], asked: string | undefined): string {
   if (projects.length === 0) throw new ToolError('No project file was given to this server. Add the .sbd path to its arguments (docs/MCP.md).');
   if (asked === undefined || asked.trim() === '') {
@@ -40,12 +45,15 @@ function chosen(projects: readonly string[], asked: string | undefined): string 
     throw new ToolError(`Name the project: ${labels(projects)}.`);
   }
   const wanted = asked.trim();
+  // The label the server gave a project that shares its name, as the assistant was told it.
+  const byLabel = projects.find((p) => label(p, projects) !== stem(p) && same(label(p, projects), wanted));
+  if (byLabel) return byLabel;
   const byPath = projects.find((p) => same(p, resolve(wanted)));
   if (byPath) return byPath;
   const byName = projects.filter((p) => same(stem(p), wanted.replace(/\.sbd$/i, '')));
   // Two files of one name in two folders: never a guess at which (round 2).
   if (byName.length > 1) {
-    throw new ToolError(`${String(byName.length)} projects are named ${stem(byName[0] ?? '')}: ${byName.map((p) => `the one in ${basename(dirname(p))}`).join(' and ')}. Name it by its path.`);
+    throw new ToolError(`${String(byName.length)} projects are named ${stem(byName[0] ?? '')}: name one as ${byName.map((p) => label(p, projects)).join(' or ')}.`);
   }
   // Only a file the server was started with is ever opened: the assistant can't point it anywhere else.
   if (!byName[0]) throw new ToolError(`This server reads only ${labels(projects)}.`);
@@ -54,13 +62,13 @@ function chosen(projects: readonly string[], asked: string | undefined): string 
 
 type Answer = { content: { type: 'text'; text: string }[]; isError?: boolean };
 
-const refused = (text: string): Answer => ({ content: [{ type: 'text', text }], isError: true });
+// A refusal's words go through the free-text rule (round 3): they can repeat what the assistant asked for.
+const refused = (text: string): Answer => ({ content: [{ type: 'text', text: withoutContacts(text) }], isError: true });
 
-async function answer(projects: readonly string[], tool: string, asked: string | undefined, run: (context: ToolContext) => unknown): Promise<Answer> {
+async function answer(projects: readonly string[], asked: string | undefined, run: (context: ToolContext) => unknown): Promise<Answer> {
   try {
     const data = await readProject(chosen(projects, asked));
-    const checked = checkedAnswer(data.records, tool, run({ data }));
-    return checked.ok ? { content: [{ type: 'text', text: checked.text }] } : refused(checked.text);
+    return { content: [{ type: 'text', text: JSON.stringify(guardedAnswer(data.records, run({ data }))) }] };
   } catch (error) {
     if (error instanceof ToolError || error instanceof ProjectRefused) return refused(error.message);
     // Anything else is said plainly, never with its own message (it could name a path or a value).
@@ -198,7 +206,7 @@ async function callTool(projects: readonly string[], name: string, raw: unknown)
   const parsed = z.object(entry.shape).safeParse(raw ?? {});
   if (!parsed.success) return refused(argumentWords(name, args, parsed.error.issues));
   const values = parsed.data as { project?: string };
-  return answer(projects, name, values.project, (context) => entry.run(context, parsed.data));
+  return answer(projects, values.project, (context) => entry.run(context, parsed.data));
 }
 
 export function makeServer(projects: readonly string[]): McpServer {
