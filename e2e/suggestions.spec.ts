@@ -160,8 +160,8 @@ test('Review marks the import read; an import with nothing left to review opens 
   await page.locator('[data-notice]').getByRole('button', { name: 'Review', exact: true }).press('Enter');
   await expect(group(page).locator('[data-suggestion-item]').first()).toBeFocused();
   await expect(group(page).getByRole('heading', { name: /From Robin Vale, through the assistant/ })).toBeVisible();
-  // The other import's Review names its group.
-  await expect(tile(page).getByRole('button', { name: 'Review the suggestions from Robin Vale', exact: true })).toHaveCount(1);
+  // The other import's Review names its group, and when it came in: both imports are from Robin Vale.
+  await expect(tile(page).getByRole('button', { name: /^Review the suggestions from Robin Vale, brought in \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/ })).toHaveCount(1);
 
   // Reject the rest of this import; then one of the other's, so the log holds both imports.
   await group(page).getByRole('button', { name: 'Reject the rest', exact: true }).press('Enter');

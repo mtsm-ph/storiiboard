@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ask } from '../../app/ask';
 import { localDateTime } from '../../app/format';
 import { showInfo } from '../../app/notice';
-import { useProject } from '../../app/projectStore';
+import { projectStore, useProject } from '../../app/projectStore';
 import { workspaceStore } from '../../app/shell/workspaceStore';
 import { formatNumber, list, pluralKey, t, tn } from '../../core/i18n';
 import type { SbdRecord } from '../../core/model/record';
@@ -17,7 +17,7 @@ import { line, type Line, type Part } from '../history/summary';
 import { markImportRead } from '../notifications/notificationsStore';
 import { openShootDay } from '../schedule/shownDay';
 import { selectionStore } from '../storyboard/selection';
-import { applyOutcome, applyRest, rejectOne, rejectRest } from './decide';
+import { applyNotice, applyOutcome, applyRest, rejectOne, rejectRest, runNotice } from './decide';
 import {
   authorName,
   createRows,
@@ -73,7 +73,16 @@ interface Running {
   total: number;
 }
 
-const PartText = ({ part }: { part: Part }) => (typeof part === 'string' ? <span className="whitespace-pre-wrap wrap-anywhere">{part}</span> : <span className="font-mono">{part.mono}</span>);
+/** A run's count is heard at least this often (a slow run), besides each tenth of the way. */
+const ANNOUNCE_EVERY_MS = 5000;
+
+/** A run's progress as it goes: the frame asked for, how many passed, the tenth last heard and when. */
+const runProgress = (): { frame: number | null; passed: number; tenth: number; saidAt: number } => ({ frame: null, passed: 0, tenth: 0, saidAt: performance.now() });
+
+/** "Stopped at 340 of 2,000." */
+const stoppedWords = (at: Running): string => t('review.stoppedAt', { done: formatNumber(at.passed, 0), total: formatNumber(at.total, 0) });
+
+const PartText =({ part }: { part: Part }) => (typeof part === 'string' ? <span className="whitespace-pre-wrap wrap-anywhere">{part}</span> : <span className="font-mono">{part.mono}</span>);
 
 function show(target: ShowTarget): void {
   if (target.kind === 'shot') selectionStore.getState().selectShot(target.shotId, target.sceneId);
@@ -123,7 +132,11 @@ function Review() {
   const [run, setRun] = useState<Running | null>(null);
   const running = deciding || run !== null;
   // Where focus goes once React has drawn what a decision changed: set here, moved in the effect below.
-  const [focusAsk, setFocusAsk] = useState<{ n: number; to: 'apply' | 'log' } | null>(null);
+  const [focusAsk, setFocusAsk] = useState<number | null>(null);
+  // Where a run that stopped in this same file (a reopen after a sync) got to: shown until the next action.
+  const [stoppedAt, setStoppedAt] = useState<Running | null>(null);
+  // What the live region says: a run's count only every tenth of the way (or every 5 s), never each frame.
+  const [announced, setAnnounced] = useState('');
   const tileRef = useRef<HTMLDivElement>(null);
   const reviewHeading = useId();
   const logHeading = useId();
@@ -150,16 +163,12 @@ function Review() {
   }, [asked, projectId, askedFirst]);
 
   useEffect(() => {
-    if (!focusAsk) return;
+    if (focusAsk === null) return;
     const root = tileRef.current;
-    const target =
-      focusAsk.to === 'log'
-        ? root?.querySelector<HTMLElement>('[data-review-log-group]')
-        : (root?.querySelector<HTMLElement>('[data-suggestion-detail] [data-review-apply]') ?? root?.querySelector<HTMLElement>('[data-review-empty]'));
-    target?.focus();
+    (root?.querySelector<HTMLElement>('[data-suggestion-detail] [data-review-apply]') ?? root?.querySelector<HTMLElement>('[data-review-empty]'))?.focus();
   }, [focusAsk]);
-  const focusAfter = (to: 'apply' | 'log' = 'apply') => {
-    setFocusAsk((last) => ({ n: (last?.n ?? 0) + 1, to }));
+  const focusAfter = () => {
+    setFocusAsk((last) => (last ?? 0) + 1);
   };
 
   // The suggestion shown: the one chosen while it waits, else the first that does.
@@ -169,8 +178,15 @@ function Review() {
   const reviews = openGroup ? groupReviews(records, projectId, openGroup, slate) : new Map<string, SuggestionReview>();
   const selected = selectedId === null ? null : (reviews.get(selectedId) ?? null);
 
+  /** The next action: where a stopped run got to is no longer news. */
+  const acted = () => {
+    setStoppedAt(null);
+    setAnnounced('');
+  };
+
   /** A group opened from the tile: its notification read too. */
   const choose = (id: string, group: SuggestionGroup) => {
+    acted();
     setChosen(id);
     const first = group.ids[0];
     if (first !== undefined) void markImportRead(first);
@@ -187,18 +203,15 @@ function Review() {
   const decide = async (id: string, how: 'apply' | 'reject', group: SuggestionGroup, targetType: string) => {
     if (busy.current) return;
     busy.current = true;
+    acted();
     setDeciding(true);
     try {
       if (how === 'apply') {
         const outcome = await applyOutcome(id);
-        if (outcome.kind === 'done') {
-          showInfo(t('review.appliedOne'), { step: true });
-          moveOn(id, group);
-        } else if (outcome.kind !== 'elsewhere') {
-          // Not written at its turn: said why, in the flag's words.
-          const why = outcome.flag ? reviewFlagWords(outcome.flag, targetType) : '';
-          showInfo(t('review.notApplied', { why: why || t('review.notAppliedAny') }));
-        }
+        // Not written at its turn: said why, in the flag's words; a refused write says nothing over the store's warning.
+        const said = applyNotice(outcome, targetType);
+        if (said !== null) showInfo(said, outcome.kind === 'done' ? { step: true } : undefined);
+        if (outcome.kind === 'done') moveOn(id, group);
       } else if (await rejectOne(id)) {
         showInfo(t('review.rejectedOne'), { step: true });
         moveOn(id, group);
@@ -211,9 +224,13 @@ function Review() {
 
   const runRest = async (group: SuggestionGroup, how: 'apply' | 'reject') => {
     if (busy.current) return;
-    const ids = how === 'apply' ? restToApply(group, groupReviews(records, projectId, group, slate)) : restToReject(group);
+    acted();
+    // The reviews the run is picked from and confirmed on: at each item's turn, a flag it had here is its own, one it
+    // didn't came meanwhile.
+    const startedFrom = groupReviews(records, projectId, group, slate);
+    const ids = how === 'apply' ? restToApply(group, startedFrom) : restToReject(group);
     if (ids.length === 0) return;
-    const lines = restLines(records, ids, groupReviews(records, projectId, group, slate), LISTED);
+    const lines = restLines(records, ids, startedFrom, LISTED);
     const action = how === 'apply' ? t('review.applyRest') : t('review.rejectRest');
     const answer = await ask({
       title: action,
@@ -227,33 +244,49 @@ function Review() {
     // A decision may have begun while the confirmation was open.
     if (answer !== 'go' || isBusy()) return;
     busy.current = true;
-    setHeld({ records: liveRecords, slate: liveSlate });
+    // Held from the records as they are now, when the answer comes: an edit made while the confirmation was open shows.
+    const now = projectStore.getState();
+    const startedIn = now.project;
+    setHeld({ records: now.records, slate: now.slateNumbers });
     setRun({ how, passed: 0, total: ids.length });
-    // The progress line moves at most once a frame: a run's thousands of steps never draw the tile thousands of times.
-    const progress: { frame: number | null; passed: number } = { frame: null, passed: 0 };
+    const runWords = (passed: number) => t(how === 'apply' ? 'review.applying' : 'review.rejecting', { done: formatNumber(passed, 0), total: formatNumber(ids.length, 0) });
+    // The visible count moves at most once a frame: a run's thousands of steps never draw the tile thousands of times.
+    // What a screen reader hears moves far less: each tenth of the way, or every 5 s, so it is never read over itself.
+    const progress = runProgress();
+    setAnnounced(runWords(0));
     const onProgress = (n: number) => {
       progress.passed = n;
       progress.frame ??= requestAnimationFrame(() => {
         progress.frame = null;
-        setRun((now) => (now ? { ...now, passed: progress.passed } : now));
+        setRun((was) => (was ? { ...was, passed: progress.passed } : was));
       });
+      const tenth = Math.floor((n * 10) / ids.length);
+      const at = performance.now();
+      if (tenth > progress.tenth || at - progress.saidAt >= ANNOUNCE_EVERY_MS) {
+        progress.tenth = tenth;
+        progress.saidAt = at;
+        setAnnounced(runWords(n));
+      }
       return nextTask();
     };
+    let stopped = false;
     try {
-      const result = how === 'apply' ? await applyRest(ids, undefined, onProgress) : await rejectRest(ids, undefined, onProgress);
-      // Stopped because another file opened: the words would be about a file no longer shown.
-      if (!result.stopped) {
-        const said = [tn(how === 'apply' ? 'review.appliedRest' : 'review.rejectedRest', result.done)];
-        if (how === 'apply' && result.changed > 0) said.push(tn('review.skipped', result.changed));
-        if (how === 'reject' && result.changed > 0) said.push(tn('review.rejectSkipped', result.changed));
-        if (result.asIs > 0) said.push(tn('review.asIs', result.asIs));
-        showInfo(said.join(' '), { step: result.done > 0 });
-      }
+      const result = how === 'apply' ? await applyRest(ids, undefined, onProgress, startedFrom) : await rejectRest(ids, undefined, onProgress);
+      const said = runNotice(how, result);
+      if (said !== null) showInfo(said, { step: result.done > 0 });
+      // Stopped, yet this same file is open again (a reopen after a sync keeps the tile): where the run got to stays.
+      const open = projectStore.getState().project;
+      stopped = result.stopped && open !== null && startedIn !== null && open.file.path === startedIn.file.path;
     } finally {
       if (progress.frame !== null) cancelAnimationFrame(progress.frame);
       busy.current = false;
       setRun(null);
       setHeld(null);
+      if (stopped) {
+        const at: Running = { how, passed: progress.passed, total: ids.length };
+        setStoppedAt(at);
+        setAnnounced(stoppedWords(at));
+      } else setAnnounced('');
       focusAfter();
     }
   };
@@ -267,9 +300,13 @@ function Review() {
         <h2 id={reviewHeading} className="sb-label border-b border-border px-3 py-2">
           {t('review.toReview')}
         </h2>
-        {run && (
-          <p role="status" data-review-progress="" className="border-b border-border px-3 py-2 text-[13px]">
-            {t(run.how === 'apply' ? 'review.applying' : 'review.rejecting', { done: formatNumber(run.passed, 0), total: formatNumber(run.total, 0) })}
+        {/* Mounted while the tile is, empty between runs, so its first words are heard; the line under it is what's seen. */}
+        <p role="status" data-review-announced="" className="sr-only">
+          {announced}
+        </p>
+        {(run ?? stoppedAt) && (
+          <p aria-hidden="true" data-review-progress="" className="border-b border-border px-3 py-2 text-[13px]">
+            {run ? t(run.how === 'apply' ? 'review.applying' : 'review.rejecting', { done: formatNumber(run.passed, 0), total: formatNumber(run.total, 0) }) : stoppedAt ? stoppedWords(stoppedAt) : null}
           </p>
         )}
         {waiting.length === 0 ? (
@@ -381,6 +418,12 @@ function groupLine(group: SuggestionGroup): Line {
   return when === '' ? count : [...line('review.broughtIn', { when: { mono: when } }), ' · ', ...count];
 }
 
+/** A closed import's Review, named by who it's from and when it came in: two imports from one person read apart. */
+function openGroupName(group: SuggestionGroup, from: string): string {
+  const when = localDateTime(new Date(group.broughtInAt));
+  return when === '' ? t('review.openGroup', { from }) : t('review.openGroupAt', { from, when });
+}
+
 function GroupView({ group, records, open, reviews, selected, running, shown, onShowMore, onChoose, onDecide, onRest }: GroupViewProps) {
   const headingId = useId();
   const restHintId = useId();
@@ -428,7 +471,7 @@ function GroupView({ group, records, open, reviews, selected, running, shown, on
         ) : (
           <Button
             data-suggestion-item=""
-            aria-label={t('review.openGroup', { from })}
+            aria-label={openGroupName(group, from)}
             onClick={() => {
               const first = group.pending[0];
               if (first !== undefined) onChoose(first, false);

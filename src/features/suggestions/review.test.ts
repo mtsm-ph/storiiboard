@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setLocale } from '../../core/i18n';
 import type { Props, SbdRecord } from '../../core/model/record';
 import { NO_SLATE_NUMBERS } from '../../core/model/shotNumbers';
-import { reviewFlagWords, type SuggestionFlag } from '../../core/model/suggestion';
+import { reviewFlagWords, type SuggestionFlag, type SuggestionReview } from '../../core/model/suggestion';
 import { apply, loadRecords, log, undo, type Change } from '../../core/ops/ops';
 import { bringInChangeFile } from '../../core/ops/suggestions';
 import { isUnread, loadReadState, markAllReadStatements, markReadStatement, stepsSince } from '../../core/storage/notifications';
@@ -11,12 +11,25 @@ import { createProject, type Project } from '../../core/storage/project';
 import { loadSlateNumbers } from '../../core/storage/slateNumbers';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { coveredSteps, suggestionImports, suggestionNotes, suggestionUnread, unreadCount } from '../notifications/notificationsStore';
-import { applyOne, applyRest, rejectOne, rejectRest, type DecisionQueue } from './decide';
+import { applyNotice, applyOne, applyOutcome, applyRest, rejectOne, rejectRest, runNotice, type DecisionQueue } from './decide';
 import { copyFileSync } from 'node:fs';
 import { keptSuggestion } from '../../core/model/suggestion';
 import { openProject } from '../../core/storage/project';
 import { redo } from '../../core/ops/ops';
-import { fromWords, groupReviews, groupReviewsRun, headline, plain, restLines, restToApply, restToReject, suggestionGroups, targetLine, updateRows } from './review';
+import {
+  fromWords,
+  groupReviews,
+  groupReviewsRun,
+  headline,
+  plain,
+  restLines,
+  restToApply,
+  restToReject,
+  suggestionGroups,
+  targetLine,
+  updateRows,
+  type SuggestionGroup,
+} from './review';
 
 // The review screen's readers and decisions (7.2): imports grouped newest first, each in the file's order; Apply the rest
 // takes only unflagged adds (a new scene's frames after it), Reject the rest everything pending; every decision its own
@@ -201,15 +214,44 @@ describe('the review screen’s groups (7.2)', () => {
     groupReviews(edited, 'p', same, NO_SLATE_NUMBERS);
     expect(groupReviewsRun() - before).toBe(2);
     expect(restToApply(group, reviews)).toHaveLength(2000);
-    // Apply the rest itself is linear: the same 2,000 picked again in a moment.
+    // Picking the 2,000 again stays far under the bound. It guards only a pick gone very wrong (one that reviewed the
+    // group itself): at 2,000 a list's includes is a few milliseconds, which the 20,000-item test below catches.
     const picked = performance.now();
     restToApply(group, reviews);
     expect(performance.now() - picked).toBeLessThan(COST_BOUND_MS);
     // What one edit costs with the import open: one review of the group (said in the report).
     console.info(`7.2 cost: a 2,000-suggestion import reviewed in ${first.toFixed(0)} ms at first, ${oneEdit.toFixed(0)} ms after one edit`);
-    // A bound well above what this machine takes (said in the report), so a slow runner doesn't flake it, yet far below
-    // what reviewing it per render, or a quadratic Apply the rest, would cost.
+    // Reviewing per render is guarded by the counts above, not by time. This bound guards the review of one suggestion
+    // itself: one that read every record (or every other suggestion) would make one edit's review of 2,000 take seconds;
+    // it is well above what this machine takes (said in the report), so a slow runner doesn't flake it.
     expect(oneEdit).toBeLessThan(COST_BOUND_MS);
+  });
+
+  it('Apply the rest over 20,000 adds looks at each once and picks them in linear time', () => {
+    const made = keptSuggestion(suggestion('n', 'k', { kind: 'create', target_type: 'shot', target_label: 'Frame', data: { type: 'shot', parent_id: 'sc4', after_id: null, props: {} } }));
+    const pending = Array.from({ length: 20000 }, (_, i) => `n${String(i)}`);
+    // Each waits on the one before it, as a new scene's frames do: every pick asks whether the run takes that one.
+    let looked = 0;
+    class Counted extends Map<string, SuggestionReview> {
+      override get(id: string): SuggestionReview | undefined {
+        looked += 1;
+        return super.get(id);
+      }
+    }
+    const counted = new Counted(
+      pending.map((id, i) => [id, { suggestion: made, flags: i === 0 ? [] : [{ kind: 'waiting', on: `n${String(i - 1)}` }], canApply: i === 0, writes: [], createdId: null }]),
+    );
+    const group: SuggestionGroup = { id: 'cf', source: 'mcp', authors: [], broughtInAt: '', ids: pending, pending };
+    const started = performance.now();
+    const rest = restToApply(group, counted);
+    const took = performance.now() - started;
+    expect(rest).toHaveLength(20000);
+    // Each suggestion's review is read once: never a second pass per item.
+    expect(looked).toBe(20000);
+    console.info(`7.2 cost: Apply the rest picked 20,000 in ${took.toFixed(0)} ms`);
+    // This bound guards the "taken already?" test: a Set takes about 3 ms here for all 20,000; a list's includes about
+    // 260 ms (measured on this machine), and quadratic, so it fails well clear of a slow runner's noise.
+    expect(took).toBeLessThan(100);
   });
 });
 
@@ -477,6 +519,64 @@ describe('decisions in the file: each its own op group, undone one at a time (7.
     } finally {
       await copy.close();
     }
+  });
+
+  it('a write the store refuses is failed: Apply says nothing over the store’s warning, a run stops there and says no more', async () => {
+    await add([
+      suggestion('s3', 'a3', { kind: 'create', target_type: 'scene', target_label: 'Pier', data: { type: 'scene', parent_id: project.projectId, after_id: 'sc4', props: { name: 'Pier' } } }),
+      suggestion('s4', 'a4', { kind: 'create', target_type: 'shot', target_label: 'Wide', after_suggestion: 's3', data: { type: 'shot', parent_id: 's3', after_id: null, props: { size: 'WS' } } }),
+      suggestion('s1', 'a5', { kind: 'trash', target_id: 'a', target_type: 'shot', target_label: 'SC 04 · 4A', data: {} }),
+    ]);
+    const steps = (await log(project.file)).length;
+    // The store's queue as it is when a write is refused ("Not saved", or a file a sync replaced): the build runs and
+    // makes its writes, and the queue resolves false.
+    let builds = 0;
+    const refusing: DecisionQueue = {
+      ...queue,
+      applyWith: async (build) => {
+        builds += 1;
+        const { changes } = build(await read(), await loadSlateNumbers(project.file));
+        expect(changes.length).toBeGreaterThan(0);
+        return false;
+      },
+    };
+    const outcome = await applyOutcome('s3', { queue: refusing });
+    expect(outcome).toEqual({ kind: 'failed' });
+    expect(applyNotice(outcome, 'scene')).toBeNull();
+    // A run: the first refused item stops it, and it says nothing more.
+    const applied = await applyRest(['s3', 's4'], refusing);
+    expect(applied).toEqual({ done: 0, changed: 0, asIs: 0, stopped: false, failed: true });
+    expect(builds).toBe(2);
+    expect(runNotice('apply', applied)).toBeNull();
+    const rejected = await rejectRest(['s1', 's3'], refusing);
+    expect(rejected).toEqual({ done: 0, changed: 0, asIs: 0, stopped: false, failed: true });
+    expect(builds).toBe(3);
+    expect(runNotice('reject', rejected)).toBeNull();
+    expect((await log(project.file)).length).toBe(steps);
+    expect(await Promise.all(['s1', 's3', 's4'].map(status))).toEqual(['pending', 'pending', 'pending']);
+    // What isn't refused still speaks.
+    expect(runNotice('apply', { done: 2, changed: 1, asIs: 0, stopped: false })).toBe('Applied 2 suggestions. 1 changed meanwhile and waits for you.');
+    expect(applyNotice({ kind: 'changed', flag: null }, 'shot')).toBe('The suggestion wasn’t applied. It can’t be applied as the project is now.');
+  });
+
+  it('a run says a flag it had when it started as its own, and one that came since as changed meanwhile', async () => {
+    await add([
+      suggestion('s3', 'a3', { kind: 'create', target_type: 'scene', target_label: 'Pier', data: { type: 'scene', parent_id: project.projectId, after_id: 'sc4', props: { name: 'Pier' } } }),
+      suggestion('s4', 'a4', { kind: 'create', target_type: 'shot', target_label: 'Wide', after_suggestion: 's3', data: { type: 'shot', parent_id: 's3', after_id: null, props: { size: 'WS' } } }),
+      suggestion('s6', 'a6', { kind: 'create', target_type: 'shot', target_label: 'Late', data: { type: 'shot', parent_id: 'sc4', after_id: 'a', props: { size: 'WS' } } }),
+      suggestion('s7', 'a7', { kind: 'create', target_type: 'shot', target_label: 'Odd', data: { type: 'shot', parent_id: 'sc4', after_id: null, props: { size: 'XXL' } } }),
+    ]);
+    const records = await read();
+    const [group] = suggestionGroups(records, project.projectId);
+    if (!group) throw new Error('no group');
+    const startedFrom = groupReviews(records, project.projectId, group, NO_SLATE_NUMBERS);
+    // 4A goes to the Trash after the run was picked: s6's place is a flag it didn't have then.
+    await apply(project.file, [{ kind: 'trash', id: 'a' }]);
+    // s4 still waits on s3 (not in the run), as it did then: its own. s7's size was flagged then: its own too.
+    expect(await applyRest(['s4', 's6', 's7'], queue, undefined, startedFrom)).toEqual({ done: 0, changed: 1, asIs: 2, stopped: false });
+    // The same size, flagged only now (a review that started without it): changed meanwhile.
+    expect(await applyRest(['s7'], queue, undefined, new Map([['s7', { flags: [] }]]))).toEqual({ done: 0, changed: 1, asIs: 0, stopped: false });
+    expect(await Promise.all(['s4', 's6', 's7'].map(status))).toEqual(['pending', 'pending', 'pending']);
   });
 });
 
