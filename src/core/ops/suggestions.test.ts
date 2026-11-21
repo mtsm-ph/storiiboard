@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '../i18n';
 import type { JsonValue, Props, SbdRecord } from '../model/record';
 import { flagWords, foldEdits, reviewSuggestion, type SuggestionFlag } from '../model/suggestion';
+import { ASSISTANT_SCOPE } from '../model/suggestionScope';
 import { nodeDriver } from '../storage/nodeDriver';
 import { createProject, type Project } from '../storage/project';
 import { makeTestFolder, type TestFolder } from '../storage/testFolder';
@@ -623,11 +624,11 @@ describe('Round 2: a reorder that changes nothing (item 12)', () => {
 
 describe('Round 2: the words for the new flags', () => {
   it('a scene first and a place that waits, in English and Spanish', () => {
-    expect(flagWords({ kind: 'cant_apply', why: 'scene_first' })).toBe('Can’t be applied: a scene is added after another scene or at the end of the board, never first.');
+    expect(flagWords({ kind: 'cant_apply', why: 'scene_first' })).toBe('Can’t be applied: a scene is added after another scene or at the end of the board, never before the first scene.');
     expect(flagWords({ kind: 'waiting_after', on: 's1' })).toBe('Waiting: it goes after something another suggestion adds. Apply that one first.');
     expect(flagWords({ kind: 'no_change' })).toBeNull();
     setLocale('es');
-    expect(flagWords({ kind: 'cant_apply', why: 'scene_first' })).toBe('No se puede aplicar: una escena se agrega después de otra escena o al final del storyboard, nunca al principio.');
+    expect(flagWords({ kind: 'cant_apply', why: 'scene_first' })).toBe('No se puede aplicar: una escena se agrega después de otra escena o al final del storyboard, nunca antes de la primera escena.');
     expect(flagWords({ kind: 'waiting_after', on: 's1' })).toBe('En espera: va después de algo que agrega otra sugerencia. Aplica esa primero.');
     setLocale('en');
   });
@@ -715,12 +716,12 @@ describe('Round 3: the Need-to-shoot rule matches the Days tile (item 3)', () =>
 describe('Round 3: a create can’t wait on itself (item 5)', () => {
   it('after_id its own id, or a chain of after_ids that comes back round, is invalid on after_id, never waiting', () => {
     const self = on(harbor(), frameCreate('s1', 's1'));
-    expect(flagsOf(self)).toContainEqual({ kind: 'invalid', field: 'after_id', problem: 'not_found' });
+    expect(flagsOf(self)).toContainEqual({ kind: 'invalid', field: 'after_id', problem: 'loop' });
     expect(flagsOf(self).some((f) => f.kind === 'waiting_after')).toBe(false);
     expect(canApply(self)).toBe(false);
     const round = on(harbor(), frameCreate('s1', 's2'), frameCreate('s2', 's3'), frameCreate('s3', 's1'));
     for (const id of ['s1', 's2', 's3']) {
-      expect(flagsOf(round, id)).toContainEqual({ kind: 'invalid', field: 'after_id', problem: 'not_found' });
+      expect(flagsOf(round, id)).toContainEqual({ kind: 'invalid', field: 'after_id', problem: 'loop' });
       expect(flagsOf(round, id).some((f) => f.kind === 'waiting_after')).toBe(false);
     }
     // A chain that ends waits as before.
@@ -732,11 +733,11 @@ describe('Round 3: a create can’t wait on itself (item 5)', () => {
     const under = (id: string, parent: string) =>
       suggestion(id, { kind: 'create', target_type: 'shot', after_suggestion: parent, data: { type: 'shot', parent_id: parent, after_id: null, props: {} } });
     const self = on(harbor(), under('s1', 's1'));
-    expect(flagsOf(self)).toContainEqual({ kind: 'invalid', field: 'after_suggestion', problem: 'not_found' });
+    expect(flagsOf(self)).toContainEqual({ kind: 'invalid', field: 'after_suggestion', problem: 'loop' });
     expect(flagsOf(self).some((f) => f.kind === 'waiting')).toBe(false);
     const round = on(harbor(), under('s1', 's2'), under('s2', 's1'));
     for (const id of ['s1', 's2']) {
-      expect(flagsOf(round, id)).toContainEqual({ kind: 'invalid', field: 'after_suggestion', problem: 'not_found' });
+      expect(flagsOf(round, id)).toContainEqual({ kind: 'invalid', field: 'after_suggestion', problem: 'loop' });
       expect(flagsOf(round, id).some((f) => f.kind === 'waiting')).toBe(false);
     }
   });
@@ -748,6 +749,10 @@ describe('Round 3: foldEdits folds only creates and updates (item 6)', () => {
     expect(() => foldEdits(base, [() => [{ kind: 'trash', id: 'b' }]])).toThrow(/trash/);
     expect(() => foldEdits(base, [() => [{ kind: 'move', id: 'b', parentId: 'sc5', sortKey: 'Z' }]])).toThrow(/move/);
     expect(() => foldEdits(base, [() => [{ kind: 'update', id: 'b', set: { size: 'CU' } }], () => [{ kind: 'restore', id: 'b' }]])).toThrow(/restore/);
+    // Round 4 (item 3): a stamped update, a create with no id and an update to a record that isn't there throw too.
+    expect(() => foldEdits(base, [() => [{ kind: 'update', id: 'b', set: { size: 'CU' }, stamp: ['decided_at'] }]])).toThrow(/stamped/);
+    expect(() => foldEdits(base, [() => [{ kind: 'create', record: { type: 'shot', parentId: 'sc4', sortKey: 'Z', props: {} } }]])).toThrow(/no id/);
+    expect(() => foldEdits(base, [() => [{ kind: 'update', id: 'gone-frame', set: { size: 'CU' } }]])).toThrow(/no such record/);
     expect(foldEdits(base, [() => [{ kind: 'update', id: 'b', set: { size: 'CU' } }]])).toEqual([{ kind: 'update', id: 'b', set: { size: 'CU' } }]);
   });
 });
@@ -775,6 +780,69 @@ describe('Round 3: stamp names only decided_at (item 8)', () => {
     // @ts-expect-error -- only decided_at takes the step's time
     const other: Change = { kind: 'update', id: 's1', stamp: ['updated_at'] };
     expect([ok, other]).toHaveLength(2);
+  });
+});
+
+// Round 4 (7.0): the third review. Each test names its item.
+describe('Round 4: a loop that mixes after_id and after_suggestion (items 1 and 2)', () => {
+  /** A frame made under the scene another suggestion adds. */
+  const frameUnder = (id: string, parent: string, afterId: string | null = null) =>
+    suggestion(id, { kind: 'create', target_type: 'shot', after_suggestion: parent, data: { type: 'shot', parent_id: parent, after_id: afterId, props: {} } });
+
+  const looped = (records: Record<string, SbdRecord>, id: string, field: string) => {
+    expect(flagsOf(records, id)).toContainEqual({ kind: 'invalid', field, problem: 'loop' });
+    expect(flagsOf(records, id).some((f) => f.kind === 'waiting' || f.kind === 'waiting_after')).toBe(false);
+    expect(canApply(records, id)).toBe(false);
+    expect(applySuggestionChanges(records, 'p', id, decision).changes).toBeNull();
+  };
+
+  it('a scene after a frame that goes under that scene: both invalid, neither waiting', () => {
+    const records = on(harbor(), sceneCreate('sS', 'sF'), frameUnder('sF', 'sS'));
+    looped(records, 'sS', 'after_id');
+    looped(records, 'sF', 'after_suggestion');
+  });
+
+  it('a frame after a frame that goes under the first: both invalid, neither waiting', () => {
+    const records = on(harbor(), frameCreate('sF', 'sF2'), frameUnder('sF2', 'sF'));
+    looped(records, 'sF', 'after_id');
+    looped(records, 'sF2', 'after_suggestion');
+  });
+
+  it('a mixed chain that ends still waits', () => {
+    const records = on(harbor(), sceneCreate('sS', 'sc5'), frameUnder('sF', 'sS'), frameCreate('sG', 'sF'));
+    expect(flagsOf(records, 'sF')).toContainEqual({ kind: 'waiting', on: 'sS' });
+    expect(flagsOf(records, 'sG')).toContainEqual({ kind: 'waiting_after', on: 'sF' });
+    expect(flagsOf(records, 'sG').some((f) => f.kind === 'invalid')).toBe(false);
+  });
+
+  it('a loop has its own words, in English and Spanish', () => {
+    const flag: SuggestionFlag = { kind: 'invalid', field: 'after_id', problem: 'loop' };
+    expect(flagWords(flag)).toBe('Can’t be applied: it would wait on itself.');
+    setLocale('es');
+    expect(flagWords(flag)).toBe('No se puede aplicar: esperaría por sí misma.');
+    setLocale('en');
+  });
+});
+
+describe('Round 4: no list field can crash a review (item 4)', () => {
+  it('every list field in the assistant’s row reviews an update without throwing', () => {
+    const base = harbor();
+    let lists = 0;
+    for (const [type, entry] of Object.entries(ASSISTANT_SCOPE.types)) {
+      for (const [field, rule] of Object.entries(entry.fields)) {
+        if (rule.listOf === undefined) continue;
+        lists += 1;
+        const targetRecord = Object.values(base).find((r) => r.type === type);
+        const listed = Object.values(base).find((r) => r.type === rule.listOf);
+        expect(targetRecord, `a ${type} to change`).toBeDefined();
+        expect(listed, `a ${rule.listOf} to list`).toBeDefined();
+        for (const value of [[listed?.id ?? ''], [], null]) {
+          const s = suggestion('s1', { kind: 'update', ...target(targetRecord?.id ?? '', type), data: { props: { [field]: value }, before: {} } });
+          expect(() => reviewSuggestion(on(base, s), 'p', 's1')).not.toThrow();
+        }
+      }
+    }
+    expect(lists).toBeGreaterThan(0);
   });
 });
 

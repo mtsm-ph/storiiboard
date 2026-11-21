@@ -49,7 +49,9 @@ export type ValueProblem =
   /** A frame's focal length outside the range of the lens picked for it, or taken off while one is picked. */
   | 'lens_range'
   /** A call sheet's times for someone who isn't on its day: the sheet shows only the day's people (4.2). */
-  | 'not_on_day';
+  | 'not_on_day'
+  /** A create placed after, or under, a chain of creates that comes back to it: it would wait on itself (7.0 round 4). */
+  | 'loop';
 
 /**
  * What a check reads besides the value: the project's records, the record the value would go on (null for one being

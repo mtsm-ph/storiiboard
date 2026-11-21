@@ -4059,7 +4059,8 @@ export const es: Messages = {
   'history.suggestion.unknown': 'un cambio que esta versión no puede leer',
   'history.suggestion.anItem': 'un elemento',
   'history.suggestion.appliedNothing': 'Se aplicó una sugerencia que no cambiaba nada',
-  'suggestion.flag.sceneFirst': 'No se puede aplicar: una escena se agrega después de otra escena o al final del storyboard, nunca al principio.',
+  'suggestion.flag.sceneFirst': 'No se puede aplicar: una escena se agrega después de otra escena o al final del storyboard, nunca antes de la primera escena.',
   'suggestion.flag.notNeed': 'No se puede aplicar: solo los cuadros marcados Por filmar van a un día de rodaje.',
   'suggestion.flag.waitingAfter': 'En espera: va después de algo que agrega otra sugerencia. Aplica esa primero.',
+  'suggestion.flag.loop': 'No se puede aplicar: esperaría por sí misma.',
 };

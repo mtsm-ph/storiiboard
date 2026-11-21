@@ -1849,7 +1849,10 @@ or only scenes in the Trash), first and last are the same place: it is added as 
 
 An `after_id` equal to the suggestion's own id, or a chain of `after_id`s through `create`s of the same file that comes
 back to it, is flagged *can't be applied* on `after_id`, never *waiting*: it would wait on itself. The same for
-`after_suggestion` when its chain of parents comes back round.
+`after_suggestion` when its chain of parents comes back round. The chain is followed through both links at once (each
+pending `create`'s `after_id` and `after_suggestion`), so a loop that mixes them (a scene after a frame that goes under
+that scene) is found too, and flagged on the link of each suggestion that leads back to it. At most 500 links are
+followed: a longer chain is read as one that ends, so it shows as *waiting*, not as a loop.
 
 `parent_id` may instead name another `create` suggestion of the same file, for a new scene's new frames; the record
 then names it in `after_suggestion`. Such a suggestion can be applied only once that one has been, and is flagged
@@ -1949,7 +1952,8 @@ suggestion.ts, which 7.5's server shares):
 - *Can't be applied*: a value that fails its field's check, or `data` that can't be read for its kind; and, each with
   its own words, what the app can't do by hand: a scene before the board's first live scene, a frame on no day onto
   one while it isn't Need to shoot (its status after Apply). A `create` placed after itself, directly or round a chain,
-  is *can't be applied* on `after_id` (or `after_suggestion`), never *waiting*; times for someone not on the day are
+  is *can't be applied* on `after_id` (or `after_suggestion`) with its own words ("it would wait on itself"), never
+  *waiting*; times for someone not on the day are
   refused on `person_times`.
 - *Needs a newer Storiiboard*: an unknown kind, status or field (of the record, or of its `data`): kept as it is.
 - *No change*: the project already reads as suggested (an update that would write only a key order, a reorder to where

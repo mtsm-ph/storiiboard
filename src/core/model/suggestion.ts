@@ -407,7 +407,8 @@ const put = (records: Record<string, SbdRecord>, id: string, record: SbdRecord):
  * edits before it left, so what they write together is exactly what they'd write in turn; then each record gets one
  * op, its create or its update. Nothing is written for a record that reads as it was but for key order. A change of
  * any other kind (a move, a trash) throws (7.0 round 3): folding it would lose it, so a step that makes one can't be
- * added here without folding it first.
+ * added here without folding it first. So does a create with no id, a stamped update and an update to a record that
+ * isn't there (7.0 round 4): nothing a step writes is lost without a word.
  */
 export function foldEdits(records: Records, steps: readonly Step[]): Change[] {
   const now: Record<string, SbdRecord> = { ...records };
@@ -417,14 +418,18 @@ export function foldEdits(records: Records, steps: readonly Step[]): Change[] {
     for (const change of step(now)) {
       if (change.kind === 'create') {
         const id = change.record.id;
-        if (id === undefined) continue;
+        // Every edit names the record it makes; one that doesn't would be folded away unseen (7.0 round 4).
+        if (id === undefined) throw new Error('foldEdits can’t fold a create with no id.');
         made.set(id, change);
         const { type, parentId, sortKey, props = {} } = change.record;
         put(now, id, { id, type, parentId, sortKey, props, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' });
         if (!order.includes(id)) order.push(id);
       } else if (change.kind === 'update') {
+        // A stamp is the step's own time, which the folded op would drop; an update to a record that isn't there would
+        // be dropped too. Neither is an edit a step makes, so either throws rather than lose a write (7.0 round 4).
+        if (change.stamp !== undefined) throw new Error(`foldEdits can’t fold a stamped update to ${change.id}.`);
         const record = recordOf(now, change.id);
-        if (!record) continue;
+        if (!record) throw new Error(`foldEdits can’t fold an update to ${change.id}: no such record.`);
         const gone = new Set(change.unset);
         const props = Object.fromEntries(Object.entries({ ...record.props, ...change.set }).filter(([key]) => !gone.has(key)));
         put(now, change.id, { ...record, props });
@@ -715,20 +720,34 @@ function madeBy(records: Records, id: string, changeFileId: string | null): { su
 /** Most links a chain of places is followed through; a longer one is left to wait, as one that doesn't loop. */
 const MAX_CHAIN = 500;
 
+/** The two links a create waits on: the parent its after_suggestion names, and its after_id. */
+const waitLinks = (suggestion: Suggestion): string[] => {
+  const links: string[] = [];
+  if (suggestion.afterSuggestion !== null) links.push(suggestion.afterSuggestion);
+  if (suggestion.data?.kind === 'create' && suggestion.data.afterId !== null) links.push(suggestion.data.afterId);
+  return links;
+};
+
 /**
- * Whether following `next` from a suggestion (its after_id, or the parent its after_suggestion names) through pending
- * creates of the same file comes back to it (7.0 round 3): naming itself, or a chain that comes back round. Such a
- * create would wait on itself for ever, so it is flagged invalid instead.
+ * Whether the link `first` (one of the start's two) leads back to the start through pending creates of the same file
+ * (7.0 rounds 3 and 4): naming itself, or a chain that comes back round, each create followed by both of its links
+ * (its after_id and its after_suggestion), so a loop that mixes them is found too. Such a create would wait on itself
+ * for ever, so it is flagged invalid instead. One visited set, at most MAX_CHAIN creates passed: a longer chain reads
+ * as waiting. Each review walks the chain from scratch, so reviewing N chained creates costs about N²/2 reads; fine
+ * for a change file's size, and 7.2's screen, which reviews them all, can keep it so.
  */
-function loopsBack(records: Records, start: Suggestion, next: (suggestion: Suggestion) => string | null): boolean {
+function loopsBack(records: Records, start: Suggestion, first: string): boolean {
   const passed = new Set<string>();
-  let id = next(start);
-  while (id !== null && !passed.has(id) && passed.size < MAX_CHAIN) {
+  const ahead = [first];
+  while (passed.size < MAX_CHAIN) {
+    const id = ahead.pop();
+    if (id === undefined) return false;
     if (id === start.id) return true;
+    if (passed.has(id)) continue;
     passed.add(id);
     const other = madeBy(records, id, start.changeFileId);
-    if (other?.suggestion.status !== 'pending') return false;
-    id = next(other.suggestion);
+    if (other?.suggestion.status !== 'pending') continue;
+    ahead.push(...waitLinks(other.suggestion));
   }
   return false;
 }
@@ -751,7 +770,7 @@ export function reviewSuggestion(records: Records, projectId: string, suggestion
     if (data.kind === 'create') {
       const parentBy = suggestion.afterSuggestion;
       // A parent chain that comes back round would wait for ever: it can't be applied (7.0 round 3).
-      if (parentBy !== null && loopsBack(records, suggestion, (s) => s.afterSuggestion)) flags.push({ kind: 'invalid', field: 'after_suggestion', problem: 'not_found' });
+      if (parentBy !== null && loopsBack(records, suggestion, parentBy)) flags.push({ kind: 'invalid', field: 'after_suggestion', problem: 'loop' });
       else if (parentBy !== null) {
         const parent = data.parentId === parentBy ? madeBy(records, parentBy, suggestion.changeFileId) : undefined;
         if (!parent) flags.push({ kind: 'invalid', field: 'after_suggestion', problem: 'not_found' });
@@ -766,8 +785,8 @@ export function reviewSuggestion(records: Records, projectId: string, suggestion
       const afterId = data.afterId;
       const after = afterId === null ? undefined : madeBy(records, afterId, suggestion.changeFileId);
       // After itself, or after a chain of creates that comes back to it: it would wait for ever (7.0 round 3).
-      if (data.kind === 'create' && loopsBack(records, suggestion, (s) => (s.data?.kind === 'create' ? s.data.afterId : null))) {
-        flags.push({ kind: 'invalid', field: 'after_id', problem: 'not_found' });
+      if (data.kind === 'create' && afterId !== null && loopsBack(records, suggestion, afterId)) {
+        flags.push({ kind: 'invalid', field: 'after_id', problem: 'loop' });
       } else if (after?.suggestion.status === 'approved' && after.suggestion.createdId !== null) data = { ...data, afterId: after.suggestion.createdId };
       else if (afterId !== null && after?.suggestion.status === 'pending') flags.push({ kind: 'waiting_after', on: afterId });
     }
@@ -794,10 +813,12 @@ const CANT_APPLY_WORDS: Readonly<Record<CantApply, MessageKey>> = {
 
 /**
  * The words for the flags round 2 added (7.0): a placement or a day the app can't make by hand, and a place that waits
- * for another suggestion. The other flags get their words with the review screen (7.2). Null for those.
+ * for another suggestion; and round 4's loop, a create that would wait on itself. The other flags get their words with
+ * the review screen (7.2). Null for those.
  */
 export function flagWords(flag: SuggestionFlag): string | null {
   if (flag.kind === 'cant_apply') return t(CANT_APPLY_WORDS[flag.why]);
   if (flag.kind === 'waiting_after') return t('suggestion.flag.waitingAfter');
+  if (flag.kind === 'invalid' && flag.problem === 'loop') return t('suggestion.flag.loop');
   return null;
 }
