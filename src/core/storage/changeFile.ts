@@ -23,7 +23,20 @@ export const MAX_TEXT = 10_000;
 /** Any key: a field's name, a person's or a department's id. */
 export const MAX_KEY = 100;
 
-/** Why a file was refused whole. `field` is a path in the file (`suggestions[3].note`), shown as text. */
+/** The largest one suggestion may be, as JSON in UTF-8 (7.1 round 2): 7.0 applies at most 50 fields, never one this big. */
+export const MAX_SUGGESTION_BYTES = 64 * 1024;
+
+/** The format's own fields of the file, the only names a refusal ever says: never a key the file itself wrote. */
+export type ChangeFileField = 'version' | 'id' | 'project_id' | 'project_name' | 'created_by' | 'created_at' | 'people' | 'suggestions';
+const FILE_FIELDS: ReadonlySet<string> = new Set<ChangeFileField>(['version', 'id', 'project_id', 'project_name', 'created_by', 'created_at', 'people', 'suggestions']);
+
+/**
+ * Where in the file a refused field is (7.1 round 2): a field of the file by the format's name (null for one the format
+ * doesn't name), or a suggestion or a person by its position, counted from 1. Never by the file's own key text.
+ */
+export type ChangeFileAt = { in: 'file'; field: ChangeFileField | null } | { in: 'suggestion' | 'person'; position: number };
+
+/** Why a file was refused whole. */
 export type ChangeFileRefusal =
   | { kind: 'too_large' }
   | { kind: 'not_text' }
@@ -33,8 +46,13 @@ export type ChangeFileRefusal =
   | { kind: 'newer_version' }
   | { kind: 'other_project'; projectName: string }
   | { kind: 'too_many'; what: 'suggestions' | 'people' }
-  | { kind: 'too_long'; field: string }
-  | { kind: 'bad_field'; field: string };
+  | { kind: 'too_long'; at: ChangeFileAt }
+  | { kind: 'bad_field'; at: ChangeFileAt }
+  | { kind: 'suggestion_too_large'; position: number };
+
+const fileField = (field: ChangeFileField): ChangeFileAt => ({ in: 'file', field });
+const inSuggestion = (index: number): ChangeFileAt => ({ in: 'suggestion', position: index + 1 });
+const inPerson = (index: number): ChangeFileAt => ({ in: 'person', position: index + 1 });
 
 /** One suggestion, ready to be a `suggestion` record: its id and its props, with `status: pending`. */
 export interface ChangeFileSuggestion {
@@ -98,33 +116,40 @@ function nestsDeeper(text: string, max: number): boolean {
   return false;
 }
 
-/** The first string or key anywhere in `value` past the general bounds, as a path; null when every one is within. */
-function overlong(value: JsonValue, path: string): string | null {
-  if (typeof value === 'string') return value.length > MAX_TEXT ? path : null;
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i += 1) {
-      const found = overlong(value[i] ?? null, `${path}[${String(i)}]`);
-      if (found) return found;
-    }
-    return null;
-  }
-  if (isObject(value)) {
-    for (const [key, inner] of Object.entries(value)) {
-      const at = `${path}.${key.length > MAX_KEY ? `${key.slice(0, 20)}…` : key}`;
-      if (key.length > MAX_KEY) return at;
-      const found = overlong(inner, at);
-      if (found) return found;
+/** Whether any string or key anywhere in `value` is past the general bounds. */
+function overlong(value: JsonValue): boolean {
+  if (typeof value === 'string') return value.length > MAX_TEXT;
+  if (Array.isArray(value)) return value.some((inner) => overlong(inner));
+  if (isObject(value)) return Object.entries(value).some(([key, inner]) => key.length > MAX_KEY || overlong(inner));
+  return false;
+}
+
+/** Where the first string or key past the general bounds is, by position; null when every one is within. */
+function overlongAt(parsed: JsonObject): ChangeFileAt | null {
+  for (const [key, value] of Object.entries(parsed)) {
+    if (key.length > MAX_KEY) return { in: 'file', field: null };
+    if ((key === 'people' || key === 'suggestions') && Array.isArray(value)) {
+      const index = value.findIndex((inner) => overlong(inner));
+      if (index >= 0) return key === 'people' ? inPerson(index) : inSuggestion(index);
+    } else if (overlong(value)) {
+      return { in: 'file', field: FILE_FIELDS.has(key) ? (key as ChangeFileField) : null };
     }
   }
   return null;
 }
 
-/** A field that, when it's a string, has a bound of its own: the path when it's over it. */
-const overBound = (value: JsonValue | undefined, max: number, path: string): string | null => (typeof value === 'string' && value.length > max ? path : null);
+/** Whether a field that, when it's a string, has a bound of its own is over it. */
+const overBound = (value: JsonValue | undefined, max: number): boolean => typeof value === 'string' && value.length > max;
 
-/** An optional field that must be text when it's there: a path when it's something else. */
-const notText = (value: JsonValue | undefined, path: string, nullable = false): string | null =>
-  value === undefined || typeof value === 'string' || (nullable && value === null) ? null : path;
+/** Whether an optional field that must be text when it's there is something else. */
+const notText = (value: JsonValue | undefined, nullable = false): boolean => !(value === undefined || typeof value === 'string' || (nullable && value === null));
+
+/** A suggestion's size as JSON in UTF-8, counted no further than the bound. */
+const overSize = (value: JsonValue): boolean => {
+  const text = JSON.stringify(value);
+  // Each UTF-16 unit is at most 3 bytes in UTF-8: a text short enough can't be over, and needs no encoding.
+  return text.length * 3 > MAX_SUGGESTION_BYTES && new TextEncoder().encode(text).byteLength > MAX_SUGGESTION_BYTES;
+};
 
 /** Reads a change file for the project `projectId`: the suggestions it would bring in, or why it can't be. */
 export function readChangeFile(bytes: Uint8Array, projectId: string): ChangeFileRead {
@@ -145,60 +170,61 @@ export function readChangeFile(bytes: Uint8Array, projectId: string): ChangeFile
   }
   if (!isObject(parsed) || parsed.format !== CHANGE_FILE_FORMAT) return refuse({ kind: 'not_change_file' });
   const { version } = parsed;
-  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) return refuse({ kind: 'bad_field', field: 'version' });
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) return refuse({ kind: 'bad_field', at: fileField('version') });
   if (version > CHANGE_FILE_VERSION) return refuse({ kind: 'newer_version' });
   const fileId = parsed.id;
-  if (typeof fileId !== 'string' || !UUID.test(fileId)) return refuse({ kind: 'bad_field', field: 'id' });
-  if (typeof parsed.project_id !== 'string' || parsed.project_id.length > SUGGESTION_BOUNDS.id) return refuse({ kind: 'bad_field', field: 'project_id' });
+  if (typeof fileId !== 'string' || !UUID.test(fileId)) return refuse({ kind: 'bad_field', at: fileField('id') });
+  if (typeof parsed.project_id !== 'string' || parsed.project_id.length > SUGGESTION_BOUNDS.id) return refuse({ kind: 'bad_field', at: fileField('project_id') });
   if (parsed.project_id !== projectId) return refuse({ kind: 'other_project', projectName: cleanText(parsed.project_name, SUGGESTION_BOUNDS.name) });
 
   const people = parsed.people ?? [];
   const suggestions = parsed.suggestions;
-  if (!Array.isArray(people)) return refuse({ kind: 'bad_field', field: 'people' });
-  if (!Array.isArray(suggestions)) return refuse({ kind: 'bad_field', field: 'suggestions' });
+  if (!Array.isArray(people)) return refuse({ kind: 'bad_field', at: fileField('people') });
+  if (!Array.isArray(suggestions)) return refuse({ kind: 'bad_field', at: fileField('suggestions') });
   if (suggestions.length > MAX_SUGGESTIONS) return refuse({ kind: 'too_many', what: 'suggestions' });
   if (people.length > MAX_PEOPLE) return refuse({ kind: 'too_many', what: 'people' });
 
   // Every string within its bound: the format's own first, then any string and key anywhere.
-  const bounded =
-    overBound(parsed.created_by, SUGGESTION_BOUNDS.name, 'created_by') ??
-    overBound(parsed.project_name, SUGGESTION_BOUNDS.name, 'project_name') ??
-    overBound(parsed.created_at, SUGGESTION_BOUNDS.time, 'created_at') ??
-    people.reduce<string | null>((found, person, i) => {
-      if (found || !isObject(person)) return found;
-      const at = `people[${String(i)}]`;
-      return (
-        overBound(person.id, SUGGESTION_BOUNDS.id, `${at}.id`) ??
-        overBound(person.name, SUGGESTION_BOUNDS.name, `${at}.name`) ??
-        overBound(person.role, SUGGESTION_BOUNDS.word, `${at}.role`) ??
-        overBound(person.person_id, SUGGESTION_BOUNDS.id, `${at}.person_id`)
-      );
-    }, null) ??
-    suggestions.reduce<string | null>((found, suggestion, i) => {
-      if (found || !isObject(suggestion)) return found;
-      const at = `suggestions[${String(i)}]`;
-      const target = isObject(suggestion.target) ? suggestion.target : {};
-      return (
-        overBound(suggestion.kind, SUGGESTION_BOUNDS.word, `${at}.kind`) ??
-        overBound(suggestion.author, SUGGESTION_BOUNDS.id, `${at}.author`) ??
-        overBound(suggestion.created_at, SUGGESTION_BOUNDS.time, `${at}.created_at`) ??
-        overBound(suggestion.note, SUGGESTION_BOUNDS.note, `${at}.note`) ??
-        overBound(target.id, SUGGESTION_BOUNDS.id, `${at}.target.id`) ??
-        overBound(target.type, SUGGESTION_BOUNDS.word, `${at}.target.type`) ??
-        overBound(target.label, SUGGESTION_BOUNDS.label, `${at}.target.label`) ??
-        overBound(target.updated_at, SUGGESTION_BOUNDS.time, `${at}.target.updated_at`)
-      );
-    }, null) ??
-    overlong(parsed, '');
-  if (bounded !== null) return refuse({ kind: 'too_long', field: bounded.replace(/^\./, '') });
+  const personOver = people.findIndex(
+    (person) =>
+      isObject(person) &&
+      (overBound(person.id, SUGGESTION_BOUNDS.id) ||
+        overBound(person.name, SUGGESTION_BOUNDS.name) ||
+        overBound(person.role, SUGGESTION_BOUNDS.word) ||
+        overBound(person.person_id, SUGGESTION_BOUNDS.id)),
+  );
+  const suggestionOver = suggestions.findIndex((suggestion) => {
+    if (!isObject(suggestion)) return false;
+    const target = isObject(suggestion.target) ? suggestion.target : {};
+    return (
+      overBound(suggestion.kind, SUGGESTION_BOUNDS.word) ||
+      overBound(suggestion.author, SUGGESTION_BOUNDS.id) ||
+      overBound(suggestion.created_at, SUGGESTION_BOUNDS.time) ||
+      overBound(suggestion.note, SUGGESTION_BOUNDS.note) ||
+      overBound(target.id, SUGGESTION_BOUNDS.id) ||
+      overBound(target.type, SUGGESTION_BOUNDS.word) ||
+      overBound(target.label, SUGGESTION_BOUNDS.label) ||
+      overBound(target.updated_at, SUGGESTION_BOUNDS.time)
+    );
+  });
+  const bounded: ChangeFileAt | null = overBound(parsed.created_by, SUGGESTION_BOUNDS.name)
+    ? fileField('created_by')
+    : overBound(parsed.project_name, SUGGESTION_BOUNDS.name)
+      ? fileField('project_name')
+      : overBound(parsed.created_at, SUGGESTION_BOUNDS.time)
+        ? fileField('created_at')
+        : personOver >= 0
+          ? inPerson(personOver)
+          : suggestionOver >= 0
+            ? inSuggestion(suggestionOver)
+            : overlongAt(parsed);
+  if (bounded !== null) return refuse({ kind: 'too_long', at: bounded });
 
   // Who made them: only an id, a name, a role and a person record, so no contact detail is ever copied.
   const authors = new Map<string, JsonObject>();
   for (const [i, person] of people.entries()) {
-    const at = `people[${String(i)}]`;
-    if (!isObject(person) || typeof person.id !== 'string' || person.id === '' || authors.has(person.id)) return refuse({ kind: 'bad_field', field: `${at}.id` });
-    const wrong = notText(person.name, `${at}.name`) ?? notText(person.role, `${at}.role`) ?? notText(person.person_id, `${at}.person_id`, true);
-    if (wrong) return refuse({ kind: 'bad_field', field: wrong });
+    if (!isObject(person) || typeof person.id !== 'string' || person.id === '' || authors.has(person.id)) return refuse({ kind: 'bad_field', at: inPerson(i) });
+    if (notText(person.name) || notText(person.role) || notText(person.person_id, true)) return refuse({ kind: 'bad_field', at: inPerson(i) });
     const author: Props = {};
     define(author, 'name', person.name ?? '');
     define(author, 'role', person.role ?? '');
@@ -210,9 +236,9 @@ export function readChangeFile(bytes: Uint8Array, projectId: string): ChangeFile
   const ids = new Set<string>();
   const creates = new Set<string>();
   for (const [i, suggestion] of suggestions.entries()) {
-    const at = `suggestions[${String(i)}]`;
-    if (!isObject(suggestion)) return refuse({ kind: 'bad_field', field: at });
-    if (typeof suggestion.id !== 'string' || !UUID.test(suggestion.id) || ids.has(suggestion.id)) return refuse({ kind: 'bad_field', field: `${at}.id` });
+    if (!isObject(suggestion)) return refuse({ kind: 'bad_field', at: inSuggestion(i) });
+    if (typeof suggestion.id !== 'string' || !UUID.test(suggestion.id) || ids.has(suggestion.id)) return refuse({ kind: 'bad_field', at: inSuggestion(i) });
+    if (overSize(suggestion)) return refuse({ kind: 'suggestion_too_large', position: i + 1 });
     ids.add(suggestion.id);
     if (suggestion.kind === 'create') creates.add(suggestion.id);
   }
@@ -220,12 +246,11 @@ export function readChangeFile(bytes: Uint8Array, projectId: string): ChangeFile
   const createdBy = typeof parsed.created_by === 'string' ? parsed.created_by : '';
   const out: ChangeFileSuggestion[] = [];
   for (const [i, raw] of suggestions.entries()) {
-    const at = `suggestions[${String(i)}]`;
     // Checked above: an object with a UUID id.
-    if (!isObject(raw) || typeof raw.id !== 'string') return refuse({ kind: 'bad_field', field: at });
+    if (!isObject(raw) || typeof raw.id !== 'string') return refuse({ kind: 'bad_field', at: inSuggestion(i) });
     const props: Props = {};
     for (const key of Object.keys(raw)) {
-      if (RECORD_ONLY.has(key)) return refuse({ kind: 'bad_field', field: `${at}.${key}` });
+      if (RECORD_ONLY.has(key)) return refuse({ kind: 'bad_field', at: inSuggestion(i) });
     }
     if (raw.kind !== undefined) define(props, 'kind', raw.kind);
     if (isObject(raw.target)) {
@@ -234,12 +259,12 @@ export function readChangeFile(bytes: Uint8Array, projectId: string): ChangeFile
         // `target_<name>` for a field this version doesn't know, kept and flagged; one already a field of the
         // suggestion's own can't be both, so the file is refused.
         if (!Object.hasOwn(TARGET_MAPPED, key) && (Object.hasOwn(raw, prop) || RECORD_ONLY.has(prop) || KNOWN_PROPS.has(prop))) {
-          return refuse({ kind: 'bad_field', field: `${at}.target.${key}` });
+          return refuse({ kind: 'bad_field', at: inSuggestion(i) });
         }
         define(props, prop, value);
       }
     } else if (raw.target !== undefined) {
-      return refuse({ kind: 'bad_field', field: `${at}.target` });
+      return refuse({ kind: 'bad_field', at: inSuggestion(i) });
     }
     const author = typeof raw.author === 'string' ? authors.get(raw.author) : undefined;
     define(props, 'author', author ?? { name: '', role: '' });
@@ -263,7 +288,11 @@ export function readChangeFile(bytes: Uint8Array, projectId: string): ChangeFile
   return { ok: true, file: { id: fileId, projectId, createdBy, suggestions: out } };
 }
 
-/** What a refusal says, in the app's language. A path or a name from the file is shown as text. */
+/** Where a refused field is, in words: a suggestion or a person by its position. */
+const atWords = (at: { in: 'suggestion' | 'person'; position: number }): string =>
+  at.in === 'suggestion' ? t('changes.at.suggestion', { n: at.position }) : t('changes.at.person', { n: at.position });
+
+/** What a refusal says, in the app's language. A name from the file is shown as text; a field only by position. */
 export function refusalWords(refusal: ChangeFileRefusal): string {
   switch (refusal.kind) {
     case 'too_large':
@@ -283,8 +312,12 @@ export function refusalWords(refusal: ChangeFileRefusal): string {
     case 'too_many':
       return refusal.what === 'suggestions' ? t('changes.refused.tooManySuggestions') : t('changes.refused.tooManyPeople');
     case 'too_long':
-      return t('changes.refused.tooLong', { field: cleanText(refusal.field, 120) });
+      if (refusal.at.in !== 'file') return t('changes.refused.tooLongAt', { at: atWords(refusal.at) });
+      return refusal.at.field === null ? t('changes.refused.tooLongField') : t('changes.refused.tooLong', { field: refusal.at.field });
     case 'bad_field':
-      return t('changes.refused.badField', { field: cleanText(refusal.field, 120) });
+      if (refusal.at.in !== 'file') return t('changes.refused.badFieldAt', { at: atWords(refusal.at) });
+      return refusal.at.field === null ? t('changes.refused.badFieldField') : t('changes.refused.badField', { field: refusal.at.field });
+    case 'suggestion_too_large':
+      return t('changes.refused.suggestionTooLarge', { n: refusal.position });
   }
 }

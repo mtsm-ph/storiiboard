@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isTauriApp } from '../../../app/fileAccess';
 import { showInfo } from '../../../app/notice';
-import { choosePictures, fromFile, onWindowDrop, type PictureFile } from '../../../app/pictures';
+import { choosePictures, fromFile, isChangeFile, onWindowDrop, type PictureFile } from '../../../app/pictures';
 import { setPlanUnitsChoice, usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
@@ -1047,7 +1047,10 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
         onDrop={(event) => {
           if (event.dataTransfer.files.length === 0) return;
           event.preventDefault();
-          addPictures([...event.dataTransfer.files].map(fromFile), dropAt({ x: event.clientX, y: event.clientY }));
+          // A change file (7.1) is never a picture: the storyboard's listener brings it in.
+          const pictures = [...event.dataTransfer.files].filter((file) => !isChangeFile(file.name));
+          if (pictures.length === 0) return;
+          addPictures(pictures.map(fromFile), dropAt({ x: event.clientX, y: event.clientY }));
         }}
       >
         {/* The tools on the canvas's corner (6.5.2), before it so their tab stops come first. */}

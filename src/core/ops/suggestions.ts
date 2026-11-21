@@ -107,26 +107,85 @@ export interface BroughtIn {
  * brought in before; an id that is any other record's is left out, so a file can never write over a frame by naming it.
  */
 export function bringInChanges(records: Readonly<Record<string, SbdRecord>>, projectId: string, file: ChangeFile): BroughtIn {
+  return bringInManyChanges(records, projectId, [file]).each[0] ?? { changes: [], added: 0, already: 0, taken: 0, authorName: null };
+}
+
+/** Several files brought in as one op group (the folder's pass, 7.1 round 2): each file's part, and every create. */
+export interface BroughtInMany {
+  each: BroughtIn[];
+  changes: Change[];
+}
+
+/**
+ * Bring-in's change list for several files read already, in order, as one op group: what bringInChanges does for each,
+ * an id an earlier file of the same pass adds counting as already in for a later one. `skip` holds suggestion ids
+ * brought in before whose records are gone (an undone bring-in, everBroughtIn): they count as already in, so the folder
+ * never brings back what a person undid.
+ */
+export function bringInManyChanges(
+  records: Readonly<Record<string, SbdRecord>>,
+  projectId: string,
+  files: readonly ChangeFile[],
+  skip: ReadonlySet<string> = new Set(),
+): BroughtInMany {
   const keys = Object.values(records)
     .filter((record) => record.parentId === projectId && record.type === 'suggestion')
     .map((record) => record.sortKey);
   let key: string | null = null;
   const changes: Change[] = [];
-  const made: SbdRecord[] = [];
-  let already = 0;
-  let taken = 0;
-  for (const suggestion of file.suggestions) {
-    const existing = Object.hasOwn(records, suggestion.id) ? records[suggestion.id] : undefined;
-    if (existing) {
-      if (existing.type === 'suggestion') already += 1;
-      else taken += 1;
-      continue;
+  const each: BroughtIn[] = [];
+  const added = new Set<string>();
+  for (const file of files) {
+    const own: Change[] = [];
+    const made: SbdRecord[] = [];
+    let already = 0;
+    let taken = 0;
+    for (const suggestion of file.suggestions) {
+      const existing = Object.hasOwn(records, suggestion.id) ? records[suggestion.id] : undefined;
+      if (existing) {
+        if (existing.type === 'suggestion') already += 1;
+        else taken += 1;
+        continue;
+      }
+      if (added.has(suggestion.id) || skip.has(suggestion.id)) {
+        already += 1;
+        continue;
+      }
+      added.add(suggestion.id);
+      key = (key === null ? null : keyAfter(key)) ?? keyAfterKeys(key === null ? keys : [...keys, key]);
+      own.push({ kind: 'create', record: { id: suggestion.id, type: 'suggestion', parentId: projectId, sortKey: key, props: suggestion.props } });
+      made.push({ id: suggestion.id, type: 'suggestion', parentId: projectId, sortKey: key, props: suggestion.props, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' });
     }
-    key = (key === null ? null : keyAfter(key)) ?? keyAfterKeys(key === null ? keys : [...keys, key]);
-    changes.push({ kind: 'create', record: { id: suggestion.id, type: 'suggestion', parentId: projectId, sortKey: key, props: suggestion.props } });
-    made.push({ id: suggestion.id, type: 'suggestion', parentId: projectId, sortKey: key, props: suggestion.props, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' });
+    changes.push(...own);
+    each.push({ changes: own, added: own.length, already, taken, authorName: sharedAuthor(made) });
   }
-  return { changes, added: changes.length, already, taken, authorName: sharedAuthor(made) };
+  return { each, changes };
+}
+
+/** What the log says was ever brought in: every suggestion id and change file id a create of a suggestion named. */
+export interface EverBroughtIn {
+  suggestions: ReadonlySet<string>;
+  files: ReadonlySet<string>;
+}
+
+/**
+ * Every suggestion the log ever created, undone ones included, with the change files they came from (7.1 round 2): the
+ * folder skips a file or a suggestion id named here, so an undone bring-in stays undone. An undo's op keeps the kind it
+ * reverses with its sides swapped, so both sides are read. Import changes… by hand doesn't ask: a person who chose a
+ * file again wants it.
+ */
+export async function everBroughtIn(file: ProjectFile): Promise<EverBroughtIn> {
+  const rows = await file.query(
+    `SELECT record_id AS id, coalesce(json_extract(after, '$.props.change_file_id'), json_extract(before, '$.props.change_file_id')) AS file
+      FROM ops WHERE kind = 'create' AND (json_extract(after, '$.type') = 'suggestion' OR json_extract(before, '$.type') = 'suggestion')`,
+  );
+  const suggestions = new Set<string>();
+  const files = new Set<string>();
+  for (const row of rows) {
+    suggestions.add(String(row.id));
+    if (typeof row.file === 'string') files.add(row.file);
+  }
+  return { suggestions, files };
 }
 
 /** Bringing a file into an open file: what it did, or why the file was refused (nothing written). */

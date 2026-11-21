@@ -980,14 +980,30 @@ mod change_files {
 
     const ID: &str = "0b6e2d0a-3f5c-4d8e-9c1a-7e2f4b5a6c3d";
 
+    /// A project whose id Rust reads from the file itself: the records table with its project record, as the page's
+    /// first migration and New project leave it.
+    fn project_with_id(h: &Harness, name: &str) -> Json {
+        let handle = h
+            .call("sbd_create", json!({ "path": h.path(name) }))
+            .unwrap();
+        h.call(
+            "sbd_tx",
+            json!({ "handle": handle, "statements": [
+                { "sql": "CREATE TABLE records (id TEXT PRIMARY KEY, type TEXT NOT NULL, parent_id TEXT)", "params": [] },
+                { "sql": "INSERT INTO records VALUES (?, 'project', NULL)", "params": [ID] },
+            ] }),
+        )
+        .unwrap();
+        handle
+    }
+
     #[test]
     fn lists_reads_and_renames_the_open_projects_folder_by_its_handle() {
         let h = Harness::new("changes");
-        let handle = h
-            .call("sbd_create", json!({ "path": h.path("Bey County.sbd") }))
-            .unwrap();
+        let handle = project_with_id(&h, "Harbor Lights.sbd");
+        // The handle alone: Rust reads the project's id from the file.
         let args = |extra: Json| {
-            let mut args = json!({ "handle": handle, "projectId": ID });
+            let mut args = json!({ "handle": handle });
             args.as_object_mut()
                 .unwrap()
                 .extend(extra.as_object().unwrap().clone());
@@ -1008,7 +1024,7 @@ mod change_files {
         .unwrap();
         let listed = h.call("changes_folder", args(json!({}))).unwrap();
         assert_eq!(listed["state"], json!("none"));
-        assert_eq!(listed["folder"], json!("Bey County Suggestions"));
+        assert_eq!(listed["folder"], json!("Harbor Lights Suggestions"));
         assert_eq!(listed["renameFrom"], json!("Old Name Suggestions"));
         assert_eq!(listed["files"], json!([]));
 
@@ -1025,7 +1041,7 @@ mod change_files {
         assert_eq!(listed["files"][0]["name"], json!("Robin.sbdchanges"));
         assert!(listed["files"][0]["modified"].is_u64());
         assert_eq!(listed["tooLarge"], json!([]));
-        assert_eq!(listed["more"], json!(0));
+        assert_eq!(listed["capped"], json!(false));
         let bytes = h
             .call_bytes(
                 "changes_folder_read",
@@ -1064,6 +1080,19 @@ mod change_files {
     }
 
     #[test]
+    fn a_project_with_no_id_lists_nothing() {
+        let h = Harness::new("changes-no-id");
+        let handle = h
+            .call("sbd_create", json!({ "path": h.path("Harbor Lights.sbd") }))
+            .unwrap();
+        fs::create_dir(h.dir().join("Harbor Lights Suggestions")).unwrap();
+        assert_eq!(
+            refused(h.call("changes_folder", json!({ "handle": handle }))),
+            "Storiiboard couldn't read this project's suggestions folder."
+        );
+    }
+
+    #[test]
     fn reads_a_change_file_only_once_rust_was_given_it() {
         let h = Harness::new("changes-offered");
         let file = h.path("Robin.sbdchanges");
@@ -1079,6 +1108,11 @@ mod change_files {
             h.call_bytes("changes_read", json!({ "path": file }))
                 .unwrap(),
             b"{}"
+        );
+        // Once: the path is taken out of the set as it's read.
+        assert_eq!(
+            refused(h.call("changes_read", json!({ "path": file }))),
+            "Storiiboard reads only the files you drop on it or choose."
         );
     }
 }

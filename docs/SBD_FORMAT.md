@@ -1713,7 +1713,7 @@ A change file is one UTF-8 JSON object:
   "version": 1,
   "id": "8d0f3c52-5a0e-4c47-9a7e-2b1f0c6e9a11",
   "project_id": "0b6e2d0a-3f5c-4d8e-9c1a-7e2f4b5a6c3d",
-  "project_name": "Bey County",
+  "project_name": "Harbor Lights",
   "review_copy": { "id": "c41d…", "published_at": "2026-11-20T18:00:00.000Z" },
   "created_at": "2026-11-21T09:12:00.000Z",
   "created_by": "web",
@@ -1988,10 +1988,17 @@ A file is refused whole, nothing stored, with words that say why (never a stack 
 - holding a string over its bound, wherever it is: an id 100 characters (the file's, a person's, a target's, a
   `person_id`); `created_by` and a person's name 100; a Team role, a kind and a target's type 40; a target's label 200;
   a time 40; a note 2,000; any other string, `data` and unknown fields included, 10,000; any key 100;
+- holding a suggestion larger than 64 KB (65,536 bytes) as JSON in UTF-8 (7.1 round 2): 7.0 applies at most 50 fields,
+  so one that size could never be applied;
 - holding a suggestion that isn't an object, has no lowercase UUID `id`, or shares its `id` with another in the file; a
   person with no `id` or one shared; or a suggestion field named as one of the record's own props (`status`, `source`,
   `change_file_id`, `target_id`, `target_type`, `target_label`, `target_updated_at`, `suggested_at`, `decided_by`,
-  `decided_at`, `created_id`, `after_suggestion`), which only the app sets.
+  `decided_at`, `created_id`, `after_suggestion`), which only the app sets;
+- holding a target field `target.<x>` this version doesn't map whose record prop, `target_<x>`, is already a field of
+  the same suggestion, one of the record's own props or a prop 7.0 reads: it can't be both, so the file is refused.
+
+The words name a field only by its position, "suggestion 12, a field" or "person 3, a field", or by the format's own
+name for a field of the file (`version`, `id`, `project_id`, …), never by a key the file itself wrote.
 
 Everything else is brought in, each suggestion as a `suggestion` record with the suggestion's own `id`:
 
@@ -2016,9 +2023,10 @@ never changed, so they stay in it.
 
 One import is one op group of creates, so one undo removes everything it brought in. A suggestion whose `id` is
 already a suggestion in the project was brought in before and adds nothing; one whose `id` is another record's is left
-out and the status line says how many. A file that adds nothing writes no op and says "Already brought in" (one from the folder says nothing). The
-status line says "Brought in 12 suggestions from Robin Vale" (the authors' name when they share one, as text), and
-History says the same.
+out and the status line says how many. A file that adds nothing writes no op and says "Already brought in" (one from
+the folder says nothing); one that adds nothing because every id is another record's says that instead, and one with
+`suggestions: []` says it holds none. The status line says "Brought in 12 suggestions from Robin Vale" (the authors'
+name when they share one, as text), and History says the same.
 
 Rejecting a suggestion changes nothing in the project; the suggestion stays, `rejected`, in the review log.
 
@@ -2026,31 +2034,54 @@ Rejecting a suggestion changes nothing in the project; the suggestion stays, `re
 
 - By hand: the project menu's Import changes…, or a `.sbdchanges` file dropped anywhere on the window (a picture
   dropped keeps its meaning; a change file never becomes a picture). Rust reads only the file the Open dialog or the
-  drop gave it, by that path, once, at most 5 MB, and only a name ending in `.sbdchanges`.
+  drop gave it, by that path, once (the path is taken out of what it was given as it is read), at most 5 MB, and only
+  a name ending in `.sbdchanges`. A file brought in by hand comes in again even when the folder's bring-in of it was
+  undone: the person chose it.
 - From the assistant (7.6): a folder beside the project named for it, `<Project> Suggestions/` beside `<Project>.sbd`
   (`<Project>` is the .sbd's file name, as for `Backups/`), holding the change files the assistant writes and a marker
   file, `storiiboard-folder.json`:
 
   ```json
-  { "format": "storiiboard.suggestions-folder", "project_id": "0b6e2d0a-3f5c-4d8e-9c1a-7e2f4b5a6c3d", "project_name": "Bey County" }
+  { "format": "storiiboard.suggestions-folder", "project_id": "0b6e2d0a-3f5c-4d8e-9c1a-7e2f4b5a6c3d", "project_name": "Harbor Lights" }
   ```
 
-- The app brings the folder in when the project opens and each time the window comes back to the front. Rust finds the
-  folder beside the open project itself (the page never names a path) and lists only regular files whose names end in
-  `.sbdchanges`, at most 5 MB each (a larger one is named and skipped), at most 200 by name order (the rest are
-  counted and wait). It never follows a link or a Windows junction: a folder that is one, or a file that is one, is
-  skipped, and a file is opened without following one (and checked to be the file that was listed). The marker is
-  never read as a change file; it is read at most 64 KB. A folder whose marker names another project is skipped, with
-  a line saying so; one with no marker, or a marker that can't be read, is read (a person may have made it). Each
-  file then goes through the checks above, as one dropped would. A file already brought in is recognised by its
-  suggestions' ids and adds nothing; while the project stays open, a file already read with the same size and time
-  isn't read again.
+- The app brings the folder in when the project opens: one pass, as **one** op group, so one undo takes the whole pass
+  back. A pass reads at most 200 files, 10 MB of change files (10,485,760 bytes) and 2,000 suggestions; what's left
+  waits, with a line ("4 change files are waiting in Harbor Lights Suggestions") and Bring in, each press one more pass
+  and one more op group. When the window comes back to the front (the window's own focus event) the folder is only
+  looked at: what's new is said with the same line and Bring in, and nothing is brought in, so coming back to the app
+  never changes what ⌘Z and ⌘⇧Z do. One look at the folder runs at a time; one asked for meanwhile runs after it, for
+  whichever project is open then, and a project switched to always gets its own pass at open.
+- Rust finds the folder beside the open project itself, and reads the project's id from the open .sbd itself (the
+  page names neither a path nor an id, only the open project's handle). It looks at most at the folder's first 10,000
+  entries, and says so when there were more, never silently; among them it lists every regular file whose name ends in
+  `.sbdchanges` with its size and modified time, at most 5 MB each (a larger one is named and skipped). The page picks
+  the files it hasn't read, in name order.
+- It never follows a link or a Windows junction. The folder must be a real folder, not a link, whose real parent is the
+  project's own folder: by identity, never by comparing names (a name in another case, or the other Unicode spelling of
+  an accent, is the same folder). A file in it is opened as any program opens it (on Windows without opening the
+  reparse point itself, so a OneDrive or Dropbox placeholder is read through its cloud filter; on a Mac with
+  `O_NOFOLLOW` and `O_NONBLOCK`, so a link or a FIFO is refused rather than waited on), then refused unless it is a
+  regular file whose own handle isn't a link or junction, and it is "checked to be the file opened": the real path of
+  the open handle must be the folder's real path, found once, joined with the file's name, so a folder swapped for a
+  junction between the listing and the read is refused. The marker is never read as a change file; it is read at most
+  64 KB. A folder whose marker names another project is skipped, with a line saying so; one with no marker, or a marker
+  that can't be read, is read (a person may have made it). Each file then goes through the checks above, as one
+  dropped would.
+- What's been brought in: a file or a suggestion id that the project's History ever created a suggestion from (its
+  creates of `suggestion` records, undone ones included) is skipped, so a pass that was undone stays undone at the next
+  open. While the project stays open, a file is known as read by its name, size and modified time, the session-long
+  "read" key: a file rewritten with the same size inside one tick of a coarse timestamp (some drives keep 2 seconds)
+  waits for the next open.
 - Nothing in the folder is ever deleted, moved or written by the app.
 - A renamed project: when no `<Project> Suggestions/` exists but a folder beside the project named `<anything>
   Suggestions` (a real folder, not a link) has a marker naming this project's id, the app asks once per open to rename
-  it to `<Project> Suggestions` (Rename / Not now). Renaming is the only write, through Rust, only after the person
-  says so, only from such a folder beside the project, only to that name, and never over an existing file or folder.
-  Until it is renamed its files aren't brought in.
+  it to `<Project> Suggestions` (Rename / Not now). It is never offered, and Rust refuses it, when `<anything>.sbd`
+  sits beside it: that project's folder is its own, though an opened backup or version copy beside it has the same id.
+  Renaming is the only write, through Rust, only after the person says so, only from such a folder beside the project,
+  only to that name, and never over an existing file or folder: checked first, and refused by the rename itself (on a
+  Mac `renamex_np` with `RENAME_EXCL`, on Windows `MoveFileEx` without replacing; Linux, which no release ships for,
+  keeps a plain rename after the check). Until it is renamed its files aren't brought in.
 
 ## Project data as JSON (2.9)
 
@@ -2068,7 +2099,9 @@ Export → Project data (JSON), the default of the two (3.14, Kevin Nov 9), leav
 can hold deleted material and everyone's names. It writes every table, with these rows left out:
 - `records`: every record in the Trash and everything under it (what Empty Trash deletes, and the kinds it doesn't,
   such as an erased sketch stroke with who erased it); `shot_seen` rows of those frames;
-- `media_files` and `thumbnails`: pictures no record left names (by the SHA-256 in its props);
+- `media_files` and `thumbnails`: pictures no record left names (by the SHA-256 in its props). A `suggestion` record
+  never counts (7.1 round 2): its text came from a change file anyone can write, so a hash in it can't keep a removed
+  picture in the export;
 - `op_groups`, `ops`, `versions` (points in History), `notification_cursors` and `notification_reads` (they read
   History) and `lookups` (a cache, which can hold a deleted location's address): no rows.
 

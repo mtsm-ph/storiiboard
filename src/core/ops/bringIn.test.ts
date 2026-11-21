@@ -5,7 +5,8 @@ import { nodeDriver } from '../storage/nodeDriver';
 import { createProject, type Project } from '../storage/project';
 import { makeTestFolder, type TestFolder } from '../storage/testFolder';
 import { apply, getRecord, loadRecords, log, undo } from './ops';
-import { bringInChangeFile } from './suggestions';
+import { readChangeFile } from '../storage/changeFile';
+import { bringInChangeFile, bringInManyChanges, everBroughtIn } from './suggestions';
 
 // Bringing a change file in (7.1): one op group of suggestion records under the project, which one undo removes; the
 // same file again adds nothing and writes no op; a file sharing ids adds only what's new; an id another record has is
@@ -90,6 +91,31 @@ describe('bringing a change file in (7.1)', () => {
     const result = await bringInChangeFile(project.file, project.projectId, changeFile(FILE_A, [id(9), id(1)]));
     expect(result).toMatchObject({ ok: true, broughtIn: { added: 1, taken: 1 } });
     expect(await getRecord(project.file, id(9))).toEqual(scene);
+  });
+
+  it('knows from the log every suggestion and file ever brought in, undone ones too (round 2)', async () => {
+    await bringInChangeFile(project.file, project.projectId, changeFile(FILE_A, [id(1), id(2)]));
+    await undo(project.file);
+    expect(await suggestions()).toEqual([]);
+    const ever = await everBroughtIn(project.file);
+    expect([...ever.suggestions].sort()).toEqual([id(1), id(2)]);
+    expect([...ever.files]).toEqual([FILE_A]);
+  });
+
+  it('brings several files in as one change list, an id an earlier file adds counting as in for a later one (round 2)', () => {
+    const read = (bytes: Uint8Array) => {
+      const got = readChangeFile(bytes, project.projectId);
+      if (!got.ok) throw new Error('refused');
+      return got.file;
+    };
+    const many = bringInManyChanges({}, project.projectId, [read(changeFile(FILE_A, [id(1), id(2)])), read(changeFile(FILE_B, [id(2), id(3)]))], new Set([id(3)]));
+    expect(many.each.map((one) => [one.added, one.already])).toEqual([
+      [2, 0],
+      [0, 2],
+    ]);
+    expect(many.changes).toHaveLength(2);
+    const keys = many.changes.map((change) => (change.kind === 'create' ? change.record.sortKey : ''));
+    expect(new Set(keys).size).toBe(2);
   });
 
   it('writes nothing for a file it refuses', async () => {

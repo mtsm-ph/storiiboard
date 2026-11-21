@@ -213,10 +213,11 @@ async function projectData(file: ProjectFile): Promise<{ gone: ReadonlySet<strin
   }
   // A picture is named by its SHA-256 in its media record's props (`file`; a video's poster is an image media record of
   // its own, named the same way): any one a record left names is kept, so none is ever left out from under something
-  // that shows it.
+  // that shows it. Not a suggestion's (7.1 round 2): its text came from a change file anyone can write, so a hash it
+  // names (a removed picture's) can't bring that picture back into the export.
   const named = new Set<string>();
   for (const record of records) {
-    if (gone.has(record.id)) continue;
+    if (gone.has(record.id) || record.type === 'suggestion') continue;
     for (const match of JSON.stringify(record.props).matchAll(/[0-9a-f]{64}/g)) named.add(match[0]);
   }
   return { gone, named };

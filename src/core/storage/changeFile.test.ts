@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { setLocale } from '../i18n';
 import type { JsonValue, SbdRecord } from '../model/record';
-import { readSuggestion, reviewSuggestion } from '../model/suggestion';
-import { MAX_CHANGE_FILE_BYTES, readChangeFile, refusalWords, type ChangeFileRead, type ChangeFileRefusal } from './changeFile';
+import { cleanText, readSuggestion, reviewSuggestion } from '../model/suggestion';
+import { MAX_CHANGE_FILE_BYTES, MAX_SUGGESTION_BYTES, readChangeFile, refusalWords, type ChangeFileRead, type ChangeFileRefusal } from './changeFile';
 
 // The change file's reader (7.1): bytes in, a checked file or a refusal out. A change file is untrusted input, so every
 // refusal is here, and every pass that keeps what it can't use. Made-up projects and people only: "Harbor Lights",
@@ -83,27 +83,27 @@ describe('a change file refused whole (7.1)', () => {
     expect(refusal(changeFile({ format: 'storiiboard-project' }))).toEqual({ kind: 'not_change_file' });
     expect(refusal(changeFile({ format: undefined as unknown as JsonValue }))).toEqual({ kind: 'not_change_file' });
     expect(refusal(changeFile({ version: 2 }))).toEqual({ kind: 'newer_version' });
-    expect(refusal(changeFile({ version: '1' }))).toEqual({ kind: 'bad_field', field: 'version' });
-    expect(refusal(changeFile({ version: 0.5 }))).toEqual({ kind: 'bad_field', field: 'version' });
+    expect(refusal(changeFile({ version: '1' }))).toEqual({ kind: 'bad_field', at: { in: 'file', field: 'version' } });
+    expect(refusal(changeFile({ version: 0.5 }))).toEqual({ kind: 'bad_field', at: { in: 'file', field: 'version' } });
     expect(refusalWords({ kind: 'newer_version' })).toBe('This change file was made by a newer Storiiboard. Update Storiiboard to bring it in.');
   });
 
   it('for another project, saying its name as text', () => {
-    const other = refusal(changeFile({ project_id: '6f1c0d2e-8a4b-4c3d-9e2f-1a0b9c8d7e6f', project_name: 'Bey County‮' }));
-    expect(other).toEqual({ kind: 'other_project', projectName: 'Bey County' });
-    expect(refusalWords(other ?? { kind: 'not_json' })).toBe('This change file is for another project, Bey County.');
+    const other = refusal(changeFile({ project_id: '6f1c0d2e-8a4b-4c3d-9e2f-1a0b9c8d7e6f', project_name: 'Saltmarsh‮' }));
+    expect(other).toEqual({ kind: 'other_project', projectName: 'Saltmarsh' });
+    expect(refusalWords(other ?? { kind: 'not_json' })).toBe('This change file is for another project, Saltmarsh.');
     expect(refusalWords({ kind: 'other_project', projectName: '' })).toBe('This change file is for another project.');
-    expect(refusal(changeFile({ project_id: 7 }))).toEqual({ kind: 'bad_field', field: 'project_id' });
+    expect(refusal(changeFile({ project_id: 7 }))).toEqual({ kind: 'bad_field', at: { in: 'file', field: 'project_id' } });
   });
 
   it('without a lowercase UUID for its id, or for a suggestion’s, or with one twice', () => {
-    expect(refusal(changeFile({ id: 'not-an-id' }))).toEqual({ kind: 'bad_field', field: 'id' });
-    expect(refusal(changeFile({ id: FILE.toUpperCase() }))).toEqual({ kind: 'bad_field', field: 'id' });
-    expect(refusal(changeFile({ suggestions: [suggestion({ id: '__proto__' })] }))).toEqual({ kind: 'bad_field', field: 'suggestions[0].id' });
-    expect(refusal(changeFile({ suggestions: [suggestion(), suggestion()] }))).toEqual({ kind: 'bad_field', field: 'suggestions[1].id' });
-    expect(refusal(changeFile({ suggestions: [suggestion(), 'trash'] }))).toEqual({ kind: 'bad_field', field: 'suggestions[1]' });
-    expect(refusal(changeFile({ suggestions: {} }))).toEqual({ kind: 'bad_field', field: 'suggestions' });
-    expect(refusal(changeFile({ people: [{ name: 'Robin Vale' }] }))).toEqual({ kind: 'bad_field', field: 'people[0].id' });
+    expect(refusal(changeFile({ id: 'not-an-id' }))).toEqual({ kind: 'bad_field', at: { in: 'file', field: 'id' } });
+    expect(refusal(changeFile({ id: FILE.toUpperCase() }))).toEqual({ kind: 'bad_field', at: { in: 'file', field: 'id' } });
+    expect(refusal(changeFile({ suggestions: [suggestion({ id: '__proto__' })] }))).toEqual({ kind: 'bad_field', at: { in: 'suggestion', position: 1 } });
+    expect(refusal(changeFile({ suggestions: [suggestion(), suggestion()] }))).toEqual({ kind: 'bad_field', at: { in: 'suggestion', position: 2 } });
+    expect(refusal(changeFile({ suggestions: [suggestion(), 'trash'] }))).toEqual({ kind: 'bad_field', at: { in: 'suggestion', position: 2 } });
+    expect(refusal(changeFile({ suggestions: {} }))).toEqual({ kind: 'bad_field', at: { in: 'file', field: 'suggestions' } });
+    expect(refusal(changeFile({ people: [{ name: 'Robin Vale' }] }))).toEqual({ kind: 'bad_field', at: { in: 'person', position: 1 } });
   });
 
   it('with more than 2,000 suggestions or 50 people', () => {
@@ -116,27 +116,55 @@ describe('a change file refused whole (7.1)', () => {
 
   it('with a string over its bound, wherever it is', () => {
     const long = (n: number) => 'x'.repeat(n);
-    expect(refusal(changeFile({ created_by: long(101) }))).toEqual({ kind: 'too_long', field: 'created_by' });
-    expect(refusal(changeFile({ people: [{ id: 'r1', name: long(101) }] }))).toEqual({ kind: 'too_long', field: 'people[0].name' });
-    expect(refusal(changeFile({ people: [{ id: 'r1', name: 'Robin', role: long(41) }] }))).toEqual({ kind: 'too_long', field: 'people[0].role' });
-    expect(refusal(changeFile({ suggestions: [suggestion({ note: long(2001) })] }))).toEqual({ kind: 'too_long', field: 'suggestions[0].note' });
-    expect(refusal(changeFile({ suggestions: [suggestion({ target: { type: 'shot', label: long(201) } })] }))).toEqual({ kind: 'too_long', field: 'suggestions[0].target.label' });
-    expect(refusal(changeFile({ suggestions: [suggestion({ kind: long(41) })] }))).toEqual({ kind: 'too_long', field: 'suggestions[0].kind' });
+    expect(refusal(changeFile({ created_by: long(101) }))).toEqual({ kind: 'too_long', at: { in: 'file', field: 'created_by' } });
+    expect(refusal(changeFile({ people: [{ id: 'r1', name: long(101) }] }))).toEqual({ kind: 'too_long', at: { in: 'person', position: 1 } });
+    expect(refusal(changeFile({ people: [{ id: 'r1', name: 'Robin', role: long(41) }] }))).toEqual({ kind: 'too_long', at: { in: 'person', position: 1 } });
+    expect(refusal(changeFile({ suggestions: [suggestion({ note: long(2001) })] }))).toEqual({ kind: 'too_long', at: { in: 'suggestion', position: 1 } });
+    expect(refusal(changeFile({ suggestions: [suggestion({ target: { type: 'shot', label: long(201) } })] }))).toEqual({ kind: 'too_long', at: { in: 'suggestion', position: 1 } });
+    expect(refusal(changeFile({ suggestions: [suggestion({ kind: long(41) })] }))).toEqual({ kind: 'too_long', at: { in: 'suggestion', position: 1 } });
     // Any other string, in data or a field this version doesn't know, and any key.
-    expect(refusal(changeFile({ suggestions: [suggestion({ data: { props: { action: long(10_001) } } })] }))).toEqual({ kind: 'too_long', field: 'suggestions[0].data.props.action' });
-    expect(refusal(changeFile({ later: long(10_001) }))).toEqual({ kind: 'too_long', field: 'later' });
+    expect(refusal(changeFile({ suggestions: [suggestion({ data: { props: { action: long(10_001) } } })] }))).toEqual({ kind: 'too_long', at: { in: 'suggestion', position: 1 } });
+    expect(refusal(changeFile({ later: long(10_001) }))).toEqual({ kind: 'too_long', at: { in: 'file', field: null } });
     expect(refusal(changeFile({ suggestions: [suggestion({ data: { props: { [long(101)]: 1 } } })] }))?.kind).toBe('too_long');
     // At the bound, it passes.
     expect(passed(changeFile({ suggestions: [suggestion({ note: long(2000) })] })).suggestions).toHaveLength(1);
-    expect(refusalWords({ kind: 'too_long', field: 'suggestions[0].note' })).toBe('This change file wasn’t brought in: suggestions[0].note is too long.');
+    expect(refusalWords({ kind: 'too_long', at: { in: 'suggestion', position: 1 } })).toBe('This change file wasn’t brought in: in suggestion 1, a field is too long.');
+  });
+
+  it('names a field by its position, never by the key the file wrote (round 2)', () => {
+    const key = '<b>Robin‮Vale</b>';
+    const bad = refusal(changeFile({ suggestions: [suggestion(), suggestion({ id: S2, [key]: 'x'.repeat(10_001) })] }));
+    expect(bad).toEqual({ kind: 'too_long', at: { in: 'suggestion', position: 2 } });
+    const words = refusalWords(bad ?? { kind: 'not_json' });
+    expect(words).toBe('This change file wasn’t brought in: in suggestion 2, a field is too long.');
+    expect(words).not.toContain('Robin');
+    const top = refusal(changeFile({ [key]: 'x'.repeat(10_001) }));
+    expect(top).toEqual({ kind: 'too_long', at: { in: 'file', field: null } });
+    expect(refusalWords(top ?? { kind: 'not_json' })).toBe('This change file wasn’t brought in: a field is too long.');
+    expect(refusalWords({ kind: 'bad_field', at: { in: 'person', position: 3 } })).toBe('This change file wasn’t brought in: in person 3, a field isn’t as the format says.');
+    expect(refusalWords({ kind: 'bad_field', at: { in: 'file', field: 'version' } })).toBe('This change file wasn’t brought in: version isn’t as the format says.');
+    // A target's field the file named: by position too.
+    expect(refusalWords(refusal(changeFile({ suggestions: [suggestion({ target: { type: 'shot', label: 'x', [key]: 1 }, [`target_${key}`]: 2 })] })) ?? { kind: 'not_json' })).not.toContain('Robin');
+  });
+
+  it('with a suggestion over 64 KB as JSON, which 7.0 could never apply (round 2)', () => {
+    // 50 fields of 1,400 characters: under every string's bound, over 64 KB together.
+    const set = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`f${String(i)}`, 'é'.repeat(700)]));
+    const big = suggestion({ id: S2, kind: 'update', data: { set } });
+    expect(new TextEncoder().encode(JSON.stringify(big)).byteLength).toBeGreaterThan(MAX_SUGGESTION_BYTES);
+    expect(refusal(changeFile({ suggestions: [suggestion(), big] }))).toEqual({ kind: 'suggestion_too_large', position: 2 });
+    expect(refusalWords({ kind: 'suggestion_too_large', position: 2 })).toBe('This change file wasn’t brought in: suggestion 2 is larger than 64 KB.');
+    // Just under, it passes.
+    const under = suggestion({ id: S2, kind: 'update', data: { set: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`f${String(i)}`, 'é'.repeat(700)])) } });
+    expect(passed(changeFile({ suggestions: [under] })).suggestions).toHaveLength(1);
   });
 
   it('when a suggestion sets one of the record’s own props, which only the app writes', () => {
     for (const prop of ['status', 'source', 'change_file_id', 'decided_by', 'decided_at', 'created_id', 'after_suggestion', 'target_id', 'suggested_at']) {
-      expect(refusal(changeFile({ suggestions: [suggestion({ [prop]: 'approved' })] }))).toEqual({ kind: 'bad_field', field: `suggestions[0].${prop}` });
+      expect(refusal(changeFile({ suggestions: [suggestion({ [prop]: 'approved' })] }))).toEqual({ kind: 'bad_field', at: { in: 'suggestion', position: 1 } });
     }
     // A target's unknown field can't land on one either.
-    expect(refusal(changeFile({ suggestions: [suggestion({ target: { type: 'shot', label: 'x', foo: 1 }, target_foo: 2 })] }))).toEqual({ kind: 'bad_field', field: 'suggestions[0].target.foo' });
+    expect(refusal(changeFile({ suggestions: [suggestion({ target: { type: 'shot', label: 'x', foo: 1 }, target_foo: 2 })] }))).toEqual({ kind: 'bad_field', at: { in: 'suggestion', position: 1 } });
   });
 });
 
@@ -242,7 +270,21 @@ describe('a change file brought in (7.1)', () => {
 
   it('says each refusal in Spanish too', () => {
     setLocale('es');
-    expect(refusalWords({ kind: 'other_project', projectName: 'Bey County' })).toBe('Este archivo de cambios es de otro proyecto, Bey County.');
+    expect(refusalWords({ kind: 'other_project', projectName: 'Saltmarsh' })).toBe('Este archivo de cambios es de otro proyecto, Saltmarsh.');
     expect(refusalWords({ kind: 'too_large' })).toBe('Este archivo de cambios pesa más de 5 MB, así que no se incorporó.');
+    expect(refusalWords({ kind: 'newer_version' })).toBe('Este archivo de cambios lo hizo un Storiiboard más reciente. Actualiza Storiiboard para incorporarlo.');
+    expect(refusalWords({ kind: 'bad_field', at: { in: 'suggestion', position: 12 } })).toBe('Este archivo de cambios no se incorporó: en la sugerencia 12, un campo no sigue el formato.');
+  });
+
+  it('shows text with format characters and line separators left out, never as a lookalike (round 2)', () => {
+    expect(cleanText('Robin​Vale', 100)).toBe('RobinVale');
+    expect(cleanText('﻿Robin‍ Vale⁠', 100)).toBe('Robin Vale');
+    expect(cleanText('Robin\u{E0041}\u{E0042} Vale', 100)).toBe('Robin Vale');
+    expect(cleanText('Robin Vale ', 100)).toBe('RobinVale');
+    expect(cleanText('Robin \nVale', 100, true)).toBe('Robin\nVale');
+    const file = passed(changeFile({ people: [{ id: 'r1', name: 'Robin​Vale', role: 'dp' }] }));
+    const props = file.suggestions[0]?.props ?? {};
+    const record: SbdRecord = { id: S1, type: 'suggestion', parentId: PROJECT, sortKey: 'V', props, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' };
+    expect(readSuggestion(record).author.name).toBe('RobinVale');
   });
 });

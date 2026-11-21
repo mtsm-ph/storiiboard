@@ -83,6 +83,14 @@ impl Offered {
             .lock()
             .is_ok_and(|offered| offered.contains(path))
     }
+
+    /// Takes `path` out of the set, saying whether it was there: a change file is read once (changes.rs, 7.1 round 2),
+    /// as export.rs takes a chosen file, so the page can't read it again long after the person brought it in.
+    pub(crate) fn take(&self, path: &Path) -> bool {
+        self.paths
+            .lock()
+            .is_ok_and(|mut offered| offered.remove(path))
+    }
 }
 
 /// A point in the page, in CSS pixels.

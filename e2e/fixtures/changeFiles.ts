@@ -1,5 +1,6 @@
 // Change files for the end-to-end tests (7.1): made up, for made-up projects and people only (Robin Vale, "Harbor
-// Lights"). A file is for one project by its id, so the tests make it for the project they opened.
+// Lights" open, "Saltmarsh" another). A file is for one project by its id, so the tests make it for the project they
+// opened.
 
 export const OTHER_PROJECT_ID = '6f1c0d2e-8a4b-4c3d-9e2f-1a0b9c8d7e6f';
 

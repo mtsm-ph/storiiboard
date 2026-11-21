@@ -22,7 +22,7 @@ const bytes = (projectId: string, ids: readonly string[]) =>
       version: 1,
       id: FILE,
       project_id: projectId,
-      project_name: 'Harbor Lights',
+      project_name: 'Saltmarsh',
       people: [{ id: 'r1', name: 'Robin Vale', role: 'dp' }],
       suggestions: ids.map((sid) => ({ id: sid, kind: 'trash', target: { id: 'b', type: 'shot', label: '4B' }, author: 'r1', data: {} })),
     }),
@@ -31,7 +31,7 @@ const bytes = (projectId: string, ids: readonly string[]) =>
 beforeEach(async () => {
   setLocale('en');
   folder = makeTestFolder();
-  project = await createProject(folder.path('Bey County.sbd'), { driver: nodeDriver, backups: false });
+  project = await createProject(folder.path('Harbor Lights.sbd'), { driver: nodeDriver, backups: false });
   await projectStore.getState().open(project);
 });
 
@@ -60,13 +60,13 @@ describe('change files in, in the app (7.1)', () => {
 
   it('refuses a file for another project with its words, named by its file from the folder', async () => {
     const other = await bringInBytes(project, bytes('6f1c0d2e-8a4b-4c3d-9e2f-1a0b9c8d7e6f', [id(1)]));
-    expect(outcomeWords(other)).toBe('This change file is for another project, Harbor Lights.');
-    expect(outcomeWords(other, 'Robin‮.sbdchanges')).toBe('Robin.sbdchanges: This change file is for another project, Harbor Lights.');
+    expect(outcomeWords(other)).toBe('This change file is for another project, Saltmarsh.');
+    expect(outcomeWords(other, 'Robin‮.sbdchanges')).toBe('Robin.sbdchanges: This change file is for another project, Saltmarsh.');
     expect(suggestions()).toHaveLength(0);
   });
 
   it('writes nothing into a project other than the one it was asked for', async () => {
-    const elsewhere = await createProject(folder.path('Harbor Lights.sbd'), { driver: nodeDriver, backups: false });
+    const elsewhere = await createProject(folder.path('Saltmarsh.sbd'), { driver: nodeDriver, backups: false });
     const outcome = await bringInBytes(elsewhere, bytes(elsewhere.projectId, [id(1)]));
     expect(outcome.kind).toBe('not_written');
     expect(suggestions()).toHaveLength(0);
@@ -78,8 +78,19 @@ describe('change files in, in the app (7.1)', () => {
     expect(words).toBe('Brought in 1 suggestion. 1 suggestion was left out: an item in the project already has its id.');
     setLocale('es');
     expect(outcomeWords({ kind: 'already', broughtIn: { changes: [], added: 0, already: 2, taken: 0, authorName: null } })).toBe(
-      'Ya se incorporó: cada sugerencia de este archivo de cambios ya está en el proyecto.',
+      'Ya estaba incorporado: todas las sugerencias de este archivo de cambios ya están en el proyecto.',
     );
+  });
+
+  it('says a file whose every id is another item’s on its own line, and an empty one has none (round 2)', async () => {
+    await projectStore.getState().apply([{ kind: 'create', record: { id: id(9), type: 'scene', parentId: project.projectId, sortKey: 'V', props: { number: '4' } } }]);
+    const taken = await bringInBytes(project, bytes(project.projectId, [id(9)]));
+    expect(taken.kind).toBe('taken');
+    expect(outcomeWords(taken)).toBe('Nothing was brought in: 1 suggestion in this change file has the id of an item in the project.');
+    const empty = await bringInBytes(project, bytes(project.projectId, []));
+    expect(empty.kind).toBe('empty');
+    expect(outcomeWords(empty, 'Robin.sbdchanges')).toBe('Robin.sbdchanges: This change file holds no suggestions.');
+    expect(suggestions()).toHaveLength(0);
   });
 
   it('knows a change file by its name, whatever its case', () => {

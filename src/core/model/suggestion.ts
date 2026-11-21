@@ -163,12 +163,16 @@ export const SUGGESTION_BOUNDS = { id: MAX_ID, name: MAX_NAME, label: MAX_LABEL,
 
 const isObject = (value: JsonValue | undefined): value is { [key: string]: JsonValue } => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** Text to show: control characters and bidi overrides out (line breaks kept with `lines`), trimmed, at most `max` characters. */
+/**
+ * Text to show: control characters out (line breaks kept with `lines`), and every format character (`\p{Cf}`: bidi
+ * overrides and marks, zero-width ones, U+FEFF, tag characters) and the line and paragraph separators U+2028 and U+2029
+ * (7.1 round 2), so "Robin\u200BVale" shows as "RobinVale", never as a lookalike of it; trimmed, at most `max` characters.
+ */
 export function cleanText(value: JsonValue | undefined, max: number, lines = false): string {
   if (typeof value !== 'string') return '';
   // Cut first, so a 10 MB text is never walked whole: room for every character as a surrogate pair, and some to strip.
   const head = value.length > max * 4 ? value.slice(0, max * 4) : value;
-  const kept = lines ? head.replace(/[^\P{Cc}\n\t]|[\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/gu, '') : head.replace(/[\p{Cc}\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/gu, '');
+  const kept = lines ? head.replace(/[^\P{Cc}\n\t]|[\p{Cf}\u2028\u2029]/gu, '') : head.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '');
   return Array.from(kept.trim()).slice(0, max).join('').trim();
 }
 

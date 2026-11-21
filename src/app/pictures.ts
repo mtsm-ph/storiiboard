@@ -126,7 +126,7 @@ export interface PagePoint {
 }
 
 /** A change file's name (7.1): a drop of one is brought in as suggestions (src/app/changeFiles.ts), never a picture. */
-const isChangeFile = (path: string): boolean => /\.sbdchanges$/i.test(path);
+export const isChangeFile = (path: string): boolean => /\.sbdchanges$/i.test(path);
 
 /**
  * Desktop app only: files dropped on the window, and where in the page they landed. Tauri catches file drops before

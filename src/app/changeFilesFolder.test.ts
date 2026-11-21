@@ -1,0 +1,300 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// The project's suggestions folder as the desktop app brings it in (7.1 round 2), with Rust's commands played by a
+// folder kept here: the open pass as one op group, at most 200 files, 10 MB and 2,000 suggestions a pass, the rest
+// waiting with a line and Bring in; the window back in front only finding; an undone bring-in staying undone; the rename
+// offered once per open; the folder's own lines; a switch while a run is under way. The page names only the open
+// project's handle, never a path or the project's id. Made-up projects and people only: "Harbor Lights", "Saltmarsh",
+// Robin Vale.
+
+const invoke = vi.hoisted(() => vi.fn());
+const askMock = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/api/core', () => ({ invoke, isTauri: () => false }));
+vi.mock('./fileAccess', async (importOriginal) => ({ ...(await importOriginal<typeof import('./fileAccess')>()), isTauriApp: true }));
+vi.mock('./ask', () => ({ ask: askMock }));
+
+import { setLocale } from '../core/i18n';
+import { log } from '../core/ops/ops';
+import { nodeDriver } from '../core/storage/nodeDriver';
+import { createProject, openProject, type Project } from '../core/storage/project';
+import { makeTestFolder, type TestFolder } from '../core/storage/testFolder';
+import { bringInBytes, bringInFolder, findInFolder } from './changeFiles';
+import { noticeStore } from './notice';
+import { projectStore } from './projectStore';
+
+interface FakeFile {
+  bytes: Uint8Array;
+  modified: number;
+  /** The size the listing says, when a test needs it larger than the bytes (the 10 MB bound). */
+  listed?: number;
+}
+
+interface FakeFolder {
+  name: string;
+  state: 'none' | 'read' | 'other_project' | 'link';
+  otherProjectName: string | null;
+  files: Map<string, FakeFile>;
+  capped: boolean;
+  renameFrom: string | null;
+  /** A listing held until the test lets it go. */
+  hold: Promise<void> | null;
+}
+
+const folders = new Map<number, FakeFolder>();
+const reads: string[] = [];
+
+const fakeFolder = (handle: number, name: string): FakeFolder => {
+  const made: FakeFolder = { name, state: 'read', otherProjectName: null, files: new Map(), capped: false, renameFrom: null, hold: null };
+  folders.set(handle, made);
+  return made;
+};
+
+invoke.mockImplementation(async (cmd: string, args: Record<string, unknown>) => {
+  const folder = folders.get(Number(args.handle));
+  if (!folder) throw new Error('That project isn’t open.');
+  if (cmd === 'changes_folder') {
+    if (folder.hold) await folder.hold;
+    const files = [...folder.files.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([name, file]) => ({ name, bytes: file.listed ?? file.bytes.byteLength, modified: file.modified }));
+    return {
+      folder: folder.name,
+      state: folder.state,
+      otherProjectName: folder.otherProjectName,
+      files: folder.state === 'read' ? files : [],
+      tooLarge: [],
+      capped: folder.capped,
+      renameFrom: folder.renameFrom,
+    };
+  }
+  if (cmd === 'changes_folder_read') {
+    const file = folder.files.get(String(args.name));
+    if (!file) throw new Error('Storiiboard couldn’t read that change file.');
+    reads.push(String(args.name));
+    return file.bytes.slice().buffer;
+  }
+  if (cmd === 'changes_folder_rename') {
+    folder.renameFrom = null;
+    folder.state = 'read';
+    return null;
+  }
+  throw new Error(`not played here: ${cmd}`);
+});
+
+const id = (file: number, n: number) => `f2b7a1c0-${String(file).padStart(4, '0')}-4c47-9a7e-${String(n).padStart(12, '0')}`;
+const fileId = (n: number) => `8d0f3c52-5a0e-4c47-9a7e-${String(n).padStart(12, '0')}`;
+
+/** A change file for `projectId`, its id `n`, with `count` suggestions by Robin Vale. */
+const changeFile = (projectId: string, n: number, count = 1): Uint8Array =>
+  new TextEncoder().encode(
+    JSON.stringify({
+      format: 'storiiboard.changes',
+      version: 1,
+      id: fileId(n),
+      project_id: projectId,
+      created_by: 'mcp',
+      people: [{ id: 'r1', name: 'Robin Vale', role: 'dp' }],
+      suggestions: Array.from({ length: count }, (_, i) => ({ id: id(n, i), kind: 'trash', target: { id: 'b', type: 'shot', label: '4B' }, author: 'r1', data: {} })),
+    }),
+  );
+
+let folder: TestFolder;
+let project: Project;
+let disk: FakeFolder;
+
+/** A project opened as the app opens one, with a handle Rust knows. */
+async function openAs(opened: Project, handle: number): Promise<Project> {
+  Object.defineProperty(opened.file, 'nativeHandle', { value: handle });
+  await projectStore.getState().open(opened);
+  return opened;
+}
+
+beforeEach(async () => {
+  setLocale('en');
+  folders.clear();
+  reads.length = 0;
+  askMock.mockReset();
+  noticeStore.setState({ message: null, action: null });
+  folder = makeTestFolder();
+  project = await createProject(folder.path('Harbor Lights.sbd'), { driver: nodeDriver, backups: false });
+  disk = fakeFolder(7, 'Harbor Lights Suggestions');
+});
+
+afterEach(async () => {
+  // Rust finds the folder and the project's id itself: the page sends neither a path nor an id.
+  for (const [, args] of invoke.mock.calls as [string, Record<string, unknown>][]) {
+    expect(Object.keys(args).sort()).not.toContain('projectId');
+    expect(Object.keys(args)).not.toContain('path');
+  }
+  await projectStore.getState().close();
+  folder.remove();
+});
+
+const suggestions = () => Object.values(projectStore.getState().records).filter((r) => r.type === 'suggestion');
+const groups = async () => (await log(project.file)).length;
+const notice = () => noticeStore.getState();
+
+describe('the suggestions folder, brought in (7.1 round 2)', () => {
+  it('brings every new file in at open as one op group, which one undo takes back', async () => {
+    for (const n of [1, 2, 3]) disk.files.set(`${String(n)}.sbdchanges`, { bytes: changeFile(project.projectId, n, 2), modified: 1 });
+    await openAs(project, 7);
+    const before = await groups();
+    await bringInFolder();
+    expect(suggestions()).toHaveLength(6);
+    expect(await groups()).toBe(before + 1);
+    expect(notice().message).toBe('Brought in 6 suggestions from 3 change files.');
+    await projectStore.getState().undo();
+    expect(suggestions()).toHaveLength(0);
+    // The project's open pass is once: a second ask while it stays open reads nothing.
+    reads.length = 0;
+    await bringInFolder();
+    expect(reads).toEqual([]);
+  });
+
+  it('reads at most 200 files a pass; the rest wait with a line and Bring in, which brings the next ones', async () => {
+    for (let n = 0; n < 205; n += 1) disk.files.set(`${String(n).padStart(3, '0')}.sbdchanges`, { bytes: changeFile(project.projectId, n), modified: 1 });
+    await openAs(project, 7);
+    await bringInFolder();
+    expect(suggestions()).toHaveLength(200);
+    expect(reads).toHaveLength(200);
+    expect(notice().message).toBe('Brought in 200 suggestions from 200 change files. 5 change files are waiting in Harbor Lights Suggestions.');
+    expect(notice().action?.label).toBe('Bring in');
+    // The first 200 are in: the next 5 come in, as one more step, and only they are read.
+    reads.length = 0;
+    const before = await groups();
+    notice().action?.run();
+    await bringInFolder();
+    await vi.waitFor(() => {
+      expect(suggestions()).toHaveLength(205);
+    });
+    expect(reads).toEqual(['200.sbdchanges', '201.sbdchanges', '202.sbdchanges', '203.sbdchanges', '204.sbdchanges']);
+    expect(await groups()).toBe(before + 1);
+    expect(notice().action).toBeNull();
+  });
+
+  it('brings in at most 2,000 suggestions and 10 MB of change files a pass', async () => {
+    disk.files.set('a.sbdchanges', { bytes: changeFile(project.projectId, 1, 1500), modified: 1 });
+    disk.files.set('b.sbdchanges', { bytes: changeFile(project.projectId, 2, 1500), modified: 1 });
+    await openAs(project, 7);
+    await bringInFolder();
+    expect(suggestions()).toHaveLength(1500);
+    expect(notice().message).toBe('Brought in 1500 suggestions from Robin Vale. 1 change file is waiting in Harbor Lights Suggestions.');
+
+    // Listed at 4 MB each: two fit in a pass, the third waits.
+    await projectStore.getState().close();
+    const other = await createProject(folder.path('Saltmarsh.sbd'), { driver: nodeDriver, backups: false });
+    const saltmarsh = fakeFolder(8, 'Saltmarsh Suggestions');
+    for (const n of [1, 2, 3]) saltmarsh.files.set(`${String(n)}.sbdchanges`, { bytes: changeFile(other.projectId, n), modified: 1, listed: 4 * 1024 * 1024 });
+    await openAs(other, 8);
+    reads.length = 0;
+    await bringInFolder();
+    expect(reads).toEqual(['1.sbdchanges', '2.sbdchanges']);
+    expect(notice().message).toContain('1 change file is waiting in Saltmarsh Suggestions.');
+  });
+
+  it('only finds what’s new when the window comes back to the front, and leaves undo and redo as they were', async () => {
+    disk.files.set('1.sbdchanges', { bytes: changeFile(project.projectId, 1), modified: 1 });
+    await openAs(project, 7);
+    await bringInFolder();
+    await projectStore.getState().undo();
+    expect(projectStore.getState().canRedo).toBe(true);
+    for (const n of [2, 3, 4]) disk.files.set(`${String(n)}.sbdchanges`, { bytes: changeFile(project.projectId, n), modified: 2 });
+    const before = await groups();
+    reads.length = 0;
+    await findInFolder();
+    expect(reads).toEqual([]);
+    expect(await groups()).toBe(before);
+    expect(projectStore.getState().canRedo).toBe(true);
+    expect(notice().message).toBe('3 change files are waiting in Harbor Lights Suggestions.');
+    // The same three found again: nothing new to say.
+    const seq = notice().seq;
+    await findInFolder();
+    expect(notice().seq).toBe(seq);
+    // Bring in: they come in; the undone one stays undone.
+    notice().action?.run();
+    await vi.waitFor(() => {
+      expect(suggestions()).toHaveLength(3);
+    });
+    expect(reads).toEqual(['2.sbdchanges', '3.sbdchanges', '4.sbdchanges']);
+  });
+
+  it('never brings back an undone bring-in at the next open, but Import changes… by hand does', async () => {
+    const bytes = changeFile(project.projectId, 1, 2);
+    disk.files.set('1.sbdchanges', { bytes, modified: 1 });
+    await openAs(project, 7);
+    await bringInFolder();
+    expect(suggestions()).toHaveLength(2);
+    await projectStore.getState().undo();
+    await projectStore.getState().close();
+
+    const again = await openAs(await openProject(folder.path('Harbor Lights.sbd'), { driver: nodeDriver, backups: false }), 7);
+    project = again;
+    await bringInFolder();
+    expect(reads).toEqual(['1.sbdchanges', '1.sbdchanges']);
+    expect(suggestions()).toHaveLength(0);
+    // The same bytes, chosen by hand: the person asked.
+    expect((await bringInBytes(again, bytes)).kind).toBe('added');
+    expect(suggestions()).toHaveLength(2);
+  });
+
+  it('offers a renamed project’s folder once per open, and reads it once renamed', async () => {
+    disk.state = 'none';
+    disk.renameFrom = 'Old Name Suggestions';
+    disk.files.set('1.sbdchanges', { bytes: changeFile(project.projectId, 1), modified: 1 });
+    askMock.mockResolvedValue('not_now');
+    await openAs(project, 7);
+    await bringInFolder();
+    expect(askMock).toHaveBeenCalledTimes(1);
+    await findInFolder();
+    expect(askMock).toHaveBeenCalledTimes(1);
+    expect(suggestions()).toHaveLength(0);
+
+    await projectStore.getState().close();
+    askMock.mockResolvedValue('rename');
+    project = await openAs(await openProject(folder.path('Harbor Lights.sbd'), { driver: nodeDriver, backups: false }), 7);
+    await bringInFolder();
+    expect(askMock).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenCalledWith('changes_folder_rename', { handle: 7, from: 'Old Name Suggestions' });
+    expect(suggestions()).toHaveLength(1);
+  });
+
+  it('says a folder for another project and a folder past 10,000 entries, once each', async () => {
+    disk.state = 'other_project';
+    disk.otherProjectName = 'Saltmarsh';
+    await openAs(project, 7);
+    await bringInFolder();
+    expect(notice().message).toBe('The folder Harbor Lights Suggestions is for another project, Saltmarsh, so its suggestions weren’t brought in.');
+    expect(notice().kind).toBe('warning');
+    const seq = notice().seq;
+    await findInFolder();
+    expect(notice().seq).toBe(seq);
+
+    disk.state = 'read';
+    disk.capped = true;
+    await findInFolder();
+    expect(notice().message).toBe('Harbor Lights Suggestions holds more than 10,000 items: Storiiboard looked at the first 10,000 only.');
+  });
+
+  it('runs once at a time, and a switch while a run is under way still gets the new project’s open pass', async () => {
+    disk.files.set('1.sbdchanges', { bytes: changeFile(project.projectId, 1), modified: 1 });
+    let release = () => {};
+    disk.hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await openAs(project, 7);
+    const first = bringInFolder();
+
+    const other = await createProject(folder.path('Saltmarsh.sbd'), { driver: nodeDriver, backups: false });
+    const saltmarsh = fakeFolder(8, 'Saltmarsh Suggestions');
+    saltmarsh.files.set('s.sbdchanges', { bytes: changeFile(other.projectId, 9, 3), modified: 1 });
+    await openAs(other, 8);
+    // As the shell asks when a project opens: during the run, so it runs after it.
+    const second = bringInFolder();
+    release();
+    await first;
+    await second;
+    expect(projectStore.getState().project).toBe(other);
+    expect(suggestions()).toHaveLength(3);
+    expect(reads).toEqual(['s.sbdchanges']);
+  });
+});
