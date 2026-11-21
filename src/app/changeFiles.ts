@@ -8,6 +8,7 @@ import { ask } from './ask';
 import { isTauriApp } from './fileAccess';
 import { clearNotice, noticeStore, showInfo, showNotice, type NoticeAction } from './notice';
 import { projectStore } from './projectStore';
+import { openSuggestions } from '../features/suggestions/suggestionsFocus';
 
 // Change files in (7.1, docs/SBD_FORMAT.md "Change files"): Import changes…, a `.sbdchanges` dropped on the window, and
 // the project's `<Project> Suggestions/` folder, brought in when the project opens and found (never brought in) when
@@ -133,6 +134,20 @@ export function outcomeWords(outcome: BringInOutcome, file?: string): string | n
   return named(taken > 0 ? `${said} ${tn('changes.taken', taken)}` : said);
 }
 
+/**
+ * Review, beside the line that says suggestions came in (7.2): the Suggestions tile on that import, for the project it
+ * came into only; pressed after a switch, it takes its line away.
+ */
+function reviewAction(opened: Project, changeFileId: string): NoticeAction {
+  return {
+    label: t('changes.review'),
+    run: () => {
+      if (projectStore.getState().project !== opened) clearNotice();
+      else openSuggestions(changeFileId, opened.projectId);
+    },
+  };
+}
+
 /** Brings one file in by hand (Import changes…, a drop) and says what happened on the status line. */
 export async function bringInSource(source: ChangeFileSource): Promise<void> {
   const opened = projectStore.getState().project;
@@ -142,7 +157,12 @@ export async function bringInSource(source: ChangeFileSource): Promise<void> {
     const words = outcomeWords(outcome);
     if (words === null) return;
     if (outcome.kind === 'refused') showNotice(words);
-    else showInfo(words, { step: outcome.kind === 'added' });
+    else if (outcome.kind === 'added') {
+      // The import's change file, as the records it made name it.
+      const made = outcome.broughtIn.changes[0];
+      const fileId = made?.kind === 'create' ? made.record.props?.change_file_id : undefined;
+      showInfo(words, { step: true, action: typeof fileId === 'string' ? reviewAction(opened, fileId) : null });
+    } else showInfo(words);
   } catch (error) {
     showNotice(error);
   }
@@ -521,7 +541,8 @@ async function pass(opened: Project, state: FolderState, handle: number, folder:
   const wait = notLooked > 0 ? tn('changes.waiting', notLooked, { folder }) : null;
   const words = [brought, failed, wait].filter((part) => part !== null).join(' ');
   if (words === '') return;
-  // Bring in tries again whatever is left, the files that couldn't be read included.
+  // Bring in tries again whatever is left, the files that couldn't be read included. A pass's imports are reviewed from
+  // their notifications (7.2): the line keeps its one button for what's left.
   const action = left.length === 0 ? null : waitingAction(opened);
   if (failed !== null) showNotice(words, { action, step: brought !== null });
   else showInfo(words, { step: brought !== null, action });

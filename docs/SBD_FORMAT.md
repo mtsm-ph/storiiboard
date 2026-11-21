@@ -1003,8 +1003,8 @@ steps (later, suggestions and comments too). What's stored is each person's read
 |---|---|---|
 | id, created_at, updated_at | | As every table |
 | user_id | text | As above |
-| item_kind | text | `op_group` now; `suggestion` and `comment` with Phases 7 and 9 |
-| item_id | text | The op group's id, or the suggestion's or comment's record id |
+| item_kind | text | `op_group`; `suggestion` from 7.2 (one per import of suggestions); `comment` with Phase 9 |
+| item_id | text | The op group's id; for `suggestion`, the import's first suggestion's record id (in the file's order); or the comment's record id |
 | read_at | text | When it was opened |
 
 - `notification_reads` is unique on (`user_id`, `item_kind`, `item_id`); a second opening keeps the first time. When a
@@ -1012,6 +1012,10 @@ steps (later, suggestions and comments too). What's stored is each person's read
 - Writing read state counts as a change for the 5-minute backups, as Seen does; a step already read, or yours, writes
   nothing when opened.
 - Read state isn't an op: marking an item read can't be undone and isn't a step in History.
+- An import's notification (7.2) sits at the place in the log of the step that brought it in (`read_through_seq` covers it
+  like that step), and is unread until opened or covered, even when the import was the reader's own: it says there is
+  something to review. An import is the suggestions of one change file; a suggestion that names none is an import of
+  its own. Its item is the import's first suggestion's id. No table, column or schema number changes for it.
 - A step by the person reading (its `author` is who they sign as) counts as read: they made it. By name, until sign-in
   brings a stable id: steps signed before a rename read as another's, and two people with no name (both `local`), or
   with the same initials, read as one.

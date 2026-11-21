@@ -299,8 +299,8 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
 
 ## Suggestions and the assistant (Phase 7)
 
-7.0 (suggestions in the model) has nothing to try by hand: it has no screen. 7.1 brings change files in; the review
-screen that shows them comes with 7.2, so until then the status line and History are what you see.
+7.0 (suggestions in the model) has nothing to try by hand: it has no screen. 7.1 brings change files in; 7.2's review
+screen, the Suggestions tile (Layout menu → Open tile), shows them and decides them.
 
 - [ ] Project menu → Import changes…: pick a `.sbdchanges` made for the open project. The status line says "Brought in
   N suggestions from …" and History has the same line; ⌘Z takes it back. (7.1)
@@ -325,6 +325,36 @@ screen that shows them comes with 7.2, so until then the status line and History
   Rename from the app renames the folder and brings its files in. (7.1)
 - [ ] [Windows] A `<Project> Suggestions` that is a junction to another folder is never read: the status line says
   it's a link. (7.1)
+- [ ] Import a change file: the status line has Review, which opens the Suggestions tile on that import, its source,
+  when it came in and its count at the top of Changes to review. (7.2)
+- [ ] The import is one notification ("N suggestions from …"), unread though you brought it in; opening it reads it
+  and opens the same group. Mark all read reads it too, and it stays read after closing and opening the project. (7.2)
+- [ ] Review one by one: each suggestion shows its scene and shot number as the slate reads them, who suggested it and
+  when, the note as text, and what it does (an update's fields now and suggested; a new frame's place, "after 4B in
+  SC 04"; a scene to the Trash with how many frames, notes and setups go with it; a move from where to where). (7.2)
+- [ ] An update to a field you changed since: three values (Then, Suggested, Now) and "Changed since it was
+  suggested"; Apply writes the suggested value. A flagged one ("Can't be applied", "Waiting", "Gone") has Apply off
+  with the reason under it. (7.2)
+- [ ] Apply the rest on a breakdown (a new scene and its frames): the confirmation lists what will change, in order;
+  only additions with nothing flagged are taken, never a deletion, a move or an update. Each comes in as its own step:
+  ⌘Z takes back only the last one, and it waits in Changes to review again. (7.2)
+- [ ] Reject the rest: a confirmation, then each rejected as its own step; the project doesn't change. (7.2)
+- [ ] Undo an Apply: the change goes and the suggestion waits again; an applied deletion went to the Trash and comes
+  back. (7.2)
+- [ ] Changes applied, the log: each decision, Applied or Rejected, by whom and when, newest first; All, Applied and
+  Rejected filter it; Show 4B selects the frame on the board. (7.2)
+- [ ] Keyboard only: from the notification to the last decision, Tab and Enter reach everything; after Apply or Reject
+  the focus is on the next one's Apply. (7.2)
+- [ ] In Spanish: Cambios por revisar, Aplicar, Rechazar, Aplicar el resto, Cambios aplicados; nothing left in English.
+  (7.2)
+- [ ] A big import (2,000 suggestions from the assistant) open in the tile: an edit on the board still feels quick.
+  (7.2)
+- [ ] Apply the rest on that big import: a line counts it ("Applying 340 of 2,000…"), the focus stays on Apply the
+  rest, and the list settles once when it ends. (7.2)
+- [ ] During Apply the rest, open a backup or a named version of the same project: the run stops, and nothing of it
+  lands in the copy. (7.2)
+- [ ] Open the notification of an import with nothing left to review: the log shows only that import's rows, with Show
+  every import beside them. Opening an import with Review or in the tile reads its notification too. (7.2)
 
 ## Settings, presets, themes, Dark view and accessibility
 
