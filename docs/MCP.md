@@ -135,16 +135,20 @@ existing file.
 - **Bounds first** (round 2), before anything in the call is read: the whole arguments at most 256 KB as JSON, at most
   200 suggestions a call, at most 50 fields an update or a create, each field's name at most 100 characters and its
   value at most 10,000.
-- **Checked before anything is written.** Every suggestion is read by the app's own reader (`reviewSuggestion`, 7.0)
-  under the assistant's scope row, beside the others of its file, against the project as it is: one with any flag
-  (outside what the assistant can suggest, a value its field doesn't take, a focal length outside the lens picked, a
-  frame that can't leave a locked scene, nothing to change) is refused, and so is the whole call. The one flag let
-  through is *waiting* on another suggestion of the same file (a new scene's frames, a frame after a new one). The
-  file's bytes are read by the app's own change-file reader (7.1, src/core/storage/changeFile.ts), within its bounds
-  (5 MB, 2,000 suggestions). Only then is any value looked at for a contact detail: a value or a note that reads as a
-  phone number, an email, coordinates or a map link by the free-text rule (what the assistant's own text shows) is
-  refused: contact details are never suggested. A refusal says why in words and writes nothing, so the assistant can
-  try again.
+- **Checked before anything is written**, in this order (round 4). First what the call alone decides: every
+  suggestion's kind, type and fields against the assistant's scope row (outside it is refused), then the free-text rule
+  on every value and note (one that reads as a phone number, an email, coordinates or a map link is refused: contact
+  details are never suggested). Only then is the file built: its bytes read by the app's own change-file reader (7.1,
+  src/core/storage/changeFile.ts), within its bounds (5 MB, 2,000 suggestions), and every suggestion by the app's own
+  reader (`reviewSuggestion`, 7.0) under the assistant's scope row, beside the others of its file, against the project
+  as it is: one with a flag (a value its field doesn't take, a focal length outside the lens picked, a frame that can't
+  leave a locked scene) is refused, and so is the whole call. Two flags are let through: *waiting* on another
+  suggestion of the same file (a new scene's frames, a frame after a new one), and *nothing to change* (round 4: the
+  suggestion is written like any other; the review screen says the project already reads so, and Apply only marks it
+  applied). A refusal says why in words and writes nothing, so the assistant can try again.
+- **The rule** (round 4): no answer, refusal, count or later listing depends on comparing what the assistant sent with
+  a value it can't see; a check may compare with what the read tools show it (the view and the guard), never with the
+  hidden stored text.
 - **No contact oracle** (rounds 2 and 3). Nothing the assistant sends is matched against the values the project
   stores: the guard keeps stored contacts out of what goes *to* the assistant, and what it sends it holds already, so
   a match would protect nothing and its trace (a replacement, a bound crossed after one) would say which guess was
@@ -157,15 +161,18 @@ existing file.
   stores.
 - **A name two records share** (round 2) is refused, never guessed: "Two gear items are named "SkyPanel S60": give its
   id (list_gear lists them)"; likewise people and locations, each record's name through the free-text rule and the
-  guard. Each also takes its id. Round 3: a name is compared with each record's name as the view gives it (through the
-  free-text rule, so "SkyPanel [contact left out]" finds what list_gear lists so), and a name to look up that the
-  free-text rule would change is refused without a look at any record ("A name to look up can't hold what reads as a
-  phone number…: give the gear item's id"), so a phone typed in a record's name can't be confirmed by guessing it.
+  guard. Each also takes its id. A name is compared with each record's name as list_gear, list_people and
+  list_locations give it (round 4: the free-text rule and then the guard, so "SkyPanel [contact left out]" finds what
+  list_gear lists so, and "Cam 5550123", whose digits are a stored phone's, finds nothing either way), and a name to
+  look up that the free-text rule would change is refused without a look at any record ("A name to look up can't hold
+  what reads as a phone number…: give the gear item's id"), so a phone typed in a record's name can't be confirmed by
+  guessing it.
 - **The file**: 7.1's format, `format: "storiiboard.changes"`, `version: 1`, a new `id` every call (a writer never adds
   to a file it wrote), `project_id` and `project_name` from the project as read, `created_by: "mcp"`, and one person,
   `{ "id": "a", "name": <the client's own name>, "role": "assistant" }`: the name the assistant's app gave itself in
   the MCP initialize request (its `title`, else its `name`, such as "Claude Desktop"), as text, cleaned and at most
-  100 characters. Each suggestion's `before` values come from the project as read. Its name is
+  100 characters. Each suggestion's `before` values come from the project as read, only for fields in the scope row
+  (round 4). Its name is
   `<YYYY-MM-DD HH-mm-ssZ> <client> <8 hex>.sbdchanges`: the time in UTC (round 2: never this computer's zone, which
   would say where it is), the client's name as the client names itself (Claude Desktop may say "claude-ai"), kept to
   letters, digits, spaces, dots, dashes and underscores (at most 40), and the first 8 hex digits of the file's id, so
@@ -214,7 +221,10 @@ existing file.
   temporary file and a file of the same name is never written over. Round 2 adds the probe (an answer alike whether or
   not a value given is stored), the bounds, names two records share, the folder named from the stem, the full folder,
   the leftovers, the folder made and taken away, a folder swapped mid-write, and (mcp/test/noHardLinks.test.ts) the
-  copy on a volume with no hard links.
+  copy on a volume with no hard links. Round 4 adds the review's probes: a phone the free-text rule hides, and a value
+  the guard hides (in a frame's action and in a call sheet's notes), sent back exactly and a character off, answered,
+  written and listed alike; a name the guard hides finding no single item, guessed right or wrong; and a field outside
+  the scope row refused alike whatever is stored in it.
 
 ## What is never returned, and why
 
@@ -467,7 +477,9 @@ values, its note or its author: `{ id, kind, status, target: { id, type, label }
 fields, flags: [{ kind, words }], can_apply, trashed? }`, its `label` made from the project's records ("SC 12 · 12B",
 "Call sheet, Day 1 · …", "New frame in SC 12") through the view and the guard, never the label the file gave, and
 `fields` the names of its fields that are known props of the target's type, the rest counted. What the assistant sent
-it holds already; a value read back after the app stored it could say which of its guesses the project holds.
+it holds already; a value read back after the app stored it could say which of its guesses the project holds. For
+the same reason its `flags` never hold `no_change` (round 4): whether the project already reads as suggested would say
+what a hidden value is, and Apply stays open either way.
 
 ### run_checks
 

@@ -16,7 +16,7 @@ import { openProject } from '../../src/core/storage/project';
 import { makeTestFolder } from '../../src/core/storage/testFolder';
 import { FolderRefused, MARKER_FORMAT, MARKER_NAME } from '../src/changeFolder';
 import { readProject } from '../src/project';
-import { suggestGearForDay, suggestTrash } from '../src/propose';
+import { checkedChangeFile, suggestGearForDay, suggestShotChanges, suggestTrash } from '../src/propose';
 import { writeProposal } from '../src/write';
 import { CONTACTS, IDS, writeHarborLights } from './fixture';
 
@@ -206,9 +206,7 @@ describe('the propose tools over stdio (7.6)', () => {
       expect((await call(c, 'suggest_trash', { items: [{ frame: '99Z' }] })).text).toBe('There\'s no frame numbered "99Z". list_shots lists them.');
       expect((await call(c, 'suggest_gear_for_day', { day: '7', add: ['Boom kit Sennheiser'] })).text).toBe('There\'s no shoot day "7". The days are 1 (2026-11-18).');
       expect((await call(c, 'suggest_gear_for_day', { day: '1', add: ['Fog machine'] })).text).toBe("There's no gear item of that name in the catalogue. list_gear lists it.");
-      // Already as suggested: nothing to change.
-      const same = await call(c, 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { size: 'CU' } }] });
-      expect(same.isError).toBe(true);
+      // Already as suggested is no refusal since round 4: written like any other (the round-4 tests).
       // A wrong argument, in our words.
       expect(await call(c, 'suggest_trash', { items: 'all' })).toEqual({ isError: true, text: 'suggest_trash: items is a list of { frame: "12A" }, { scene: "12" } or { scene: "12", note: 1 }, at most 200.' });
     } finally {
@@ -724,7 +722,8 @@ describe('the propose tools, round 3', () => {
     );
     const c = await connect(path);
     try {
-      expect(await call(c, 'suggest_gear_for_day', { day: '1', add: ['Cam 5550123'] })).toEqual({
+      // Round 4: names are compared as list_gear gives them, guard included, so the twins are found by that name.
+      expect(await call(c, 'suggest_gear_for_day', { day: '1', add: ['Cam [contact left out]'] })).toEqual({
         isError: true,
         text: 'Two gear items are named "Cam [contact left out]": give its id (list_gear lists them).',
       });
@@ -779,4 +778,136 @@ describe('the propose tools, round 3', () => {
       await c.close();
     }
   }, 30_000);
+
+  it('finds no single item by a name the guard hides, guessed right or wrong (round 4)', async () => {
+    const data = await readProject(original);
+    const cam = '30000000-0000-4000-8000-000000000301';
+    // "5550123" is Robin's stored phone's 7 digits: list_gear gives this item as "Cam [contact left out]".
+    const { path } = await changedProject([{ kind: 'create', record: { id: cam, type: 'gear_item', parentId: data.projectId, sortKey: 'z0', props: { name: 'Cam 5550123', department: 'camera' } } }]);
+    const c = await connect(path);
+    try {
+      const none = { isError: true, text: "There's no gear item of that name in the catalogue. list_gear lists it." };
+      expect(await call(c, 'suggest_gear_for_day', { day: '1', add: ['Cam 5550123'] })).toEqual(none);
+      expect(await call(c, 'suggest_gear_for_day', { day: '1', add: ['Cam 5550124'] })).toEqual(none);
+      const byViewName = await call(c, 'suggest_gear_for_day', { day: '1', add: ['Cam [contact left out]'] });
+      expect(byViewName.isError, byViewName.text).toBe(false);
+    } finally {
+      await c.close();
+    }
+  });
+});
+
+// Round 4: no answer, refusal, count or later listing depends on comparing what the assistant sent with a value it
+// can't see.
+
+/** A call on a fresh copy of the fixture with `changes` applied, the file it wrote brought in, then list_suggestions. */
+async function proposeAndList(changes: Change[], name: string, args: Record<string, unknown>): Promise<{ answer: { text: string; isError: boolean }; file: string; listed: string; review: string[] }> {
+  const { dir, path } = await changedProject(changes);
+  const c = await connect(path);
+  let answer: { text: string; isError: boolean };
+  try {
+    answer = await call(c, name, args);
+  } finally {
+    await c.close();
+  }
+  expect(answer.isError, answer.text).toBe(false);
+  const bytes = readFileSync(join(dir, SUGGESTIONS, changeFiles(dir)[0] ?? ''));
+  const data = await readProject(path);
+  // What the app's own reader says of it on the full records, so a test can show the probe reaches "nothing to change".
+  const read = readChangeFile(new Uint8Array(bytes), data.projectId);
+  if (!read.ok) throw new Error('refused');
+  const records: Record<string, SbdRecord> = { ...data.records };
+  for (const s of read.file.suggestions) records[s.id] = { id: s.id, type: 'suggestion', parentId: data.projectId, sortKey: 'z', props: s.props, trashedAt: null, trashedBy: null, createdAt: '2026-11-21T10:00:00.000Z', updatedAt: '2026-11-21T10:00:00.000Z' };
+  const review = read.file.suggestions.flatMap((s) => (reviewSuggestion(records, data.projectId, s.id, data.slate)?.flags ?? []).map((f) => f.kind));
+  const project = await openProject(path, { driver: nodeDriver, backups: false });
+  try {
+    expect((await bringInChangeFile(project.file, data.projectId, new Uint8Array(bytes))).ok).toBe(true);
+  } finally {
+    await project.close();
+  }
+  const again = await connect(path);
+  try {
+    const listed = await call(again, 'list_suggestions', {});
+    expect(listed.isError, listed.text).toBe(false);
+    return { answer, file: bytes.toString('utf8'), listed: listed.text, review };
+  } finally {
+    await again.close();
+  }
+}
+
+/** A text with its ids and times made alike. */
+const timesAlike = (text: string) => alike(text).replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z/g, 'TIME');
+
+describe('the propose tools, round 4', () => {
+  it('refuses a phone the free-text rule hides alike, the stored one sent back or another', async () => {
+    const { dir, path } = await changedProject([{ kind: 'update', id: IDS.shotB, set: { action: '555 0107' } }]);
+    const c = await connect(path);
+    try {
+      const exact = await call(c, 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { action: '555 0107' } }] });
+      const other = await call(c, 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { action: '555 0108' } }] });
+      expect(exact).toEqual({ isError: true, text: 'Nothing was written. SC 12 · 12B: action holds what reads as a phone number, an email, an address, coordinates or a map link. Contact details are never suggested: leave them out.' });
+      expect(other).toEqual(exact);
+    } finally {
+      await c.close();
+    }
+    expect(existsSync(join(dir, SUGGESTIONS))).toBe(false);
+  });
+
+  it('writes and lists alike a frame’s action that matches a value the guard hides and one a character off', async () => {
+    const changes: Change[] = [{ kind: 'update', id: IDS.shotB, set: { action: CONTACTS.address } }];
+    const off = `${CONTACTS.address.slice(0, -1)}x`;
+    const exact = await proposeAndList(changes, 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { action: CONTACTS.address } }] });
+    const other = await proposeAndList(changes, 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { action: off } }] });
+    // The probe reaches it: the app's reader finds nothing to change in the exact one.
+    expect(exact.review).toContain('no_change');
+    expect(other.review).not.toContain('no_change');
+    expect(alike(exact.answer.text)).toBe(alike(other.answer.text));
+    expect(exact.file.length).toBe(other.file.length);
+    expect(exact.file).toContain(`"action": "${CONTACTS.address}"`);
+    expect(timesAlike(exact.listed)).toBe(timesAlike(other.listed));
+    expect(exact.listed).not.toContain('no_change');
+  });
+
+  it('writes and lists alike a call sheet’s notes that match a value the guard hides and ones a character off', async () => {
+    const changes: Change[] = [{ kind: 'update', id: IDS.sheet, set: { notes: CONTACTS.address } }];
+    const off = `${CONTACTS.address.slice(0, -1)}x`;
+    const exact = await proposeAndList(changes, 'suggest_call_sheet_notes', { day: '1', notes: CONTACTS.address });
+    const other = await proposeAndList(changes, 'suggest_call_sheet_notes', { day: '1', notes: off });
+    expect(exact.review).toContain('no_change');
+    expect(other.review).not.toContain('no_change');
+    expect(alike(exact.answer.text)).toBe(alike(other.answer.text));
+    expect(exact.file.length).toBe(other.file.length);
+    expect(timesAlike(exact.listed)).toBe(timesAlike(other.listed));
+    expect(exact.listed).not.toContain('no_change');
+  });
+
+  it('writes a change the project already holds, and lists it as it would any other', async () => {
+    const { answer, listed } = await proposeAndList([], 'suggest_shot_changes', { changes: [{ frame: '12B', fields: { size: 'CU' } }] });
+    expect(answer.isError).toBe(false);
+    const { suggestions } = JSON.parse(listed) as { suggestions: { target: { id: string }; source: string; flags: unknown[]; can_apply: boolean }[] };
+    const mine = suggestions.find((s) => s.target.id === IDS.shotB && s.source === 'mcp');
+    expect(mine?.flags).toEqual([]);
+    expect(mine?.can_apply).toBe(true);
+  });
+
+  it('refuses a field outside the scope row before anything is built, and keeps it out of before, whatever is stored there', async () => {
+    const data = await readProject(original);
+    const shot = data.records[IDS.shotB] as SbdRecord;
+    const withCustom = (value: string) => ({ data: { ...data, records: { ...data.records, [IDS.shotB]: { ...shot, props: { ...shot.props, custom: { Owner: value } } } } }, client: CLIENT });
+    const refusal = (context: ReturnType<typeof withCustom>) => {
+      const proposal = suggestShotChanges(context, { changes: [{ frame: '12B', fields: { custom: { Owner: 'y' }, size: 'MCU' } }] });
+      expect(proposal.suggestions[0]?.data.before).toEqual({ size: 'CU' });
+      try {
+        checkedChangeFile(context, proposal);
+      } catch (error) {
+        return (error as Error).message;
+      }
+      return 'written';
+    };
+    // A stored value past the file's 5 MB and a short one: the same refusal, by the scope row.
+    const large = refusal(withCustom('x'.repeat(6 * 1024 * 1024)));
+    expect(large).toBe(refusal(withCustom('x')));
+    expect(large).toMatch(/^Nothing was written\. SC 12 · 12B: /);
+    expect(large).not.toContain('5 MB');
+  });
 });

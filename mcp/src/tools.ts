@@ -775,6 +775,9 @@ export function listSuggestions(context: ToolContext, args: { status?: 'pending'
       if (wanted !== 'all' && s.status !== wanted) return [];
       const flags = review.flags.map((flag) => ({ kind: flag.kind, words: reviewFlagWords(flag, s.targetType) }));
       if (s.source === 'mcp') {
+        // Round 4: never "nothing to change" here. The reader compares the value sent with the stored one, hidden or not,
+        // and whether they match would say what a hidden value is. Apply stays open either way, so `can_apply` says nothing.
+        const shown = flags.filter((flag) => flag.kind !== 'no_change');
         return [
           {
             id: s.id,
@@ -785,7 +788,7 @@ export function listSuggestions(context: ToolContext, args: { status?: 'pending'
             suggested_at: s.suggestedAt,
             decided_at: s.decidedAt,
             fields: suggestedFields(r.data.records, record),
-            flags,
+            flags: shown,
             can_apply: review.canApply,
             ...trashed(record),
           },

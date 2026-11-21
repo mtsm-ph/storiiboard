@@ -1,4 +1,4 @@
-import { contactGuard, withoutContacts, withoutStoredContacts } from '../../src/core/model/assistantView';
+import { contactGuard, withoutContacts, withoutStoredContacts, type ContactGuard } from '../../src/core/model/assistantView';
 import { dayCallsheet } from '../../src/core/model/callsheet';
 import { gearFields, gearIdsOf, projectGear } from '../../src/core/model/gear';
 import { locationFields, projectLocations } from '../../src/core/model/location';
@@ -6,7 +6,8 @@ import { personFields, projectPeople } from '../../src/core/model/person';
 import type { JsonValue, SbdRecord } from '../../src/core/model/record';
 import { dayLabel, type ShootDay } from '../../src/core/model/shootDay';
 import { sceneFields, sceneLabel, shotFields } from '../../src/core/model/storyboard';
-import { lastWritten, MAX_FIELDS, reviewFlagWords, reviewSuggestion, SUGGESTION_BOUNDS, type SuggestionFlag } from '../../src/core/model/suggestion';
+import { cleanText, lastWritten, MAX_FIELDS, reviewFlagWords, reviewSuggestion, scopeRowFor, SUGGESTION_BOUNDS, type SuggestionFlag } from '../../src/core/model/suggestion';
+import { scopeField, scopeType } from '../../src/core/model/suggestionScope';
 import { boardScene } from '../../src/core/ops/storyboardEdits';
 import { MAX_CHANGE_FILE_BYTES, readChangeFile, refusalWords } from '../../src/core/storage/changeFile';
 import { buildChangeFile, type BuiltChangeFile, type FileSuggestion } from './changeFile';
@@ -34,6 +35,13 @@ import { boardScenes, dayOf, read, sceneByNumber, ToolError, type Read, type Too
 // Refusals: words made from records go through the view and the guard (`recordWords`); words that repeat the
 // assistant's own arguments ("There's no frame numbered "99Z"") are a function of those arguments alone, so they say
 // nothing of what is stored, and stay as they are.
+//
+// Round 4, the rule everywhere: no answer, refusal, count or later listing depends on comparing what the assistant sent
+// with a value it can't see. A check may compare with what the read tools show it (the view and the guard), never with
+// the hidden stored text. So "nothing to change" is no refusal (the review screen says so, and Apply only marks it
+// applied); the free-text rule and the scope row run before anything is built or compared with the project; a name is
+// looked up as list_gear, list_people and list_locations give it, guard included; and `before` holds only fields of the
+// scope row, so a hidden field's length never decides a bound.
 
 type Obj = { [key: string]: JsonValue };
 
@@ -113,15 +121,17 @@ const showsContact = (text: string): boolean => withoutContacts(text) !== text;
  * the view's free-text rule, then the guard, as a name. A refusal leaves without the server's guard (server.ts), so it
  * is applied here.
  */
-function recordWords(r: Read, text: string): string {
-  return withoutStoredContacts(contactGuard(r.data.records), withoutContacts(text), { name: true });
+function recordWords(r: Read, text: string, guard: ContactGuard = contactGuard(r.data.records)): string {
+  return withoutStoredContacts(guard, withoutContacts(text), { name: true });
 }
 
 /**
  * A live record by its id, else by its name; never a guess between two of one name (round 2). The refusals name only
  * what the project holds, never the value the assistant gave. Round 3: a name the free-text rule would change is
- * refused without a look at any record, and each record's name is compared as the view gives it (`viewText`), so a
- * phone typed in a record's name can't be confirmed by guessing it.
+ * refused without a look at any record (a function of the name alone). Round 4: each record's name is compared as the
+ * list tools give it (`recordWords`: the free-text rule, then the guard), never as stored, so a phone typed in a record's
+ * name can't be confirmed by guessing it, whether the free-text rule or the guard hides it; the value given is never put
+ * through the guard itself.
  */
 function oneOf<T extends { record: SbdRecord }>(
   r: Read,
@@ -133,10 +143,11 @@ function oneOf<T extends { record: SbdRecord }>(
   if (showsContact(value)) throw new ToolError(words.contact);
   const byId = live.find((item) => item.record.id === value);
   if (byId) return byId.record.id;
-  const named = live.filter((item) => sameText(withoutContacts(nameOf(item)), value));
+  const guard = contactGuard(r.data.records);
+  const named = live.filter((item) => sameText(recordWords(r, nameOf(item), guard), value));
   const [first] = named;
   if (!first) throw new ToolError(words.none);
-  if (named.length > 1) throw new ToolError(words.two(recordWords(r, nameOf(first)).trim(), named.length));
+  if (named.length > 1) throw new ToolError(words.two(recordWords(r, nameOf(first), guard).trim(), named.length));
   return first.record.id;
 }
 
@@ -221,10 +232,18 @@ function fieldsOf(r: Read, given: unknown, what: string): Obj {
   return out;
 }
 
-/** What the project holds for each named field, as the suggester saw it: its `before`. */
-function beforeOf(record: SbdRecord | null, fields: Obj): Obj {
+/**
+ * What the project holds for each named field, as the suggester saw it: its `before`. Round 4: only fields of the scope
+ * row for `type` (a field outside it is refused before anything is built), so a hidden field's stored value, and its
+ * length, never reaches the file or a bound.
+ */
+function beforeOf(type: string, record: SbdRecord | null, fields: Obj): Obj {
   const out: Obj = {};
-  for (const field of Object.keys(fields)) Object.defineProperty(out, field, { value: record?.props[field] ?? null, enumerable: true, writable: true, configurable: true });
+  const entry = scopeType(scopeRowFor(), type);
+  for (const field of Object.keys(fields)) {
+    if (!entry || !scopeField(entry, field)) continue;
+    Object.defineProperty(out, field, { value: record?.props[field] ?? null, enumerable: true, writable: true, configurable: true });
+  }
   return out;
 }
 
@@ -252,7 +271,7 @@ export function suggestShotChanges(context: ToolContext, args: ShotChangesArgs):
     const { shot, scene } = frameByNumber(r, change.frame, change.scene === undefined ? undefined : sceneByNumber(r, change.scene));
     const label = frameLabel(scene, shot);
     const props = fieldsOf(r, change.fields, label);
-    suggestions.push({ id: newId(), kind: 'update', target: { id: shot.id, type: 'shot', label, updated_at: shot.updatedAt }, note: note(args.note), data: { props, before: beforeOf(shot, props) } });
+    suggestions.push({ id: newId(), kind: 'update', target: { id: shot.id, type: 'shot', label, updated_at: shot.updatedAt }, note: note(args.note), data: { props, before: beforeOf('shot', shot, props) } });
     lines.push(`Change ${label}: ${fieldCount(props)}.`);
   }
   return { suggestions, lines };
@@ -437,14 +456,14 @@ export function suggestCallSheetNotes(context: ToolContext, args: CallSheetArgs)
   }
   if (Object.keys(props).length > 0) {
     const label = `Call sheet, ${dayName}`;
-    suggestions.push({ id: newId(), kind: 'update', target: { id: day.record.id, type: 'callsheet', label, updated_at: (sheet ?? day.record).updatedAt }, note: note(args.note), data: { props, before: beforeOf(sheet, props) } });
+    suggestions.push({ id: newId(), kind: 'update', target: { id: day.record.id, type: 'callsheet', label, updated_at: (sheet ?? day.record).updatedAt }, note: note(args.note), data: { props, before: beforeOf('callsheet', sheet, props) } });
     lines.push(`Change the call sheet for ${dayName}: ${Object.keys(props).join(', ')}.`);
   }
   const dayProps: Obj = {};
   if (args.call_time !== undefined) Object.defineProperty(dayProps, 'call_time', { value: args.call_time, enumerable: true, writable: true, configurable: true });
   if (args.wrap_time !== undefined) Object.defineProperty(dayProps, 'wrap_time', { value: args.wrap_time, enumerable: true, writable: true, configurable: true });
   if (Object.keys(dayProps).length > 0) {
-    suggestions.push({ id: newId(), kind: 'update', target: { id: day.record.id, type: 'shoot_day', label: dayName, updated_at: day.record.updatedAt }, note: note(args.note), data: { props: dayProps, before: beforeOf(day.record, dayProps) } });
+    suggestions.push({ id: newId(), kind: 'update', target: { id: day.record.id, type: 'shoot_day', label: dayName, updated_at: day.record.updatedAt }, note: note(args.note), data: { props: dayProps, before: beforeOf('shoot_day', day.record, dayProps) } });
     lines.push(`Change ${dayName}’s ${Object.keys(dayProps).map((f) => (f === 'call_time' ? 'crew call' : 'wrap')).join(' and ')}.`);
   }
   if (suggestions.length === 0) throw new ToolError('suggest_call_sheet_notes: name notes, safety_notes, call_time, wrap_time, department_calls or person_times.');
@@ -529,18 +548,46 @@ function reviewed(context: ToolContext, suggestions: readonly FileSuggestion[], 
       problems.push(`${label}: it can't be read.`);
       return;
     }
-    const refusing = review.flags.filter((flag) => !waits(flag));
+    // Round 4: "nothing to change" is no refusal. Whether a value is what the project holds would say what a hidden one
+    // is; the suggestion is written like any other, and the review screen says so (Apply only marks it applied).
+    const refusing = review.flags.filter((flag) => !waits(flag) && flag.kind !== 'no_change');
     if (refusing.length > 0) problems.push(`${label}: ${[...new Set(refusing.map((flag) => reviewFlagWords(flag, review.suggestion.targetType)))].join(' ')}`);
     else if (!review.canApply && !review.flags.some(waits)) problems.push(`${label}: it can't be applied.`);
   });
   return { built, problems };
 }
 
+/** Longest field, type or kind name a refusal says back, as 7.0's reader cuts it. */
+const MAX_NAME_WORD = 40;
+
 /**
- * The proposal checked and built as the file it will be, in this order (round 2): its bounds; every suggestion as the
- * app will read it (7.1's reader on the bytes, 7.0's under the assistant's scope row, no flag but waiting on another of
- * the file); then the free-text rule on every value and note. Throws a ToolError with every problem in words. Round 3:
- * the file built once is the file written, exactly as the assistant sent it; nothing in it is matched against what the
+ * Each suggestion's kind, type and fields against the assistant's scope row, before anything is built (round 4): a
+ * function of what was sent alone, so no stored value, nor its length, decides it. The words are 7.0's own flags'.
+ */
+function scopeProblems(suggestions: readonly FileSuggestion[]): string[] {
+  const row = scopeRowFor();
+  const problems: string[] = [];
+  for (const s of suggestions) {
+    const type = s.target.type;
+    const entry = scopeType(row, type);
+    const flags: SuggestionFlag[] = [];
+    if (!entry) flags.push({ kind: 'outside_scope', what: 'type', name: cleanText(type, MAX_NAME_WORD) || '?' });
+    else if (!entry.kinds.includes(s.kind)) flags.push({ kind: 'outside_scope', what: 'kind', name: s.kind });
+    else if (s.kind === 'update' || s.kind === 'create') {
+      for (const [field] of fieldsIn(s)) if (!scopeField(entry, field)) flags.push({ kind: 'outside_scope', what: 'field', name: cleanText(field, MAX_NAME_WORD) || '?' });
+    }
+    if (flags.length > 0) problems.push(`${s.target.label}: ${[...new Set(flags.map((flag) => reviewFlagWords(flag, type)))].join(' ')}`);
+  }
+  return problems;
+}
+
+/**
+ * The proposal checked and built as the file it will be, in this order (round 4): its bounds; the scope row (kinds,
+ * types and fields); the free-text rule on every value and note; and only then every suggestion as the app will read it
+ * (7.1's reader on the bytes, 7.0's under the assistant's scope row, no flag but waiting on another of the file, and
+ * "nothing to change" let through). Everything before the build is a function of what was sent alone, so a refusal for a
+ * contact or a field never depends on anything stored. Throws a ToolError with every problem in words. Round 3: the
+ * file built once is the file written, exactly as the assistant sent it; nothing in it is matched against what the
  * project stores.
  */
 export function checkedChangeFile(context: ToolContext, proposal: Proposal, at: Date = new Date()): BuiltChangeFile {
@@ -548,8 +595,8 @@ export function checkedChangeFile(context: ToolContext, proposal: Proposal, at: 
   if (proposal.suggestions.length > MAX_PER_CALL) throw new ToolError(`One call makes at most ${String(MAX_PER_CALL)} suggestions: suggest fewer at a time.`);
   if (proposal.suggestions.some((s) => s.note.length > SUGGESTION_BOUNDS.note)) throw new ToolError(`Nothing was written. The note is longer than ${String(SUGGESTION_BOUNDS.note)} characters.`);
 
-  const first = reviewed(context, proposal.suggestions, at);
-  if (first.problems.length > 0) throw new ToolError(`Nothing was written. ${first.problems.join(' ')}`);
+  const outside = scopeProblems(proposal.suggestions);
+  if (outside.length > 0) throw new ToolError(`Nothing was written. ${outside.join(' ')}`);
 
   const problems: string[] = [];
   for (const s of proposal.suggestions) {
@@ -559,5 +606,8 @@ export function checkedChangeFile(context: ToolContext, proposal: Proposal, at: 
     if (showsContact(s.note)) problems.push(`${s.target.label}: the note holds ${CONTACT_WORDS}. Leave contact details out.`);
   }
   if (problems.length > 0) throw new ToolError(`Nothing was written. ${[...new Set(problems)].join(' ')}`);
+
+  const first = reviewed(context, proposal.suggestions, at);
+  if (first.problems.length > 0) throw new ToolError(`Nothing was written. ${first.problems.join(' ')}`);
   return first.built;
 }
