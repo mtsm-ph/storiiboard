@@ -251,15 +251,36 @@ function curveTag(points: number): Buffer {
   return out;
 }
 
+/** An RGB space's white and colourants, in D50 XYZ, as a display profile's tags hold them. */
+export interface Colourants {
+  white: number[];
+  red: number[];
+  green: number[];
+  blue: number[];
+}
+
 export function srgbProfile(points: number): Buffer {
+  return rgbProfile(
+    points,
+    SRGB_D50,
+    `sRGB, ${String(points)}-point curve (Storiiboard test photos)`,
+    'Made by scripts/fixturePhotos.ts in the Storiiboard repo, for its test photos.',
+  );
+}
+
+/**
+ * A display profile with these colourants and sRGB's curve: the one writer behind srgbProfile and the Display P3
+ * profile scripts/heicFixtures.ts builds, so both are laid out the same way.
+ */
+export function rgbProfile(points: number, colourants: Colourants, description: string, copyright: string): Buffer {
   const curve = padded(curveTag(points));
   const data: [string, Buffer][] = [
-    ['desc', descTag(`sRGB, ${String(points)}-point curve (Storiiboard test photos)`)],
-    ['cprt', textTag('Made by scripts/fixturePhotos.ts in the Storiiboard repo, for its test photos.')],
-    ['wtpt', xyzTag(SRGB_D50.white)],
-    ['rXYZ', xyzTag(SRGB_D50.red)],
-    ['gXYZ', xyzTag(SRGB_D50.green)],
-    ['bXYZ', xyzTag(SRGB_D50.blue)],
+    ['desc', descTag(description)],
+    ['cprt', textTag(copyright)],
+    ['wtpt', xyzTag(colourants.white)],
+    ['rXYZ', xyzTag(colourants.red)],
+    ['gXYZ', xyzTag(colourants.green)],
+    ['bXYZ', xyzTag(colourants.blue)],
   ];
   const trcs = ['rTRC', 'gTRC', 'bTRC'];
   const count = data.length + trcs.length;
@@ -294,7 +315,7 @@ export function srgbProfile(points: number): Buffer {
   // A fixed date, never the clock's: the same bytes on every run.
   [2026, 11, 19, 0, 0, 0].forEach((v, i) => header.writeUInt16BE(v, 24 + i * 2));
   header.write('acsp', 36, 'latin1');
-  SRGB_D50.white.forEach((v, i) => header.writeInt32BE(s15(v), 68 + i * 4));
+  colourants.white.forEach((v, i) => header.writeInt32BE(s15(v), 68 + i * 4));
   return Buffer.concat([header, table, ...bodies]);
 }
 

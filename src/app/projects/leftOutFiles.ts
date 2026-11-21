@@ -99,17 +99,27 @@ export function leftOutNote(records: Records, projectId: string, report: ImportR
   const pictures = report.leftOut.filter((file) => file.picture).length;
   const files = report.leftOut.length - pictures;
   const sentences: string[] = [];
-  if (pictures > 0) sentences.push(tn('projectJson.picturesLeftOut', pictures, { total: formatNumber(report.pictures) }));
-  if (files > 0) sentences.push(tn('projectJson.filesLeftOut', files, { total: formatNumber(report.files) }));
-  // LUTs in their own sentence, of the same shape (Kevin, Nov 18 night 4); their videos' frames join the places.
-  if (luts > 0) sentences.push(tn('projectJson.lutsLeftOut', luts, { total: formatNumber(report.luts ?? luts) }));
+  // The project's one picture, file or LUT left out reads as a sentence, never "1 of 1" (Kevin, Nov 19); one of
+  // several keeps its count.
+  if (pictures === 1 && report.pictures === 1) sentences.push(t('projectJson.pictureLeftOut'));
+  else if (pictures > 0) sentences.push(tn('projectJson.picturesLeftOut', pictures, { total: formatNumber(report.pictures) }));
+  if (files === 1 && report.files === 1) sentences.push(t('projectJson.fileLeftOut'));
+  else if (files > 0) sentences.push(tn('projectJson.filesLeftOut', files, { total: formatNumber(report.files) }));
+  // LUTs in their own sentence, of the same shape (Kevin, Nov 18 night 4); their videos' frames join the places. The
+  // sentence only when the total is known to be one: a report without it keeps the count.
+  if (luts === 1 && report.luts === 1) sentences.push(t('projectJson.lutLeftOut'));
+  else if (luts > 0) sentences.push(tn('projectJson.lutsLeftOut', luts, { total: formatNumber(report.luts ?? luts) }));
   const places = leftOutPlaces(records, projectId, report);
   if (places.length > 0) {
     // At most MAX_PLACES named, so a project with hundreds left out still says it in one line.
     const shown = every ? places.length : MAX_PLACES;
     const named = places.slice(0, shown).join(', ');
     const more = places.length - shown;
-    sentences.push(t('projectJson.leftOutWhere', { places: more > 0 ? tn('projectJson.leftOutMore', more, { places: named }) : named }));
+    // One thing left out in all reads "It shows", agreeing in number (Kevin, Nov 19). Only what can show somewhere
+    // counts: a LUT left out with no id is named nowhere, so its count stays out.
+    const showing = report.leftOut.length + (report.lutsLeftOut ?? []).filter((id) => id !== '').length;
+    const where = showing === 1 ? 'projectJson.leftOutWhereOne' : 'projectJson.leftOutWhere';
+    sentences.push(t(where, { places: more > 0 ? tn('projectJson.leftOutMore', more, { places: named }) : named }));
   }
   return sentences.join(' ');
 }
