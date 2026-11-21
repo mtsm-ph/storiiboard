@@ -1,5 +1,7 @@
 // An image's pixels, shrunk for reading its colours (1.14). Its own module, shared by the page and the worker, so the
-// worker never imports the module that starts it (Vite refuses that circle in a build).
+// worker never imports the module that starts it (Vite refuses that circle in a build). Its canvas comes from the
+// import-free makeCanvas.ts, never canvas.ts, whose translations would land in the worker's bundle.
+import { makeCanvas } from '../../../core/media/makeCanvas';
 
 /** The side the image is shrunk to before its colours are read: enough to find a logo's colours, quick to cluster. */
 export const SAMPLE_SIZE = 96;
@@ -51,8 +53,10 @@ export async function samplePixels(image: Blob): Promise<{ data: Uint8ClampedArr
     const scale = Math.min(1, SAMPLE_SIZE / Math.max(bitmap.width, bitmap.height));
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));
+    // A <canvas> where there's no OffscreenCanvas (macOS 13.0 to 13.2); in a worker there with no document either,
+    // makeCanvas throws here, the worker reports it, and the page does the work (extract.ts).
     const ctx = at('canvas', () => {
-      const context = new OffscreenCanvas(width, height).getContext('2d');
+      const context = makeCanvas(width, height).ctx;
       if (!context) throw new Error('This computer can’t read the image’s colours.');
       return context;
     });

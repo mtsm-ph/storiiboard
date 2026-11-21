@@ -33,6 +33,25 @@ const PDF_LIMIT_MS = 25_000;
 const ACCENTS_LIMIT_MS = 20_000;
 /** The page's own reading of the picture, after an `accents` failure: short, so the whole stays within Rust's 90 s. */
 const ON_PAGE_LIMIT_MS = 10_000;
+/** The worker asked once more after a pass by the page: 25 + 20 + 10 + 10 s, still within Rust's 90. */
+const AGAIN_LIMIT_MS = 10_000;
+
+/**
+ * How the note of an `accents` step passed by the page begins (6.27r): scripts/launchCheck.sh looks for it to refuse
+ * such a pass unless it's allowed (a test checks the script holds the same words).
+ */
+export const BY_THE_PAGE = 'by the page';
+
+/**
+ * How the note of an `accents` step begins when the worker and the page both failed at canvas, draw or read (Kevin,
+ * Nov 20 night): the machine gives no canvas a backing to read back (GitHub's Mac, a virtual GPU), not a fault of the
+ * app's. The step passes so the last two steps still run; scripts/launchCheck.sh refuses it unless allowed (a test
+ * checks the script holds the same words).
+ */
+export const NO_CANVAS_READ = "this machine can't read a canvas back";
+
+/** The stages at which a canvas fails for want of the machine's backing, in a worker or on the page alike. */
+const CANVAS_STAGES: readonly string[] = ['canvas', 'draw', 'read'];
 
 /** What the page itself got from the built-in picture: its sampled size and how many accents it found. */
 export interface PageReading {
@@ -89,8 +108,9 @@ export interface LaunchCheckDeps {
   accentsFromWorker: (image: Blob) => Promise<string[] | null>;
   /**
    * The same four stages run on the page itself (sample.ts's samplePixels, then accentCandidates), only after the
-   * worker's answer failed the step, so its line tells a webview that can't do a call in a worker from one that
-   * can't do it at all, or can't decode this picture (6.27q). A failure carries its stage as samplePixels gives it.
+   * worker's answer failed, so its line tells a webview that can't do a call in a worker from one that can't do it
+   * at all, or can't decode this picture (6.27q); after a worker error at canvas, draw or read, its accents pass the
+   * step by the page (6.27r). A failure carries its stage as samplePixels gives it.
    */
   accentsOnPage: (image: Blob) => Promise<PageReading>;
   /** Asks for one of the page's own files (fetch). */
@@ -150,15 +170,18 @@ function within<T>(deps: LaunchCheckDeps, ms: number, work: Promise<T>, why: str
 
 /** Runs the page's steps in order; resolves when the check has passed or one step has been reported failed. */
 export async function runLaunchCheck(deps: LaunchCheckDeps): Promise<void> {
-  // The step's own work: ok when it returns, failed with its reason when it throws.
-  const step = async (name: PageStep, work: () => Promise<void>): Promise<boolean> => {
+  // The step's own work: ok when it returns, with its note when it returns one (only accents does, 6.27r); failed
+  // with its reason when it throws.
+  const step = async (name: PageStep, work: () => Promise<unknown>): Promise<boolean> => {
     let failure: string | null = null;
+    let note = '';
     try {
-      await work();
+      const done = await work();
+      if (typeof done === 'string') note = done;
     } catch (error) {
       failure = reason(error);
     }
-    await deps.report(name, failure === null, failure ?? '');
+    await deps.report(name, failure === null, failure ?? note);
     return failure === null;
   };
 
@@ -234,37 +257,92 @@ async function pdfText(deps: LaunchCheckDeps): Promise<void> {
   if (!text.includes(deps.pdfLine)) fail(`the PDF's text lacks its line: read "${text.slice(0, 80)}"`);
 }
 
+/** A worker's rejection as the check's lines name it: its words, then its stage or that it had none. */
+const workerWords = (error: unknown): string => `${reason(error)} (worker: ${stageOf(error) ?? 'no stage'})`;
+
 /**
  * The built-in picture's accents, from the accent reader's worker alone. A failure's line says where in the worker it
  * failed, then what the page itself gets from the same picture (6.27q):
  * `<the worker's words> (worker: <stage>); on the page: <what happened>`.
+ *
+ * One exception passes (6.27r, Kevin Nov 20): the worker reported an error at `canvas`, `draw` or `read`, where a
+ * worker's canvas can fail as the page's doesn't (no GPU backing, or no OffscreenCanvas), and the page found accents
+ * in the same picture, which is what the app itself then shows. The step passes with a note beginning `by the page`,
+ * which says what the worker answered then and when asked once more; scripts/launchCheck.sh refuses it unless allowed.
+ *
+ * And one more (Kevin, Nov 20 night): the worker and the page both failed at `canvas`, `draw` or `read`. A page's
+ * canvas gets its buffer from the GPU process as a worker's does, so this machine reads no canvas back at all: the step
+ * passes with a note beginning `this machine can't read a canvas back`, both bare messages kept, and the last two
+ * steps still run. The worker must still have answered: silent, or failing at decode, it fails as before.
  */
-async function accents(deps: LaunchCheckDeps): Promise<void> {
+async function accents(deps: LaunchCheckDeps): Promise<string | undefined> {
   let why: string | null = null;
+  let pageMayStand = false;
+  let first: unknown;
+  let workerStage: string | undefined;
   try {
     const asking = deps.accentsFromWorker(deps.picture);
     const found = await within(deps, ACCENTS_LIMIT_MS, asking, 'no answer from the accent worker in 20 s');
-    // One null for no worker, a worker error and its own 15 s limit alike (extractAccents falls back on all three).
+    // One null for no worker, a dead worker and its own 15 s limit alike (extractAccents falls back on all three, and
+    // since 6.27r on an error the worker reports too, which askWorkerAlone rejects with instead).
     if (found === null) why = 'the accent worker failed or took over 15 s';
     else if (found.length === 0) why = 'the accent worker found no accent in the built-in picture';
   } catch (error) {
     // The check's own time limit has no worker stage; the worker's rejection has one, or says it had none.
-    why = error instanceof StepFailed ? error.message : `${reason(error)} (worker: ${stageOf(error) ?? 'no stage'})`;
+    if (error instanceof StepFailed) why = error.message;
+    else {
+      first = error;
+      why = workerWords(error);
+      workerStage = stageOf(error);
+      // A picture the worker couldn't decode, or an error from nowhere known, is never the page's to stand in for.
+      pageMayStand = workerStage !== undefined && CANVAS_STAGES.includes(workerStage);
+    }
   }
   // Only after a failure: a passing check does exactly what it did before.
-  if (why !== null) fail(`${why}; on the page: ${await onPage(deps)}`);
+  if (why === null) return undefined;
+  const page = await onPage(deps);
+  if (pageMayStand && page.stage !== undefined && CANVAS_STAGES.includes(page.stage)) {
+    return `${NO_CANVAS_READ} (worker: ${String(workerStage)}: ${reason(first)}; page: ${page.words})`;
+  }
+  if (!pageMayStand || page.accents < 1) fail(`${why}; on the page: ${page.words}`);
+  return `${BY_THE_PAGE}: ${page.words}; the worker: ${why}; the worker asked again: ${await askAgain(deps, first)}`;
 }
 
-/** What the page itself gets from the built-in picture: the first stage that fails with its words, or what it read. */
-async function onPage(deps: LaunchCheckDeps): Promise<string> {
+/**
+ * What the page itself gets from the built-in picture: the first stage that fails with its words, or what it read,
+ * with how many accents (none when it failed), and the stage it failed at, when it says one.
+ */
+async function onPage(deps: LaunchCheckDeps): Promise<{ words: string; accents: number; stage?: string }> {
   try {
     const reading = deps.accentsOnPage(deps.picture);
     const read = await within(deps, ON_PAGE_LIMIT_MS, reading, 'no answer in 10 s');
-    return `read ok, ${String(read.width)} × ${String(read.height)}, ${String(read.accents)} accents`;
+    const words = `read ok, ${String(read.width)} × ${String(read.height)}, ${String(read.accents)} accents`;
+    return { words, accents: read.accents };
+  } catch (error) {
+    if (error instanceof StepFailed) return { words: error.message, accents: 0 };
+    const stage = stageOf(error);
+    if (!stage) return { words: `failed: ${reason(error)}`, accents: 0 };
+    return { words: `${stage} failed: ${reason(error)}`, accents: 0, stage };
+  }
+}
+
+/**
+ * The worker asked once more, with the same picture, after the page passed the step: whether its failure stays, for
+ * the note alone. It never changes the verdict. A failure word for word the first one (the same words and stage) is
+ * `the same`: Rust cuts a note at 300 characters, and a long engine message written twice could cut off this part,
+ * the one the second ask exists for.
+ */
+async function askAgain(deps: LaunchCheckDeps, first: unknown): Promise<string> {
+  try {
+    const asking = deps.accentsFromWorker(deps.picture);
+    const found = await within(deps, AGAIN_LIMIT_MS, asking, 'no answer in 10 s');
+    if (found === null) return 'no answer (null)';
+    if (found.length === 0) return 'no accent found';
+    return `ok, ${String(found.length)} accents`;
   } catch (error) {
     if (error instanceof StepFailed) return error.message;
-    const stage = stageOf(error);
-    return stage ? `${stage} failed: ${reason(error)}` : `failed: ${reason(error)}`;
+    const words = workerWords(error);
+    return words === workerWords(first) ? 'the same' : words;
   }
 }
 

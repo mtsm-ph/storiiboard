@@ -10,6 +10,8 @@ name: Checkpoint
 # regenerates the screenshot baselines instead, as the update_visual_baselines option does, for the same reason.
 # A branch named checkpoint/e2e-<anything> runs the tests without the installers: for a fix to a test that failed
 # only on the Mac, which needs the Mac's run again but not an hour of builds.
+# A branch named checkpoint/launch-<anything> runs only the ffmpeg sources and the two installers, launch check
+# included: it answers a launch-check question in about a quarter of an hour, and is never a checkpoint to merge on.
 on:
   push:
     branches: ['checkpoint/**']
@@ -30,6 +32,7 @@ permissions:
 jobs:
   smoke-linux:
     name: Smoke (Linux)
+    if: ${{ !startsWith(github.ref_name, 'checkpoint/launch-') }}
     # Pinned rather than -latest: the visual baselines depend on the image's font rendering.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -89,7 +92,7 @@ jobs:
   # show, drop to the default rather than raise a timeout.
   e2e-chromium-linux:
     name: End to end (Linux, Chromium)
-    if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines')) }}
+    if: ${{ !(inputs.update_visual_baselines || startsWith(github.ref_name, 'checkpoint/baselines') || startsWith(github.ref_name, 'checkpoint/launch-')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -123,6 +126,7 @@ jobs:
 
   smoke-mac:
     name: End to end (macOS, WebKit)
+    if: ${{ !startsWith(github.ref_name, 'checkpoint/launch-') }}
     # Pinned like the Linux job: the darwin baselines come from this image (macOS 26), and WebKit and font rendering
     # change between macOS versions. A Mac on another major version may need its own run of the screenshot tests.
     runs-on: macos-26
@@ -186,6 +190,7 @@ jobs:
   # Storiiboard ships, and only for that; scripts/advisories.ts decides, osv-scanner.toml holds the ignores.
   advisories:
     name: Advisories
+    if: ${{ !startsWith(github.ref_name, 'checkpoint/launch-') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -284,6 +289,11 @@ jobs:
             triple: aarch64-apple-darwin
             bundles: src-tauri/target/release/bundle/dmg/*.dmg
             app: src-tauri/target/release/bundle/macos/Storiiboard.app/Contents/MacOS/storiiboard
+            # GitHub's Mac has a virtual GPU, so a canvas may get no backing there: two passes are allowed on it alone,
+            # each with a warning in the log and the job's summary (scripts/launchCheck.sh): the accents read by the
+            # page when the worker's canvas failed, and "this machine can't read a canvas back" when the worker's and
+            # the page's both failed. Windows stays strict.
+            launch_flags: --accents-by-page-ok
           - name: Windows
             os: windows-latest
             triple: x86_64-pc-windows-msvc
@@ -407,4 +417,4 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         shell: bash
         timeout-minutes: 5
-        run: bash scripts/launchCheck.sh "${{ matrix.app }}"
+        run: bash scripts/launchCheck.sh ${{ matrix.launch_flags }} "${{ matrix.app }}"

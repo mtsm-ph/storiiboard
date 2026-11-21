@@ -35,6 +35,12 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
   page from Vite, not from the app, so it can't show the header.) The launch check reads the same header and runs
   both workers in the app just built at every checkpoint (6.27l), so this is a second look by eye, no longer one only
   Kevin can give. (worker CSP)
+- [ ] [Mac] [Kevin] The launch check, strict, on a real Mac, with no build tools: download a checkpoint's Mac
+  installer (the `storiiboard-macOS` artifact), clear its quarantine flag, mount it and start the app inside with
+  `STORIIBOARD_LAUNCH_CHECK=1` (the three Terminal lines are in the report of the run they belong to). It prints
+  eight lines and quits by itself. `launch check: accents ok` with nothing after it, then `launch check: passed`: the
+  accent reader's worker reads on a real GPU. `accents ok (by the page: …)`: the worker fails on a real Mac too and
+  the page stands in for it; send the line. (6.27r)
 
 ## Project, files, backups, History and Trash
 

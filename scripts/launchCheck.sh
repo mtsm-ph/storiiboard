@@ -3,22 +3,56 @@
 # (STORIIBOARD_LAUNCH_CHECK=1, src-tauri/src/launch_check.rs), waits for it to quit by itself, and says how it ended.
 # Run in both installer jobs of .github/workflows/checkpoint.yml, after the installers are uploaded:
 #
-#   bash scripts/launchCheck.sh <path to the app's executable>
+#   bash scripts/launchCheck.sh [--accents-by-page-ok] <path to the app's executable>
 #
 # Bash, LF line endings: Git Bash on the Windows runner, and the Mac's own bash, which is 3.2, so nothing newer here.
 # It passes only when the app's exit code is 0 and its output holds the line "launch check: passed". Without the
 # variable the app would open this computer's real projects, so the app is never started here without it.
+#
+# The app passes its accents step "by the page" (6.27r) when the accent worker reported an error at its canvas, its
+# drawing or its reading back, and the page read the same picture's accents: the app itself then works, as it falls
+# back to the page too. The app says so honestly; this script judges. Such a pass fails here unless
+# --accents-by-page-ok is given, and only GitHub's Mac job gives it: its GPU is virtual, and a worker's canvas there
+# may get no backing. Windows and a real Mac stay strict, so a worker that fails on a real machine is still caught.
+#
+# The same flag lets one more pass through (Kevin, Nov 20 night): "accents ok (this machine can't read a canvas
+# back …)", when the worker and the page both failed at canvas, draw or read, so no canvas there can be read back at
+# all. Without the flag it fails. With it, either pass says a "launch check: warning:" line in the log and, when
+# GITHUB_STEP_SUMMARY is set, in the job's summary too.
 
 set -u
 
-app="${1:-}"
+say() { printf 'launch check: %s\n' "$*"; }
+usage="usage: bash scripts/launchCheck.sh [--accents-by-page-ok] <path to the app's executable>"
+
+app=""
+accents_by_page_ok=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --accents-by-page-ok) accents_by_page_ok=true ;;
+    -*)
+      say "FAILED: unknown flag \"$1\"; $usage"
+      exit 1
+      ;;
+    *)
+      if [ -n "$app" ]; then
+        say "FAILED: more than one path (\"$app\", \"$1\"); $usage"
+        exit 1
+      fi
+      app=$1
+      ;;
+  esac
+  shift
+done
+if [ -z "$app" ]; then
+  say "FAILED: no path to the app; $usage"
+  exit 1
+fi
 # The steps in order, as launch_check.rs's STEPS (a Rust test fails when the two differ): step n failed is 10 + n,
 # the time limit while waiting for step n is 30 + n.
 steps="window loaded page policy-watch pdf-text accents worker-policy no-violation"
 # Longer than the app's own 90 s, so the app's own time limit speaks first.
 wait_limit=150
-
-say() { printf 'launch check: %s\n' "$*"; }
 
 # The name of step n, from 1.
 step_name() {
@@ -131,7 +165,34 @@ echo '---'
 say "exit code $code: $(meaning "$code")"
 
 if [ "$code" = 0 ] && tr -d '\r' <"$log" | grep -qx 'launch check: passed'; then
-  exit 0
+  # A pass by the page: its line begins with these words (launchCheck.ts's BY_THE_PAGE; a test checks they match).
+  by_page=$(tr -d '\r' <"$log" | grep -a '^launch check: accents ok (by the page' | head -n 1)
+  # Neither the worker nor the page could read a canvas back (launchCheck.ts's NO_CANVAS_READ; a test checks they
+  # match): GitHub's Mac, whose virtual GPU gives no canvas a backing.
+  no_read=$(tr -d '\r' <"$log" | grep -a "^launch check: accents ok (this machine can't read a canvas back" | head -n 1)
+  if [ -n "$by_page" ]; then
+    found=$by_page
+    what='the accents came from the page, not the worker'
+  elif [ -n "$no_read" ]; then
+    found=$no_read
+    what="neither the worker nor the page could read a canvas back"
+  else
+    exit 0
+  fi
+  note=${found#'launch check: accents ok ('}
+  note=${note%)}
+  if [ "$accents_by_page_ok" = true ]; then
+    warning="warning: $what, as --accents-by-page-ok allows: $note"
+    say "$warning"
+    # The job's summary too, so the warning is seen without opening the log.
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      printf 'launch check: %s\n' "$warning" >>"$GITHUB_STEP_SUMMARY"
+    fi
+    exit 0
+  fi
+  say "FAILED: $what"
+  say "only --accents-by-page-ok lets that pass, and it belongs on GitHub's Mac alone, whose GPU is virtual"
+  exit 1
 fi
 if [ "$code" = 0 ]; then
   say 'FAILED: the app quit with 0 but never said "launch check: passed"'

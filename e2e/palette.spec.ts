@@ -81,6 +81,38 @@ test('generates a scene’s palette from its frames, colour-managed, and edits i
   await expect(swatches(page)).toHaveCount(1);
 });
 
+test('a scene’s palette still reads with no OffscreenCanvas in the page (macOS 13.0 to 13.2)', async ({ page }) => {
+  // Removed before the app's own scripts run, on every load from here on, then the project made again as above.
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(window, 'OffscreenCanvas');
+  });
+  await page.goto('/?files=memory');
+  await page.evaluate(() => {
+    window.localStorage.clear();
+  });
+  await page.reload();
+  expect(await page.evaluate(() => 'OffscreenCanvas' in window)).toBe(false);
+  page.once('dialog', (dialog) => void dialog.accept('Bey County'));
+  await page.getByRole('button', { name: 'New project…' }).click();
+  await skipOnboarding(page);
+  await scenesTile(page).getByRole('button', { name: '+ New scene' }).click();
+  await board(page).getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await board(page).locator('[data-shot-id]').first().click();
+
+  await choosePicture(page, 'p3-red.jpg');
+  await inspector(page).getByRole('button', { name: 'Generate palette' }).click();
+  await expect(swatches(page).first()).toBeVisible();
+  // The same swatch as with OffscreenCanvas: about #FF0000, drawn colour-managed onto sRGB.
+  const label = (await swatches(page).first().getAttribute('aria-label')) ?? '';
+  const hex = /#([0-9A-F]{6})/.exec(label)?.[1] ?? '000000';
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  expect(r).toBeGreaterThan(240);
+  expect(g).toBeLessThan(40);
+  expect(b).toBeLessThan(40);
+  await expect(scenesTile(page).locator('[data-palette-strip] span')).not.toHaveCount(0);
+  expect(await page.evaluate(() => 'OffscreenCanvas' in window)).toBe(false);
+});
+
 test('keeps a locked colour in its place when the rest are generated again, and the count sets how many', async ({ page }) => {
   // Two frames, two pictures of different colours.
   await choosePicture(page, 'srgb.jpg');
