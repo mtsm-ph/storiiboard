@@ -34,6 +34,7 @@ import { alsoInRoom, homeOf, itemLevel, scenesLosing, setupOnlyHeld, setupOnlyOt
 import { pickableIds } from '../../../core/model/planLayers';
 import type { SbdRecord } from '../../../core/model/record';
 import { Select, Toggle } from '../../../ui/fields';
+import { useScrollLane } from '../../../ui/scrollLane';
 import { Trans } from '../../../ui/Trans';
 import { iconLabel } from './iconWords';
 import { usePlanLayerStates } from './layersStore';
@@ -50,7 +51,7 @@ import { MeasureFieldsView, UnderlayFieldsView } from './UnderlaySelection';
 import { degreesText, lengthCommit, shared, TypedField } from './selectionFields';
 import { CeilingField, RefusedLine, refusalWords, WindowHeightFields, WindowSunList, WindowSunView } from './WindowSelection';
 import { ceilingOver, doorHeightRefusal, openingHeights, storedHeightsRefusal } from '../../../core/model/planHeights';
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 
 // The Selection tile (6.2a, 6.2b), in the Setup workspace: the selected plan item's fields as it reads them, each typed
 // and each one edit when it's left (one ⌘Z), lengths in the unit the screen shows and read in any form (src/core/model/
@@ -62,8 +63,10 @@ import { useId, useState } from 'react';
 type Records = Readonly<Record<string, SbdRecord>>;
 
 export function SelectionTile() {
+  const scroller = useRef<HTMLDivElement>(null);
+  useScrollLane(scroller);
   return (
-    <div data-selection-tile="" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div ref={scroller} data-selection-tile="" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <SelectionContent />
     </div>
   );

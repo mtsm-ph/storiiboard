@@ -1,6 +1,7 @@
 import { useStore } from 'zustand';
 import { createStore } from 'zustand/vanilla';
 import { blobDataUrl, canvasBlob, PictureNotSavedError } from '../../core/media/canvas';
+import { readablePicture } from '../../core/media/image';
 import { cleanProfileText, loadSettings, saveSettings } from '../../core/storage/settings';
 import { cleanBrandColors, cleanBrandFonts, COMPANY_FIELDS, LOGO_EDGE, MAX_ALL_LOGOS_CHARS, MAX_COMPANIES, MAX_COMPANY_TEXT, MAX_LOGO_CHARS, type CompanyProfile } from '../../core/model/company';
 
@@ -61,12 +62,20 @@ export function removeCompany(id: string): CompanyProblem | null {
  * A picture made into a profile's logo: fitted inside LOGO_EDGE px, kept as a PNG data URL (transparency kept), made
  * smaller still until it fits MAX_LOGO_CHARS (a photographic logo is heavy as a PNG). `unreadable` when it can't be read;
  * `notSaved` when what the webview encoded holds more than the clean keeps, `pictureUnreadable` when the clean couldn't
- * read it (canvasBlob), so nothing is kept.
+ * read it (canvasBlob), so nothing is kept. A HEIC the webview can't decode (Windows) is decoded once by
+ * readablePicture, as the other pictures are; its refusal comes back as `refused`, in the decoder's own (English)
+ * words for localizeError.
  */
-export async function logoFromPicture(bytes: Blob): Promise<{ logo: string } | 'unreadable' | 'notSaved' | 'pictureUnreadable'> {
+export async function logoFromPicture(bytes: Blob): Promise<{ logo: string } | { refused: string } | 'unreadable' | 'notSaved' | 'pictureUnreadable'> {
+  let readable: Blob;
+  try {
+    readable = await readablePicture(bytes);
+  } catch (error) {
+    return { refused: error instanceof Error ? error.message : String(error) };
+  }
   let bitmap: ImageBitmap;
   try {
-    bitmap = await createImageBitmap(bytes, { imageOrientation: 'from-image' });
+    bitmap = await createImageBitmap(readable, { imageOrientation: 'from-image' });
   } catch {
     return 'unreadable';
   }

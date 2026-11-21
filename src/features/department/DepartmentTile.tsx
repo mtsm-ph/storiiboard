@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, useRef } from 'react';
 import { useProject } from '../../app/projectStore';
 import { useWorkspaceId } from '../../app/shell/workspaceContext';
 import { departmentOf } from '../../app/shell/workspaces';
@@ -9,6 +9,7 @@ import { approverRoles, DEPARTMENT_STATE_LABELS } from '../../core/model/departm
 import { ROLE_LABELS } from '../../core/model/role';
 import { aspectRatioValue, projectStoryboard, sceneFields, sceneLabel, specLine } from '../../core/model/storyboard';
 import { cx } from '../../ui/cx';
+import { useScrollLane } from '../../ui/scrollLane';
 import { Select } from '../../ui/fields';
 import { DepartmentStateGlyph } from '../../ui/glyphs';
 import { StatusGlyph } from '../../ui/tags';
@@ -46,6 +47,8 @@ export function DepartmentTile() {
   const department = fixed ?? picked ?? mine[0] ?? DEPARTMENTS[0];
   const name = DEPARTMENT_LABELS[department];
 
+  const scroller = useRef<HTMLDivElement>(null);
+  useScrollLane(scroller);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('people.noProject')}</p>;
   const scene = sceneId ? records[sceneId] : undefined;
   const live = scene?.type === 'scene' && scene.trashedAt === null ? scene : undefined;
@@ -58,7 +61,7 @@ export function DepartmentTile() {
 
   return (
     <ProjectPictures>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3">
+      <div ref={scroller} className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-0.5">
             {/* Focus lands here when the workspace opens from a frame's row, so the keyboard starts in the view. */}
