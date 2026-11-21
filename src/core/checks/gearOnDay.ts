@@ -2,6 +2,7 @@ import { gearIdsOf } from '../model/gear';
 import { gripFields, lightFields, setupPlanOf } from '../model/plan';
 import { liveGear } from '../model/planLight';
 import type { SbdRecord } from '../model/record';
+import { recordsOfType } from '../model/recordIndex';
 import { frameSetupId } from '../model/setup';
 import { dayFrames, projectShootDays } from '../model/shootDay';
 import { shotFields } from '../model/storyboard';
@@ -42,8 +43,9 @@ function liveItemsIn(records: Records, planId: string): readonly SbdRecord[] {
   let index = itemIndex.get(records);
   if (!index) {
     index = new Map<string, SbdRecord[]>();
-    for (const r of Object.values(records)) {
-      if (r.type !== 'plan_item' || r.trashedAt !== null || r.parentId === null) continue;
+    // From the type index every reader shares (7.4 round 3), never a pass of its own over every record.
+    for (const r of recordsOfType(records, 'plan_item')) {
+      if (r.trashedAt !== null || r.parentId === null) continue;
       const here = index.get(r.parentId);
       if (here) here.push(r);
       else index.set(r.parentId, [r]);

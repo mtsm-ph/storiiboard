@@ -7,6 +7,7 @@ import { GEAR_SOURCE_LABEL, gearIdsOf } from '../../core/model/gear';
 import { focalLabel, GEAR_KIND_LABEL, gearKind, lensFields } from '../../core/model/cameraGear';
 import { modeLabel } from '../../core/model/sensorModes';
 import { attachmentFields } from '../../core/model/attachment';
+import { stretchLabel, stretchOf } from '../../core/model/availability';
 import { countryName } from '../../core/model/countries';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
@@ -1386,6 +1387,8 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
       if (fields?.kind === 'field_card' && fields.field !== '') return t('history.fieldCardNamed', { field: DECK_FIELD_LABEL[fields.field] });
       return t(kind ? A_BOARD_ITEM[kind] : 'history.aRectangle');
     }
+    case 'availability':
+      return t('history.someUnavailableDates');
     case 'project':
       return t('history.theProject');
     case 'settings_preset':
@@ -1502,6 +1505,23 @@ function presetLine(ops: readonly LoggedOp[]): Line | null {
     return line('history.presetRenamed', {}, { before: was, after: name });
   }
   return line('history.presetReplaced', {}, { name });
+}
+
+/**
+ * A step on someone's unavailable dates (7.3): a stretch marked, taken off or put back, named by the person as the
+ * step left them (`around`) and the dates. Never its note, which can be private. Null for any other step.
+ */
+function availabilityLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Line | null {
+  const [op] = ops;
+  if (!op || ops.length !== 1) return null;
+  const record = op.after ?? op.before;
+  if (record?.type !== 'availability') return null;
+  const key = op.kind === 'create' ? 'history.markedUnavailable' : op.kind === 'trash' ? 'history.tookOffUnavailable' : op.kind === 'restore' ? 'history.putBackUnavailable' : null;
+  const stretch = stretchOf({ ...record, trashedAt: null });
+  const name = record.parentId ? personNameIn(around, record.parentId) : t('history.aPerson');
+  // Anything else (a change this version doesn't make, dates it can't read, from another version or a hand edit).
+  if (key === null || !stretch) return line('history.changedUnavailable', {}, { name });
+  return line(key, {}, { name, dates: stretchLabel(stretch.from, stretch.to) });
 }
 
 const recordOf = (op: LoggedOp): SbdRecord | null => op.after ?? op.before;
@@ -1974,6 +1994,9 @@ export function describeEdit(
   // A settings preset's step (6.5.8).
   const preset = presetLine(ops);
   if (preset) return preset;
+  // Someone's unavailable dates (7.3).
+  const away = availabilityLine(ops, around);
+  if (away) return away;
   // A room's underlays and measures (6.9), each step its own line.
   const underlaid = underlayMeasureLine(ops, around, unit);
   if (underlaid) return underlaid;
@@ -2508,6 +2531,17 @@ function childLine(type: SbdRecord['type'] | undefined, kind: LoggedOp['kind'], 
 }
 
 /**
+ * A step on one of a person's stretches, in their own history (7.3), where the person is the history's own title: the
+ * dates, never the note. A step that wrote several, or a change this version doesn't make, says only that they changed.
+ */
+function stretchRow(op: LoggedOp, n: number): string {
+  const record = op.after ?? op.before;
+  const stretch = record ? stretchOf({ ...record, trashedAt: null }) : null;
+  const key = n !== 1 || !stretch ? null : op.kind === 'create' ? 'history.markedUnavailableHere' : op.kind === 'trash' ? 'history.tookOffUnavailableHere' : op.kind === 'restore' ? 'history.putBackUnavailableHere' : null;
+  return key === null || !stretch ? t('history.changedUnavailableHere') : t(key, { dates: stretchLabel(stretch.from, stretch.to) });
+}
+
+/**
  * Ops by the step they're in, each step's in the order given. Pushed onto, never copied: one step can be tens of
  * thousands of ops (a Restore to here, an Empty Trash, a big erase), and copying a step's list for every op in it takes
  * seconds there, on the UI thread, every time History is read again.
@@ -2545,7 +2579,7 @@ export function frameRows(ops: readonly LoggedOp[], itemId: string): FrameRow[] 
       const first = group[0] ?? op;
       const type = (first.after ?? first.before)?.type;
       const same = group.filter((o) => o.kind === first.kind && (o.after ?? o.before)?.type === type).length;
-      const base = childLine(type, first.kind, same);
+      const base = type === 'availability' ? stretchRow(first, same) : childLine(type, first.kind, same);
       const change = byWay(op.groupKind, base);
       return [{ key: `${op.groupId}:children`, op, change, field: null }];
     }
