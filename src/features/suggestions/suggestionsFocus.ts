@@ -35,7 +35,10 @@ export const suggestionsFocus = createStore<FocusState>()((set, get) => ({
 
 export const useSuggestionsAsk = (): SuggestionsAsk | null => useStore(suggestionsFocus, (s) => s.asked);
 
-/** The Suggestions tile, in front in the workspace shown, on this import, with focus on its first suggestion. */
+/**
+ * The Suggestions tile, in front in the workspace shown, on this import, with focus on its first suggestion (or, with
+ * none left to review, on its rows in the log).
+ */
 export function openSuggestions(groupId: string, projectId: string): void {
   suggestionsFocus.getState().ask(groupId, projectId);
   const workspaceId = workspaceStore.getState().active;
@@ -44,6 +47,8 @@ export function openSuggestions(groupId: string, projectId: string): void {
   focusWhenShown(
     (last) =>
       document.querySelector<HTMLElement>(`[data-suggestion-group="${CSS.escape(groupId)}"] [data-suggestion-item]`) ??
+      // An import with nothing left to review: its rows in the log.
+      document.querySelector<HTMLElement>(`[data-suggestions-tile] [data-review-log-group="${CSS.escape(groupId)}"]`) ??
       (last ? document.querySelector<HTMLElement>('[data-suggestions-tile] [data-suggestion-item]') : null),
   );
 }

@@ -82,21 +82,29 @@ export async function stepsSince(file: ProjectFile, seq: number): Promise<FeedSt
   return rows.map((row) => ({ id: String(row.id), seq: Number(row.seq), author: String(row.author) }));
 }
 
+/** Where in the log a suggestion was last made, and that step's kind ('edit' for a bring-in; a redo, a restore…). */
+export interface SuggestionPlace {
+  seq: number;
+  kind: string;
+}
+
 /**
  * Where in the log each suggestion was last made (7.2): the seq of the newest group whose op created it (an undo's op of
- * a create has no after). An import's notification sits at its first suggestion's place, so Mark all read covers it.
+ * a create has no after), with that group's kind. An import's notification sits at its first suggestion's place, so
+ * Mark all read covers it.
  */
-export async function suggestionSeqs(file: ProjectFile, ids: readonly string[]): Promise<Map<string, number>> {
-  const found = new Map<string, number>();
+export async function suggestionSeqs(file: ProjectFile, ids: readonly string[]): Promise<Map<string, SuggestionPlace>> {
+  const found = new Map<string, SuggestionPlace>();
   // In parts, well inside SQLite's limit on a statement's parameters.
   for (let at = 0; at < ids.length; at += 500) {
     const part = ids.slice(at, at + 500);
     const rows = await file.query(
-      `SELECT ops.record_id AS id, max(op_groups.seq) AS seq FROM ops JOIN op_groups ON op_groups.id = ops.group_id
+      // SQLite takes a bare column (the kind) from the row max() picks.
+      `SELECT ops.record_id AS id, max(op_groups.seq) AS seq, op_groups.kind AS kind FROM ops JOIN op_groups ON op_groups.id = ops.group_id
         WHERE ops.kind = 'create' AND ops.after IS NOT NULL AND ops.record_id IN (${part.map(() => '?').join(', ')}) GROUP BY ops.record_id`,
       part,
     );
-    for (const row of rows) found.set(String(row.id), Number(row.seq));
+    for (const row of rows) found.set(String(row.id), { seq: Number(row.seq), kind: String(row.kind) });
   }
   return found;
 }

@@ -1,4 +1,4 @@
-import { tn, t } from '../../core/i18n';
+import { list, tn, t } from '../../core/i18n';
 import { dayCallsheet } from '../../core/model/callsheet';
 import { DEPARTMENT_LABELS, isDepartment } from '../../core/model/department';
 import type { JsonValue, SbdRecord } from '../../core/model/record';
@@ -24,7 +24,7 @@ type Records = Readonly<Record<string, SbdRecord>>;
 
 /** One import: the suggestions one change file brought in. */
 export interface SuggestionGroup {
-  /** The change file's id; '' for suggestions that name none. */
+  /** The change file's id; for a suggestion that names none, its own id: each such one is an import of its own. */
   id: string;
   /** `source` as text: `mcp` for the assistant's, `change_file` otherwise. */
   source: string;
@@ -57,7 +57,7 @@ export function suggestionGroups(records: Records, projectId: string): readonly 
     const last = new Map<string, string>();
     for (const record of projectSuggestions(records, projectId)) {
       const suggestion = suggestionOf(record);
-      const id = suggestion.changeFileId ?? '';
+      const id = suggestion.changeFileId ?? record.id;
       let group = groups.get(id);
       if (!group) {
         group = { id, source: suggestion.source, authors: [], broughtInAt: record.createdAt, ids: [], pending: [] };
@@ -124,13 +124,28 @@ export function groupReviews(records: Records, projectId: string, group: Suggest
  */
 export function restToApply(group: SuggestionGroup, reviews: ReadonlyMap<string, SuggestionReview>): string[] {
   const taken: string[] = [];
+  // A Set beside the list: a 2,000-create import asks it once per create.
+  const has = new Set<string>();
   for (const id of group.pending) {
     const review = reviews.get(id);
     if (review?.suggestion.kind !== 'create' || review.suggestion.status !== 'pending') continue;
-    const clean = review.flags.length === 0 ? review.canApply : review.flags.every((flag) => (flag.kind === 'waiting' || flag.kind === 'waiting_after') && taken.includes(flag.on));
-    if (clean) taken.push(id);
+    const clean = review.flags.length === 0 ? review.canApply : review.flags.every((flag) => (flag.kind === 'waiting' || flag.kind === 'waiting_after') && has.has(flag.on));
+    if (clean) {
+      taken.push(id);
+      has.add(id);
+    }
   }
   return taken;
+}
+
+/** The confirmation's list for a run: each suggestion's line as text, in the run's order, at most `listed`. */
+export function restLines(records: Records, ids: readonly string[], reviews: ReadonlyMap<string, SuggestionReview>, listed: number): string[] {
+  const lines = ids.slice(0, listed).map((id) => {
+    const review = reviews.get(id);
+    return `• ${review ? plain(headline(records, review.suggestion)) : ''}`;
+  });
+  if (ids.length > listed) lines.push(tn('review.andMore', ids.length - listed));
+  return lines;
 }
 
 /** What "Reject the rest" takes: every pending suggestion of the group, any kind, in the file's order. */
@@ -160,7 +175,12 @@ export function targetLine(records: Records, suggestion: Suggestion): Line {
   const target = recordOf(records, suggestion.targetId);
   const fallback: Line = [suggestion.targetLabel || t('history.suggestion.anItem')];
   if (!target || suggestion.kind === 'create') return fallback;
-  if (suggestion.targetType === 'callsheet') return target.type === 'shoot_day' ? line('review.target.callsheet', { day: mono(dayName(target)) }) : fallback;
+  if (suggestion.targetType === 'callsheet') {
+    if (target.type !== 'shoot_day') return fallback;
+    // An undated day's sheet in its own words: "the call sheet for an undated day", never a sheet "for (undated)".
+    const date = dayDateLabel(shootDayFields(target.props).date);
+    return date === '' ? [t('review.target.callsheetUndated')] : line('review.target.callsheet', { day: mono(date) });
+  }
   if (target.type !== suggestion.targetType) return fallback;
   if (target.type === 'shot') return [mono(frameSlate(records, target))];
   if (target.type === 'scene') {
@@ -381,6 +401,9 @@ export function authorName(suggestion: Suggestion): string {
 
 /** The source's word: the assistant's, or a change file's. */
 export const sourceWord = (source: string): string => t(source === 'mcp' ? 'review.source.assistant' : 'review.source.changeFile');
+
+/** Who an import is from, as text, made when shown (so a language switch rewords it): its authors' names, else its source. */
+export const fromWords = (authors: readonly string[], source: string): string => (authors.length > 0 ? list(authors) : sourceWord(source));
 
 /** Where the item lives, to show it: a frame, a scene (for a note, or a create's scene), or a day; null for none. */
 export type ShowTarget = { kind: 'shot'; shotId: string; sceneId: string; label: Line } | { kind: 'scene'; sceneId: string; label: Line } | { kind: 'day'; dayId: string; label: Line };

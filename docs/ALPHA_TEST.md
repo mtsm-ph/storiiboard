@@ -349,6 +349,12 @@ screen, the Suggestions tile (Layout menu → Open tile), shows them and decides
   (7.2)
 - [ ] A big import (2,000 suggestions from the assistant) open in the tile: an edit on the board still feels quick.
   (7.2)
+- [ ] Apply the rest on that big import: a line counts it ("Applying 340 of 2,000…"), the focus stays on Apply the
+  rest, and the list settles once when it ends. (7.2)
+- [ ] During Apply the rest, open a backup or a named version of the same project: the run stops, and nothing of it
+  lands in the copy. (7.2)
+- [ ] Open the notification of an import with nothing left to review: the log shows only that import's rows, with Show
+  every import beside them. Opening an import with Review or in the tile reads its notification too. (7.2)
 
 ## Settings, presets, themes, Dark view and accessibility
 

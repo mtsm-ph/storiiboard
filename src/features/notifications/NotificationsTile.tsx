@@ -13,6 +13,7 @@ import { loadSteps, PAGE, type Steps } from '../history/steps';
 import { who, type Line } from '../history/summary';
 import type { OpGroup } from '../../core/ops/ops';
 import { selectionStore, useSelection } from '../storyboard/selection';
+import { fromWords } from '../suggestions/review';
 import { openSuggestions } from '../suggestions/suggestionsFocus';
 import { markAllRead, markStepRead, markSuggestionRead, stepUnread, suggestionUnread, unreadCount, useNotifications, type SuggestionNote } from './notificationsStore';
 
@@ -21,7 +22,8 @@ import { markAllRead, markStepRead, markSuggestionRead, stepUnread, suggestionUn
 // scene; Mark all read. Opening a step marks it read and picks what it changed: a frame, else a scene, so the
 // Inspector and the board show it. Steps you made count as read. Suggestions joined in 7.2: a step that brought some in
 // shows as one row per import ("12 suggestions from Robin Vale"), unread until opened even when the import was yours,
-// and opens the Suggestions tile on that import. Comments join with Phase 9.
+// and opens the Suggestions tile on that import; a step that did more than bring them in (a redo, a restore) keeps its
+// own row beside them. Comments join with Phase 9.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 type Filter = 'all' | 'unread' | 'scene';
@@ -93,14 +95,13 @@ function Feed() {
   const notesAt = new Map<number, SuggestionNote[]>();
   for (const note of state.suggestions) notesAt.set(note.seq, [note, ...(notesAt.get(note.seq) ?? [])]);
   const shown = (steps ?? []).flatMap(({ group, line, recordIds }): Row[] => {
-    const notes = notesAt.get(group.seq);
-    if (notes) {
-      // Not in a scene: This scene leaves them out.
-      if (filter === 'scene') return [];
-      return notes.filter((note) => filter !== 'unread' || suggestionUnread(state, note)).map((note): Row => ({ kind: 'suggestions', group, note }));
-    }
+    const notes = notesAt.get(group.seq) ?? [];
+    // Not in a scene: This scene leaves them out.
+    const noteRows = filter === 'scene' ? [] : notes.filter((note) => filter !== 'unread' || suggestionUnread(state, note)).map((note): Row => ({ kind: 'suggestions', group, note }));
+    // A plain bring-in is its notifications alone; a step that did more keeps its own row beside them.
+    if (notes.some((note) => note.alone)) return noteRows;
     const keep = filter === 'unread' ? stepUnread(state, group) : filter === 'scene' ? sceneId !== null && recordIds.some((id) => inScene(records, id, sceneId)) : true;
-    return keep ? [{ kind: 'step', group, line, recordIds }] : [];
+    return keep ? [{ kind: 'step', group, line, recordIds }, ...noteRows] : noteRows;
   });
 
   return (
@@ -138,7 +139,7 @@ function Feed() {
           {shown.map((row) => {
             const { group } = row;
             const isUnread = row.kind === 'step' ? stepUnread(state, group) : suggestionUnread(state, row.note);
-            const line: Line = row.kind === 'step' ? row.line : [tn('notifications.suggestions', row.note.count, { from: row.note.from })];
+            const line: Line = row.kind === 'step' ? row.line : [tn('notifications.suggestions', row.note.count, { from: fromWords(row.note.authors, row.note.source) })];
             return (
               <li key={row.kind === 'step' ? group.id : `${group.id}:${row.note.itemId}`}>
                 <button

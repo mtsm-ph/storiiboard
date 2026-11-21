@@ -10,9 +10,13 @@ import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { loadSlateNumbers } from '../../core/storage/slateNumbers';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
-import { coveredSteps, suggestionNotes, suggestionUnread, unreadCount } from '../notifications/notificationsStore';
+import { coveredSteps, suggestionImports, suggestionNotes, suggestionUnread, unreadCount } from '../notifications/notificationsStore';
 import { applyOne, applyRest, rejectOne, rejectRest, type DecisionQueue } from './decide';
-import { groupReviews, groupReviewsRun, headline, plain, restToApply, restToReject, suggestionGroups, updateRows } from './review';
+import { copyFileSync } from 'node:fs';
+import { keptSuggestion } from '../../core/model/suggestion';
+import { openProject } from '../../core/storage/project';
+import { redo } from '../../core/ops/ops';
+import { fromWords, groupReviews, groupReviewsRun, headline, plain, restLines, restToApply, restToReject, suggestionGroups, targetLine, updateRows } from './review';
 
 // The review screen's readers and decisions (7.2): imports grouped newest first, each in the file's order; Apply the rest
 // takes only unflagged adds (a new scene's frames after it), Reject the rest everything pending; every decision its own
@@ -74,6 +78,9 @@ beforeEach(() => {
   setLocale('en');
 });
 
+/** One review of a 2,000-create import after an edit, at most: see the cost test. */
+const COST_BOUND_MS = 1500;
+
 describe('the review screen’s groups (7.2)', () => {
   it('groups by import, newest import first, each in the file’s order, with its source, authors, time and pending', () => {
     const records = {
@@ -100,7 +107,7 @@ describe('the review screen’s groups (7.2)', () => {
     expect(['s3', 's4', 's5'].map((id) => plain(headline(records, reviews.get(id)?.suggestion ?? (null as never))))).toEqual([
       'Add a scene after SC 04',
       'Add a frame at the start of the new scene',
-      'Add a frame after one another suggestion adds, in the new scene',
+      'Add a frame after a frame another suggestion adds, in the new scene',
     ]);
     // Never the trash, the update changed since, the reorder or the flagged frame.
     expect(restToApply(group, reviews)).not.toContain('s6');
@@ -194,8 +201,81 @@ describe('the review screen’s groups (7.2)', () => {
     groupReviews(edited, 'p', same, NO_SLATE_NUMBERS);
     expect(groupReviewsRun() - before).toBe(2);
     expect(restToApply(group, reviews)).toHaveLength(2000);
+    // Apply the rest itself is linear: the same 2,000 picked again in a moment.
+    const picked = performance.now();
+    restToApply(group, reviews);
+    expect(performance.now() - picked).toBeLessThan(COST_BOUND_MS);
     // What one edit costs with the import open: one review of the group (said in the report).
     console.info(`7.2 cost: a 2,000-suggestion import reviewed in ${first.toFixed(0)} ms at first, ${oneEdit.toFixed(0)} ms after one edit`);
+    // A bound well above what this machine takes (said in the report), so a slow runner doesn't flake it, yet far below
+    // what reviewing it per render, or a quadratic Apply the rest, would cost.
+    expect(oneEdit).toBeLessThan(COST_BOUND_MS);
+  });
+});
+
+describe('the review screen, round 2 (7.2)', () => {
+  it('a waiting frame with a size the board doesn’t know is flagged from the start: the confirmation lists one item', () => {
+    const records = {
+      ...harbor(),
+      ...recordsOf(
+        suggestion('s3', 'a3', { kind: 'create', target_type: 'scene', target_label: 'Pier', data: { type: 'scene', parent_id: 'p', after_id: 'sc4', props: { name: 'Pier' } } }),
+        suggestion('s4', 'a4', { kind: 'create', target_type: 'shot', target_label: 'Odd', after_suggestion: 's3', data: { type: 'shot', parent_id: 's3', after_id: null, props: { size: 'XXL' } } }),
+      ),
+    };
+    const [group] = suggestionGroups(records, 'p');
+    if (!group) throw new Error('no group');
+    const reviews = groupReviews(records, 'p', group, NO_SLATE_NUMBERS);
+    // Its place waits, and its own size is flagged too: its words show in the Detail.
+    expect(reviews.get('s4')?.flags).toEqual([
+      { kind: 'waiting', on: 's3' },
+      { kind: 'invalid', field: 'size', problem: 'choice' },
+    ]);
+    const rest = restToApply(group, reviews);
+    expect(rest).toEqual(['s3']);
+    expect(restLines(records, rest, reviews, 30)).toEqual(['• Add a scene after SC 04']);
+  });
+
+  it('an undated day’s call sheet is named in its own words, en and es', () => {
+    const records = { ...harbor(), ...recordsOf(record('d1', 'shoot_day', 'p', {})) };
+    const sheet = keptSuggestion(suggestion('c1', 'a1', { kind: 'update', target_id: 'd1', target_type: 'callsheet', data: { props: { notes: 'Rain cover' } } }));
+    expect(plain(targetLine(records, sheet))).toBe('the call sheet for an undated day');
+    setLocale('es');
+    expect(plain(targetLine(records, sheet))).toBe('la hoja de llamado de un día sin fecha');
+  });
+
+  it('suggestions with no change file are each an import of their own, each with its notification, worded when shown', () => {
+    const loose = (id: string, sortKey: string) => {
+      const made = suggestion(id, sortKey, { kind: 'trash', target_id: 'a', target_type: 'shot', data: {}, author: { name: '' } });
+      delete (made.props as Record<string, unknown>).change_file_id;
+      return made;
+    };
+    const records = { ...harbor(), ...recordsOf(loose('m1', 'a1'), loose('m2', 'a2')) };
+    expect(suggestionGroups(records, 'p').map((g) => g.id)).toEqual(['m2', 'm1']);
+    const imports = suggestionImports(records, 'p');
+    expect(imports.map((n) => ({ groupId: n.groupId, itemId: n.itemId, count: n.count }))).toEqual([
+      { groupId: 'm1', itemId: 'm1', count: 1 },
+      { groupId: 'm2', itemId: 'm2', count: 1 },
+    ]);
+    // Who it's from is kept as stored and worded at render: a language switch rewords it.
+    const [note] = imports;
+    if (!note) throw new Error('no note');
+    expect(fromWords(note.authors, note.source)).toBe('the assistant');
+    setLocale('es');
+    expect(fromWords(note.authors, note.source)).toBe('el asistente');
+  });
+
+  it('what keptSuggestion hands out is frozen, down to its data’s field maps', () => {
+    const kept = keptSuggestion(mixed().s2 as SbdRecord);
+    expect(Object.isFrozen(kept)).toBe(true);
+    expect(Object.isFrozen(kept.author)).toBe(true);
+    expect(Object.isFrozen(kept.data)).toBe(true);
+    const { data } = kept;
+    if (data?.kind !== 'update') throw new Error('not an update');
+    const props = data.props as Map<string, unknown>;
+    const before = data.before as Map<string, unknown>;
+    expect(() => props.set('lens_mm', 24)).toThrow(TypeError);
+    expect(() => before.delete('lens_mm')).toThrow(TypeError);
+    expect(data.props.get('lens_mm')).toBe(85);
   });
 });
 
@@ -215,6 +295,7 @@ describe('decisions in the file: each its own op group, undone one at a time (7.
     // The store's queue, on the open file: each build gets the records as they are when its turn comes.
     let turn: Promise<unknown> = Promise.resolve();
     queue = {
+      project: () => project,
       projectId: () => project.projectId,
       by: () => 'Robin Vale',
       applyWith: (build) => {
@@ -257,7 +338,7 @@ describe('decisions in the file: each its own op group, undone one at a time (7.
     const rest = restToApply(group, groupReviews(records, project.projectId, group, NO_SLATE_NUMBERS));
     expect(rest).toEqual(['s3', 's4', 's5']);
     const steps = (await log(project.file)).length;
-    expect(await applyRest(rest, queue)).toEqual({ done: 3, skipped: 0 });
+    expect(await applyRest(rest, queue)).toEqual({ done: 3, changed: 0, asIs: 0, stopped: false });
     expect((await log(project.file)).length).toBe(steps + 3);
     const after = await read();
     const made = (id: string): string => {
@@ -296,7 +377,7 @@ describe('decisions in the file: each its own op group, undone one at a time (7.
     expect(await rejectOne('s1', { queue })).toBe(false);
     expect((await log(project.file)).length).toBe(steps + 2);
     expect((await read()).a?.props.size).toBe('CU');
-    expect(await rejectRest(['s3'], queue)).toEqual({ done: 1, skipped: 0 });
+    expect(await rejectRest(['s3'], queue)).toEqual({ done: 1, changed: 0, asIs: 0, stopped: false });
     expect((await log(project.file)).length).toBe(steps + 3);
     await undo(project.file);
     expect(await status('s3')).toBe('pending');
@@ -313,8 +394,89 @@ describe('decisions in the file: each its own op group, undone one at a time (7.
     await add([suggestion('s6', 'a1', { kind: 'create', target_type: 'shot', target_label: 'Late', data: { type: 'shot', parent_id: 'sc4', after_id: 'a', props: { size: 'WS' } } })]);
     // 4A goes to the Trash before the run's turn: its place is gone now, a flag.
     await apply(project.file, [{ kind: 'trash', id: 'a' }]);
-    expect(await applyRest(['s6'], queue)).toEqual({ done: 0, skipped: 1 });
+    expect(await applyRest(['s6'], queue)).toEqual({ done: 0, changed: 1, asIs: 0, stopped: false });
     expect(await status('s6')).toBe('pending');
+  });
+
+  it('one the suggestion itself keeps from applying is said apart: couldn’t be applied as it is', async () => {
+    await add([suggestion('s6', 'a1', { kind: 'create', target_type: 'shot', target_label: 'Odd', data: { type: 'shot', parent_id: 'sc4', after_id: 'a', props: { size: 'XXL' } } })]);
+    expect(await applyRest(['s6'], queue)).toEqual({ done: 0, changed: 0, asIs: 1, stopped: false });
+    expect(await status('s6')).toBe('pending');
+  });
+
+  /** The project closed, copied (a backup, an opened version: the same project id) and both opened. */
+  const copied = async () => {
+    const path = folder.path('Harbor Lights.sbd');
+    await project.close();
+    copyFileSync(path, folder.path('Harbor Lights copy.sbd'));
+    project = await openProject(path, { driver: nodeDriver, backups: false });
+    return openProject(folder.path('Harbor Lights copy.sbd'), { driver: nodeDriver, backups: false });
+  };
+  const readOf = async (of: Project) => Object.fromEntries((await loadRecords(of.file)).map((r) => [r.id, r]));
+
+  it('a run never carries into another file of the same project: the id stays, the run stops, nothing lands in the copy', async () => {
+    await add([
+      suggestion('s3', 'a3', { kind: 'create', target_type: 'scene', target_label: 'Pier', data: { type: 'scene', parent_id: project.projectId, after_id: 'sc4', props: { name: 'Pier' } } }),
+      suggestion('s4', 'a4', { kind: 'create', target_type: 'shot', target_label: 'Wide', after_suggestion: 's3', data: { type: 'shot', parent_id: 's3', after_id: null, props: { size: 'WS' } } }),
+      suggestion('s5', 'a5', { kind: 'create', target_type: 'shot', target_label: 'Close', after_suggestion: 's3', data: { type: 'shot', parent_id: 's3', after_id: 's4', props: { size: 'CU' } } }),
+    ]);
+    const copy = await copied();
+    try {
+      expect(copy.projectId).toBe(project.projectId);
+      const copySteps = (await log(copy.file)).length;
+      // The queue moves to the copy once the first decision is written, as opening a backup in place would.
+      let open: Project = project;
+      const moving: DecisionQueue = {
+        project: () => open,
+        projectId: () => open.projectId,
+        by: () => 'Robin Vale',
+        applyWith: async (build) => {
+          const at = open;
+          const records = await readOf(at);
+          const { changes } = build(records, await loadSlateNumbers(at.file));
+          if (changes.length === 0) return false;
+          await apply(at.file, changes, { author: 'Robin Vale' });
+          open = copy;
+          return true;
+        },
+      };
+      expect(await applyRest(['s3', 's4', 's5'], moving)).toEqual({ done: 1, changed: 0, asIs: 0, stopped: true });
+      expect((await readOf(project)).s3?.props.status).toBe('approved');
+      const there = await readOf(copy);
+      expect(['s3', 's4', 's5'].map((id) => there[id]?.props.status)).toEqual(['pending', 'pending', 'pending']);
+      expect((await log(copy.file)).length).toBe(copySteps);
+    } finally {
+      await copy.close();
+    }
+  });
+
+  it('a decision whose turn comes after a switch to a copy writes nothing there', async () => {
+    await add([suggestion('s1', 'a1', { kind: 'trash', target_id: 'a', target_type: 'shot', target_label: 'SC 04 · 4A', data: {} })]);
+    const copy = await copied();
+    try {
+      const copySteps = (await log(copy.file)).length;
+      let open: Project = project;
+      // The switch lands in the queue before the decision's turn: its build sees the copy.
+      const switching: DecisionQueue = {
+        project: () => open,
+        projectId: () => open.projectId,
+        by: () => 'Robin Vale',
+        applyWith: async (build) => {
+          open = copy;
+          const { changes } = build(await readOf(copy), await loadSlateNumbers(copy.file));
+          if (changes.length === 0) return false;
+          await apply(copy.file, changes, { author: 'Robin Vale' });
+          return true;
+        },
+      };
+      expect(await applyOne('s1', { queue: switching })).toBe(false);
+      open = project;
+      expect(await rejectOne('s1', { queue: switching })).toBe(false);
+      expect((await readOf(copy)).s1?.props.status).toBe('pending');
+      expect((await log(copy.file)).length).toBe(copySteps);
+    } finally {
+      await copy.close();
+    }
   });
 });
 
@@ -352,9 +514,9 @@ describe('suggestions in Notifications: one per import, with its own read state 
     const records = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
     const notes = await suggestionNotes(project.file, records, project.projectId);
     const steps = await stepsSince(project.file, 0);
-    expect(notes.map(({ groupId, count, from, itemId }) => ({ groupId, count, from, itemId }))).toEqual([
-      { groupId: CF1, count: 3, from: 'Robin Vale', itemId: sid(1) },
-      { groupId: CF2, count: 1, from: 'Claude Desktop', itemId: sid(4) },
+    expect(notes.map(({ groupId, count, authors, source, itemId, alone }) => ({ groupId, count, from: fromWords(authors, source), itemId, alone }))).toEqual([
+      { groupId: CF1, count: 3, from: 'Robin Vale', itemId: sid(1), alone: true },
+      { groupId: CF2, count: 1, from: 'Claude Desktop', itemId: sid(4), alone: true },
     ]);
     // Each at the place of the step that brought it in.
     expect(notes.map((n) => n.seq)).toEqual(steps.slice(-2).map((s) => s.seq));
@@ -383,5 +545,20 @@ describe('suggestions in Notifications: one per import, with its own read state 
     await undo(project.file);
     const now = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
     expect((await suggestionNotes(project.file, now, project.projectId)).map((n) => n.groupId)).toEqual([CF1]);
+  });
+
+  it('a redo that brings an import back keeps its own row: the notification sits beside it', async () => {
+    await bringInChangeFile(project.file, project.projectId, file(CF1, [sid(1), sid(2)], 'Robin Vale'), { author: 'Kevin' });
+    await undo(project.file);
+    await redo(project.file);
+    const records = Object.fromEntries((await loadRecords(project.file)).map((r) => [r.id, r]));
+    const notes = await suggestionNotes(project.file, records, project.projectId);
+    const steps = await stepsSince(project.file, 0);
+    expect(notes.map((n) => ({ groupId: n.groupId, alone: n.alone, seq: n.seq }))).toEqual([{ groupId: CF1, alone: false, seq: steps.at(-1)?.seq }]);
+    const read = await loadReadState(project.file, 'local');
+    const state = { me: 'Sam', read, steps, suggestions: notes, file: null, userId: 'local' };
+    // Nothing is covered: the redo is counted as itself, and the import as its notification.
+    expect(coveredSteps(state).size).toBe(0);
+    expect(unreadCount(state)).toBe(steps.length + 1);
   });
 });

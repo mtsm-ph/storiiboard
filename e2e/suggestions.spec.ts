@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { REVIEW_FILE_ID, reviewFileFor, type ReviewTargets } from './fixtures/changeFiles';
+import { changeFileFor, REVIEW_FILE_ID, reviewFileFor, type ReviewTargets } from './fixtures/changeFiles';
 import { skipOnboarding } from './onboarding';
 import { applySettings, closeSettings, openSettings } from './settings';
 
@@ -79,16 +79,19 @@ test('review one by one, Apply the rest, undo the last frame, the log: from the 
   const rows = group(page).getByRole('list', { name: /Suggestions from Robin Vale/ }).getByRole('button');
   await expect(rows).toHaveText([
     'Move SC 01 · 1B to the Trash',
-    /^Change SC 01 · 1AChanged$/,
+    /^Change SC 01 · 1A, Changed$/,
     'Add a scene after SC 01',
-    /^Add a frame at the start of the new sceneHeld$/,
-    /^Add a frame after one another suggestion adds, in the new sceneHeld$/,
+    /^Add a frame at the start of the new scene, Held$/,
+    /^Add a frame after a frame another suggestion adds, in the new scene, Held$/,
     'Move SC 01 · 1B',
   ]);
+  // Each row's name says its mark apart from its line.
+  await expect(rows.nth(1)).toHaveAccessibleName('Change SC 01 · 1A, Changed');
 
-  // The update changed since: then, suggested and now, with the flag's words; Apply writes it.
+  // The update changed since: then, suggested and now, with the flag's words; Enter on its row goes on to its Apply.
   await rows.nth(1).press('Enter');
   await expect(detail(page)).toContainText('Changed since it was suggested.');
+  await expect(detail(page).getByRole('button', { name: 'Apply', exact: true })).toBeFocused();
   const lens = detail(page).locator('dl');
   await expect(lens).toContainText('Then50mm');
   await expect(lens).toContainText('Suggested85mm');
@@ -99,10 +102,20 @@ test('review one by one, Apply the rest, undo the last frame, the log: from the 
   await expect(detail(page).getByRole('button', { name: 'Apply', exact: true })).toBeFocused();
   await expect(detail(page).getByRole('heading')).toHaveText('Add a scene after SC 01');
 
-  // Reject the trash: 1B stays.
-  await rows.first().press('Enter');
+  // The trash: Show 1B selects the frame on the board.
+  await rows.first().focus();
+  await page.keyboard.press('Space');
   await expect(detail(page)).toContainText('We have this in 1A.');
-  await detail(page).getByRole('button', { name: 'Reject', exact: true }).press('Enter');
+  await detail(page).getByRole('button', { name: 'Show 1B', exact: true }).press('Enter');
+  await expect(board(page).locator('[data-shot-id][aria-current="true"] [data-number]')).toHaveText('1B');
+  // From its row, Tab reaches its Apply and then its Reject (real Tab presses); Reject it: 1B stays.
+  await rows.first().focus();
+  const apply = detail(page).getByRole('button', { name: 'Apply', exact: true });
+  for (let i = 0; i < 12 && !(await apply.evaluate((el) => el === document.activeElement)); i += 1) await page.keyboard.press('Tab');
+  await expect(apply).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(detail(page).getByRole('button', { name: 'Reject', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(page.locator('[data-notice]')).toContainText('Rejected the suggestion.');
   await expect(board(page).locator('[data-shot-id]')).toHaveCount(2);
 
@@ -110,7 +123,7 @@ test('review one by one, Apply the rest, undo the last frame, the log: from the 
   await group(page).getByRole('button', { name: 'Apply the rest', exact: true }).press('Enter');
   const confirm = page.getByRole('alertdialog', { name: 'Apply the rest' });
   await expect(confirm).toContainText('This applies 3 suggestions in this order');
-  await expect(confirm).toContainText('• Add a scene after SC 01\n• Add a frame at the start of the new scene\n• Add a frame after one another suggestion adds, in the new scene', { useInnerText: true });
+  await expect(confirm).toContainText('• Add a scene after SC 01\n• Add a frame at the start of the new scene\n• Add a frame after a frame another suggestion adds, in the new scene', { useInnerText: true });
   await confirm.getByRole('button', { name: 'Apply the rest', exact: true }).press('Enter');
   await expect(page.locator('[data-notice]')).toContainText('Applied 3 suggestions.');
   const pier = board(page).getByRole('list', { name: 'Frames in SC 02' }).getByRole('button', { name: /Need to shoot$/ });
@@ -135,6 +148,49 @@ test('review one by one, Apply the rest, undo the last frame, the log: from the 
   await tile(page).getByRole('radio', { name: 'Rejected' }).press('Space');
   await expect(log).toHaveCount(1);
   await expect(log.first()).toContainText('Move SC 01 · 1B to the Trash');
+});
+
+test('Review marks the import read; an import with nothing left to review opens its own rows in the log', async ({ page }) => {
+  const targets = await harbor(page);
+  // Two imports from Robin Vale: two suggestions, then the review file's six.
+  await importChanges(page, changeFileFor(targets.projectId, 'Harbor Lights'));
+  await expect(page.locator('[data-notice]')).toContainText('Brought in 2 suggestions from Robin Vale.');
+  await importChanges(page, reviewFileFor(targets));
+  await expect(page.locator('[data-notice]')).toContainText('Brought in 6 suggestions from Robin Vale.');
+  await page.locator('[data-notice]').getByRole('button', { name: 'Review', exact: true }).press('Enter');
+  await expect(group(page).locator('[data-suggestion-item]').first()).toBeFocused();
+  await expect(group(page).getByRole('heading', { name: /From Robin Vale, through the assistant/ })).toBeVisible();
+  // The other import's Review names its group.
+  await expect(tile(page).getByRole('button', { name: 'Review the suggestions from Robin Vale', exact: true })).toHaveCount(1);
+
+  // Reject the rest of this import; then one of the other's, so the log holds both imports.
+  await group(page).getByRole('button', { name: 'Reject the rest', exact: true }).press('Enter');
+  const confirm = page.getByRole('alertdialog', { name: 'Reject the rest' });
+  await confirm.getByRole('button', { name: 'Reject the rest', exact: true }).press('Enter');
+  await expect(page.locator('[data-notice]')).toContainText('Rejected 6 suggestions.');
+  await expect(group(page)).toHaveCount(0);
+  await detail(page).getByRole('button', { name: 'Reject', exact: true }).press('Enter');
+  await expect(page.locator('[data-notice]')).toContainText('Rejected the suggestion.');
+  const log = tile(page).getByRole('list', { name: 'Decided suggestions, newest first' }).getByRole('listitem');
+  await expect(log).toHaveCount(7);
+
+  // Opened from Review, the import's notification reads as read.
+  await page.getByRole('button', { name: /^Layout/ }).press('Enter');
+  await page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name: 'Notifications', exact: true }).press('Enter');
+  const feed = page.getByRole('region', { name: 'Notifications', exact: true }).getByRole('list', { name: 'Notifications, newest first' });
+  const note = feed.getByRole('button', { name: /6 suggestions from Robin Vale/ });
+  await expect(note).not.toHaveAccessibleName(/^Unread:/);
+  await expect(feed.getByRole('button', { name: /2 suggestions from Robin Vale/ })).toHaveAccessibleName(/^Unread:/);
+
+  // Nothing of it is left to review: its notification opens its own rows in the log, never the other import.
+  await note.press('Enter');
+  const only = tile(page).locator(`[data-review-log-group="${REVIEW_FILE_ID}"]`);
+  await expect(only).toBeFocused();
+  await expect(only).toHaveText('Only the suggestions from Robin Vale');
+  await expect(log).toHaveCount(6);
+  await expect(log.filter({ hasText: 'Rejected' })).toHaveCount(6);
+  await tile(page).getByRole('button', { name: 'Show every import', exact: true }).press('Enter');
+  await expect(log).toHaveCount(7);
 });
 
 for (const scheme of ['light', 'dark'] as const) {

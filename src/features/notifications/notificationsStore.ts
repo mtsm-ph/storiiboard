@@ -4,8 +4,7 @@ import { createStore } from 'zustand/vanilla';
 import { projectStore, useProject } from '../../app/projectStore';
 import { editAuthor, useProfile } from '../../app/settings/profileStore';
 import type { SbdRecord } from '../../core/model/record';
-import { list } from '../../core/i18n';
-import { suggestionGroups, sourceWord } from '../suggestions/review';
+import { suggestionGroups } from '../suggestions/review';
 import { useProjectSelf } from '../../app/settings/projectRole';
 import {
   isUnread,
@@ -34,7 +33,9 @@ import type { ProjectFile } from '../../core/storage/driver';
 // Suggestions join the feed (7.2): one notification per import, at the place in the log of the step that brought it in,
 // keyed by its first suggestion's id (`suggestion` in the read state, docs/SBD_FORMAT.md). It is unread until opened or
 // Mark all read, even when the import was yours: it says there is something to review, which bringing it in didn't do.
-// Its step is shown as it, never twice.
+// A step that did nothing but bring it in is shown as it, never twice; one that did more (a redo, a restore) keeps its own
+// row, the notification beside it. Who it's from is kept as the file names them and worded when shown, so a language
+// switch rewords it. Opening the import, from here, from Review or in the Suggestions tile, marks it read.
 
 interface NotificationsState {
   /** The file read for: a project switched to starts again, never showing or writing another's. */
@@ -56,10 +57,13 @@ export interface SuggestionNote {
   /** The change file's id: the group the Suggestions tile shows. */
   groupId: string;
   count: number;
-  /** Who it's from, as text. */
-  from: string;
+  /** The authors' names from the file, as text; worded with `source` when shown (fromWords). */
+  authors: readonly string[];
+  source: string;
   /** The place in the log of the step that brought it in. */
   seq: number;
+  /** Whether that step did nothing else: a plain bring-in, shown as this notification alone. */
+  alone: boolean;
 }
 
 export const notificationsStore = createStore<NotificationsState>()(() => ({ file: null, userId: LOCAL_READER, me: '', steps: [], read: NOTHING_READ, suggestions: [] }));
@@ -75,8 +79,8 @@ export function stepUnread(state: Pick<NotificationsState, 'me' | 'read'>, step:
 export const suggestionUnread = (state: Pick<NotificationsState, 'read'>, note: Pick<SuggestionNote, 'itemId' | 'seq'>): boolean =>
   isUnread(state.read, 'suggestion', note.itemId, note.seq);
 
-/** The steps an import's notification stands for: shown and counted as it. */
-export const coveredSteps = (state: Pick<NotificationsState, 'suggestions'>): ReadonlySet<number> => new Set(state.suggestions.map((note) => note.seq));
+/** The steps an import's notification stands for (a plain bring-in): shown and counted as it. */
+export const coveredSteps = (state: Pick<NotificationsState, 'suggestions'>): ReadonlySet<number> => new Set(state.suggestions.filter((note) => note.alone).map((note) => note.seq));
 
 export const unreadCount = (state: NotificationsState): number => {
   const covered = coveredSteps(state);
@@ -84,11 +88,11 @@ export const unreadCount = (state: NotificationsState): number => {
 };
 
 /** Each import of the project's suggestions, with its first suggestion's id; the place in the log is read apart. */
-export function suggestionImports(records: Readonly<Record<string, SbdRecord>>, projectId: string): Omit<SuggestionNote, 'seq'>[] {
+export function suggestionImports(records: Readonly<Record<string, SbdRecord>>, projectId: string): Omit<SuggestionNote, 'seq' | 'alone'>[] {
   return suggestionGroups(records, projectId)
     .flatMap((group) => {
       const first = group.ids[0];
-      return first === undefined ? [] : [{ itemId: first, groupId: group.id, count: group.ids.length, from: group.authors.length > 0 ? list(group.authors) : sourceWord(group.source) }];
+      return first === undefined ? [] : [{ itemId: first, groupId: group.id, count: group.ids.length, authors: group.authors, source: group.source }];
     })
     .reverse();
 }
@@ -99,8 +103,8 @@ export async function suggestionNotes(file: ProjectFile, records: Readonly<Recor
   const seqs = await suggestionSeqs(file, imports.map((note) => note.itemId));
   return imports
     .flatMap((note) => {
-      const seq = seqs.get(note.itemId);
-      return seq === undefined ? [] : [{ ...note, seq }];
+      const place = seqs.get(note.itemId);
+      return place === undefined ? [] : [{ ...note, seq: place.seq, alone: place.kind === 'edit' }];
     })
     .sort((a, b) => a.seq - b.seq);
 }
@@ -189,6 +193,21 @@ export async function markSuggestionRead(note: Pick<SuggestionNote, 'itemId' | '
   const written = await projectStore.getState().writeAside([markReadStatement(state.userId, 'suggestion', note.itemId, new Date().toISOString())]);
   if (written && current(state.userId)) {
     notificationsStore.setState((s) => ({ read: { ...s.read, read: new Set([...s.read.read, readKey('suggestion', note.itemId)]) } }));
+  }
+}
+
+/**
+ * An import's notification read as its group is opened in the Suggestions tile (7.2), by its first suggestion's id: the
+ * notification may not be loaded yet right after a bring-in, so the item alone is enough to mark it.
+ */
+export async function markImportRead(itemId: string): Promise<void> {
+  const state = notificationsStore.getState();
+  const note = state.suggestions.find((n) => n.itemId === itemId);
+  if (note) return markSuggestionRead(note);
+  if (!current(state.userId) || state.read.read.has(readKey('suggestion', itemId))) return;
+  const written = await projectStore.getState().writeAside([markReadStatement(state.userId, 'suggestion', itemId, new Date().toISOString())]);
+  if (written && current(state.userId)) {
+    notificationsStore.setState((s) => ({ read: { ...s.read, read: new Set([...s.read.read, readKey('suggestion', itemId)]) } }));
   }
 }
 

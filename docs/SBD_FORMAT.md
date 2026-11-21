@@ -1014,7 +1014,8 @@ steps (later, suggestions and comments too). What's stored is each person's read
 - Read state isn't an op: marking an item read can't be undone and isn't a step in History.
 - An import's notification (7.2) sits at the place in the log of the step that brought it in (`read_through_seq` covers it
   like that step), and is unread until opened or covered, even when the import was the reader's own: it says there is
-  something to review. No table, column or schema number changes for it.
+  something to review. An import is the suggestions of one change file; a suggestion that names none is an import of
+  its own. Its item is the import's first suggestion's id. No table, column or schema number changes for it.
 - A step by the person reading (its `author` is who they sign as) counts as read: they made it. By name, until sign-in
   brings a stable id: steps signed before a rename read as another's, and two people with no name (both `local`), or
   with the same initials, read as one.

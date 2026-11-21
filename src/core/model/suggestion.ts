@@ -288,11 +288,34 @@ export function readSuggestion(record: SbdRecord): Suggestion {
 // never change it.
 const kept = new WeakMap<SbdRecord, Suggestion>();
 
-/** readSuggestion, kept per record object: the same Suggestion for the same record. Shared, so never changed by its readers. */
+const refuseChange = (): never => {
+  throw new TypeError('A kept suggestion is shared: it is never changed');
+};
+
+/** A field map no reader can change: a Map's own methods ignore Object.freeze, so they refuse here. */
+function frozenMap(map: ReadonlyMap<string, JsonValue>): ReadonlyMap<string, JsonValue> {
+  Object.defineProperties(map, { set: { value: refuseChange }, delete: { value: refuseChange }, clear: { value: refuseChange } });
+  return Object.freeze(map);
+}
+
+/** What keptSuggestion hands out, frozen down to its data's field maps (the values in them are the record's own). */
+function frozen(read: Suggestion): Suggestion {
+  Object.freeze(read.author);
+  Object.freeze(read.unknown);
+  const { data } = read;
+  if (data?.kind === 'update') {
+    frozenMap(data.props);
+    frozenMap(data.before);
+  } else if (data?.kind === 'create') frozenMap(data.props);
+  if (data) Object.freeze(data);
+  return Object.freeze(read);
+}
+
+/** readSuggestion, kept per record object: the same Suggestion for the same record. Shared, so frozen. */
 export function keptSuggestion(record: SbdRecord): Suggestion {
   let read = kept.get(record);
   if (!read) {
-    read = readSuggestion(record);
+    read = frozen(readSuggestion(record));
     kept.set(record, read);
   }
   return read;
@@ -785,11 +808,27 @@ function loopsBack(records: Records, start: Suggestion, first: string): boolean 
   return false;
 }
 
+/**
+ * A waiting create's own fields (7.2): what proposedChange checks of the create itself, never of its place, so a field it
+ * can never be applied with (a size the board doesn't know) is flagged while its place still waits, and the review
+ * screen keeps it out of Apply the rest from the start rather than at its turn.
+ */
+function ownFieldFlags(records: Records, targetType: string, data: Extract<SuggestionData, { kind: 'create' }>, row: ScopeRow): SuggestionFlag[] {
+  const flags: SuggestionFlag[] = [];
+  const entry = scopeType(row, targetType);
+  if (!entry) return [{ kind: 'outside_scope', what: 'type', name: cleanText(targetType, MAX_WORD) || '?' }];
+  if (!entry.kinds.includes('create')) return [{ kind: 'outside_scope', what: 'kind', name: 'create' }];
+  if (data.type !== targetType) flags.push({ kind: 'invalid', field: 'type', problem: 'type' });
+  checkFields(entry, data.props, records, null, flags);
+  if (targetType === 'shot' && offDayStatus(records, undefined, data.props.get('shoot_day_id'), data.props.get('status'))) flags.push({ kind: 'cant_apply', why: 'not_need' });
+  return flags;
+}
+
 /** One suggestion against the project as it is now: what Apply would write, and every flag. Null for a record that isn't one. */
 export function reviewSuggestion(records: Records, projectId: string, suggestionId: string, slate: SlateNumbers = NO_SLATE_NUMBERS): SuggestionReview | null {
   const record = recordOf(records, suggestionId);
   if (record?.type !== 'suggestion') return null;
-  const suggestion = readSuggestion(record);
+  const suggestion = keptSuggestion(record);
   const flags: SuggestionFlag[] = [];
   if (suggestion.status === null) flags.push({ kind: 'newer', what: 'field', name: 'status' });
   else if (suggestion.status !== 'pending') flags.push({ kind: 'decided', status: suggestion.status });
@@ -832,7 +871,7 @@ export function reviewSuggestion(records: Records, projectId: string, suggestion
         scopeRowFor(),
         slate,
       );
-    }
+    } else if (data.kind === 'create') flags.push(...ownFieldFlags(records, suggestion.targetType, data, scopeRowFor()));
   }
   const all = [...flags, ...proposed.flags];
   const canApply = suggestion.status === 'pending' && open(all) && (proposed.writes.length > 0 || all.some((f) => f.kind === 'no_change'));
