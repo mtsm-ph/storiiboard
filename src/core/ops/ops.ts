@@ -1,7 +1,7 @@
 import { isRecordType, type Props, type RecordType, type SbdRecord } from '../model/record';
 import { forgetSeenStatement } from '../storage/seen';
 import type { ProjectFile, Row, SqlValue, Statement } from '../storage/driver';
-import { recordSlateNumbers } from '../storage/slateNumbers';
+import { loadSlateNumbers, recordSlateNumbers } from '../storage/slateNumbers';
 
 // Every change to a project is an operation (CLAUDE.md, Edits, undo and autosave). One user action is one op group:
 // its record changes, its op rows and its group row commit in a single transaction, which is the autosave. Each op
@@ -586,90 +586,138 @@ export function undoRun<G extends Pick<OpGroup, 'id' | 'kind'>>(groups: readonly
   return groups.slice(start, index + 1);
 }
 
-/** A field a bring_back left as a later step made it, by the record (as it is now) and the prop; null prop: the record as a whole. */
-export interface KeptEdit {
-  record: SbdRecord;
-  prop: string | null;
+/**
+ * The step just before `seq` in the log (`groups` oldest first): the one rule for "the step before a restore", which the
+ * "Before restoring" mark and "Brought back: …" both read. The previous group in the log, never `seq - 1`: places in
+ * the log needn't be one apart.
+ */
+export function stepBefore<G extends Pick<OpGroup, 'seq'>>(groups: readonly G[], seq: number): G | undefined {
+  let found: G | undefined;
+  for (const group of groups) if (group.seq < seq && (found === undefined || group.seq > found.seq)) found = group;
+  return found;
 }
 
-/** What bringBack did: the records it wrote, how many, and what it kept as later steps made it. */
+/**
+ * Why a bring_back left something as it is now (item 7, round 2), each with its own words in History (keptText):
+ * - `later`: a later step changed it (or the field) since the run;
+ * - `removed`: a later step took it away since the run;
+ * - `gone`: what it sits under isn't there;
+ * - `trashed`: it would go (or be made) under a parent in the Trash, `other`;
+ * - `number`: its number is taken: by a live record, or, in a locked scene, on a slate with another shot (1.26);
+ * - `slated`: a scene's lock, which would lock `other`'s number while a slate holds it for another shot;
+ * - `named`: a record that stays, `other`, names it (a frame's location, its picture);
+ * - `holds`: something under it, `other`, stays;
+ * - `picture`: its picture's bytes were cleaned up (Clean up old pictures) since.
+ */
+export type KeptWhy = 'later' | 'removed' | 'gone' | 'trashed' | 'number' | 'slated' | 'named' | 'holds' | 'picture';
+
+/** Something a bring_back left as it is now, by the record and the prop; null prop: the record as a whole. */
+export interface KeptEdit {
+  /** As it is now; as it would have come back, for one that isn't there now. */
+  record: SbdRecord;
+  prop: string | null;
+  why: KeptWhy;
+  /** The record the reason names: the parent in the Trash, the record that names or holds it, the frame on the slate. */
+  other?: SbdRecord;
+}
+
+/** What bringBack did: the records it wrote, how many, and what it left as it is now. */
 export interface BroughtBack {
   touched: Touched;
   written: number;
   kept: KeptEdit[];
+  /** Records the run had that Empty Trash has since deleted for good: nothing of them is left to bring back. */
+  deleted: number;
 }
 
 /** A record as it stands, without the time it was last written: two records the same in all else are the same here. */
 const sameAs = (a: SbdRecord | null, b: SbdRecord | null): boolean =>
   snapshot(a && { ...a, updatedAt: '' }) === snapshot(b && { ...b, updatedAt: '' });
 
+/** A live shot's or scene's number, which no other of its kind may hold; null for any other record. */
+const liveNumber = (record: SbdRecord | null): string | null => {
+  if (!record || record.trashedAt !== null || (record.type !== 'shot' && record.type !== 'scene')) return null;
+  const { number } = record.props;
+  return typeof number === 'string' && number !== '' ? number : null;
+};
+
 /**
  * Bring back what was undone (item 7, Kevin, Nov 18 and 20): takes back one undo run (undoRun) or one restore, as one
  * new `bring_back` group pointing at the run's newest undo, or at the restore. Its ops are ordinary ones writing what the
  * undone steps had made, field by field, except where a later step changed a field since: that keeps the later edit,
- * and is listed in `kept`. A record the run took away comes back only if what it sits under is there; one the run
- * brought back (a restore's) goes only if nothing is under it now. On the stacks it is an edit: ⌘Z undoes it, and it
- * empties ⌘⇧Z's stack. Null when the group isn't the newest of a run or was brought back already; nothing is written
- * when every field already reads as it would (`written` 0).
+ * and is listed in `kept`. A settled undo never joins a new run: with `settledThrough` (a place in the log, as
+ * src/app/undoSettle.ts keeps it), only the run's undos after it are taken back.
+ *
+ * Whatever can't come back safely stays as it is now and is listed in `kept` with why, never written (round 2):
+ * - a record under a parent that won't be there, or made or moved under one in the Trash;
+ * - a record the run brought in, if a record that stays is under it or names it (namedBy, as restoreTo keeps them);
+ * - a shot's or scene's number that another live one holds, or that a slate holds for another shot in a locked scene,
+ *   and a scene's lock while one of its frames holds a number slated with another shot (1.26, as locking does);
+ * - a picture whose bytes Clean up old pictures deleted since, and a frame's pointer to it.
+ *
+ * On the stacks it is an edit: ⌘Z undoes it, and it empties ⌘⇧Z's stack. Null when the group isn't the newest of a run,
+ * is settled, or was brought back already; nothing is written when every field already reads as it would (`written` 0).
  */
-export async function bringBack(file: ProjectFile, targetGroupId: string, options: OpOptions = {}): Promise<BroughtBack | null> {
-  const { author = 'local', now = () => new Date() } = options;
+export async function bringBack(
+  file: ProjectFile,
+  targetGroupId: string,
+  options: OpOptions & { settledThrough?: number } = {},
+): Promise<BroughtBack | null> {
+  const { author = 'local', now = () => new Date(), settledThrough = 0 } = options;
   const groups = await log(file);
-  const run = undoRun(groups, groups.findIndex((g) => g.id === targetGroupId));
-  if (!run || groups.some((g) => g.kind === 'bring_back' && g.targetGroupId === targetGroupId)) return null;
+  const run = (undoRun(groups, groups.findIndex((g) => g.id === targetGroupId)) ?? []).filter((g) => g.seq > settledThrough);
+  if (run.length === 0 || groups.some((g) => g.kind === 'bring_back' && g.targetGroupId === targetGroupId)) return null;
   const at = await stepTime(file, now);
   // Each record as it was before the run (its first op's before) and as the run left it (its last op's after).
   const wanted = new Map<string, SbdRecord | null>();
   const undone = new Map<string, { record: SbdRecord | null; kind: OpKind }>();
+  // Empty Trash empties a deleted record's older ops (both sides null): nothing of it is left to bring back.
+  const purged = new Set<string>();
   for (const group of run) {
     for (const op of await groupOps(file, group.id)) {
+      if (op.before === null && op.after === null) {
+        purged.add(op.recordId);
+        continue;
+      }
       if (!wanted.has(op.recordId)) wanted.set(op.recordId, op.before);
       undone.set(op.recordId, { record: op.after, kind: op.kind });
     }
   }
-  const ids = [...wanted.keys()];
-  const current = new Map(
-    (await file.query(`SELECT ${RECORD_COLUMNS} FROM records WHERE id IN (SELECT value FROM json_each(?))`, [JSON.stringify(ids)])).map((row) => {
-      const record = fromRow(row);
-      return [record.id, record] as const;
-    }),
-  );
+  // The project as it is now, read once: the checks below look at every record that stays.
+  const everything = new Map((await loadRecords(file)).map((r) => [r.id, r] as const));
+  const nowOf = (id: string): SbdRecord | null => everything.get(id) ?? null;
   const final = new Map<string, SbdRecord | null>();
-  const kinds = new Map<string, OpKind>();
   const kept: KeptEdit[] = [];
-  const keepWhole = (id: string, shown: SbdRecord | null) => {
-    if (shown && !kept.some((k) => k.record.id === id && k.prop === null)) kept.push({ record: shown, prop: null });
+  const noted = new Set<string>();
+  const note = (record: SbdRecord | null, prop: string | null, why: KeptWhy, other?: SbdRecord | null) => {
+    const key = `${record?.id ?? ''}\u0000${prop ?? ''}`;
+    if (!record || noted.has(key)) return;
+    noted.add(key);
+    kept.push({ record, prop, why, ...(other ? { other } : {}) });
   };
-  for (const id of ids) {
-    const was = wanted.get(id) ?? null;
-    const left = undone.get(id);
-    const then = left?.record ?? null;
-    const is = current.get(id) ?? null;
+  for (const [id, was] of wanted) {
+    const then = undone.get(id)?.record ?? null;
+    const is = nowOf(id);
     if (sameAs(was, then) || sameAs(is, was)) continue;
-    // A restore's own ops are reverts, and so are the ones that take it back.
-    const revert = left?.kind === 'revert';
     if (was === null) {
       // The run brought it in (an undone restore's revert): it goes again, unless a later step changed it.
       if (is === null) continue;
-      if (sameAs(is, then)) {
-        final.set(id, null);
-        kinds.set(id, left?.kind ?? 'revert');
-      } else keepWhole(id, is);
+      if (sameAs(is, then)) final.set(id, null);
+      else note(is, null, 'later');
       continue;
     }
     if (is === null) {
       // The run took it away (an undone add): it comes back, as it was, unless a later step made and took it again.
       if (then !== null) {
-        keepWhole(id, was);
+        note(was, null, 'removed');
         continue;
       }
       final.set(id, { ...was, updatedAt: at });
-      kinds.set(id, revert ? 'revert' : 'create');
       continue;
     }
     if (then === null) {
       // Taken away by the run and made again since: as it is now.
-      keepWhole(id, is);
+      note(is, null, 'later');
       continue;
     }
     let next: SbdRecord = { ...is, props: { ...is.props }, updatedAt: at };
@@ -704,65 +752,157 @@ export async function bringBack(file: ProjectFile, targetGroupId: string, option
       next.trashedBy = was.trashedBy;
     }, null);
     if (unset.size > 0) next = { ...next, props: Object.fromEntries(Object.entries(next.props).filter(([prop]) => !unset.has(prop))) };
-    for (const prop of fields) {
-      if (prop === null) keepWhole(id, is);
-      else kept.push({ record: is, prop });
-    }
-    if (sameAs(next, is)) continue;
-    final.set(id, next);
-    kinds.set(
-      id,
-      revert
-        ? 'revert'
-        : next.trashedAt !== is.trashedAt
-          ? next.trashedAt === null
-            ? 'restore'
-            : 'trash'
-          : next.parentId !== is.parentId || next.sortKey !== is.sortKey
-            ? 'move'
-            : next.type !== is.type
-              ? 'retype'
-              : 'update',
-    );
+    for (const prop of fields) note(is, prop, 'later');
+    if (!sameAs(next, is)) final.set(id, next);
   }
-  // Nothing is written under a record that won't be there, nor is a record taken from under one that stays: either
-  // stays as it is now, said as kept. Each pass only drops writes, so this ends.
-  const existsNow = new Map<string, boolean>();
-  const exists = async (id: string): Promise<boolean> => {
-    if (final.has(id)) return final.get(id) !== null;
-    if (!existsNow.has(id)) existsNow.set(id, (await getRecord(file, id)) !== null);
-    return existsNow.get(id) === true;
-  };
-  const drop = (id: string) => {
-    keepWhole(id, current.get(id) ?? wanted.get(id) ?? null);
+
+  // The checks: each only takes a write out (or one field of it, back to how it is now), so this ends.
+  const after = (id: string): SbdRecord | null => (final.has(id) ? (final.get(id) ?? null) : nowOf(id));
+  const drop = (id: string, why: KeptWhy, other?: SbdRecord | null) => {
+    note(nowOf(id) ?? wanted.get(id) ?? null, null, why, other);
     final.delete(id);
-    kinds.delete(id);
   };
+  /** Sets one field of a write back to how it is now (taken off if it has none now), and names it. */
+  const keepField = (id: string, prop: string, why: KeptWhy, other?: SbdRecord | null) => {
+    const record = final.get(id);
+    if (!record) return;
+    const is = nowOf(id);
+    const value = is?.props[prop];
+    const props = Object.fromEntries([...Object.entries(record.props).filter(([key]) => key !== prop), ...(value === undefined ? [] : [[prop, value] as const])]);
+    note(is ?? record, prop, why, other);
+    if (is !== null && sameAs({ ...record, props }, is)) final.delete(id);
+    else final.set(id, { ...record, props });
+  };
+  // Whether a write puts a number on the board that isn't there as the record is now (one made, moved, renumbered or
+  // out of the Trash).
+  const givesNumber = (id: string): boolean => {
+    const number = liveNumber(final.get(id) ?? null);
+    return number !== null && number !== liveNumber(nowOf(id));
+  };
+  const slate = final.size > 0 ? await loadSlateNumbers(file) : [];
+  const slatedWithOther = (shotId: string, number: string) => slate.some((row) => row.number === number && row.shotId !== shotId);
+  // Pictures a write would bring back, and which of them still have their bytes in the file.
+  const pictureOf = (record: SbdRecord | null | undefined): string | null =>
+    record?.type === 'media' && typeof record.props.file === 'string' && record.props.file !== '' ? record.props.file : null;
+  const asked = [...final].flatMap(([id, record]) => {
+    const sha = pictureOf(record);
+    return sha !== null && sha !== pictureOf(nowOf(id)) ? [sha] : [];
+  });
+  const stored = new Set(
+    asked.length === 0
+      ? []
+      : (await file.query('SELECT sha256 FROM media_files WHERE sha256 IN (SELECT value FROM json_each(?))', [JSON.stringify([...new Set(asked)])])).map((row) =>
+          String(row.sha256),
+        ),
+  );
   for (let changed = true; changed; ) {
     changed = false;
+    const ids = () => new Set([...everything.keys(), ...final.keys()]);
+    // Under a parent that won't be there; made or moved under one in the Trash (a parent in the Trash is not there).
     for (const [id, record] of [...final]) {
-      if (record?.parentId && !(await exists(record.parentId))) {
-        drop(id);
+      if (!record?.parentId) continue;
+      const parent = after(record.parentId);
+      const placed = nowOf(id)?.parentId !== record.parentId;
+      if (parent === null) drop(id, 'gone');
+      else if (placed && record.trashedAt === null && parent.trashedAt !== null) drop(id, 'trashed', parent);
+      else continue;
+      changed = true;
+    }
+    // A record the run brought in goes only while nothing that stays is under it or names it.
+    const going = new Set([...final].filter(([, record]) => record === null).map(([id]) => id));
+    if (going.size > 0) {
+      for (const id of ids()) {
+        const record = after(id);
+        if (!record) continue;
+        if (record.parentId !== null && going.has(record.parentId)) {
+          drop(record.parentId, 'holds', record);
+          going.delete(record.parentId);
+          changed = true;
+        }
+        for (const ref of namedBy(record)) {
+          if (!going.has(ref)) continue;
+          drop(ref, 'named', record);
+          going.delete(ref);
+          changed = true;
+        }
+      }
+    }
+    // A picture comes back only with its bytes, and a frame points only at a picture that's there.
+    for (const [id, record] of [...final]) {
+      const sha = pictureOf(record);
+      if (sha !== null && sha !== pictureOf(nowOf(id)) && !stored.has(sha)) {
+        drop(id, 'picture');
         changed = true;
       }
     }
-    const going = [...final].filter(([, record]) => record === null).map(([id]) => id);
-    if (going.length === 0) continue;
-    const under = await file.query('SELECT id, parent_id FROM records WHERE parent_id IN (SELECT value FROM json_each(?))', [JSON.stringify(going)]);
-    for (const row of under) {
-      const child = String(row.id);
-      const parent = String(row.parent_id);
-      if (final.has(parent) && !(final.has(child) && final.get(child) === null)) {
-        drop(parent);
+    for (const [id, record] of [...final]) {
+      const media = record?.props.media_id;
+      if (typeof media !== 'string' || media === '' || media === nowOf(id)?.props.media_id || after(media) !== null) continue;
+      keepField(id, 'media_id', 'picture');
+      changed = true;
+    }
+    // Numbers (1.26, as restoreTo keeps them): never two live shots or scenes on one number; in a locked scene, never a
+    // number a slate holds for another shot.
+    const holders = new Map<string, string[]>();
+    for (const id of ids()) {
+      const record = after(id);
+      const number = liveNumber(record);
+      if (record && number !== null) holders.set(`${record.type}:${number}`, [...(holders.get(`${record.type}:${number}`) ?? []), id]);
+    }
+    for (const same of holders.values()) {
+      if (same.length < 2) continue;
+      for (const id of same) {
+        if (!final.has(id) || !givesNumber(id)) continue;
+        drop(id, 'number');
         changed = true;
       }
+    }
+    for (const [id, record] of [...final]) {
+      const number = liveNumber(record ?? null);
+      if (record?.type !== 'shot' || number === null || !givesNumber(id) || record.parentId === null) continue;
+      if (after(record.parentId)?.props.numbers_locked !== true || !slatedWithOther(id, number)) continue;
+      drop(id, 'number');
+      changed = true;
+    }
+    // A scene's lock comes back only as locking would give it: never round a frame whose number is on a slate with
+    // another shot (board.ts, setNumbersLocked's slatedWithOther). Its lock stays as it is now.
+    for (const [id, record] of [...final]) {
+      if (record?.type !== 'scene' || record.props.numbers_locked !== true || nowOf(id)?.props.numbers_locked === true) continue;
+      const clash = [...ids()]
+        .map(after)
+        .find((shot): shot is SbdRecord => shot?.type === 'shot' && shot.parentId === id && liveNumber(shot) !== null && slatedWithOther(shot.id, liveNumber(shot) ?? ''));
+      if (!clash) continue;
+      keepField(id, 'numbers_locked', 'slated', clash);
+      changed = true;
     }
   }
-  const ops: PendingOp[] = [...final].map(([recordId, after]) => ({ recordId, kind: kinds.get(recordId) ?? 'update', before: current.get(recordId) ?? null, after }));
-  if (ops.length === 0) return { touched: new Map(), written: 0, kept };
+  const ops: PendingOp[] = [...final].flatMap(([recordId, next]) => {
+    const is = nowOf(recordId);
+    if (sameAs(next, is)) return [];
+    const left = undone.get(recordId)?.kind;
+    // A restore's own ops are reverts, and so are the ones that take it back.
+    const kind: OpKind =
+      next === null
+        ? (left ?? 'revert')
+        : left === 'revert'
+          ? 'revert'
+          : is === null
+            ? 'create'
+            : next.trashedAt !== is.trashedAt
+              ? next.trashedAt === null
+                ? 'restore'
+                : 'trash'
+              : next.parentId !== is.parentId || next.sortKey !== is.sortKey
+                ? 'move'
+                : next.type !== is.type
+                  ? 'retype'
+                  : 'update';
+    return [{ recordId, kind, before: is, after: next }];
+  });
+  if (ops.length === 0) return { touched: new Map(), written: 0, kept, deleted: purged.size };
   const { undoTop } = await tops(file);
   await commit(file, { kind: 'bring_back', targetGroupId, stackBelow: undoTop, undoTop: null, redoTop: null }, ops, author, at);
-  return { touched: touchedBy(ops), written: ops.length, kept };
+  return { touched: touchedBy(ops), written: ops.length, kept, deleted: purged.size };
 }
 
 /**
@@ -1485,10 +1625,13 @@ export async function logOf(file: ProjectFile, ids: readonly string[]): Promise<
   return groupRows(file, 'WHERE g.id IN (SELECT value FROM json_each(?))', [JSON.stringify(ids)]);
 }
 
-/** The op groups at these places in the log, oldest first: the step just before a restore, which a bring_back of it names. */
-export async function logAtSeqs(file: ProjectFile, seqs: readonly number[]): Promise<OpGroup[]> {
+/**
+ * The op group just before each of these places in the log (stepBefore's rule, in SQL), oldest first: the step before a
+ * restore, which a bring_back of it names. Each through op_groups' unique `seq`.
+ */
+export async function logBefore(file: ProjectFile, seqs: readonly number[]): Promise<OpGroup[]> {
   if (seqs.length === 0) return [];
-  return groupRows(file, 'WHERE g.seq IN (SELECT value FROM json_each(?))', [JSON.stringify(seqs)]);
+  return groupRows(file, 'WHERE g.seq IN (SELECT (SELECT max(e.seq) FROM op_groups e WHERE e.seq < j.value) FROM json_each(?) j)', [JSON.stringify(seqs)]);
 }
 
 async function groupRows(file: ProjectFile, where: string, params: readonly SqlValue[] = []): Promise<OpGroup[]> {

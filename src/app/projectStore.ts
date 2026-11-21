@@ -14,7 +14,7 @@ import { slateNumbersAfter, slateNumbersUnknown } from '../core/storage/slateNum
 import { clearStepNotice, showNotice } from './notice';
 import { editAuthor, profileStore } from './settings/profileStore';
 import { dropProjectDraftsOnSwitch } from './settings/drafts';
-import { settleUndone } from './undoSettle';
+import { settledThrough, settleUndone } from './undoSettle';
 
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
 // updates, so the screen never shows a change the file doesn't have.
@@ -442,8 +442,11 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
         // A holder, since the edit sets it inside a callback.
         const outcome: { done: BroughtBack | null } = { done: null };
         await edit(async (project) => {
-          const done = await commit(() => bringBack(project.file, targetGroupId, { author: author() }));
+          // A settled undo never joins the run: only the part after the settled place comes back.
+          const done = await commit(() => bringBack(project.file, targetGroupId, { author: author(), settledThrough: settledThrough(project.file) }));
           outcome.done = done;
+          // One that wrote nothing still settles its run, so the button doesn't keep pulsing over nothing to do.
+          if (done?.written === 0) await settleUndone(project.file);
           return done?.touched ?? null;
         });
         return outcome.done;

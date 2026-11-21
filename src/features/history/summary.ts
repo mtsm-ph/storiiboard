@@ -2278,14 +2278,61 @@ export function describeGroup(
   }
 }
 
-/** "4A’s lens kept its later edit.": what a bring_back left as a later step made it, a sentence each. */
-export function keptText(kept: readonly KeptEdit[], unit: PlanUnit = planUnitNow()): string {
+/**
+ * A field's label with the article its language puts before it ("la lente"), and whether it's plural there: from the
+ * translation's own table (`history.fieldArticles`, "article=label|label;…", and `history.fieldArticle`, the article for
+ * any other label). English has none, so its labels read as they are.
+ */
+function withArticle(label: string): { field: string; plural: boolean } {
+  let article = t('history.fieldArticle');
+  for (const entry of t('history.fieldArticles').split(';')) {
+    const [own, labels = ''] = entry.split('=');
+    if (own !== undefined && labels.split('|').map((l) => l.trim()).includes(label)) article = own.trim();
+  }
+  const plural = article !== '' && t('history.pluralArticles').split('|').includes(article);
+  return { field: article === '' ? label : `${article} ${label}`, plural };
+}
+
+/** One thing a bring_back left as it is now, and why, as a sentence. */
+function keptLine({ record, prop, why, other }: KeptEdit, name: (record: SbdRecord) => string): string {
+  const item = name(record);
+  switch (why) {
+    case 'later': {
+      if (prop === null) return t('history.keptItem', { item });
+      const { field, plural } = withArticle(changeLabel({ prop, before: undefined, after: undefined }));
+      return t(plural ? 'history.keptFieldPlural' : 'history.keptField', { item, field });
+    }
+    case 'removed':
+      return t('history.notBack.removed', { item });
+    case 'gone':
+      // A frame's, a note's or a setup's parent is its scene.
+      return t(record.type === 'shot' || record.type === 'note' || record.type === 'setup' ? 'history.notBack.gone' : 'history.notBack.goneOther', { item });
+    case 'trashed':
+      return t('history.notBack.trashed', { item, parent: other ? name(other) : t('history.anItem') });
+    case 'number':
+      return t('history.notBack.number', { item });
+    case 'slated':
+      return t('history.notBack.slated', { item, number: typeof other?.props.number === 'string' ? other.props.number : '' });
+    case 'named':
+      return t('history.notBack.named', { item, other: other ? name(other) : t('history.anItem') });
+    case 'holds':
+      return t('history.notBack.holds', { item, other: other ? name(other) : t('history.anItem') });
+    case 'picture':
+      return t(prop === null ? 'history.notBack.picture' : 'history.notBack.pictureField', { item });
+  }
+}
+
+/**
+ * "4A’s lens kept its later edit.", "4A couldn’t come back: SC 05 is in the Trash.": what a bring_back left as it is
+ * now and why, a sentence each; then how many it couldn't bring back because Empty Trash deleted them for good.
+ */
+export function keptText(kept: readonly KeptEdit[], unit: PlanUnit = planUnitNow(), deleted = 0): string {
   const SHOWN = 3;
-  const said = kept.slice(0, SHOWN).map(({ record, prop }) => {
-    const item = lineText([nameOf(record, new Map(), unit)]);
-    return prop === null ? t('history.keptItem', { item }) : t('history.keptField', { item, field: changeLabel({ prop, before: undefined, after: undefined }) });
-  });
-  if (kept.length > SHOWN) said.push(tn('history.keptMore', kept.length - SHOWN));
+  const name = (record: SbdRecord) => lineText([nameOf(record, new Map(), unit)]);
+  const said = kept.slice(0, SHOWN).map((k) => keptLine(k, name));
+  const rest = kept.slice(SHOWN);
+  if (rest.length > 0) said.push(tn(rest.every((k) => k.why === 'later') ? 'history.keptMore' : 'history.stayedMore', rest.length));
+  if (deleted > 0) said.push(tn('history.notBack.deleted', deleted));
   return said.join(' ');
 }
 

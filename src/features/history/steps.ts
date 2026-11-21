@@ -1,6 +1,6 @@
 import type { PlanUnit } from '../../core/model/length';
 import type { SbdRecord } from '../../core/model/record';
-import { childrenInLog, dayOpsSince, lastOpSeq, log, logAtSeqs, logOf, NO_DAY_RECORDS, opsOfGroups, opsOfRecords, opsSince, placesBefore, projectAt, purgedSince, recordsBefore, storedPictures, undoTops, type BroughtBack, type DayRecords, type GoneRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { childrenInLog, dayOpsSince, lastOpSeq, log, logBefore, logOf, NO_DAY_RECORDS, opsOfGroups, opsOfRecords, opsSince, placesBefore, projectAt, purgedSince, recordsBefore, storedPictures, stepBefore, undoTops, type BroughtBack, type DayRecords, type GoneRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
 import { listVersions, type NamedVersion } from '../../core/storage/versions';
 import { byStep, describeGroup, keptText, lineText, moveTarget, peopleDiff, scheduledScene, stepPictures, stepScene, type Line } from './summary';
@@ -34,7 +34,6 @@ export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUni
   // Undo, redo and restore name the step they point at, which may be older than the page, and may itself point at
   // another (an undone restore names its point): followed until every line has what it names.
   const byId = new Map(groups.map((g) => [g.id, g]));
-  const bySeq = new Map(groups.map((g) => [g.seq, g]));
   const wanted = new Set<string>();
   // A version's step may be older than the page too.
   const pending: (string | null)[] = [...shown.map((g) => g.id), ...versions.map((v) => v.opGroupId)];
@@ -46,7 +45,7 @@ export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUni
     pending.push(group.targetGroupId, group.restoreTo);
     // A bring_back of a restore names the step that was current just before it.
     const target = group.kind === 'bring_back' ? byId.get(group.targetGroupId ?? '') : undefined;
-    if (target?.kind === 'restore') pending.push(bySeq.get(target.seq - 1)?.id ?? null);
+    if (target?.kind === 'restore') pending.push(stepBefore(groups, target.seq)?.id ?? null);
   }
   const { titles, byGroup } = await describeSteps(file, groups.filter((g) => wanted.has(g.id)), unit);
   return {
@@ -81,7 +80,7 @@ async function withNamed(file: ProjectFile, ids: readonly string[]): Promise<OpG
       .map((g) => found.get(g.targetGroupId ?? ''))
       .filter((g): g is OpGroup => g?.kind === 'restore' && !asked.has(g.id));
     for (const restore of restores) asked.add(restore.id);
-    const before = (await logAtSeqs(file, restores.map((g) => g.seq - 1))).filter((g) => !found.has(g.id));
+    const before = (await logBefore(file, restores.map((g) => g.seq))).filter((g) => !found.has(g.id));
     for (const group of before) found.set(group.id, group);
     pending = [...new Set([...read, ...before].flatMap((g) => [g.targetGroupId, g.restoreTo]))].filter((id): id is string => id !== null && !found.has(id));
   }
@@ -114,12 +113,11 @@ async function describeSteps(
   // Oldest first, so the step an undo, redo or restore names already has its line.
   const titles = new Map<string, Line>();
   const byId = new Map(groups.map((g) => [g.id, g]));
-  const bySeq = new Map(groups.map((g) => [g.seq, g]));
   // What a bring_back brought back: the step its undo undid, or the step that was current just before its restore.
   const brought = (group: OpGroup): string | null => {
     const target = group.kind === 'bring_back' ? byId.get(group.targetGroupId ?? '') : undefined;
     if (target?.kind === 'undo') return target.targetGroupId;
-    return target?.kind === 'restore' ? (bySeq.get(target.seq - 1)?.id ?? null) : null;
+    return target?.kind === 'restore' ? (stepBefore(groups, target.seq)?.id ?? null) : null;
   };
   for (const group of groups) {
     titles.set(
@@ -464,12 +462,13 @@ async function dayLines(file: ProjectFile, ops: readonly LoggedOp[], have: Reado
 }
 
 /**
- * What the tile says after Bring back what was undone (item 7): how many changes came back, and each field a later
- * step had changed since, which kept that edit ("Brought back 3 changes. 4A’s lens kept its later edit.").
+ * What the tile says after Bring back what was undone (item 7): how many changes came back, and what stayed as it is
+ * now and why ("Brought back 3 changes. 4A’s lens kept its later edit.").
  */
-export function broughtBackNotice(done: Pick<BroughtBack, 'written' | 'kept'>, unit?: PlanUnit): string {
+export function broughtBackNotice(done: Pick<BroughtBack, 'written' | 'kept'> & { deleted?: number }, unit?: PlanUnit): string {
   const said = done.written > 0 ? tn('history.broughtBackNotice', done.written) : t('history.nothingBroughtBack');
-  return done.kept.length > 0 ? `${said} ${keptText(done.kept, unit)}` : said;
+  const deleted = done.deleted ?? 0;
+  return done.kept.length > 0 || deleted > 0 ? `${said} ${keptText(done.kept, unit, deleted)}` : said;
 }
 
 /**

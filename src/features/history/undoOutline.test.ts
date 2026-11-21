@@ -117,7 +117,7 @@ describe('a bring_back step', () => {
     expect(done?.kept.map((k) => [k.record.id, k.prop])).toEqual([['4A', 'lens_mm']]);
     expect(broughtBackNotice(done ?? { written: 0, kept: [] })).toBe('Brought back 1 change. 4A’s lens kept its later edit.');
     setLocale('es');
-    expect(broughtBackNotice(done ?? { written: 0, kept: [] })).toBe('Se recuperó 1 cambio. En 4A, lente conservó su cambio posterior.');
+    expect(broughtBackNotice(done ?? { written: 0, kept: [] })).toBe('Se recuperó 1 cambio. En 4A, la lente conservó su cambio posterior.');
   });
 
   it('sends a trashed item back to the Trash, as the undone step had it', async () => {
@@ -155,7 +155,7 @@ describe('a bring_back step', () => {
     expect(done?.kept.map((k) => [k.record.id, k.prop])).toEqual([['5A', null]]);
     expect(await getRecord(project.file, '5A')).toBeNull();
     expect(broughtBackNotice(done ?? { written: 0, kept: [] })).toBe(
-      'Nothing to bring back: everything there is already back, or was changed again since. 5A kept its later edit.',
+      'Nothing to bring back: everything there is already back, or was changed again since. 5A couldn’t come back: its scene is gone.',
     );
   });
 

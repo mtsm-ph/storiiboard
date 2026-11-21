@@ -117,14 +117,20 @@ The log is append-only: no op or op_groups row is ever changed or deleted, excep
   `trash`, `restore`, `move`, `retype`, and `revert` for a restore's records), written as any edit's: for each
   record the run touched, its state before the run, field by field (each prop, its place, its type, its Trash state),
   except a field a later group changed since the run, which keeps that later value. A record the run took away comes
-  back only under a parent that's there; one the run brought in goes only if nothing is under it now. On the stacks it
+  back only under a parent that's there (made or moved under one in the Trash, it isn't); one the run brought in goes
+  only if nothing is under it now and nothing names it (a frame's location or picture, as a restore keeps them). A
+  shot's or scene's number another live one holds, or one a slate holds for another shot in a locked scene, isn't
+  written, nor a scene's lock round such a frame (1.26), nor a picture whose bytes Clean up old pictures deleted
+  since: each stays as it is now, and the result names it. An undo that settled before the run (below) isn't part of
+  what comes back. On the stacks it
   is an edit: `stack_below` is the undo top before it, `undo_top` itself, `redo_top` null, so ⌘Z undoes it like
   any edit (its ops swapped) and it empties ⌘⇧Z's stack. When every field already reads as it would, no group is
   written.
 - History shows it as "Brought back: " and the step the run's newest undo undid, or, for a restore, the step that was
   current just before it. What History draws around it is worked out from the log and never stored: the newest run of
   undos, or the newest restore, is outlined until it settles (Ctrl+S, three further groups, a project switch or a
-  reopen; kept in memory), and the group just before each `restore` (by `seq`) carries "Before restoring" for good,
+  reopen; kept in memory) or a `redo` follows it, and the group just before each `restore` (the previous one by
+  `seq`, which needn't be one less) carries "Before restoring" for good,
   a `bring_back` of that restore included.
 - A kind a version doesn't know (a later version's): undo and redo read only ops and the stack pointers, so they work
   on any kind, and History words it "a step". Neither door checks a group's kind: the JSON import (the page) writes

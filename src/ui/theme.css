@@ -267,15 +267,16 @@ html[data-eyedropper] * {
   background: var(--text);
 }
 
-/* History's "Bring back what was undone" (item 7, Kevin, Nov 18): a slow pulse of its opacity, about 2 s, never so faint
-   that its ink falls below AA on paper; still and solid under reduced motion. */
+/* History's "Bring back what was undone" (item 7, Kevin, Nov 18): a slow pulse of its opacity, about 2 s, from 1 to 0.7
+   and back. At 0.7 its ink over paper is still about 5.9:1, above AA's 4.5:1 (0.6 fell to about 4.3:1, below it), and
+   paper text over the dark panels stays above it too. Still and solid under reduced motion. */
 @keyframes sb-pulse {
   0%,
   100% {
     opacity: 1;
   }
   50% {
-    opacity: 0.6;
+    opacity: 0.7;
   }
 }
 .sb-pulse {
