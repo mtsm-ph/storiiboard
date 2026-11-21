@@ -29,8 +29,8 @@ const calendar = (page: Page) => page.getByRole('region', { name: 'Calendar', ex
 const history = (page: Page) => page.getByRole('region', { name: 'History', exact: true });
 const daySteps = (page: Page, day: string) => history(page).getByRole('list', { name: `Steps on shoot day ${day}, newest first` }).getByRole('listitem');
 
-const SCHEDULED = '1A: shoot day — → Mon, Nov 16';
-const MOVED = '1A: shoot day Mon, Nov 16 → Tue, Nov 17';
+const SCHEDULED = 'Put 1A on shoot day Mon, Nov 16';
+const MOVED = 'Moved 1A to shoot day Tue, Nov 17';
 
 test('a day’s history from Shoot days and from the Calendar: a frame scheduled, then moved to another day', async ({ page }) => {
   await days(page).getByRole('button', { name: '+ New day' }).click();

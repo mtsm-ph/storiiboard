@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectStore } from '../../app/projectStore';
-import { setLocale } from '../../core/i18n';
+import { setLocale, t } from '../../core/i18n';
 import { dayDateLabel } from '../../core/model/shootDay';
 import type { Props, SbdRecord } from '../../core/model/record';
 import { log, opsOfGroups, opsOfRecord, type Change, type LoggedOp, type OpGroup } from '../../core/ops/ops';
@@ -305,8 +305,8 @@ describe('several records changed in one step', () => {
     expect(say(lens, here)).toBe('Changed the lens of 3 frames in SC 12');
     expect(say([changed(s1, { lens_mm: 50 }), changed(a4, { lens_mm: 50 })], here)).toBe('Changed the lens of 2 frames');
     setLocale('es');
-    expect(say(lens, here)).toBe('Se cambió lente en 3 cuadros de ESC 12');
-    expect(say([changed(s1, { lens_mm: 50 }), changed(a4, { lens_mm: 50 })], here)).toBe('Se cambió lente en 2 cuadros');
+    expect(say(lens, here)).toBe('Cambio de lente en 3 cuadros de ESC 12');
+    expect(say([changed(s1, { lens_mm: 50 }), changed(a4, { lens_mm: 50 })], here)).toBe('Cambio de lente en 2 cuadros');
   });
 
   it('otherwise counted, in their scene when they share one', () => {
@@ -337,7 +337,7 @@ describe('the last fallback', () => {
     setLocale('es');
     expect(say([retyped(n2, 'note'), retyped(n3, 'note')], here)).toBe('2 cambios en 2 notas de ESC 12');
     expect(say([retyped(l1, 'location'), retyped(l2, 'location')], here)).toBe('2 cambios en 2 locaciones');
-    expect(say([retyped(n2, 'note'), retyped(s, 'shot')], near(sc12, n2, s))).toBe('2 cambios en ESC 12');
+    expect(say([retyped(n2, 'note'), retyped(s, 'shot')], near(sc12, n2, s))).toBe('2 cambios de ESC 12');
     expect(say([retyped(l1, 'location'), retyped(d, 'department')], here)).toBe('2 cambios');
   });
 
@@ -378,6 +378,66 @@ describe('a scene scheduled at once', () => {
     expect(say(steps, near(day, sc12))).toBe(`Moved 2 frames to shoot day ${dayDateLabel('2026-11-16')}`);
     setLocale('es');
     expect(say(steps, near(day, sc12, onDay(f1), onDay(f2), left))).toBe(`Se movieron 2 cuadros al día de rodaje ${dayDateLabel('2026-11-16')}`);
+  });
+});
+
+describe('one frame’s shoot day (Kevin, Nov 21)', () => {
+  const mon = record('mon', 'shoot_day', 'p', 'a', { date: '2026-11-16' });
+  const tue = record('tue', 'shoot_day', 'p', 'b', { date: '2026-11-17' });
+  const f1 = shot('f1', 'sc12', 'a', '1A');
+  const f2 = shot('f2', 'sc12', 'b', '1B');
+  const on = (r: SbdRecord, day: string) => ({ ...r, props: { ...r.props, shoot_day_id: day } });
+  const days = near(mon, tue, sc12, f1, f2);
+  const put = [op('update', f1, on(f1, 'mon'))];
+  const moveOver = [op('update', on(f1, 'mon'), on(f1, 'tue'))];
+  const takeOff = [op('update', on(f1, 'mon'), f1)];
+
+  it('reads as put on a day, moved to another, or taken off one', () => {
+    expect(say(put, days)).toBe(`Put 1A on shoot day ${dayDateLabel('2026-11-16')}`);
+    expect(say(moveOver, days)).toBe(`Moved 1A to shoot day ${dayDateLabel('2026-11-17')}`);
+    expect(say(takeOff, days)).toBe(`Took 1A off shoot day ${dayDateLabel('2026-11-16')}`);
+    setLocale('es');
+    expect(say(put, days)).toBe(`Se puso 1A en el día de rodaje ${dayDateLabel('2026-11-16')}`);
+    expect(say(moveOver, days)).toBe(`Se movió 1A al día de rodaje ${dayDateLabel('2026-11-17')}`);
+    expect(say(takeOff, days)).toBe(`Se sacó 1A del día de rodaje ${dayDateLabel('2026-11-16')}`);
+  });
+
+  it('a day since deleted for good reads as a shoot day', () => {
+    const gone = near(sc12, f1, f2);
+    expect(say(put, gone)).toBe('Put 1A on a shoot day');
+    expect(say(moveOver, near(mon, sc12, f1, f2))).toBe('Moved 1A to a shoot day');
+    expect(say(takeOff, gone)).toBe('Took 1A off a shoot day');
+    setLocale('es');
+    expect(say(put, gone)).toBe('Se puso 1A en un día de rodaje');
+    expect(say(moveOver, near(mon, sc12, f1, f2))).toBe('Se movió 1A a un día de rodaje');
+    expect(say(takeOff, gone)).toBe('Se sacó 1A de un día de rodaje');
+  });
+
+  it('several frames and a whole scene keep their lines', () => {
+    const both = [op('update', f1, on(f1, 'mon')), op('update', f2, on(f2, 'mon'))];
+    const left = shot('f3', 'sc12', 'c', '1C');
+    expect(say(both, near(mon, sc12, on(f1, 'mon'), on(f2, 'mon')))).toBe(`Moved SC 12 to shoot day ${dayDateLabel('2026-11-16')}`);
+    expect(say(both, near(mon, sc12, on(f1, 'mon'), on(f2, 'mon'), left))).toBe(`Moved 2 frames to shoot day ${dayDateLabel('2026-11-16')}`);
+    const off = [op('update', on(f1, 'mon'), f1), op('update', on(f2, 'mon'), f2)];
+    expect(say(off, days)).toBe('Took 2 frames out of their shoot day');
+    setLocale('es');
+    expect(say(both, near(mon, sc12, on(f1, 'mon'), on(f2, 'mon')))).toBe(`Se movió ESC 12 al día de rodaje ${dayDateLabel('2026-11-16')}`);
+    expect(say(off, days)).toBe('Se sacaron 2 cuadros de su día de rodaje');
+  });
+});
+
+describe('Kevin’s Spanish History words (Nov 21)', () => {
+  it('moves in one voice, with or without a place', () => {
+    // Into a scene the step can't name: no place is said.
+    const away = [moved(a4, 'scX', 'a'), moved(b4, 'scX', 'b')];
+    expect(say(away)).toBe('Moved 2 frames');
+    setLocale('es');
+    expect(say(away)).toBe('Se movieron 2 cuadros');
+  });
+
+  it('a put-back reads as the field’s value, needing no article', () => {
+    setLocale('es');
+    expect(t('history.putBackLabel', { field: 'lente', value: '50mm' })).toBe('Volver a poner el valor de lente: 50mm');
   });
 });
 
@@ -504,6 +564,31 @@ describe('History as read from the file', () => {
     ]);
     // 4D is still to shoot and isn't on it: the frames, as before.
     expect((await lines())[0]).toBe(`Moved 2 frames to shoot day ${dayDateLabel('2026-11-16')}`);
+  });
+
+  it('one frame put on a day, moved to another and taken off, each undone, read back from the file', async () => {
+    const a = await frame('sc4');
+    await store.getState().apply([
+      { kind: 'create', record: { id: 'mon', type: 'shoot_day', parentId: file.projectId, sortKey: 'W', props: { date: '2026-11-16' } } },
+      { kind: 'create', record: { id: 'tue', type: 'shoot_day', parentId: file.projectId, sortKey: 'X', props: { date: '2026-11-17' } } },
+    ]);
+    // Each step, with its line in English and in Spanish, the day's date in that language.
+    const steps: [Change[], (day: string) => string, (day: string) => string, string][] = [
+      [[{ kind: 'update', id: a, set: { shoot_day_id: 'mon' } }], (d) => `Put 4A on shoot day ${d}`, (d) => `Se puso 4A en el día de rodaje ${d}`, '2026-11-16'],
+      [[{ kind: 'update', id: a, set: { shoot_day_id: 'tue' } }], (d) => `Moved 4A to shoot day ${d}`, (d) => `Se movió 4A al día de rodaje ${d}`, '2026-11-17'],
+      [[{ kind: 'update', id: a, unset: ['shoot_day_id'] }], (d) => `Took 4A off shoot day ${d}`, (d) => `Se sacó 4A del día de rodaje ${d}`, '2026-11-17'],
+    ];
+    for (const [changes, english, spanish, date] of steps) {
+      await store.getState().apply(changes);
+      expect((await lines())[0]).toBe(english(dayDateLabel(date)));
+      await store.getState().undo();
+      expect((await lines())[0]).toBe(`Undid: ${english(dayDateLabel(date))}`);
+      setLocale('es');
+      expect((await lines())[0]).toBe(`Se deshizo: ${spanish(dayDateLabel(date))}`);
+      setLocale('en');
+      await store.getState().redo();
+      expect((await lines())[0]).toBe(`Redid: ${english(dayDateLabel(date))}`);
+    }
   });
 
   it('a page’s number never stands for an unnamed page once a page of the deck then is deleted for good', async () => {

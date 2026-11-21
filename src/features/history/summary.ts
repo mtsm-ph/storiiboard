@@ -1779,7 +1779,8 @@ function movedLine(all: readonly LoggedOp[], ops: readonly LoggedOp[], around: R
     // Some of them since deleted for good and not known to be the Trash's: how many the person moved isn't known.
     if (moves.some(purged)) return [t('history.movedSomeLost')];
     const things = movedThings(moves, n);
-    if (!where) return [t('history.movedCount', { things })];
+    // The verb agrees with the count (Spanish "Se movió", "Se movieron"); {things} already shows the number.
+    if (!where) return [t(n === 1 ? 'history.movedCount' : 'history.movedCountPlural', { things })];
     if ('after' in where) return line('history.movedCountAfter', { after: where.after }, { things });
     if ('start' in where) return line('history.movedCountToStart', { place: where.start }, { things });
     if ('projectStart' in where) return [t('history.movedCountToProjectStart', { things })];
@@ -1846,6 +1847,25 @@ function oneFieldLine(updates: readonly LoggedOp[], ops: readonly LoggedOp[], ar
   const things = type === 'board_item' ? itemsCount(updates.map(recordOf), new Set(updates.map((op) => op.recordId)).size) : count(type, new Set(updates.map((op) => op.recordId)).size);
   const scene = sceneOfStep(ops, around);
   return scene ? line('history.fieldOfManyIn', { scene }, { field, things, tag }) : line('history.fieldOfMany', {}, { field, things, tag });
+}
+
+/**
+ * One frame's shoot day changed: put on a day, moved to another, or taken off one, the day named as the step left it
+ * (`around`), or "a shoot day" once deleted for good. Null when neither side names a day.
+ */
+function frameDayLine(change: FieldChange, frame: Part, around: ReadonlyMap<string, SbdRecord>): Part[] | null {
+  const id = (v: JsonValue | undefined): string | null => (typeof v === 'string' && v !== '' ? v : null);
+  const from = id(change.before);
+  const to = id(change.after);
+  // A day gone for good has no name: its line reads "on a shoot day", never "on shoot day a shoot day".
+  const said = (key: MessageKey, gone: MessageKey, dayId: string): Part[] => {
+    const named = around.get(dayId);
+    return named ? line(key, { frame, day: nameOf(named) }) : line(gone, { frame }, { day: t('history.aShootDay') });
+  };
+  if (to !== null && from === null) return said('history.frameScheduled', 'history.frameScheduledGone', to);
+  if (to !== null) return said('history.frameRescheduled', 'history.frameRescheduledGone', to);
+  if (from !== null) return said('history.frameUnscheduled', 'history.frameUnscheduledGone', from);
+  return null;
 }
 
 /**
@@ -2083,7 +2103,8 @@ export function describeEdit(
       if (arranged === 'distribute') return [t('history.boardItemsDistributed', { things: named })];
       return [t(TIDIED[arranged], { things: named })];
     }
-    if (props.size > 0 && only(['x', 'y'])) return [t('history.boardItemsMoved', { things })];
+    // The verb agrees with the count (Spanish "Se movió", "Se movieron"); {things} already shows the number.
+    if (props.size > 0 && only(['x', 'y'])) return [t(new Set(mine.map((op) => op.recordId)).size === 1 ? 'history.boardItemsMoved' : 'history.boardItemsMovedPlural', { things })];
     if (props.has('rotation') && only(['x', 'y', 'rotation'])) return [t('history.boardItemsRotated', { things })];
     if ((props.has('width') || props.has('height')) && only(['x', 'y', 'width', 'height'])) return [t('history.boardItemsResized', { things })];
     // A picture cropped, or its crop reset (6.5.7b): its box and its kept part together.
@@ -2126,6 +2147,9 @@ export function describeEdit(
       if (changes.length === 1 && only?.prop === 'media_id') return line('history.whoDid', { who }, { what: pictureChange(only), tag });
       // Who's on a shoot day (4.2): the person added or taken off, by name as the step left it (`around`).
       if (changes.length === 1 && only?.prop === 'people_ids' && op.after.type === 'shoot_day') return [...peopleLine(only, nameOf(op.after), around), tag];
+      // One frame put on a shoot day, moved to another or taken off one (Kevin, Nov 21): read as the scene's line reads.
+      const onDay = changes.length === 1 && only?.prop === 'shoot_day_id' && op.after.type === 'shot' ? frameDayLine(only, nameOf(op.after, around, unit), around) : null;
+      if (onDay) return [...onDay, tag];
       if (changes.length === 1 && only) {
         const value = (v: JsonValue | undefined): Part => {
           // Kept by id: named as the step left it (`around`), a location or the person cast (3.5b).

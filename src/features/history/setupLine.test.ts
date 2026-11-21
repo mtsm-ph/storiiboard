@@ -66,6 +66,12 @@ describe('History for setups', () => {
     expect(say([op('move', named, { ...named, sortKey: 'a' })])).toBe('Reordered the setups in SC 04');
   });
 
+  it('in Spanish, a renamed setup and one whose name was taken off are the scene’s, “de” (Kevin, Nov 21)', () => {
+    setLocale('es');
+    expect(say([op('update', named, { ...named, props: { name: 'Door' } })])).toBe('Se renombró el emplazamiento “Window side” de ESC 04 como “Door”');
+    expect(say([op('update', named, unnamed)])).toBe('Sin nombre ahora: el emplazamiento “Window side” de ESC 04');
+  });
+
   it('says frames were put into a setup or taken out of it', () => {
     expect(say([op('update', frame('a', '4A'), frame('a', '4A', { setup_id: 'u' }))])).toBe('Added 4A to setup “Window side” in SC 04');
     expect(
