@@ -1396,7 +1396,8 @@ export const NO_DAY_RECORDS: DayRecords = { under: [], frames: [], kids: [], tur
  * new to the day has its strokes and picture read from its first write with the day, never before: only the parent_id
  * of each write is read there (instr costs a read of the text per id asked, so with 30 frames it took ten times as long
  * as the JSON read: 768 against 74 ms on 20,000 sketch writes). A call sheet new to the day is read from the log's
- * start, by its id and what the log puts under it, as a fresh read would.
+ * start, by its id and what the log puts under it, as a fresh read would, with the same text search first over the
+ * call sheets' ids (a day has one or two), so it reads no JSON a write without one of them would cost.
  */
 export async function dayOpsSince(
   file: ProjectFile,
@@ -1442,7 +1443,9 @@ export async function dayOpsSince(
       [seq, through, JSON.stringify([dayId, ...under]), asked, asked, asked, dayId, dayId],
     ),
   );
-  // A call sheet new to the day: every write to it and to what the log puts under it, from the log's start.
+  // A call sheet new to the day: every write to it and to what the log puts under it, from the log's start. The same
+  // text search goes first, over the call sheets' ids (a day has one or two), so no JSON is read for a write that
+  // can't name one.
   let fresh = newUnder(first);
   while (fresh.length > 0) {
     for (const id of fresh) under.add(id);
@@ -1452,10 +1455,11 @@ export async function dayOpsSince(
         `SELECT ${LOGGED_COLUMNS} FROM ops o
           JOIN op_groups g ON g.id = o.group_id WHERE o.seq <= ?
           AND (o.record_id IN (SELECT value FROM json_each(?))
-            OR json_extract(o.before, '$.parent_id') IN (SELECT value FROM json_each(?))
-            OR json_extract(o.after, '$.parent_id') IN (SELECT value FROM json_each(?)))
+            OR (EXISTS (SELECT 1 FROM json_each(?) k WHERE instr(o.before, k.value) > 0 OR instr(o.after, k.value) > 0)
+              AND (json_extract(o.before, '$.parent_id') IN (SELECT value FROM json_each(?))
+                OR json_extract(o.after, '$.parent_id') IN (SELECT value FROM json_each(?)))))
           ORDER BY o.seq`,
-        [through, ids, ids, ids],
+        [through, ids, ids, ids, ids],
       ),
     );
     fresh = newUnder(rows);
@@ -1463,7 +1467,12 @@ export async function dayOpsSince(
   // Each frame's turns: the known ones, then these writes' in order. A write with the day on one side only is an arrival
   // or a leaving; one with it on both changes nothing.
   const turns = new Map<string, { seq: number; on: boolean }[]>();
-  for (const turn of known.turns) turns.set(turn.frameId, [...(turns.get(turn.frameId) ?? []), { seq: turn.seq, on: turn.on }]);
+  const turnsOf = (frameId: string) => {
+    let list = turns.get(frameId);
+    if (!list) turns.set(frameId, (list = []));
+    return list;
+  };
+  for (const turn of known.turns) turnsOf(turn.frameId).push({ seq: turn.seq, on: turn.on });
   const onAt = (frameId: string, at: number): boolean => {
     let on = false;
     for (const turn of turns.get(frameId) ?? []) {
@@ -1478,8 +1487,8 @@ export async function dayOpsSince(
     if (!frames.has(op.recordId) && !firstSeen.has(op.recordId)) firstSeen.set(op.recordId, op.seq);
     frames.add(op.recordId);
     const on = op.after?.props.shoot_day_id === dayId;
-    const list = turns.get(op.recordId) ?? [];
-    if ((list.at(-1)?.on ?? false) !== on) turns.set(op.recordId, [...list, { seq: op.seq, on }]);
+    const list = turnsOf(op.recordId);
+    if ((list.at(-1)?.on ?? false) !== on) list.push({ seq: op.seq, on });
   }
   // A frame new to the day: its strokes and picture from its first write with the day on, never before.
   if (firstSeen.size > 0) {

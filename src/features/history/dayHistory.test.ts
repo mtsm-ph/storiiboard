@@ -476,9 +476,91 @@ describe('a shoot day’s history, narrowed to the day', () => {
     expect(ids(day())).not.toContain(other);
     await step(() => apply((r) => trashShot(r, project.projectId, shots[3] ?? '')));
     // Empty Trash takes the call sheet with it (ops.ts: alsoPurge): its writes no longer say where they were.
-    await step(() => store.getState().emptyTrash(undefined, () => ['cs1']));
+    const emptied = await step(() => store.getState().emptyTrash(undefined, () => ['cs1']));
     expect(store.getState().records.cs1).toBeUndefined();
     expect(ids(day())).toContain(call);
+    // Its edits no longer say they were the day's, and Empty Trash itself wrote nothing of the day.
+    expect(ids(day())).not.toContain(noted);
+    expect(ids(day())).not.toContain(emptied);
     await expectFeedWords(day());
+  });
+
+  it('lists a frame created on the day, and what changes on it there', async () => {
+    const { step, day, start } = dayOne();
+    await start();
+    const added = addShot(store.getState().records, project.projectId, 'sc1', null, { shoot_day_id: 'd1' });
+    const made = await step(() => store.getState().apply(added.changes));
+    const lensOn = await step(() => apply(() => [{ kind: 'update', id: added.shotId, set: { lens_mm: 50 } }]));
+    const sketchOn = await step(() => apply((r) => [addStroke(r, added.shotId, pen)]));
+    expect(ids(day()).slice(0, 3)).toEqual([sketchOn, lensOn, made]);
+    expect(day().frames).toContain(added.shotId);
+    await expectFeedWords(day());
+  });
+
+  it('lists a Restore to here only when it writes a frame on the day, arriving or leaving', async () => {
+    const { step, day, start } = dayOne();
+    await start();
+    const lens = (id: string, mm: number) => step(() => apply(() => [{ kind: 'update', id, set: { lens_mm: mm } }]));
+    const restore = (to: string) => step(() => store.getState().restoreTo(to));
+    const start0 = await newest();
+    // Only a frame never on the day: not the day's.
+    await lens(shots[1] ?? '', 35);
+    const offOnly = await restore(start0);
+    const arrived = await step(() => apply((r) => scheduleFrames(r, [shots[0] ?? ''], 'd1')));
+    const onDay = await newest();
+    // A frame on the day changed back, beside one off it.
+    await lens(shots[0] ?? '', 50);
+    await lens(shots[1] ?? '', 85);
+    const changedOn = await restore(onDay);
+    // A frame brought back onto the day, beside one off it.
+    await step(() => apply((r) => scheduleFrames(r, [shots[0] ?? ''], 'd2')));
+    await lens(shots[1] ?? '', 24);
+    const backOn = await restore(onDay);
+    // A frame taken off the day, beside one off it.
+    await lens(shots[1] ?? '', 18);
+    const offAgain = await restore(start0);
+    const restores = [offOnly, changedOn, backOn, offAgain];
+    expect(ids(day()).filter((id) => restores.includes(id))).toEqual([offAgain, backOn, changedOn]);
+    expect(ids(day())).toContain(arrived);
+    expect(store.getState().records[shots[0] ?? '']?.props.shoot_day_id ?? null).toBeNull();
+    await expectFeedWords(day());
+  });
+
+  it('takes in a stroke written in the same step as its frame’s arrival', async () => {
+    const { step, day, start } = dayOne();
+    await start();
+    let stroke = '';
+    const arrived = await step(() =>
+      apply((r) => {
+        const sketch = addStroke(r, shots[0] ?? '', pen);
+        stroke = sketch.record.id ?? '';
+        return [...scheduleFrames(r, [shots[0] ?? ''], 'd1'), sketch];
+      }),
+    );
+    expect(ids(day())[0]).toBe(arrived);
+    expect(day().kids).toContain(stroke);
+    const sketchOn = await step(() => apply((r) => [addStroke(r, shots[0] ?? '', pen)]));
+    expect(ids(day()).slice(0, 2)).toEqual([sketchOn, arrived]);
+    await expectFeedWords(day());
+  });
+
+  it('reads a frame newly scheduled after the first read from the last read on, never the log’s start', async () => {
+    await apply((r) => [addStroke(r, shots[0] ?? '', pen)]);
+    await apply((r) => dayChange(r, 'd1', 'call_time', '07:00'));
+    const known = await readDayLog(project.file, 'd1');
+    await apply((r) => scheduleFrames(r, [shots[0] ?? ''], 'd1'));
+    const asked: number[] = [];
+    const file = Object.assign(Object.create(project.file) as typeof project.file, {
+      query: (sql: string, params: Parameters<typeof project.file.query>[1] = []) => {
+        // The frames' strokes and pictures: by parent alone, with no record or text search before it.
+        if (/o\.seq <= \?\s+AND \(json_extract\(o\.before, '\$\.parent_id'\)/.test(sql)) asked.push(Number(params[0]));
+        return project.file.query(sql, params);
+      },
+    });
+    const next = await moreDayLog(file, 'd1', known);
+    expect(next.frames).toContain(shots[0] ?? '');
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toBeGreaterThanOrEqual(known.through);
+    expect(ids(next)).toEqual(ids(await readDayLog(project.file, 'd1')));
   });
 });
