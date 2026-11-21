@@ -68,7 +68,7 @@ export function contactOnSheet(fields: Pick<PersonFields, 'departments' | 'role'
  * The live people in the project, by name (an unnamed one last). Kept per records object (7.4 round 2: every day's
  * sheet reads it on every edit while the Checks tile is open), so the list is shared: its callers never change it.
  */
-export function projectPeople(records: Readonly<Record<string, SbdRecord>>, projectId: string): { record: SbdRecord; fields: PersonFields }[] {
+export function projectPeople(records: Readonly<Record<string, SbdRecord>>, projectId: string): readonly { record: SbdRecord; fields: PersonFields }[] {
   return keptFor(records, `person.project:${projectId}`, () =>
     recordsOfType(records, 'person')
       .filter((r) => r.parentId === projectId && r.trashedAt === null)

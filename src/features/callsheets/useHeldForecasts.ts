@@ -35,15 +35,26 @@ export async function readHeldForecasts(points: readonly HeldPoint[]): Promise<H
 
 const NOTHING: HeldReading = { forecasts: new Map(), fetchedAt: new Map() };
 
+/** The points a reading is for, compared by value: what `useHeldReading`'s `key` is matched against. */
+export const heldPointsKey = (points: readonly HeldPoint[]): string => JSON.stringify(points);
+
+export interface HeldRead extends HeldReading {
+  readAt: number | null;
+  key: string | null;
+}
+
+const NOT_READ: HeldRead = { ...NOTHING, readAt: null, key: null };
+
 /**
- * The held forecasts with their fetch times, and when they were last read (ms; null until they have been read once since
- * the mount): until then a caller can't tell "none held" from "not read yet", and a forecast's age is judged at that
- * time. Points are compared by value, so a redraw with the same places reads nothing again.
+ * The held forecasts with their fetch times, when they were last read (ms; null until they have been read once since
+ * the mount) and the points they were read for (`key`, as `heldPointsKey` gives it; null until read). Until `key` is the
+ * current points' key a caller can't tell "none held" from "not read yet", or from another project's places (7.4 round
+ * 3); a forecast's age is judged at `readAt`. Points are compared by value, so a redraw with the same places reads
+ * nothing again.
  */
-export function useHeldReading(points: readonly HeldPoint[]): HeldReading & { readAt: number | null } {
-  const wanted = JSON.stringify(points);
-  const [held, setHeld] = useState<HeldReading>(NOTHING);
-  const [readAt, setReadAt] = useState<number | null>(null);
+export function useHeldReading(points: readonly HeldPoint[]): HeldRead {
+  const wanted = heldPointsKey(points);
+  const [held, setHeld] = useState<HeldRead>(NOT_READ);
   const [tick, setTick] = useState(0);
   useEffect(
     () =>
@@ -56,14 +67,13 @@ export function useHeldReading(points: readonly HeldPoint[]): HeldReading & { re
     let current = true;
     void readHeld(JSON.parse(wanted) as HeldPoint[]).then((next) => {
       if (!current) return;
-      setHeld(next);
-      setReadAt(Date.now());
+      setHeld({ ...next, readAt: Date.now(), key: wanted });
     });
     return () => {
       current = false;
     };
   }, [wanted, tick]);
-  return { ...held, readAt };
+  return held;
 }
 
 /** By point id. Points are compared by value, so a redraw with the same places reads nothing again. */

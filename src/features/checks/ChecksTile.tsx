@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useProject } from '../../app/projectStore';
 import { useWorkspaceId } from '../../app/shell/workspaceContext';
 import { useZonesAt } from '../../app/timeZone';
@@ -12,7 +12,7 @@ import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
 import { Trans } from '../../ui/Trans';
 import { Words } from '../callsheets/CallSheetChecks';
-import { useHeldReading } from '../callsheets/useHeldForecasts';
+import { heldPointsKey, useHeldReading } from '../callsheets/useHeldForecasts';
 import { openShootDay } from '../schedule/shownDay';
 import { CHECK_KIND_LABEL, checkSentence, oldForecastWords, sentenceText, skipWords, type CheckSentence } from './checkWords';
 import { showFinding } from './showFinding';
@@ -36,7 +36,17 @@ function Sentence({ sentence }: { sentence: CheckSentence }) {
   return <Trans k={sentence.key} parts={parts} />;
 }
 
+/** setTimeout's longest wait (about 24.8 days): a longer one would fire at once. */
+const LONGEST_WAIT = 2 ** 31 - 1;
+
 export function ChecksTile() {
+  const project = useProject((s) => s.project);
+  // Keyed by the open file, as the Calendar, Notifications and Suggestions tiles are (7.4 round 3): a project switched in
+  // place starts its reading afresh, so the last one's forecasts, zones and filters never show for it.
+  return project ? <Checks key={project.file.path} /> : <p className="sb-label p-3 text-text-muted">{t('checks.noProject')}</p>;
+}
+
+function Checks() {
   const project = useProject((s) => s.project);
   const records = useProject((s) => s.records);
   const units = useWeatherUnits();
@@ -57,14 +67,32 @@ export function ChecksTile() {
   });
   const zones = useZonesAt(points);
   const held = useHeldReading(points);
-  // Until the held forecasts and every place's zone have been read once, what can't be checked isn't known yet: the foot
-  // says "Reading…" rather than flash "no forecast" and "no time zone" lines that vanish a moment later (7.4 round 2).
-  const [ready, setReady] = useState(false);
-  if (!ready && held.readAt !== null && points.every((p) => zones.has(p.id))) setReady(true);
-  if (!project) return <p className="sb-label p-3 text-text-muted">{t('checks.noProject')}</p>;
+  // Until the held forecasts for these very places and every place's zone have been read, what can't be checked isn't
+  // known yet: the tile says "Reading…" rather than flash "no forecast" and "no time zone" lines that vanish a moment
+  // later (7.4 round 2), or an all-clear (round 3). A reading for other places (the last project's, or before a pin was
+  // placed) doesn't count.
+  const ready = held.key === heldPointsKey(points) && points.every((p) => zones.has(p.id));
+  // A forecast's age is judged at the time it was read, and again when the first held one expires while the tile is open
+  // (7.4 round 3): one timer at that known moment, re-armed when the forecasts change, never a poll.
+  const [clock, setClock] = useState<number | null>(null);
+  const now = held.readAt === null ? null : Math.max(held.readAt, clock ?? 0);
+  useEffect(() => {
+    if (now === null) return;
+    const next = Math.min(...[...held.forecasts.values()].map((f) => Date.parse(f.expires)).filter((at) => !Number.isNaN(at) && at > now));
+    if (!Number.isFinite(next)) return;
+    const wait = Math.min(next - now, LONGEST_WAIT);
+    const timer = setTimeout(() => {
+      // At the expiry at the earliest (a timer may fire a little early); a wait cut to setTimeout's longest is re-armed.
+      setClock(Math.max(Date.now(), wait === next - now ? next : 0));
+    }, wait);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [held.forecasts, now]);
+  if (!project) return null;
   const projectId = project.projectId;
 
-  const { findings, skipped, oldForecasts } = allChecks(records, projectId, { forecasts: held.forecasts, fetchedAt: held.fetchedAt, zones, ...(held.readAt === null ? {} : { now: held.readAt }) });
+  const { findings, skipped, oldForecasts } = allChecks(records, projectId, { forecasts: held.forecasts, fetchedAt: held.fetchedAt, zones, ...(now === null ? {} : { now }) });
   const days = projectShootDays(records, projectId);
   const dayName = (dayId: string | null) => {
     const day = dayId === null ? undefined : days.find((d) => d.record.id === dayId);
@@ -158,7 +186,12 @@ export function ChecksTile() {
           </div>
         </div>
       )}
-      {findings.length === 0 ? (
+      {findings.length === 0 && !ready ? (
+        // Not an all-clear before the rain and the light could be read (7.4 round 3).
+        <p data-checks-reading="body" className="p-3 text-[13px]">
+          {t('checks.reading')}
+        </p>
+      ) : findings.length === 0 ? (
         <p data-checks-none="" className="p-3 text-[13px]">
           {t('checks.none')}
         </p>

@@ -92,6 +92,8 @@ function notesOf(ctx: CheckContext, forecasts: HeldForecasts, findings: readonly
     const edge = fields.dayNight !== null && EDGE_OF_DAY.includes(fields.dayNight) && callTime !== '';
     const rained = findings.some((f) => f.kind === 'exterior-rain' && f.sceneId === record.id);
     for (const id of locationIds) {
+      // Rain found here was read from this location's forecast, whatever hours it covers: an old one is said old too (round 3).
+      const rainedHere = findings.some((f) => f.kind === 'exterior-rain' && f.sceneId === record.id && f.locationId === id);
       const location = sheet.locations.find((l) => l.record.id === id);
       if (!location) continue;
       if (location.place === null) {
@@ -110,7 +112,9 @@ function notesOf(ctx: CheckContext, forecasts: HeldForecasts, findings: readonly
       const to = hours ? hours.end : wallInstant(shiftDate(date, 1), 0, 0, zone)?.getTime();
       if (from === undefined || to === undefined) continue;
       const state = dayWeather(forecast.entries, date, zone, '').state;
-      if (state === 'none' || state === 'beyond') {
+      if (rainedHere) {
+        read.add(id);
+      } else if (state === 'none' || state === 'beyond') {
         if (!rained) gaps.set(id, { locationId: id, reason: 'forecast-not-covering' });
       } else if (!precipitationCovers(forecast.entries, from, to)) {
         if (!rained && !gaps.has(id)) gaps.set(id, { locationId: id, reason: 'forecast-not-hours' });

@@ -447,22 +447,29 @@ describe('the Checks tile open beside (7.4)', () => {
   /**
    * "Harbor Lights": `scenes` scenes of 10 frames over `days` dated days from Nov 10, 2030, 30 people, `strokes` strokes on
    * each frame's sketch and the first frame of each scene needing gear no day has. Every third scene is an exterior at the
-   * pier, which has a place on the map: the rain check reads the forecast held for it.
+   * pier, which has a place on the map: the rain check reads the forecast held for it. SC 1's frames share Setup 1, whose
+   * plan holds a camera with a typed lens (the lens check) and a light that is gear on Day 1's list (the gear check reads
+   * the plan's items), so the pin covers the plan paths too (7.4 round 3).
    */
   const harbor = (days: number, scenes: number, strokes: number): Records => {
     const list: SbdRecord[] = [
       record('p', 'project', null, { title: 'Harbor Lights' }),
       record('pier', 'location', 'p', { name: 'Harbor Pier', map_name: 'Pier', latitude: 40.7128, longitude: -74.006, time_zone: 'America/New_York' }),
       record('slider', 'gear_item', 'p', { name: 'Slider' }),
+      record('fresnel', 'gear_item', 'p', { name: 'Fresnel 1K' }),
+      record('su0', 'setup', 's0', { name: '' }),
+      record('plan0', 'plan', 'su0', { kind: 'setup', name: '' }),
+      record('cam0', 'plan_item', 'plan0', { kind: 'camera', icon: 'camera/camera', x: 0, y: 0, width: 0.4, height: 0.4, lens_mm: 50, shot_ids: ['f0_0', 'f0_1'] }, 'a'),
+      record('light0', 'plan_item', 'plan0', { kind: 'light', icon: 'lighting/fresnel', x: 2, y: 0, width: 0.4, height: 0.4, gear_id: 'fresnel' }, 'b'),
     ];
     const date = (d: number) => new Date(Date.UTC(2030, 10, 10 + d)).toISOString().slice(0, 10);
-    for (let d = 0; d < days; d += 1) list.push(record(`d${String(d)}`, 'shoot_day', 'p', { date: date(d), call_time: '07:00', wrap_time: '19:00' }));
+    for (let d = 0; d < days; d += 1) list.push(record(`d${String(d)}`, 'shoot_day', 'p', { date: date(d), call_time: '07:00', wrap_time: '19:00', ...(d === 0 ? { gear_ids: ['fresnel'] } : {}) }));
     for (let i = 0; i < 30; i += 1) list.push(record(`person${String(i)}`, 'person', 'p', { name: `Crew ${String(i)}`, departments: [i % 2 === 0 ? 'camera' : 'sound'] }));
     for (let s = 0; s < scenes; s += 1) {
       list.push(record(`s${String(s)}`, 'scene', 'p', { number: String(s + 1), int_ext: s % 3 === 0 ? 'EXT' : 'INT', day_night: s % 5 === 0 ? 'DUSK' : 'DAY', location_id: 'pier' }, String(s).padStart(3, '0')));
       for (let f = 0; f < 10; f += 1) {
         const id = `f${String(s)}_${String(f)}`;
-        list.push(record(id, 'shot', `s${String(s)}`, { number: `${String(s + 1)}${'ABCDEFGHIJ'.charAt(f)}`, status: 'need', shoot_day_id: `d${String(s % days)}`, gear_ids: f === 0 ? ['slider'] : [], lens_mm: 35 }, String(f)));
+        list.push(record(id, 'shot', `s${String(s)}`, { number: `${String(s + 1)}${'ABCDEFGHIJ'.charAt(f)}`, status: 'need', shoot_day_id: `d${String(s % days)}`, gear_ids: f === 0 ? ['slider'] : [], lens_mm: 35, ...(s === 0 ? { setup_id: 'su0' } : {}) }, String(f)));
         for (let k = 0; k < strokes; k += 1) list.push(record(`${id}_k${String(k)}`, 'stroke', id, { points: [0, 0, 1, 1] }));
       }
     }
@@ -488,6 +495,8 @@ describe('the Checks tile open beside (7.4)', () => {
     const forecasts = pierForecast();
     const first = allChecks(base, 'p', { forecasts });
     expect(first.findings.filter((f) => f.kind === 'gear-not-on-day')).toHaveLength(30);
+    // The plan paths run: Setup 1's camera says 50 mm where its two frames say 35, and its light is on Day 1's list.
+    expect(first.findings.filter((f) => f.kind === 'plan-lens-differs')).toHaveLength(2);
     // The forecast held reaches Day 1 to 3 only: the exteriors on the other days say so, from the same sheet.
     expect(first.skipped.some((s) => s.reason === 'forecast-not-covering')).toBe(true);
     const frame = base.f3_3 as SbdRecord;

@@ -274,3 +274,19 @@ describe('every check over the project, round 2 (7.4)', () => {
     expect(relensed.findings.map((f) => f.kind)).not.toContain('plan-lens-differs');
   });
 });
+
+describe('every check over the project, round 3 (7.4)', () => {
+  const outdoors = (): Records => withProps(clean(), 's1', { int_ext: 'EXT', day_night: 'DUSK' });
+
+  it('says an old forecast is old when it found rain in the hours it covers, though it misses the rest of them', () => {
+    // Hourly from 05:00Z to 15:00Z on Nov 16, 3 mm at 15:00Z (the call at the pier): rain found, the wrap not covered.
+    const short: Forecast = { expires: '2030-11-16T00:00:00Z', lastModified: null, entries: Array.from({ length: 11 }, (_, i) => entry(hour(5 + i), i === 10 ? 3 : 0)) };
+    const fetchedAt = new Map([['pier', '2030-11-15T14:14:00Z']]);
+    const result = allChecks(outdoors(), 'p', { forecasts: held(short), fetchedAt, now: Date.parse('2030-11-16T08:00:00Z') });
+    expect(result.findings.map((f) => f.kind)).toContain('exterior-rain');
+    expect(result.skipped).toEqual([]);
+    expect(result.oldForecasts).toEqual([{ id: 'forecast-old:d1:pier', dayId: 'd1', locationId: 'pier', fetchedAt: '2030-11-15T14:14:00Z' }]);
+    // Still fresh: nothing said.
+    expect(allChecks(outdoors(), 'p', { forecasts: held(short), fetchedAt, now: Date.parse('2030-11-15T20:00:00Z') }).oldForecasts).toEqual([]);
+  });
+});

@@ -187,4 +187,118 @@ test('says “Reading…” until the held forecasts and zones are read, then wh
   expect(seen.filter((s) => s.reading && s.skips.length > 0)).toEqual([]);
   // Every line that ever showed is the one that stays.
   expect([...new Set(seen.flatMap((s) => s.skips))]).toEqual(['forecast-not-covering']);
+
+  // Switched in place to another project and back (7.4 round 3): each starts at "Reading…" again, never with the last
+  // one's reading (Open Water has no places: Harbor Pier's "no forecast" would flash), and a project with no findings
+  // never says "No problems found" before its reading is done.
+  const recentPath = (name: string) =>
+    page.evaluate(async (wanted) => {
+      const url = '/src/app/projects/actions.ts';
+      const { recentStore } = (await import(/* @vite-ignore */ url)) as typeof import('../src/app/projects/actions');
+      return recentStore.getState().entries.find((e) => e.name === wanted)?.path ?? '';
+    }, name);
+  const harborPath = await recentPath('Harbor Lights');
+  expect(harborPath).not.toBe('');
+  await page.getByRole('button', { name: /^Project:/ }).click();
+  page.once('dialog', (dialog) => void dialog.accept('Open Water'));
+  await page.getByRole('button', { name: 'New project…' }).click();
+  await skipOnboarding(page);
+  await sections(page).getByRole('button', { name: /^Production/ }).click();
+  await expect(tile(page).locator('[data-checks-none]')).toHaveCount(1);
+  const openWaterPath = await recentPath('Open Water');
+  expect(openWaterPath).not.toBe('');
+  interface Seen {
+    reading: boolean;
+    none: boolean;
+    skips: string[];
+    count: string;
+  }
+  const watch = () =>
+    page.evaluate(() => {
+      const seen: Seen[] = [];
+      const box = window as unknown as { switchSeen: Seen[]; switchWatch?: MutationObserver };
+      box.switchWatch?.disconnect();
+      box.switchSeen = seen;
+      box.switchWatch = new MutationObserver(() => {
+        const checks = document.querySelector('[data-checks-tile]');
+        if (!checks) return;
+        seen.push({
+          reading: checks.querySelector('[data-checks-reading]') !== null,
+          none: checks.querySelector('[data-checks-none]') !== null,
+          skips: [...checks.querySelectorAll('[data-skip]')].map((e) => e.getAttribute('data-skip') ?? ''),
+          count: checks.querySelector('[data-checks-count]')?.textContent ?? '',
+        });
+      });
+      box.switchWatch.observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
+  const switchTo = (path: string) =>
+    page.evaluate(async (to) => {
+      const url = '/src/app/projects/actions.ts';
+      const { openRecent } = (await import(/* @vite-ignore */ url)) as typeof import('../src/app/projects/actions');
+      await openRecent(to);
+    }, path);
+  const seenSince = () => page.evaluate(() => (window as unknown as { switchSeen: Seen[] }).switchSeen);
+
+  // Open Water to Harbor Lights, in place.
+  await watch();
+  await switchTo(harborPath);
+  await expect(page.getByRole('button', { name: 'Project: Harbor Lights' })).toBeVisible();
+  await expect(tile(page).locator('[data-skip="forecast-not-covering"]')).toHaveCount(1);
+  await expect(tile(page).locator('[data-checks-reading]')).toHaveCount(0);
+  await expect(tile(page).locator('[data-checks-count]')).toHaveText('5 problems');
+  const toHarbor = await seenSince();
+  // Open Water's own draws, then Harbor Lights' from "Reading…" on.
+  const harborFrom = toHarbor.findIndex((s) => s.reading);
+  expect(harborFrom).toBeGreaterThanOrEqual(0);
+  expect(toHarbor.slice(0, harborFrom).every((s) => s.count === '0 problems' && s.skips.length === 0)).toBe(true);
+  const harbor = toHarbor.slice(harborFrom);
+  expect(harbor.filter((s) => s.reading && s.skips.length > 0)).toEqual([]);
+  expect([...new Set(harbor.flatMap((s) => s.skips))]).toEqual(['forecast-not-covering']);
+  expect(harbor.filter((s) => s.none)).toEqual([]);
+
+  // And back to Open Water, in place: "Reading…" first, then the all-clear, never before.
+  await watch();
+  await switchTo(openWaterPath);
+  await expect(page.getByRole('button', { name: 'Project: Open Water' })).toBeVisible();
+  await expect(tile(page).locator('[data-checks-none]')).toHaveCount(1);
+  await expect(tile(page).locator('[data-checks-reading]')).toHaveCount(0);
+  const toOpenWater = await seenSince();
+  const openWater = toOpenWater.slice(toOpenWater.findIndex((s) => s.count === '0 problems'));
+  expect(openWater[0]).toMatchObject({ reading: true, none: false, skips: [] });
+  expect(openWater.filter((s) => s.reading && s.none)).toEqual([]);
+  expect([...new Set(openWater.flatMap((s) => s.skips))]).toEqual([]);
+});
+
+test('says an old forecast once the held one expires while the tile is open, at that moment, with no poll (round 3)', async ({ page }) => {
+  // 1A an exterior at Harbor Pier on Day 1 moved to Tue, Nov 17, which the recorded forecast covers: the rain check reads
+  // it. The memory build's forecast says it is good for an hour from its fetch (the page's clock, held at 10:00).
+  await day(page).getByLabel('Date').fill('2026-11-17');
+  await day(page).getByLabel('Date').blur();
+  await sections(page).getByRole('button', { name: /^Storyboard/ }).click();
+  await board(page).locator('[data-shot-id]').first().click();
+  const inspector = page.getByRole('region', { name: 'Frame inspector', exact: true });
+  await inspector.getByRole('radio', { name: 'EXT', exact: true }).click();
+  await board(page).locator('[data-shot-id]').first().click();
+  await page.keyboard.press('/');
+  await page.keyboard.type('loc');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Harbor Pier');
+  await page.keyboard.press('Enter');
+  await sections(page).getByRole('button', { name: /^Production/ }).click();
+  const editor = page.getByRole('region', { name: 'Locations', exact: true }).locator('[data-location-editor]');
+  await editor.getByRole('textbox', { name: 'Coordinates', exact: true }).fill('40.7128, -74.006');
+  await editor.getByRole('button', { name: 'Place pin' }).click();
+  await expect(editor.getByText('On the map')).toBeVisible();
+  await expect(sheet(page).locator('[data-sheet-location] [data-weather]')).toHaveCount(1);
+  await expect(tile(page).locator('[data-checks-reading]')).toHaveCount(0);
+  // Fresh: read, nothing said about its age, and nothing skipped.
+  await expect(tile(page).locator('[data-checks-old]')).toHaveCount(0);
+  await expect(tile(page).locator('[data-skip]')).toHaveCount(0);
+
+  // A minute short of its expiry, still nothing; past it, the line, with no edit and no read in between.
+  await page.clock.fastForward('59:00');
+  await expect(tile(page).locator('[data-checks-old]')).toHaveCount(0);
+  await page.clock.fastForward('01:01');
+  await expect(tile(page).locator('[data-old-forecast]')).toHaveCount(1);
+  await expect(tile(page).locator('[data-old-forecast]')).toHaveText(/^Forecast for Harbor Pier fetched .+: rain checked from it$/);
 });
