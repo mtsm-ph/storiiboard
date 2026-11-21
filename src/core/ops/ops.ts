@@ -1018,6 +1018,56 @@ export async function opsSince(file: ProjectFile, seq: number, recordIds: readon
 }
 
 /**
+ * The writes after `seq` that touched a shoot day (a day's own history): to the day or to the records known to sit under
+ * it (`under`: its call sheets and what's under them), to anything the log puts under one of those, and to any record
+ * whose `shoot_day_id` was the day before or after the write, so a frame moved off the day stays in its history. A
+ * record found under the day for the first time is read whole, every write since the log began, as a fresh read
+ * would have found it. Read as the log still says: a write Empty Trash emptied no longer says where it was.
+ *
+ * With `seq` 0 each pass looks through every op (about as long as childrenInLog's); after that only the ops after `seq`
+ * (seq is indexed), unless a new record under the day turns up, which is read as a fresh read would.
+ */
+export async function dayOpsSince(file: ProjectFile, seq: number, dayId: string, under: readonly string[]): Promise<{ ops: LoggedOp[]; under: string[] }> {
+  const found = new Map<string, LoggedOp>();
+  const known = new Set(under);
+  let ask = [dayId, ...under];
+  let from = seq;
+  let first = true;
+  while (ask.length > 0) {
+    const ids = JSON.stringify(ask);
+    const rows = await file.query(
+      `SELECT ${LOGGED_COLUMNS} FROM ops o
+        JOIN op_groups g ON g.id = o.group_id WHERE o.seq > ?
+        AND (o.record_id IN (SELECT value FROM json_each(?))
+          OR json_extract(o.before, '$.parent_id') IN (SELECT value FROM json_each(?))
+          OR json_extract(o.after, '$.parent_id') IN (SELECT value FROM json_each(?))
+          ${first ? "OR json_extract(o.before, '$.props.shoot_day_id') = ? OR json_extract(o.after, '$.props.shoot_day_id') = ?" : ''})
+        ORDER BY o.seq`,
+      first ? [from, ids, ids, ids, dayId, dayId] : [from, ids, ids, ids],
+    );
+    const parents = new Set([dayId, ...known]);
+    const fresh = new Set<string>();
+    for (const op of rows.map(loggedOp)) {
+      found.set(op.id, op);
+      const below = [op.before?.parentId, op.after?.parentId].some((p) => typeof p === 'string' && parents.has(p));
+      if (below && op.recordId !== dayId && !known.has(op.recordId)) fresh.add(op.recordId);
+    }
+    for (const id of fresh) known.add(id);
+    ask = [...fresh];
+    // A record new under the day: all of its writes, and what's under it, as a fresh read finds them.
+    from = 0;
+    first = false;
+  }
+  return { ops: [...found.values()].sort((a, b) => a.seq - b.seq), under: [...known] };
+}
+
+/** Whether Empty Trash ran after `seq`: it empties older writes, so what was read before may no longer be provable. */
+export async function purgedSince(file: ProjectFile, seq: number): Promise<boolean> {
+  const rows = await file.query("SELECT 1 AS hit FROM ops WHERE seq > ? AND kind = 'purge' LIMIT 1", [seq]);
+  return rows.length > 0;
+}
+
+/**
  * Each record as its last write before `seq` left it, in the order asked; null where there's none (or Empty Trash
  * took its data). For naming a record a step touched without writing it, as it was then: a sketch's frame.
  */

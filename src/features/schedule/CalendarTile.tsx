@@ -11,6 +11,8 @@ import { Button, IconButton } from '../../ui/Button';
 import { cx } from '../../ui/cx';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { addDays, addMonths, monthGrid, monthOf, todayDate, weekOf } from './calendarDates';
+import { useWorkspaceId } from '../../app/shell/workspaceContext';
+import { openDayHistory } from '../history/historyDay';
 
 // The Calendar tile (3.8), in the Production workspace's default layout: the shoot days by month or by week, and the
 // shoot schedule under it. Picking a date narrows the schedule to that date; Show all days widens it again. Each day in
@@ -246,12 +248,24 @@ function ScheduleRow({ day, records, projectId, minutes }: { day: ShootDay; reco
   const sep = t('list.separator');
   const totals = dayTotals(records, dayFrames(records, projectId, day.record.id), minutes);
   const hours = [day.fields.callTime && t('days.callShort', { time: day.fields.callTime }), day.fields.wrapTime && t('calendar.wrapShort', { time: day.fields.wrapTime })].filter(Boolean);
+  const workspaceId = useWorkspaceId();
   return (
     <li data-schedule-day={day.record.id} className="flex flex-col gap-0.5 border-b border-border py-2 text-[13px]">
       <p className="flex flex-wrap items-baseline gap-x-3">
         <span className="font-bold">{dayLabel(day)}</span>
         {hours.length > 0 && <span className="font-mono text-[12px]">{hours.join(' · ')}</span>}
         <span className="font-mono text-[12px]">{tn('days.frames', totals.frames)}</span>
+        {/* The day's own history (Kevin, Nov 18), as from the day in Shoot days. */}
+        <Button
+          variant="ghost"
+          className="ml-auto"
+          aria-label={t('days.historyOf', { day: dayLabel(day) })}
+          onClick={() => {
+            openDayHistory(workspaceId, day.record.id);
+          }}
+        >
+          {t('days.history')}
+        </Button>
       </p>
       <p>
         <span className="sb-label">{t('calendar.scenes')} </span>
