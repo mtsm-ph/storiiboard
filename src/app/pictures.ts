@@ -125,13 +125,27 @@ export interface PagePoint {
   y: number;
 }
 
+/** A change file's name (7.1): a drop of one is brought in as suggestions (src/app/changeFiles.ts), never a picture. */
+export const isChangeFile = (path: string): boolean => /\.sbdchanges$/i.test(path);
+
 /**
  * Desktop app only: files dropped on the window, and where in the page they landed. Tauri catches file drops before
- * the page sees them, so in the app this replaces the page's own drop events.
+ * the page sees them, so in the app this replaces the page's own drop events. Change files are left out (7.1): a drop
+ * of only those isn't a picture drop at all, so it reaches no picture handler.
  */
 export function onWindowDrop(handler: (files: PictureFile[], at: PagePoint) => void): Promise<() => void> {
   return listen<{ paths: string[]; at: PagePoint }>(DROPPED_EVENT, ({ payload }) => {
-    handler(payload.paths.map(fromPath), payload.at);
+    const pictures = payload.paths.filter((path) => !isChangeFile(path));
+    if (pictures.length === 0 && payload.paths.length > 0) return;
+    handler(pictures.map(fromPath), payload.at);
+  });
+}
+
+/** Desktop app only: the change files (7.1) in a drop anywhere on the window, by the paths Rust was given. */
+export function onChangeFilesDrop(handler: (paths: string[]) => void): Promise<() => void> {
+  return listen<{ paths: string[]; at: PagePoint }>(DROPPED_EVENT, ({ payload }) => {
+    const paths = payload.paths.filter(isChangeFile);
+    if (paths.length > 0) handler(paths);
   });
 }
 

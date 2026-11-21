@@ -158,15 +158,21 @@ const MAX_TIME = 40;
 const MAX_UNKNOWN = 20;
 /** Most fields one update or create may name. */
 export const MAX_FIELDS = 50;
+/** The bounds above, for the change file's reader (7.1, src/core/storage/changeFile.ts), which refuses a file past them. */
+export const SUGGESTION_BOUNDS = { id: MAX_ID, name: MAX_NAME, label: MAX_LABEL, note: MAX_NOTE, word: MAX_WORD, time: MAX_TIME } as const;
 
 const isObject = (value: JsonValue | undefined): value is { [key: string]: JsonValue } => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** Text to show: control characters and bidi overrides out (line breaks kept with `lines`), trimmed, at most `max` characters. */
-function cleanText(value: JsonValue | undefined, max: number, lines = false): string {
+/**
+ * Text to show: control characters out (line breaks kept with `lines`), and every format character (`\p{Cf}`: bidi
+ * overrides and marks, zero-width ones, U+FEFF, tag characters) and the line and paragraph separators U+2028 and U+2029
+ * (7.1 round 2), so "Robin\u200BVale" shows as "RobinVale", never as a lookalike of it; trimmed, at most `max` characters.
+ */
+export function cleanText(value: JsonValue | undefined, max: number, lines = false): string {
   if (typeof value !== 'string') return '';
   // Cut first, so a 10 MB text is never walked whole: room for every character as a surrogate pair, and some to strip.
   const head = value.length > max * 4 ? value.slice(0, max * 4) : value;
-  const kept = lines ? head.replace(/[^\P{Cc}\n\t]|[\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/gu, '') : head.replace(/[\p{Cc}\u202A-\u202E\u2066-\u2069\u200E\u200F\u061C]/gu, '');
+  const kept = lines ? head.replace(/[^\P{Cc}\n\t]|[\p{Cf}\u2028\u2029]/gu, '') : head.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, '');
   return Array.from(kept.trim()).slice(0, max).join('').trim();
 }
 
@@ -174,7 +180,8 @@ function cleanText(value: JsonValue | undefined, max: number, lines = false): st
 const idText = (value: JsonValue | undefined): string | null => (typeof value === 'string' && value !== '' && value.length <= MAX_ID ? value : null);
 const timeText = (value: JsonValue | undefined): string | null => (typeof value === 'string' && value.length <= MAX_TIME && !Number.isNaN(Date.parse(value)) ? value : null);
 
-const KNOWN_PROPS: ReadonlySet<string> = new Set([
+/** A suggestion record's props, every one this version reads; the change file's reader (7.1) maps a file onto them. */
+export const KNOWN_PROPS: ReadonlySet<string> = new Set([
   'kind',
   'target_id',
   'target_type',
@@ -273,6 +280,16 @@ export function readSuggestion(record: SbdRecord): Suggestion {
     dataProblem: read.problem,
     unknown: [...new Set(unknown)].slice(0, MAX_UNKNOWN).map((name) => cleanText(name, MAX_WORD) || '?'),
   };
+}
+
+/**
+ * The authors' name when every suggestion shares one (read clean, as text), else null: what a change file brought in is
+ * named by (7.1: the status line and History).
+ */
+export function sharedAuthor(records: readonly SbdRecord[]): string | null {
+  const names = new Set(records.map((record) => readSuggestion(record).author.name));
+  const [name] = names;
+  return names.size === 1 && name !== undefined && name !== '' ? name : null;
 }
 
 /** A record by an id from a suggestion: never one of Object's own keys. */

@@ -129,6 +129,7 @@ export const NOT_A_SETTING: Readonly<Record<string, string>> = {
   'storiiboard.app-data': 'The browser build’s stand-in for app data files: recent projects, never in a preset.',
   'storiiboard.memory-files': 'Projects kept in the page by the dev-only memory build.',
   [CLOSE_BACKUP_FAILED_KEY]: 'A failed backup at a project’s close, said once when that project next opens: a note.',
+  'storiiboard.changes': 'A change file’s format name (7.1, src/core/storage/changeFile.ts), not a storage key: nothing is kept under it.',
 };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);

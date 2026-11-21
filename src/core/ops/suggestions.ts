@@ -1,9 +1,11 @@
 import type { JsonValue, SbdRecord } from '../model/record';
 import { NO_SLATE_NUMBERS, type SlateNumbers } from '../model/shotNumbers';
-import { readSuggestion, reviewSuggestion, type SuggestionReview } from '../model/suggestion';
+import { readSuggestion, reviewSuggestion, sharedAuthor, type SuggestionReview } from '../model/suggestion';
+import { readChangeFile, type ChangeFile, type ChangeFileRefusal } from '../storage/changeFile';
 import type { ProjectFile } from '../storage/driver';
 import { loadSlateNumbers } from '../storage/slateNumbers';
 import { apply, loadRecords, type Change, type OpOptions } from './ops';
+import { keyAfter, keyAfterKeys } from './order';
 
 // The two decisions a person makes on a suggestion (7.0, Phase 7 decision 5): Apply and Reject, each its own op group,
 // so each undoes on its own and "Apply the rest" (7.2) is a loop of single applies. Apply writes what the suggestion
@@ -79,4 +81,131 @@ export async function rejectSuggestion(file: ProjectFile, suggestionId: string, 
   if (!changes) return false;
   await apply(file, changes, options);
   return true;
+}
+
+// Bringing a change file in (7.1, docs/SBD_FORMAT.md "Importing"): one op group of creates, one `suggestion` record per
+// suggestion the project doesn't have yet, under the project, so one undo removes them all. Nothing else is written:
+// the file's suggestions become records only, and no other record is touched.
+
+/** What bringing a file in would write, and what it found. */
+export interface BroughtIn {
+  /** The creates; [] when the file adds nothing, so no op is written. */
+  changes: Change[];
+  /** Suggestions it adds. */
+  added: number;
+  /** Suggestions already in the project (brought in before): they add nothing. */
+  already: number;
+  /** Suggestions whose id is another record's (not a suggestion): left out, never written over it. */
+  taken: number;
+  /** The authors' name when every one added shares one, as text; null for none or several. */
+  authorName: string | null;
+}
+
+/**
+ * Bring-in's change list for a file already read (readChangeFile): a create for each suggestion whose id no record has,
+ * placed after the project's suggestions. An id that is already a suggestion is the same file (or one sharing it)
+ * brought in before; an id that is any other record's is left out, so a file can never write over a frame by naming it.
+ */
+export function bringInChanges(records: Readonly<Record<string, SbdRecord>>, projectId: string, file: ChangeFile): BroughtIn {
+  return bringInManyChanges(records, projectId, [file]).each[0] ?? { changes: [], added: 0, already: 0, taken: 0, authorName: null };
+}
+
+/** Several files brought in as one op group (the folder's pass, 7.1 round 2): each file's part, and every create. */
+export interface BroughtInMany {
+  each: BroughtIn[];
+  changes: Change[];
+}
+
+/**
+ * Bring-in's change list for several files read already, in order, as one op group: what bringInChanges does for each,
+ * an id an earlier file of the same pass adds counting as already in for a later one. `skip` holds suggestion ids
+ * brought in before whose records are gone (an undone bring-in, everBroughtIn): they count as already in, so the folder
+ * never brings back what a person undid.
+ */
+export function bringInManyChanges(
+  records: Readonly<Record<string, SbdRecord>>,
+  projectId: string,
+  files: readonly ChangeFile[],
+  skip: ReadonlySet<string> = new Set(),
+): BroughtInMany {
+  const keys = Object.values(records)
+    .filter((record) => record.parentId === projectId && record.type === 'suggestion')
+    .map((record) => record.sortKey);
+  let key: string | null = null;
+  const changes: Change[] = [];
+  const each: BroughtIn[] = [];
+  const added = new Set<string>();
+  for (const file of files) {
+    const own: Change[] = [];
+    const made: SbdRecord[] = [];
+    let already = 0;
+    let taken = 0;
+    for (const suggestion of file.suggestions) {
+      const existing = Object.hasOwn(records, suggestion.id) ? records[suggestion.id] : undefined;
+      if (existing) {
+        if (existing.type === 'suggestion') already += 1;
+        else taken += 1;
+        continue;
+      }
+      if (added.has(suggestion.id) || skip.has(suggestion.id)) {
+        already += 1;
+        continue;
+      }
+      added.add(suggestion.id);
+      key = (key === null ? null : keyAfter(key)) ?? keyAfterKeys(key === null ? keys : [...keys, key]);
+      own.push({ kind: 'create', record: { id: suggestion.id, type: 'suggestion', parentId: projectId, sortKey: key, props: suggestion.props } });
+      made.push({ id: suggestion.id, type: 'suggestion', parentId: projectId, sortKey: key, props: suggestion.props, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' });
+    }
+    changes.push(...own);
+    each.push({ changes: own, added: own.length, already, taken, authorName: sharedAuthor(made) });
+  }
+  return { each, changes };
+}
+
+/** What the log says was ever brought in: every suggestion id and change file id a create of a suggestion named. */
+export interface EverBroughtIn {
+  suggestions: Set<string>;
+  files: Set<string>;
+}
+
+/**
+ * Every suggestion the log ever created, undone ones included, with the change files they came from (7.1 round 2): the
+ * folder skips a file or a suggestion id named here, so an undone bring-in stays undone. An undo's op keeps the kind it
+ * reverses with its sides swapped, so both sides are read. Import changes… by hand doesn't ask: a person who chose a
+ * file again wants it.
+ *
+ * Cheap on a long log (7.1 round 3): a snapshot is written by ops.ts's `snapshot`, its `id` first and its `type` second,
+ * so `"type":"suggestion"` sits in its first 300 characters; only rows that pass that look at the start of the text are
+ * parsed as JSON, and the JSON still decides.
+ */
+export async function everBroughtIn(file: ProjectFile): Promise<EverBroughtIn> {
+  const rows = await file.query(
+    `SELECT record_id AS id, coalesce(json_extract(after, '$.props.change_file_id'), json_extract(before, '$.props.change_file_id')) AS file
+      FROM ops WHERE kind = 'create'
+        AND (instr(substr(after, 1, 300), '"type":"suggestion"') > 0 OR instr(substr(before, 1, 300), '"type":"suggestion"') > 0)
+        AND (json_extract(after, '$.type') = 'suggestion' OR json_extract(before, '$.type') = 'suggestion')`,
+  );
+  const suggestions = new Set<string>();
+  const files = new Set<string>();
+  for (const row of rows) {
+    suggestions.add(String(row.id));
+    if (typeof row.file === 'string') files.add(row.file);
+  }
+  return { suggestions, files };
+}
+
+/** Bringing a file into an open file: what it did, or why the file was refused (nothing written). */
+export type BringInResult = { ok: true; broughtIn: BroughtIn } | { ok: false; refusal: ChangeFileRefusal };
+
+/**
+ * Brings a change file into an open project file as one op group, reading the project as it is now. For tests and 7.5's
+ * server: the app runs bringInChanges inside the store's queue (`applyWith`), so no edit lands between its read and its
+ * write. A file that adds nothing writes no op.
+ */
+export async function bringInChangeFile(file: ProjectFile, projectId: string, bytes: Uint8Array, options: OpOptions = {}): Promise<BringInResult> {
+  const read = readChangeFile(bytes, projectId);
+  if (!read.ok) return read;
+  const broughtIn = bringInChanges(await recordsOf(file), projectId, read.file);
+  if (broughtIn.changes.length > 0) await apply(file, broughtIn.changes, options);
+  return { ok: true, broughtIn };
 }

@@ -33,6 +33,7 @@ import { EyedropperHost } from '../../features/storyboard/palette/Eyedropper';
 import { isSettingsShortcut, openSettings, SettingsHost } from '../settings/SettingsWindow';
 import { PresetWindows } from '../presets/PresetsTab';
 import { AskHost } from '../ask';
+import { ChangeFilesHost } from '../ChangeFilesHost';
 import { ManageWorkspacesHost } from './ManageWorkspaces';
 import { NotificationSync } from '../../features/notifications/notificationsStore';
 import { NoticeBar } from '../NoticeBar';
@@ -270,6 +271,7 @@ export function AppShell() {
       <StatusBar workspace={workspace} />
       <OnboardingHost />
       <ImportScriptHost />
+      <ChangeFilesHost />
       <ExportHost />
       <SettingsHost />
       {/* Save preset… and Apply… (6.5.8), opened from Settings and drawn over it as windows of their own. */}
