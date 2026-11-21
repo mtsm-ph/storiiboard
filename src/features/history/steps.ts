@@ -1,6 +1,6 @@
 import type { PlanUnit } from '../../core/model/length';
 import type { SbdRecord } from '../../core/model/record';
-import { childrenBefore, childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, recordsBefore, storedPictures, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { childrenInLog, lastOpSeq, log, opsOfGroups, opsOfRecords, opsSince, placesBefore, recordsBefore, storedPictures, type GoneRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import type { ProjectFile } from '../../core/storage/driver';
 import { listVersions, type NamedVersion } from '../../core/storage/versions';
 import { byStep, describeGroup, lineText, moveTarget, peopleDiff, scheduledScene, stepScene, type Line } from './summary';
@@ -44,10 +44,12 @@ export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUni
   const [ops, stored] = await Promise.all([opsOfGroups(file, [...wanted]), storedPictures(file)]);
   const byGroup = byStep(ops);
   // Only an edit's line names its own records; undo, redo and restore name the step they point at.
-  const around = await namedRecords(file, new Map([...byGroup].filter(([id]) => byId.get(id)?.kind === 'edit')));
+  const { around, unsure } = await stepRecords(file, new Map([...byGroup].filter(([id]) => byId.get(id)?.kind === 'edit')));
   // Oldest first, so the step an undo, redo or restore names already has its line.
   const titles = new Map<string, Line>();
-  for (const group of groups) if (wanted.has(group.id)) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id), unit));
+  for (const group of groups) {
+    if (wanted.has(group.id)) titles.set(group.id, describeGroup(group, byGroup.get(group.id) ?? [], titles, stored, around.get(group.id), unit, unsure.has(group.id)));
+  }
   return {
     steps: shown.reverse().map((group) => ({
       group,
@@ -68,8 +70,23 @@ export async function loadSteps(file: ProjectFile, count: number, unit?: PlanUni
  * other line's does.
  */
 export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<string, readonly LoggedOp[]>): Promise<Map<string, Map<string, SbdRecord>>> {
+  return (await stepRecords(file, byGroup)).around;
+}
+
+/**
+ * namedRecords, and the steps whose place's records may not all be known any more (`unsure`): a step that reads a
+ * place (a move's, a scheduled scene's) while some record that was in the project then has since been deleted for good.
+ * Empty Trash empties a purged record's every write and keeps only their seqs and kinds (1.21), so where it was can't
+ * be read: it was there at the step unless all its writes came before the step (it was gone already), or the first
+ * one made it after the step began (in another step). The line then says only what it can prove (summary.ts).
+ */
+export async function stepRecords(
+  file: ProjectFile,
+  byGroup: ReadonlyMap<string, readonly LoggedOp[]>,
+): Promise<{ around: Map<string, Map<string, SbdRecord>>; unsure: Set<string> }> {
   const asks: { group: string; id: string; seq: number }[] = [];
   const kids: { group: string; parentId: string; seq: number }[] = [];
+  const reads: { group: string; start: number }[] = [];
   for (const [group, ops] of byGroup) {
     const stroke = ops.find((op) => (op.after ?? op.before)?.type === 'stroke');
     const shotId = stroke ? (stroke.after ?? stroke.before)?.parentId : null;
@@ -138,13 +155,17 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
     if (into !== null) {
       if (!ops.some((op) => op.recordId === into)) asks.push({ group, id: into, seq: end });
       kids.push({ group, parentId: into, seq: start });
+      reads.push({ group, start });
     }
     // The scene a step's records share, so "Changed 3 items in SC 12" can name it; a scene's frames scheduled together,
     // with its frames as the step left them, so a whole scene reads as the scene.
     const scene = stepScene(ops);
     if (scene !== null && !ops.some((op) => op.recordId === scene)) asks.push({ group, id: scene, seq: end });
     const scheduled = scheduledScene(ops);
-    if (scheduled !== null) kids.push({ group, parentId: scheduled, seq: end });
+    if (scheduled !== null) {
+      kids.push({ group, parentId: scheduled, seq: end });
+      reads.push({ group, start });
+    }
   }
   const found = await recordsBefore(file, asks);
   const around = new Map<string, Map<string, SbdRecord>>();
@@ -159,12 +180,18 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
   };
   keep(asks, found);
   // A place's records as they were then, each kept only where the step's own asks haven't named it already.
-  const children = await childrenBefore(file, kids);
+  const { children, gone } = await placesBefore(file, kids);
   kids.forEach((ask, i) => {
     const named = around.get(ask.group) ?? new Map<string, SbdRecord>();
     for (const record of children[i] ?? []) if (!named.has(record.id)) named.set(record.id, record);
     around.set(ask.group, named);
   });
+  const unsure = new Set<string>();
+  for (const { group, start } of reads) {
+    const own = new Set((byGroup.get(group) ?? []).map((op) => op.recordId));
+    const there = (record: GoneRecord) => record.last >= start && (own.has(record.id) || !(record.made && record.first >= start));
+    if (gone.some(there)) unsure.add(group);
+  }
   // An issued call sheet that already existed (4.7): its day, which only the call sheet record knows.
   const days = [...around].flatMap(([group, named]) => {
     const issued = byGroup.get(group)?.find((op) => op.after?.type === 'media' && typeof op.after.props.issue_version === 'number');
@@ -173,7 +200,7 @@ export async function namedRecords(file: ProjectFile, byGroup: ReadonlyMap<strin
     return issued && sheet?.parentId && !named.has(sheet.parentId) ? [{ group, id: sheet.parentId, seq: issued.seq }] : [];
   });
   keep(days, await recordsBefore(file, days));
-  return around;
+  return { around, unsure };
 }
 
 /** Every write to a frame and to what the log ever put under it (its strokes and picture), oldest first. */

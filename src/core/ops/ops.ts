@@ -1029,30 +1029,108 @@ export async function recordsBefore(file: ProjectFile, asks: readonly { id: stri
 }
 
 /**
+ * A record Empty Trash deleted for good, as the log still shows it. Its writes keep their place and kind but not what
+ * they wrote (1.21), so where it was is gone with it: only when it lived is known. `first` and `last` are its first and
+ * last ops' seqs; `made` says whether its first op made it (a create in an edit or a redo, not an undo of a delete).
+ */
+export interface GoneRecord {
+  id: string;
+  first: number;
+  last: number;
+  made: boolean;
+}
+
+/**
  * The records under each asked parent as their last write before `seq` left them, by ask: where a step put a frame
  * ("after 3C"), named by the neighbours it had then. Read, never written. The ones there now (records_by_parent) and
- * the ones a later write took out of it (ops after `seq` only, by seq), so a frame moved away since still counts.
+ * the ones a later write took out of it, so a frame moved away since still counts.
+ *
+ * History asks this after every edit, once per move on its page, so the log after the oldest ask is read once for all
+ * of them (by seq, each op's parent read once), not once per ask: that was the moves on the page times the ops after
+ * them. A bound that doesn't grow with the log would need an index on the ops' parent, a schema change.
+ *
+ * `gone`: the records deleted for good that the log shows from the oldest ask on (their writes emptied, Empty Trash's
+ * purge among them), read in the same pass, so History can tell a place it no longer fully knows (GoneRecord).
  */
-export async function childrenBefore(file: ProjectFile, asks: readonly { parentId: string; seq: number }[]): Promise<SbdRecord[][]> {
-  if (asks.length === 0) return [];
-  const rows = await file.query(
-    `SELECT c.i AS i, (SELECT o.after FROM ops o WHERE o.record_id = c.id AND o.seq < c.seq ORDER BY o.seq DESC LIMIT 1) AS after
-      FROM (
-        SELECT j.key AS i, json_extract(j.value, '$.seq') AS seq, r.id AS id FROM json_each(?) j
-          JOIN records r ON r.parent_id = json_extract(j.value, '$.parentId')
-        UNION
-        SELECT j.key, json_extract(j.value, '$.seq'), o.record_id FROM json_each(?) j
-          JOIN ops o ON o.seq >= json_extract(j.value, '$.seq') AND json_extract(o.before, '$.parent_id') = json_extract(j.value, '$.parentId')
-      ) c ORDER BY c.i`,
-    [JSON.stringify(asks), JSON.stringify(asks)],
-  );
-  const out: SbdRecord[][] = asks.map(() => []);
-  for (const row of rows) {
-    const record = fromSnapshot(row.after);
-    const ask = asks[Number(row.i)];
-    if (record && ask && record.parentId === ask.parentId) out[Number(row.i)]?.push(record);
+export async function placesBefore(
+  file: ProjectFile,
+  asks: readonly { parentId: string; seq: number }[],
+): Promise<{ children: SbdRecord[][]; gone: GoneRecord[] }> {
+  if (asks.length === 0) return { children: [], gone: [] };
+  const from = asks.reduce((min, ask) => Math.min(min, ask.seq), Number.MAX_SAFE_INTEGER);
+  const parents = JSON.stringify([...new Set(asks.map((ask) => ask.parentId))]);
+  const [now, later] = await Promise.all([
+    file.query('SELECT id, parent_id FROM records WHERE parent_id IN (SELECT value FROM json_each(?))', [parents]),
+    // Per record and parent, its newest write from `from` on that had it under an asked parent; and the records whose
+    // writes were emptied, with no parent (a NULL `parent`).
+    file.query(
+      `SELECT record_id, parent, max(seq) AS last FROM (
+          SELECT o.record_id, o.seq, json_extract(o.before, '$.parent_id') AS parent, o.before IS NULL AND o.after IS NULL AS emptied
+            FROM ops o WHERE o.seq >= ?
+        ) WHERE emptied OR parent IN (SELECT value FROM json_each(?)) GROUP BY record_id, parent`,
+      [from, parents],
+    ),
+  ]);
+  const underNow = new Map<string, string[]>();
+  for (const row of now) {
+    const parent = String(row.parent_id);
+    underNow.set(parent, [...(underNow.get(parent) ?? []), String(row.id)]);
   }
-  return out;
+  const leftLater = new Map<string, { id: string; last: number }[]>();
+  const goneIds: string[] = [];
+  for (const row of later) {
+    if (row.parent === null || row.parent === undefined) {
+      goneIds.push(String(row.record_id));
+      continue;
+    }
+    const parent = String(row.parent);
+    leftLater.set(parent, [...(leftLater.get(parent) ?? []), { id: String(row.record_id), last: Number(row.last) }]);
+  }
+  // Each ask's records, then each one's last write before the ask's seq, through ops_by_record.
+  const pairs: { i: number; id: string; seq: number }[] = [];
+  asks.forEach((ask, i) => {
+    const ids = new Set(underNow.get(ask.parentId) ?? []);
+    for (const moved of leftLater.get(ask.parentId) ?? []) if (moved.last >= ask.seq) ids.add(moved.id);
+    for (const id of ids) pairs.push({ i, id, seq: ask.seq });
+  });
+  const [rows, goneRows] = await Promise.all([
+    pairs.length === 0
+      ? Promise.resolve([])
+      : file.query(
+          `SELECT j.key AS k, (SELECT o.after FROM ops o WHERE o.record_id = json_extract(j.value, '$.id')
+              AND o.seq < json_extract(j.value, '$.seq') ORDER BY o.seq DESC LIMIT 1) AS after
+            FROM json_each(?) j ORDER BY j.key`,
+          [JSON.stringify(pairs)],
+        ),
+    goneIds.length === 0
+      ? Promise.resolve([])
+      : file.query(
+          `SELECT m.id, m.first, m.last, o.kind, g.kind AS group_kind FROM (
+              SELECT o.record_id AS id, min(o.seq) AS first, max(o.seq) AS last FROM ops o
+                WHERE o.record_id IN (SELECT value FROM json_each(?)) GROUP BY o.record_id
+            ) m JOIN ops o ON o.seq = m.first JOIN op_groups g ON g.id = o.group_id`,
+          [JSON.stringify(goneIds)],
+        ),
+  ]);
+  const children: SbdRecord[][] = asks.map(() => []);
+  for (const row of rows) {
+    const pair = pairs[Number(row.k)];
+    const record = fromSnapshot(row.after);
+    const ask = pair ? asks[pair.i] : undefined;
+    if (pair && record && ask && record.parentId === ask.parentId) children[pair.i]?.push(record);
+  }
+  const gone = goneRows.map((row): GoneRecord => ({
+    id: String(row.id),
+    first: Number(row.first),
+    last: Number(row.last),
+    made: row.kind === 'create' && (row.group_kind === 'edit' || row.group_kind === 'redo'),
+  }));
+  return { children, gone };
+}
+
+/** The records under each asked parent as they were just before `seq` (placesBefore, without the records gone since). */
+export async function childrenBefore(file: ProjectFile, asks: readonly { parentId: string; seq: number }[]): Promise<SbdRecord[][]> {
+  return (await placesBefore(file, asks)).children;
 }
 
 /** The picture files still stored: a step whose picture isn't among them shows "picture removed" (1.21). */

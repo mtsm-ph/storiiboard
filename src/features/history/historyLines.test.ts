@@ -3,11 +3,11 @@ import { createProjectStore } from '../../app/projectStore';
 import { setLocale } from '../../core/i18n';
 import { dayDateLabel } from '../../core/model/shootDay';
 import type { Props, SbdRecord } from '../../core/model/record';
-import { log, opsOfRecord, type LoggedOp, type OpGroup } from '../../core/ops/ops';
+import { log, opsOfRecord, type Change, type LoggedOp, type OpGroup } from '../../core/ops/ops';
 import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
-import { addShot, moveItem } from '../storyboard/board';
+import { addShot, moveItem, trashShot } from '../storyboard/board';
 import { loadSteps } from './steps';
 import { describeEdit, frameRows, lineText } from './summary';
 
@@ -110,6 +110,17 @@ describe('a move names where it went', () => {
     expect(say([op('move', null, null, 'gone')])).toBe('Se movió un elemento, borrado para siempre después');
   });
 
+  it('a scene to the start of the project, with the project’s own words in Spanish, its record known or not', () => {
+    expect(say([moved(sc12, 'p', '0')])).toBe('Moved SC 12 to the start of the project');
+    // A real file's project record isn't in the log (ensureProjectRecord): the place needs no record.
+    expect(say([moved(sc12, 'p', '0')], near(sc3, sc4, sc12))).toBe('Moved SC 12 to the start of the project');
+    expect(say([moved(sc3, 'p', 'n')], near(sc3, sc4, sc12))).toBe('Moved SC 03 to after SC 12');
+    setLocale('es');
+    expect(say([moved(sc12, 'p', '0')])).toBe('Se movió ESC 12 al principio del proyecto');
+    expect(say([moved(sc4, 'p', '0'), moved(sc12, 'p', '1')])).toBe('Se movieron 2 escenas al principio del proyecto');
+    expect(say([moved(sc4, 'p', '0'), moved(sc12, 'p', '1')], near(sc3, sc4, sc12))).toBe('Se movieron 2 escenas al principio del proyecto');
+  });
+
   it('stays one short line with a long scene heading: the scene by its number, as every line names it', () => {
     const long = record('sc12', 'scene', 'p', 'm', { number: '12', name: `INT. ${'VERY LONG DINER '.repeat(20)}- NIGHT` });
     const said = say([moved(c4, 'sc12', 'a')], near(long, c4));
@@ -117,6 +128,63 @@ describe('a move names where it went', () => {
     expect(said.length).toBeLessThan(48);
     setLocale('es');
     expect(say([moved(c4, 'sc12', 'a')], near(long, c4))).toBe('Se movió 4C al principio de ESC 12');
+  });
+});
+
+describe('a drag in a file whose sort keys couldn’t be read (6.23)', () => {
+  // Scene 1's frames A, B and C, C's key one keyBetween can't read (boardKeys.test.ts): a drag past it writes the
+  // scene's frames afresh in the same step.
+  const s1 = record('s1', 'scene', 'p', 'b', { number: '1' });
+  const s2 = record('s2', 'scene', 'p', 's', { number: '2' });
+  const fa = shot('fa', 's1', 'b', '1A', { status: 'need' });
+  const fb = shot('fb', 's1', 'd', '1B', { status: 'need' });
+  const fc = shot('fc', 's1', '~', '1C', { status: 'need' });
+  const fx = shot('fx', 's2', 'b', '2A', { status: 'need' });
+  const odd = { p: project, s1, s2, fa, fb, fc, fx };
+  /** The changes as the log would hold them: each op with the record before and after it. */
+  const logged = (changes: readonly Change[]): LoggedOp[] => {
+    const now: Record<string, SbdRecord> = { ...odd };
+    return changes.map((change) => {
+      const was = change.kind === 'create' ? undefined : now[change.id];
+      if (!was) throw new Error('not in the test');
+      const after =
+        change.kind === 'move'
+          ? { ...was, parentId: change.parentId, sortKey: change.sortKey }
+          : change.kind === 'update'
+            ? { ...was, props: { ...was.props, ...(change.set ?? {}) } }
+            : was;
+      now[was.id] = after;
+      return op(change.kind === 'move' ? 'move' : 'update', was, after);
+    });
+  };
+  const around = near(project, s1, s2, fa, fb, fc, fx);
+
+  it('counts and places only the frame the person moved, not the ones written afresh with it', () => {
+    const changes = moveItem(odd, 'p', 'fa', 's1', null);
+    expect(changes.filter((c) => c.kind === 'move').length).toBeGreaterThan(1);
+    expect(say(logged(changes), around)).toBe('Moved 1A to after 1C');
+    // Into scene 1 from scene 2, at its end: only 2A moved.
+    expect(say(logged(moveItem(odd, 'p', 'fx', 's1', null)), around)).toBe('Moved 2A to after 1C');
+    setLocale('es');
+    expect(say(logged(changes), around)).toBe('Se movió 1A después de 1C');
+  });
+});
+
+describe('a deck’s page moved', () => {
+  const deck = record('d', 'board', 'p', 'k', { kind: 'deck', name: 'Pitch' });
+  const page = (id: string, sortKey: string, name: string) => record(id, 'board_item', 'd', sortKey, { kind: 'page', x: 0, y: 0, width: 1920, height: 1080, name });
+  const p1 = page('p1', 'a', '');
+  const p2 = page('p2', 'b', 'Cover');
+  const p3 = page('p3', 'c', '');
+  const pages = near(deck, p1, p2, p3);
+
+  it('names the deck as the deck lines do, and a page by its name or its number then', () => {
+    expect(say([moved(p3, 'd', '0')], pages)).toBe('Moved page 3 to the start of deck Pitch');
+    expect(say([moved(p1, 'd', 'bm')], pages)).toBe("Moved page 1 to after page 'Cover'");
+    expect(say([moved(p2, 'd', 'cm')], pages)).toBe("Moved page 'Cover' to after page 3");
+    setLocale('es');
+    expect(say([moved(p3, 'd', '0')], pages)).toBe('Se movió la página 3 al principio de la presentación Pitch');
+    expect(say([moved(p2, 'd', 'cm')], pages)).toBe('Se movió la página «Cover» después de la página 3');
   });
 });
 
@@ -184,6 +252,20 @@ describe('the last fallback', () => {
     expect(say([retyped(l1, 'location'), retyped(l2, 'location')], here)).toBe('2 cambios en 2 locaciones');
     expect(say([retyped(n2, 'note'), retyped(s, 'shot')], near(sc12, n2, s))).toBe('2 cambios en ESC 12');
     expect(say([retyped(l1, 'location'), retyped(d, 'department')], here)).toBe('2 cambios');
+  });
+
+  it('names board items and attachments by the nouns the other lines give them', () => {
+    const item = (id: string, kind: string) => record(id, 'board_item', 'b', id, { kind, x: 0, y: 0, width: 100, height: 100 });
+    const pdf = (id: string) => record(id, 'media', 'p', id, { kind: 'pdf', source_name: `${id}.pdf`, file: 'f'.repeat(64), byte_size: 10 });
+    const mixed = [retyped(item('i1', 'rect'), 'board_item'), retyped(item('i2', 'sticky'), 'board_item')];
+    const rects = [retyped(item('i1', 'rect'), 'board_item'), retyped(item('i3', 'rect'), 'board_item')];
+    const pdfs = [retyped(pdf('m1'), 'media'), retyped(pdf('m2'), 'media')];
+    expect(say(mixed, here)).toBe('2 changes to 2 items');
+    expect(say(rects, here)).toBe('2 changes to 2 rectangles');
+    expect(say(pdfs, here)).toBe('2 changes to 2 attachments');
+    setLocale('es');
+    expect(say(mixed, here)).toBe('2 cambios en 2 elementos');
+    expect(say(pdfs, here)).toBe('2 cambios en 2 adjuntos');
   });
 });
 
@@ -257,6 +339,50 @@ describe('History as read from the file', () => {
     expect((await lines(1))[0]).toBe('Undid: Moved 4A to after 3A');
     setLocale('es');
     expect(await lines(3)).toEqual(['Se deshizo: Se movió 4A después de 3A', 'Se movió 4A después de 3A', 'Se movió 4C después de 4A']);
+  });
+
+  it('says where a dragged scene went, though the project record is never in the log', async () => {
+    await store.getState().apply([{ kind: 'create', record: { id: 'sc5', type: 'scene', parentId: file.projectId, sortKey: 'W', props: { number: '5' } } }]);
+    const sceneMove = (id: string, sortKey: string) => ({ kind: 'move' as const, id, parentId: file.projectId, sortKey });
+    // SC 05 to the start, SC 03 after SC 04, then SC 03 and SC 04 together to the start.
+    await store.getState().apply([sceneMove('sc5', 'A')]);
+    await store.getState().apply([sceneMove('sc3', 'Vm')]);
+    await store.getState().apply([sceneMove('sc4', '1'), sceneMove('sc3', '2')]);
+    expect(await lines(3)).toEqual(['Moved 2 scenes to the start of the project', 'Moved SC 03 to after SC 04', 'Moved SC 05 to the start of the project']);
+    setLocale('es');
+    expect(await lines(3)).toEqual(['Se movieron 2 escenas al principio del proyecto', 'Se movió ESC 03 después de ESC 04', 'Se movió ESC 05 al principio del proyecto']);
+  });
+
+  it('says only what moved once a frame of the scene then is deleted for good, and where while the one gone was elsewhere', async () => {
+    const [a, b, c] = [await frame('sc4'), await frame('sc4'), await frame('sc4')];
+    const elsewhere = await frame('sc3');
+    await move(c, 'sc4', b);
+    expect((await lines(1))[0]).toBe('Moved 4C to after 4A');
+    // 3A, in another scene, deleted for good: 4C's place is still proven by its letter.
+    await store.getState().apply(trashShot(store.getState().records, file.projectId, elsewhere));
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    expect(await lines()).toContain('Moved 4C to after 4A');
+    // 4A deleted for good: what was before 4C then isn't known, so the line says what moved, never "to the start".
+    await store.getState().apply(trashShot(store.getState().records, file.projectId, a));
+    expect(await store.getState().emptyTrash()).not.toBeNull();
+    const now = await lines();
+    expect(now).toContain('Moved 4C');
+    expect(now.some((l) => l.startsWith('Moved 4C to'))).toBe(false);
+    setLocale('es');
+    expect(await lines()).toContain('Se movió 4C');
+  });
+
+  it('a drag after a frame deleted for good since never names the frame before that one', async () => {
+    const [, b, , d] = [await frame('sc4'), await frame('sc4'), await frame('sc4'), await frame('sc4')];
+    // 4D after 4B: "after 4B" while 4B is known; once 4B is gone for good, never "after 4A".
+    const c = Object.values(store.getState().records).find((r) => r.type === 'shot' && r.props.number === '4C')?.id ?? null;
+    await move(d, 'sc4', c);
+    expect((await lines(1))[0]).toBe('Moved 4D to after 4B');
+    await store.getState().apply(trashShot(store.getState().records, file.projectId, b));
+    await store.getState().emptyTrash();
+    const now = await lines();
+    expect(now).toContain('Moved 4D');
+    expect(now).not.toContain('Moved 4D to after 4A');
   });
 
   it('names a scene put into a shoot day whole as the scene, read back from the file', async () => {
