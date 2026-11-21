@@ -394,7 +394,7 @@ test('squeezed to 150 and 130 px every row is whole, its name first and its cont
   });
   const app = await openSettings(page, 'App');
   await app.getByLabel('Language').selectOption('es');
-  await page.keyboard.press('Escape');
+  await closeSettings(page, 'apply');
   await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeHidden();
   const capas = page.getByRole('region', { name: 'Capas', exact: true });
   await expect(capas).toBeVisible();
@@ -655,7 +655,7 @@ test('in Spanish at the default size the keys line is not shown, takes no room a
   await buildPlan(page);
   const app = await openSettings(page, 'App');
   await app.getByLabel('Language').selectOption('es');
-  await page.keyboard.press('Escape');
+  await closeSettings(page, 'apply');
   await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeHidden();
   const capas = page.getByRole('region', { name: 'Capas', exact: true });
   await expect(capas).toBeVisible();
@@ -765,7 +765,7 @@ test('after each resize the lane and the keys line settle within 3 frames and ne
   await check(layersTile(page), 'English');
   const app = await openSettings(page, 'App');
   await app.getByLabel('Language').selectOption('es');
-  await page.keyboard.press('Escape');
+  await closeSettings(page, 'apply');
   await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeHidden();
   const capas = page.getByRole('region', { name: 'Capas', exact: true });
   await expect(capas).toBeVisible();
