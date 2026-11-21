@@ -10,6 +10,7 @@ import { useProject } from '../projectStore';
 import { LayoutMenu } from './docking/LayoutMenu';
 import { UndoRedoButtons } from './UndoRedoButtons';
 import { openExportDialog } from '../../features/export/exportStore';
+import { importChanges } from '../changeFiles';
 import type { Workspace } from './workspaces';
 import { t } from '../../core/i18n';
 
@@ -107,6 +108,18 @@ export function TopBar({ projectName, workspace, onOpenHistory }: TopBarProps) {
                   }}
                 >
                   {t('topBar.watermarkSettingsDots')}
+                </MenuItem>
+              </MenuGroup>
+              {/* Suggestions brought in from a change file (7.1): they wait for a person to apply each one. */}
+              <MenuGroup>
+                <MenuItem
+                  disabled={!open}
+                  onClick={() => {
+                    close();
+                    void importChanges();
+                  }}
+                >
+                  {t('topBar.importChanges')}
                 </MenuItem>
               </MenuGroup>
               {/* A project's state, never the Trash: archiving moves it from Recent to Archived and off the switcher. */}

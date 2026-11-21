@@ -262,10 +262,13 @@ const UNREADABLE: Record<string, Record<string, string>> = {
 const NEVER_CALLED: Record<string, string> = {};
 
 /**
- * Events Tauri emits itself, which Rust never names, that the page listens to, each with why. None today (the page
- * hears dropped pictures through Rust's own events): a first use adds its entry, and an entry nothing listens to fails.
+ * Events Tauri emits itself, which Rust never names, that the page listens to, each with why (the page hears dropped
+ * pictures through Rust's own events): a first use adds its entry, and an entry nothing listens to fails.
  */
-const BUILT_IN_EVENTS: Record<string, string> = {};
+const BUILT_IN_EVENTS: Record<string, string> = {
+  'tauri://focus': 'the window back in front (7.1 round 2, ChangeFilesHost.tsx through onFocusChanged): the suggestions folder is looked at',
+  'tauri://blur': 'heard with focus by onFocusChanged, which listens to both; a blur does nothing',
+};
 
 /**
  * What the page may import from @tauri-apps/api, by module: the names this test reads (invoke, listen, once and the

@@ -10,6 +10,12 @@ import { localizeError } from '../core/i18n';
 /** A warning is something that went wrong (Truffle); info is something worth knowing (an ink outline). */
 export type NoticeKind = 'warning' | 'info';
 
+/** A button on an info notice that does what the notice offers (7.1 round 2: Bring in the change files waiting). */
+export interface NoticeAction {
+  label: string;
+  run: () => void;
+}
+
 interface NoticeState {
   message: string | null;
   kind: NoticeKind;
@@ -22,30 +28,42 @@ interface NoticeState {
    * round 4: an import's list of every place a left-out file was used); null for none.
    */
   copy: string | null;
+  /** The notice's own button; null for none. */
+  action: NoticeAction | null;
 }
 
-export const noticeStore = createStore<NoticeState>()(() => ({ message: null, kind: 'warning', seq: 0, step: false, copy: null }));
+export const noticeStore = createStore<NoticeState>()(() => ({ message: null, kind: 'warning', seq: 0, step: false, copy: null, action: null }));
 
 export function showNotice(error: unknown): void {
   // Errors from below the UI arrive in English; they show in the app's language where a translation has them.
-  noticeStore.setState((s) => ({ message: localizeError(error instanceof Error ? error.message : String(error)), kind: 'warning', seq: s.seq + 1, step: false, copy: null }));
+  noticeStore.setState((s) => ({
+    message: localizeError(error instanceof Error ? error.message : String(error)),
+    kind: 'warning',
+    seq: s.seq + 1,
+    step: false,
+    copy: null,
+    action: null,
+  }));
 }
 
 /**
  * `step`: the notice tells of an edit just made, so an undo or redo takes it away (1.28's low). `copy`: the text the
- * bar's Copy list button copies.
+ * bar's Copy list button copies. `action`: a button that does what the notice offers.
  */
-export function showInfo(message: string, { step = false, copy = null }: { step?: boolean; copy?: string | null } = {}): void {
-  noticeStore.setState((s) => ({ message, kind: 'info', seq: s.seq + 1, step, copy }));
+export function showInfo(
+  message: string,
+  { step = false, copy = null, action = null }: { step?: boolean; copy?: string | null; action?: NoticeAction | null } = {},
+): void {
+  noticeStore.setState((s) => ({ message, kind: 'info', seq: s.seq + 1, step, copy, action }));
 }
 
 /** After an undo or a redo that changed something: a notice about a step no longer describes the project. */
 export function clearStepNotice(): void {
-  if (noticeStore.getState().step) noticeStore.setState({ message: null, step: false });
+  if (noticeStore.getState().step) noticeStore.setState({ message: null, step: false, action: null });
 }
 
 export function clearNotice(): void {
-  noticeStore.setState({ message: null });
+  noticeStore.setState({ message: null, action: null });
 }
 
 /** How many notices have been shown so far, for `clearNoticeFrom`. */
@@ -59,8 +77,8 @@ export function clearNoticeFrom(count: number): void {
   if (noticeStore.getState().seq === count) clearNotice();
 }
 
-export function useNotice(): { message: string | null; kind: NoticeKind; seq: number; copy: string | null } {
-  return useStore(noticeStore, useShallow((s) => ({ message: s.message, kind: s.kind, seq: s.seq, copy: s.copy })));
+export function useNotice(): { message: string | null; kind: NoticeKind; seq: number; copy: string | null; action: NoticeAction | null } {
+  return useStore(noticeStore, useShallow((s) => ({ message: s.message, kind: s.kind, seq: s.seq, copy: s.copy, action: s.action })));
 }
 
 // The last notice a bar has put on screen. A screen reader reads a live region each time one appears, and the bar

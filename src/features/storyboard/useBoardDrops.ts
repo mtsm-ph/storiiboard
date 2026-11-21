@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { bringInDropped, changeFileFromFile, isChangeFileName } from '../../app/changeFiles';
 import { isTauriApp } from '../../app/fileAccess';
 import { showInfo } from '../../app/notice';
 import { fromFile, onWindowDrag, onWindowDrop, type PagePoint, type PictureFile } from '../../app/pictures';
@@ -131,8 +132,14 @@ export function useBoardDrops(enabled: boolean, onHover: (hover: DropHover) => v
       if (!carriesFiles(event)) return;
       event.preventDefault();
       setHover(null);
+      // A change file (7.1) is brought in wherever it lands, never taken for a picture.
+      const files = [...(event.dataTransfer?.files ?? [])];
+      const changes = files.filter((file) => isChangeFileName(file.name));
+      if (changes.length > 0) void bringInDropped(changes.map(changeFileFromFile));
+      const pictures = files.filter((file) => !isChangeFileName(file.name));
+      if (changes.length > 0 && pictures.length === 0) return;
       if (takenElsewhere(event.target instanceof Element ? event.target : null)) return;
-      drop([...(event.dataTransfer?.files ?? [])].map(fromFile), targetOf(event.target instanceof Element ? event.target : null));
+      drop(pictures.map(fromFile), targetOf(event.target instanceof Element ? event.target : null));
     };
     document.addEventListener('dragover', over);
     document.addEventListener('dragleave', leave);

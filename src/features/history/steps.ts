@@ -234,6 +234,11 @@ export async function stepRecords(
       return [...diff.added, ...diff.removed, ...timed];
     });
     for (const id of new Set([...places, ...people])) if (typeof id === 'string' && id !== '') asks.push({ group, id, seq: end });
+    // A suggestion decided in the step (7.0): its target (for a call sheet, its day), so a Reject names it by its own name
+    // as the step left it rather than the change file's label. An id of an id's length only: the record is untrusted.
+    const decided = ops.find((op) => op.after?.type === 'suggestion');
+    const targetId = decided?.after?.props.target_id;
+    if (typeof targetId === 'string' && targetId !== '' && targetId.length <= 100 && !ops.some((op) => op.recordId === targetId)) asks.push({ group, id: targetId, seq: end });
     // Where a drag put frames, notes, scenes or pages (Kevin, Nov 18): the place, and what was in it just before the
     // step, so the line names the neighbour as numbered when it was dragged ("Moved 4A to after 3C").
     const start = ops.reduce((min, op) => Math.min(min, op.seq), Number.MAX_SAFE_INTEGER);

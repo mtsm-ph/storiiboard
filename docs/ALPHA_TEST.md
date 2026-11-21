@@ -297,6 +297,33 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
 - [ ] [Mac] [Kevin] Trackpad mode is on by default: two fingers pan, a pinch zooms, on plans and boards. (6.5.3)
 - [ ] [Mac] [Kevin] A big plan on your Mac: pan, zoom, drag and a held turn key feel smooth. (6.11, 6.26)
 
+## Suggestions and the assistant (Phase 7)
+
+7.0 (suggestions in the model) has nothing to try by hand: it has no screen. 7.1 brings change files in; the review
+screen that shows them comes with 7.2, so until then the status line and History are what you see.
+
+- [ ] Project menu → Import changes…: pick a `.sbdchanges` made for the open project. The status line says "Brought in
+  N suggestions from …" and History has the same line; ⌘Z takes it back. (7.1)
+- [ ] Import the same file again: "Already brought in", and no new step in History. (7.1)
+- [ ] Import a change file made for another project: "This change file is for another project, …", and nothing comes
+  in. (7.1)
+- [ ] Drop a `.sbdchanges` on the window, over the board, a plan and a moodboard: it's brought in, never taken for a
+  picture; a picture dropped beside it still lands where it was dropped. (7.1)
+- [ ] With a `<Project> Suggestions` folder beside the project holding a change file, open the project: it's brought
+  in. Add another file to the folder, switch to another app and back: the status line says "1 change file is waiting
+  in … Suggestions" with Bring in, and nothing comes in until you press it; ⌘Z and ⌘⇧Z are as they were. Press Bring
+  in: it comes in as one step. Nothing in the folder is changed. (7.1)
+- [ ] Bring a folder's files in, ⌘Z, close and open the project again: nothing comes back. Import the same file by
+  hand: it comes in. (7.1)
+- [ ] Open a backup or a version copy beside a project whose suggestions folder has its marker: the app never offers
+  to rename the original's folder. (7.1)
+- [ ] [Windows] A project in OneDrive with "Files On-Demand" and its suggestions folder online-only: opening the
+  project brings the files in (OneDrive downloads them). (7.1)
+- [ ] Rename a project whose suggestions folder has its marker: on opening, the app asks to rename the folder to match
+  (Rename / Not now); Rename renames it and brings its files in. (7.1)
+- [ ] [Windows] A `<Project> Suggestions` that is a junction to another folder is never read: the status line says
+  it's a link. (7.1)
+
 ## Settings, presets, themes, Dark view and accessibility
 
 - [ ] [Kevin] A project theme from its logo or key image, in light and dark: the accent and backgrounds look right and
