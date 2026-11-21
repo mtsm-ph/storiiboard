@@ -279,9 +279,59 @@ const ROUND_3_KEPT = [
   '2026-004512',
   "Meet at St.Mary's",
   'DM @harbor.lights',
-  // A pair off the Earth's ranges, and a sum that only looks like a plus code.
-  '95.1234, 10.1234',
+  // A pair off the Earth's ranges either way round (round 4: 95.1234, 10.1234 is a longitude and a latitude), and a
+  // sum that only looks like a plus code.
+  '95.1234, 99.1234',
   '2345+67',
+];
+
+/** Round 4's cases (items 1 to 4, 6 and 7 of its brief), each as `see … please`. */
+const ROUND_4_SCRUBBED = [
+  // Spain's and Poland's phones: 9 digits starting with 5 to 9 in 3 or more groups of 2 or 3.
+  '612 34 56 78',
+  '912 34 56 78',
+  '91 123 45 67',
+  '512 345 678',
+  // Coordinates, longitude first.
+  '-118.2437, 34.0522',
+  // Map links to the next whitespace: an apostrophe and brackets in a place's name; Apple's short links.
+  "https://www.google.com/maps/place/St+Mary's+Church/@40.8677,-73.9212,17z/data=!3m1!4b1!4m6!3m5!1s0x89c2f:0x1a2b!8m2!3d40.8677!4d-73.9212",
+  'https://www.google.com/maps/place/Pier+9+(North)/@40.8677,-73.9212,17z',
+  'https://maps.apple/p/AbC123xyz',
+  // Emails with a spelled-out dot ending in a common top-level domain.
+  'robin at example dot co dot uk',
+  'robin (at) example (dot) es',
+];
+
+const ROUND_4_KEPT = [
+  // "@" for "at", a sentence's full stop after it.
+  'Crew call @ 0630. Shooting call @ 0730.',
+  'Lunch @ 12. Wrap',
+  'Meet @ base. Then',
+  // "dot" as a word.
+  'Eyeline at the dot on the C-stand',
+  'Mark at blue dot in front of the door',
+  // Groups that aren't Spain's or Poland's phones; ISO steps; a lens; a decimal of 5 or more places.
+  '101 102 103',
+  '1 250 000',
+  '18 25 35 50 85',
+  '555.0123.88',
+  'ISO 800 1600 3200',
+  'iso 100 200 400 800 1600',
+  '85mm+2x',
+  '1.777778',
+  '2.390000',
+];
+
+/** Round 4's cases whose text around the match stays: quotes and an apostrophe, a sentence's bracket, a rejected pair. */
+const ROUND_4_AROUND: readonly (readonly [string, string])[] = [
+  ["see 'robin@example.com' please", `see '${TAKEN_OUT}' please`],
+  ['‘robin.vale@example.com’', `‘${TAKEN_OUT}’`],
+  ["robin@example.com's", `${TAKEN_OUT}'s`],
+  ['"robin @ example . com"', `"${TAKEN_OUT}"`],
+  ['(see https://maps.google.com/?q=Pier+9+(North))', `(see ${TAKEN_OUT})`],
+  ['190.12345, 40.8677 -73.9212', `190.12345, ${TAKEN_OUT}`],
+  ['95.1234, 99.1234 40.8677', `95.1234, ${TAKEN_OUT}`],
 ];
 
 describe('the assistant view', () => {
@@ -379,7 +429,8 @@ describe('the assistant view', () => {
       data: { props: { title: 'DP +1 555 0144', action: 'x', phone: '+1 555 0145', 'Cell 555 0146': 'y' }, before: { title: 'Gaffer' }, parent_id: 'call 555-0147' },
     });
     const records = { [person.id]: person, [suggestion.id]: suggestion };
-    expect(assistantView(records).given[suggestion.id]?.props.data).toEqual({ props: { title: `DP ${TAKEN_OUT}` }, before: { title: 'Gaffer' }, parent_id: `call ${TAKEN_OUT}` });
+    // Round 4: a parent_id that isn't an id is left out.
+    expect(assistantView(records).given[suggestion.id]?.props.data).toEqual({ props: { title: `DP ${TAKEN_OUT}` }, before: { title: 'Gaffer' } });
     expect(suggestionFieldsLeftOut(records, suggestion)).toEqual(['phone', '2 unknown fields']);
     // With no target in the project, read by the type it says.
     const loose = record('suggestion', { target_id: 'gone', target_type: 'shot', data: { props: { action: 'Her hands', phone: '1' } } });
@@ -389,9 +440,31 @@ describe('the assistant view', () => {
 
   it('gives a suggestion’s type and ids only as text of at most 100 characters, or null (round 3)', () => {
     const data = (props: Props) => assistantView({ s: { ...record('suggestion', { target_type: 'shot', data: props }), id: 's' } }).given.s?.props.data;
-    expect(data({ type: 'shot', parent_id: null, after_id: 'x'.repeat(100) })).toEqual({ type: 'shot', parent_id: null, after_id: 'x'.repeat(100) });
+    // Round 4: the two ids only as canonical UUIDs (or null); 100 characters of anything else is left out.
+    expect(data({ type: 'shot', parent_id: null, after_id: 'x'.repeat(100) })).toEqual({ type: 'shot', parent_id: null });
     expect(data({ type: { phone: '+1 555 0123' }, parent_id: 'x'.repeat(101), after_id: 12 })).toEqual({});
     expect(data({ type: ['shot'], parent_id: true })).toEqual({});
+  });
+
+  it('gives a suggestion’s parent_id and after_id only as UUIDs (round 4)', () => {
+    const data = (props: Props) => assistantView({ s: { ...record('suggestion', { target_type: 'shot', data: props }), id: 's' } }).given.s?.props.data;
+    const id = '10000000-0000-4000-8000-000000000006';
+    expect(data({ parent_id: id, after_id: id.toUpperCase() })).toEqual({ parent_id: id, after_id: id.toUpperCase() });
+    expect(data({ parent_id: `${id} `, after_id: 'Robin 612 34 56 78' })).toEqual({});
+    expect(data({ parent_id: '10000000-0000-4000-8000-00000000000', after_id: '' })).toEqual({});
+  });
+
+  it('scrubs every case of round 4, and keeps "@" and "dot" as words (round 4)', () => {
+    for (const value of ROUND_4_SCRUBBED) expect(withoutContacts(`see ${value} please`), value).toBe(`see ${TAKEN_OUT} please`);
+    for (const value of ROUND_4_KEPT) expect(withoutContacts(`see ${value} please`), value).toBe(`see ${value} please`);
+    for (const [text, scrubbed] of ROUND_4_AROUND) expect(withoutContacts(text), text).toBe(scrubbed);
+    // A spelled-out dot never ends in an English word, nor in .it (Italy's is one).
+    for (const word of ['in', 'by', 'on', 'to', 'it', 'me', 'at', 'be', 'is', 'us', 'no', 'so', 'do', 'go', 'as'])
+      for (const text of [`Look at the dot ${word} the left`, `robin at example dot ${word}`, `robin@example dot ${word}`, `robin @ example . ${word}`])
+        expect(withoutContacts(text), text).toBe(text);
+    // The plain forms still end in any two or more letters, the " at " form still not before an apostrophe.
+    expect(withoutContacts('robin@harbor.example')).toBe(TAKEN_OUT);
+    expect(withoutContacts("Meet at St.Mary's")).toBe("Meet at St.Mary's");
   });
 
   it('scrubs every case of round 3 and round 2, and keeps the film text that only looks like a contact (round 3)', () => {
@@ -410,16 +483,33 @@ describe('the assistant view', () => {
     expect(withoutContacts('Ｃａｌｌ ５５５ ０１２３')).toBe(`Call ${TAKEN_OUT}`);
   });
 
-  it('reads 100 KB of one word in under 100 ms, whatever the word (round 3)', () => {
+  it('reads one word in time that grows with its length, never faster, whatever the word (round 3, round 4)', () => {
+    // Round 4: catastrophic backtracking grows faster than the text (100 KB taking about 100 times 10 KB's time, or
+    // seconds), so the test measures growth, not a wall-clock bound that a busy machine can miss: 100 KB under 30
+    // times 10 KB (linear is about 10 times), each the best of 3, and under 2 s whatever the machine.
     const words = ['a', '5', 'a.', 'a@', '1-', 'C', 'x1', '.5', '/', '+5', 'a ', '1 ', 'at ', '(5) '];
-    const times: Record<string, number> = {};
-    for (const unit of words) {
-      const text = unit.repeat(Math.ceil(100_000 / unit.length));
-      const start = performance.now();
-      withoutContacts(text);
-      times[unit] = performance.now() - start;
+    const best = (text: string): number => {
+      let fastest = Infinity;
+      for (let run = 0; run < 3; run += 1) {
+        const start = performance.now();
+        withoutContacts(text);
+        fastest = Math.min(fastest, performance.now() - start);
+      }
+      return fastest;
+    };
+    const times = words.map((unit) => {
+      const small = best(unit.repeat(Math.ceil(10_000 / unit.length)));
+      const large = best(unit.repeat(Math.ceil(100_000 / unit.length)));
+      // Below the timer's grain a ratio means nothing: a 10 KB time is read as at least 0.05 ms.
+      return { unit, small, large, ratio: large / Math.max(small, 0.05) };
+    });
+    // SB_SCRUB_RATIOS=1 prints them (for a report).
+    if (process.env.SB_SCRUB_RATIOS === '1') console.log(times.map((t) => `${JSON.stringify(t.unit)} ${t.small.toFixed(2)}/${t.large.toFixed(2)} ms ×${t.ratio.toFixed(1)}`).join('\n'));
+    for (const { unit, small, large, ratio } of times) {
+      const said = `"${unit}": 10 KB ${small.toFixed(2)} ms, 100 KB ${large.toFixed(2)} ms, ×${ratio.toFixed(1)}`;
+      expect(ratio, said).toBeLessThan(30);
+      expect(large, said).toBeLessThan(2000);
     }
-    for (const unit of words) expect(times[unit], `"${unit}" × 100 KB took ${String(Math.round(times[unit] ?? 0))} ms`).toBeLessThan(100);
   });
 
   it('reads any script’s digits, plain ones by a fast path', () => {
@@ -468,6 +558,21 @@ describe('the assistant view', () => {
       '5550-12-30',
     ])
       expect(withoutStoredContacts(guard, `call ${text} now`), text).toBe(`call ${text} now`);
+  });
+
+  it('keeps each number of a split phone field written without spaces, and matches a stored text only as a whole word (round 4)', () => {
+    const pier = record('location', { contact_phone: '555-0107/555-0199', address: '1 Main St' });
+    const flat = { ...record('location', { contact_phone: '555 0177 555 0188', contact_email: 'pier@example.com' }), id: 'flat' };
+    const guard = contactGuard({ [pier.id]: pier, [flat.id]: flat });
+    expect([...guard.phones].sort()).toEqual(['5550107', '5550177', '5550188', '5550199']);
+    expect(guard.emails).toEqual(['pier@example.com']);
+    for (const text of ['555 0107', '555 0199', '555-0177', '555 0188']) expect(withoutStoredContacts(guard, `call ${text} now`), text).toBe(`call ${TAKEN_OUT} now`);
+    expect(withoutStoredContacts(guard, 'Meet at 1 Main St.')).toBe(`Meet at ${TAKEN_OUT}.`);
+    for (const text of ['Meet at 21 Main Street', 'Meet at 1 Main Stage', 'Write xpier@example.com.au']) expect(withoutStoredContacts(guard, text), text).toBe(text);
+    // As a name: phones and emails only, never an address.
+    expect(withoutStoredContacts(guard, '1 Main St', { name: true })).toBe('1 Main St');
+    expect(withoutStoredContacts(guard, 'Pier office 555 0107', { name: true })).toBe(`Pier office ${TAKEN_OUT}`);
+    expect(withoutStoredContacts(guard, 'Pier pier@example.com', { name: true })).toBe(`Pier ${TAKEN_OUT}`);
   });
 
   it('hides a department’s material unless the reader is exempt from that department', () => {

@@ -85,8 +85,9 @@ On Windows, the same with Windows paths, each backslash doubled:
 
 Two projects of the same name in two folders are both fine: the server numbers them in the order its arguments give
 them ("Harbor Lights (1)", "Harbor Lights (2)"), takes that label (or the path) as the project's name, and asks for one
-of them when a call names only the shared name. It never tells the assistant a folder's name, which can name a person
-or a client.
+of them when a call names only the shared name. A number whose label is another file's own name is skipped (with a
+real `Harbor Lights (2).sbd` beside them, the two are `(1)` and `(3)`), and a path given twice is one project. It never
+tells the assistant a folder's name, which can name a person or a client.
 
 Quit Claude Desktop and open it again; the ten Storiiboard tools are listed under the tools button.
 
@@ -144,31 +145,41 @@ decided before an assistant can read it.
   fields are never read at all (above). The rule reads the text Unicode-aware: format characters (`\p{Cf}`: zero width
   spaces, soft hyphens) are dropped and the text normalised (NFKC), so full-width digits or a "＠" read as plain ones.
   Then, replaced with `[contact left out]`:
-  - map links, with everything after them: `maps.google.`, `google.<tld>/maps` (`www.google.com/maps/…!3d…!4d…`),
-    `goo.gl/maps`, `maps.app.goo.gl`, `share.google`, `maps.apple.`, `openstreetmap.org`, `osm.org`, `waze.com/ul`,
-    `bing.com/maps`, what3words (`///word.word.word`, `w3w.co`), and plus codes (`849VCWC8+R9`, with a letter in
-    them);
+  - map links, with everything after them to the next whitespace (a place's name in one can hold an apostrophe or
+    brackets: `St+Mary's+Church`, `Pier+9+(North)`; one closing bracket the link didn't open is the sentence's and
+    stays): `maps.google.`, `google.<tld>/maps` (`www.google.com/maps/…!3d…!4d…`), `goo.gl/maps`, `maps.app.goo.gl`,
+    `share.google`, `maps.apple.` and `maps.apple/`, `openstreetmap.org`, `osm.org`, `waze.com/ul`, `bing.com/maps`,
+    what3words (`///word.word.word`, `w3w.co`), and plus codes (`849VCWC8+R9`, in capitals, with a letter in them, so
+    `85mm+2x` stays);
   - emails, with an `@` or a lookalike: `＠`, `(at)` or `[at]`, ` at `, an `@` with a space on both sides, and ` dot `
-    or `(dot)` for a dot (`name at example dot com`). A handle (`@harbor.lights`) stays;
-  - coordinate pairs (two decimals of 4 or more places, a latitude within 90 and a longitude within 180, so frame
-    rates such as `23.976, 29.970` stay) and degrees-minutes-seconds;
+    or `(dot)` for a dot (`name at example dot com`). A domain written with plain dots ends in any two or more
+    letters; one with a spelled-out dot, or after a spaced `@` (where a dot is `.` or ` . `, never `. ` alone), ends in
+    a common top-level domain (`COMMON_TLDS`: com, net, org, edu, gov, io, co, uk, es, fr, de, mx and others), never
+    an English word (in, by, on, to, it, me, at, be, is, us, no, so, do, go, as), so `Eyeline at the dot on the
+    C-stand` and `Crew call @ 0630. Shooting call @ 0730.` stay. An email in quotes or before `'s` is taken out, the
+    quotes kept; the spelled ` at ` form never runs on into an apostrophe (`Meet at St.Mary's` stays). A handle
+    (`@harbor.lights`) stays;
+  - coordinate pairs (two decimals of 4 or more places, one within 90 and the other within 180, either way round, so
+    `-118.2437, 34.0522` is one and frame rates such as `23.976, 29.970` stay; a pair that isn't on Earth leaves its
+    second number to pair with the next) and degrees-minutes-seconds;
   - phone numbers: 7 or more digits (any script's) in groups joined by a space (any `\p{Zs}`), two spaces, any dash or
     `−`, a dot, a slash, `·`, or a dash with a space each side; a letter right against the digits doesn't stop one
     (`Robin555-0123`). A phone has a leading `+` or `(`; or is one run of 10 or more digits, or of 9 starting with 6
     to 9 (`612345678`); or two groups, the first of 3 digits or fewer or starting with 0, the last of 4 or more
     (`555-0123`); or three or more groups ending in one of 4 or more, or of 9 or more digits starting with 0
-    (`06 12 34 56 78`, `0475 12 34 56`), or 3-3-3 starting with 6 to 9 (`612 345 678`). Never a date (`2026-11-18`,
-    `18.11.2026`, with or without a time after it), two groups whose first has 4 or more digits and doesn't start
-    with 0 (night hours `1830-0630`, `2026-004512`), a range (two groups joined by a dash, the second 0 to 999 above
-    the first: `993-1104`), or other groups whose last has under 4 digits (`101 102 103`, `1 250 000`). Ids are never
-    touched.
+    (`06 12 34 56 78`, `0475 12 34 56`), or of 9 digits starting with 5 to 9 in groups of 2 or 3, however grouped
+    (Spain's and Poland's `612 34 56 78`, `91 123 45 67`, `512 345 678`). Never a date (`2026-11-18`, `18.11.2026`,
+    with or without a time after it), two groups whose first has 4 or more digits and doesn't start with 0 (night
+    hours `1830-0630`, `2026-004512`), a range (two groups joined by a dash, the second 0 to 999 above the first:
+    `993-1104`), a decimal of 5 or more places (`1.777778`), a camera's ISO steps after "ISO" (`ISO 800 1600 3200`),
+    or other groups whose last has under 4 digits (`101 102 103`, `1 250 000`, `555.0123.88`). Ids are never touched.
   - Text in which nothing is taken out comes back exactly as stored, not normalised. Every pattern's start is anchored,
     so one very long word can't make the rule slow (100 KB of one word is read in well under 100 ms).
 - **Suggestions' data**: each field is given or left out by the type of the record the suggestion acts on (its real
   target's type when the target is in the project), every value through the free-text rule; `fields_left_out` names a
-  field only when it is a known prop, and counts the rest ("2 unknown fields"); its `type`, `parent_id` and `after_id`
-  only as text of at most 100 characters, or null. Its kind, target type and source are scrubbed and kept to 64
-  characters.
+  field only when it is a known prop, and counts the rest ("2 unknown fields"); its `type` only as text of at most 100
+  characters, or null, and its `parent_id` and `after_id` only as UUIDs, or null. Its kind, target type and source are
+  scrubbed and kept to 64 characters.
 - **Files**: no picture, video, PDF, link or script, and no file path. A frame says only whether it has a picture.
 - **The Trash**, unless a call asks with `include_trashed: true`; each trashed item is then marked `trashed`.
 - **Board items, sketches, settings presets and availability**: no 7.5 tool reads them.
@@ -185,16 +196,25 @@ decided before an assistant can read it.
   never return them.
 
 As a last check, the server looks in every answer's typed text for the contact-shaped values the project holds, and
-replaces each it finds with `[contact left out]`, as the rule above does; it never refuses an answer. It reads only
-strings that hold typed text: never a key, an id, a number (a plan's positions are numbers), a date, a slate number, or
-a name the view gives (a person's, a location's, a scene's, a company's, a room's, a character's). What it looks for,
-both sides normalised (NFKC, case-folded, whitespace collapsed, format characters dropped):
+replaces each it finds with `[contact left out]`, as the rule above does; it never refuses an answer. It never reads a
+key or a number (a plan's positions are numbers). By the key a string sits under (mcp/src/guard.ts):
 
-- each phone-shaped part of a stored phone field (`555-0123 / 555-0199` is two; an `x 45` tail left out), and each
-  phone number typed in left-out text (a person's notes, a location's notes, own fields' values), by its last 7
+- slate and scene numbers (`number`, `scene`) are skipped;
+- names the view gives (`name`, `label`, `company`, `cast`, `characters`, `plays`, `file_name`) are still searched for
+  stored phones and emails; only addresses and coordinates are skipped there (a place may be named as its address
+  begins);
+- ids (`id`, `*_id`, `*_ids`) are skipped only when the value is a canonical UUID;
+- nothing is skipped inside a suggestion's `data`, its `target.label` or its `author.name`: a change file wrote them;
+- past its depth limit (32), a value is replaced whole, never returned unchecked.
+
+What it looks for, both sides normalised (NFKC, case-folded, whitespace collapsed, format characters dropped):
+
+- each phone-shaped part of a stored phone field (`555-0123 / 555-0199` is two; an `x 45` tail left out; a run of two
+  numbers with only a slash or a space between, `555-0107/555-0199` or `555 0107 555 0199`, keeps each one's), and
+  each phone number typed in left-out text (a person's notes, a location's notes, own fields' values), by its last 7
   digits, against every run of digits in a text string, with ids and ISO dates and date-times blanked first (so
   `555–0123` with an en dash, `5 5 5 0 1 2 3`, or full-width digits are caught);
-- a stored email, and a stored address whole;
+- a stored email, and a stored address whole, each only as a whole word (`1 Main St` isn't inside `21 Main Street`);
 - a stored coordinate, written with 4 or more places, to 4 places.
 
 A contact's name, a client's name, an address's first part and parking text are not matched (they would take words out

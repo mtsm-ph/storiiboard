@@ -17,22 +17,43 @@ import { getCallSheet, getPlan, getSchedule, listGear, listLocations, listPeople
 
 const SERVER = { name: 'storiiboard', version: '0.1.0' };
 
-/** The project files this server was started with, each as an absolute path. */
-export function startedWith(argv: readonly string[]): string[] {
-  return argv.filter((arg) => arg.trim() !== '').map((arg) => resolve(arg));
-}
-
 const same = (a: string, b: string) => (process.platform === 'win32' || process.platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b);
 const stem = (path: string) => basename(path).replace(/\.sbd$/i, '');
 
+/** The project files this server was started with, each as an absolute path, once each (round 4). */
+export function startedWith(argv: readonly string[]): string[] {
+  const paths = argv.filter((arg) => arg.trim() !== '').map((arg) => resolve(arg));
+  return paths.filter((path, index) => paths.findIndex((p) => same(p, path)) === index);
+}
+
 /**
- * A project as the assistant is told of it: its name; when other projects share the name, the name numbered in the
- * order the server was given them ("Harbor Lights (1)", "Harbor Lights (2)"). Never its folder's name (round 3): a
- * folder can name a person or a client.
+ * Each project as the assistant is told of it: its name; when other projects share the name, the name numbered in the
+ * order the server was given them ("Harbor Lights (1)", "Harbor Lights (2)"), skipping a number whose label is another
+ * project's own name (round 4: a real "Harbor Lights (2).sbd"). Never its folder's name (round 3): a folder can name a
+ * person or a client.
  */
+function labelsOf(projects: readonly string[]): Map<string, string> {
+  const labels = new Map<string, string>();
+  const taken = (wanted: string) => projects.some((p) => same(stem(p), wanted)) || [...labels.values()].some((l) => same(l, wanted));
+  for (const path of projects) {
+    if (labels.has(path)) continue;
+    const sharing = projects.filter((p) => same(stem(p), stem(path)));
+    if (sharing.length === 1) {
+      labels.set(path, stem(path));
+      continue;
+    }
+    let number = 0;
+    for (const p of sharing) {
+      number += 1;
+      while (taken(`${stem(p)} (${String(number)})`)) number += 1;
+      labels.set(p, `${stem(p)} (${String(number)})`);
+    }
+  }
+  return labels;
+}
+
 function label(path: string, projects: readonly string[]): string {
-  const sharing = projects.filter((p) => same(stem(p), stem(path)));
-  return sharing.length > 1 ? `${stem(path)} (${String(sharing.indexOf(path) + 1)})` : stem(path);
+  return labelsOf(projects).get(path) ?? stem(path);
 }
 
 const labels = (projects: readonly string[]) => projects.map((p) => label(p, projects)).join(', ');

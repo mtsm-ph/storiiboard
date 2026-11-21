@@ -395,6 +395,41 @@ describe('the MCP server over stdio', () => {
     }
   });
 
+  it('never numbers a shared name as another file is named, and reads the same path given twice as one project (round 4)', async () => {
+    const east = makeTestFolder();
+    const west = makeTestFolder();
+    try {
+      mkdirSync(east.path('East'));
+      mkdirSync(west.path('West'));
+      const one = east.path('East', 'Harbor Lights.sbd');
+      const two = west.path('West', 'Harbor Lights.sbd');
+      const named = east.path('East', 'Harbor Lights (2).sbd');
+      for (const path of [one, two, named]) copyFileSync(project, path);
+      // `one` given twice: one project, so the name is still shared by two.
+      const c = await connect([one, two, named, one]);
+      try {
+        const unnamed = await call(c, 'project_summary');
+        expect(unnamed.text).toBe('Name the project: Harbor Lights (1), Harbor Lights (3), Harbor Lights (2).');
+        const shared = await call(c, 'project_summary', { project: 'Harbor Lights' });
+        expect(shared.text).toBe('2 projects are named Harbor Lights: name one as Harbor Lights (1) or Harbor Lights (3).');
+        // Each label and the real file's own name each open one project.
+        for (const label of ['Harbor Lights (1)', 'Harbor Lights (2)', 'Harbor Lights (3)']) expect((await call(c, 'project_summary', { project: label })).isError, label).toBe(false);
+      } finally {
+        await c.close();
+      }
+      // The same path twice, and nothing else: one project, needing no name.
+      const twice = await connect([one, one]);
+      try {
+        expect((await call(twice, 'project_summary')).isError).toBe(false);
+      } finally {
+        await twice.close();
+      }
+    } finally {
+      east.remove();
+      west.remove();
+    }
+  });
+
   it('is built into one file that imports only Node’s fs, path and sqlite, the SDK’s stdio server and zod', () => {
     const bundle = readFileSync(server, 'utf8');
     const imports = [...bundle.matchAll(/^import\b.*?from\s*"([^"]+)";?$/gm)].map((m) => m[1]);

@@ -288,9 +288,10 @@ describe('the server’s last check', () => {
       // Numbers are never text: a coordinate as a number, as a plan position would be.
       x_m: CONTACTS.latitude,
       y_m: 40.8677,
-      // Names the view gives, even one written as a stored address.
+      // Names the view gives, even one written as a stored address (round 4: a stored email under a name is caught,
+      // below).
       name: CONTACTS.address,
-      company: 'Robin.Vale@example.com',
+      company: CONTACTS.companyAddress,
       // Ids, and lists of them.
       id: '10000000-0000-4000-8000-000005550123',
       gear_ids: ['10000000-0000-4000-8000-000005550123'],
@@ -352,6 +353,59 @@ describe('the server’s last check', () => {
     expect(shots.shots[0]).toMatchObject({ action: 'Ring 5 5 5 0 1 6 1 at the gate.', dialogue: 'Try 5550 166.' });
     const checked = guarded(shots, odd.records) as { shots: { action: string; dialogue: string }[] };
     expect(checked.shots[0]).toMatchObject({ action: `Ring ${TAKEN_OUT} at the gate.`, dialogue: `Try ${TAKEN_OUT}.` });
+  });
+
+  it('still looks for stored phones and emails under a name, skipping only addresses and coordinates there (round 4)', () => {
+    const phone = '612 34 56 78';
+    const odd = changed(withProps(IDS.sam, { name: `Dana Pierce ${phone}`, phone }));
+    // The free-text rule takes it out of the person's name, and the guard leaves nothing of it.
+    const people = guarded(listPeople({ data: odd }, {}), odd.records);
+    expect(JSON.stringify(people)).not.toContain('34 56 78');
+    expect(JSON.stringify(people)).toContain(`"name":"Dana Pierce ${TAKEN_OUT}"`);
+    // Grouped as the free-text rule can't see it, the guard still finds it under each name key.
+    for (const key of ['name', 'label', 'company', 'cast', 'characters', 'plays', 'file_name']) {
+      expect(guarded({ [key]: 'Dana Pierce 6123 456 78' }, odd.records), key).toEqual({ [key]: `Dana Pierce ${TAKEN_OUT}` });
+      expect(guarded({ [key]: `Mail ${CONTACTS.robinEmail}` }, odd.records), key).toEqual({ [key]: `Mail ${TAKEN_OUT}` });
+      expect(guarded({ [key]: [CONTACTS.address, '40.8677'] }, odd.records), key).toEqual({ [key]: [CONTACTS.address, '40.8677'] });
+    }
+    // Slate and scene numbers are skipped; ids only when they are UUIDs.
+    expect(guarded({ number: '555 0123', scene: '555 0123' })).toEqual({ number: '555 0123', scene: '555 0123' });
+    expect(guarded({ id: IDS.robin, shot_ids: [IDS.shotA], camera_id: 'call 555 0123' })).toEqual({ id: IDS.robin, shot_ids: [IDS.shotA], camera_id: `call ${TAKEN_OUT}` });
+  });
+
+  it('skips nothing in what a change file wrote: a suggestion’s data, its target’s label and its author’s name (round 4)', () => {
+    const answer = {
+      suggestions: [
+        {
+          id: IDS.lensSuggestion,
+          number: CONTACTS.address,
+          target: { id: 'call 555 0123', type: 'shot', label: CONTACTS.address },
+          author: { name: CONTACTS.address, role: 'dp' },
+          data: { props: { name: CONTACTS.address, number: '+1 555 0123' }, parent_id: 'x 555 0123' },
+        },
+      ],
+    };
+    expect(guarded(answer)).toEqual({
+      suggestions: [
+        {
+          id: IDS.lensSuggestion,
+          number: CONTACTS.address,
+          target: { id: `call ${TAKEN_OUT}`, type: 'shot', label: TAKEN_OUT },
+          author: { name: TAKEN_OUT, role: 'dp' },
+          data: { props: { name: TAKEN_OUT, number: TAKEN_OUT }, parent_id: `x ${TAKEN_OUT}` },
+        },
+      ],
+    });
+  });
+
+  it('replaces whatever lies past its depth limit, never returning it unchecked (round 4)', () => {
+    let deep: unknown = 'call 555 0123';
+    for (let n = 0; n < 40; n += 1) deep = { note: deep };
+    const text = JSON.stringify(guarded(deep));
+    expect(text).toContain(TAKEN_OUT);
+    expect(text).not.toContain('0123');
+    // Shallow answers are read whole, as before.
+    expect(guarded({ a: { b: { c: [{ note: 'Wide on the pier' }] } } })).toEqual({ a: { b: { c: [{ note: 'Wide on the pier' }] } } });
   });
 
   it('passes every tool’s answer, each by its tool’s name', () => {

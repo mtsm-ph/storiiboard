@@ -433,7 +433,8 @@ const MAP_HOST = [
   String.raw`google\.[a-z]{2,3}(?:\.[a-z]{2})?\/maps`,
   String.raw`goo\.gl\/maps`,
   String.raw`maps\.app\.goo\.gl`,
-  String.raw`maps\.apple\.`,
+  // maps.apple.com, and Apple's short links (maps.apple/p/…), round 4.
+  String.raw`maps\.apple[./]`,
   String.raw`openstreetmap\.org`,
   String.raw`osm\.org`,
   String.raw`share\.google`,
@@ -441,12 +442,20 @@ const MAP_HOST = [
   String.raw`bing\.com\/maps`,
   String.raw`w3w\.co`,
 ].join('|');
-// A link that holds a map host anywhere, with everything after it to the next space (a Google link's `!3d…!4d…`).
-const MAP_LINK = new RegExp(String.raw`${LINK_START}${LINK_CHAR}*?(?:${MAP_HOST})${LINK_CHAR}*`, 'giu');
+// A link that holds a map host anywhere, with everything after it to the next whitespace (round 4: a place's name in
+// it can hold an apostrophe or brackets, "St+Mary's+Church", "Pier+9+(North)"; and a Google link's `!3d…!4d…`).
+const MAP_LINK = new RegExp(String.raw`${LINK_START}${LINK_CHAR}*?(?:${MAP_HOST})\S*`, 'giu');
+/** A map link without one closing bracket it didn't open: the sentence's, "(see https://maps…)". */
+const mapLinkOut = (match: string): string | null => {
+  const opened = match.split('(').length;
+  const closed = match.split(')').length;
+  return match.endsWith(')') && closed > opened ? `${TAKEN_OUT})` : null;
+};
 // what3words: ///filled.count.soap.
 const WHAT3WORDS = new RegExp(String.raw`${LINK_START}\/\/\/\p{L}+\.\p{L}+\.\p{L}+`, 'gu');
-// A plus code (849VCWC8+R9, CWC8+R9): only with a letter in it, so a sum ("2345+67") stays.
-const PLUS_CODE = /(?<![\p{L}\p{N}+])[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3}(?![\p{L}\p{N}])/giu;
+// A plus code (849VCWC8+R9, CWC8+R9): capitals only, as Google writes them (round 4: "85mm+2x" is a lens), and only
+// with a letter in it, so a sum ("2345+67") stays.
+const PLUS_CODE = /(?<![\p{L}\p{N}+])[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3}(?![\p{L}\p{N}])/gu;
 
 const LOCAL_CHAR = String.raw`[\p{L}\p{N}._%+-]`;
 // An email's name, never begun inside another one: the anchor that keeps a long word from being tried at every start.
@@ -454,23 +463,42 @@ const LOCAL = String.raw`(?<!${LOCAL_CHAR})${LOCAL_CHAR}+`;
 const LABEL = String.raw`[\p{L}\p{N}-]+`;
 // A dot between a domain's parts: ".", " dot ", "(dot)".
 const DOT = String.raw`(?:\.|\s+dot\s+|\s*[([{]\s*dot\s*[)\]}]\s*)`;
-// The domain's end: two or more letters, not run on into a word or an apostrophe ("Meet at St.Mary's" is a place).
-const TLD = String.raw`\p{L}{2,}(?![\p{L}\p{N}'’])`;
-const DOMAIN = String.raw`${LABEL}(?:${DOT}${LABEL})*${DOT}${TLD}`;
+/**
+ * Common top-level domains: the only ends a domain written with a spelled-out dot (" dot ", "(dot)") or after a spaced
+ * "@" can have (round 4), so "Eyeline at the dot on the C-stand" and "Crew call @ 0630. Shooting call @ 0730." stay.
+ * Never one that is an English word: in, by, on, to, it, me, at, be, is, us, no, so, do, go, as.
+ */
+export const COMMON_TLDS = [
+  'com', 'net', 'org', 'edu', 'gov', 'mil', 'info', 'biz', 'io', 'co', 'uk', 'es', 'fr', 'de', 'mx', 'ar', 'cl', 'pe',
+  'ca', 'au', 'nz', 'ie', 'pt', 'br', 'nl', 'ch', 'se', 'dk', 'fi', 'pl', 'jp', 'cn', 'kr', 'ru', 'eu', 'za', 'uy', 'ec',
+  'bo', 'py', 'cr', 'gt', 'sv', 'hn', 'cu', 'pr', 've', 'cat', 'dev', 'tv',
+];
+// The domain's end, not run on into a word. The spelled " at " form also never runs on into an apostrophe ("Meet at
+// St.Mary's" is a place); the "@" forms may ("'robin@example.com'", "robin@example.com's"), round 4.
+const NOT_ON = String.raw`(?![\p{L}\p{N}])`;
+const NOT_ON_OR_APOSTROPHE = String.raw`(?![\p{L}\p{N}'’])`;
+const COMMON_TLD = String.raw`(?:${COMMON_TLDS.join('|')})`;
+// A domain: plain dots end in any two or more letters ("harbor.example"); one with a spelled-out dot ends in a common
+// top-level domain.
+const domain = (end: string) => String.raw`(?:${LABEL}(?:\.${LABEL})*\.\p{L}{2,}${end}|${LABEL}(?:${DOT}${LABEL})*${DOT}${COMMON_TLD}${end})`;
+// After a spaced "@", a dot is "." or " . " with a space each side, never ". " alone (a sentence's end), round 4.
+const SPACED_DOT = String.raw`(?:\.|\s+\.\s+)`;
 const EMAILS = [
   // name@example.com, name@example dot com
-  new RegExp(String.raw`${LOCAL}@${DOMAIN}`, 'giu'),
+  new RegExp(String.raw`${LOCAL}@${domain(NOT_ON)}`, 'giu'),
   // name @ example . com: a space on both sides of the @ (a handle, "DM @harbor.lights", has none before its name).
-  new RegExp(String.raw`${LOCAL}\s+@\s+${LABEL}(?:\s*\.\s*${LABEL})*\s*\.\s*${TLD}`, 'giu'),
+  new RegExp(String.raw`${LOCAL}\s+@\s+${LABEL}(?:${SPACED_DOT}${LABEL})*${SPACED_DOT}${COMMON_TLD}${NOT_ON}`, 'giu'),
   // name (at) example.com, name [at] example (dot) com
-  new RegExp(String.raw`${LOCAL}\s*[([{]\s*at\s*[)\]}]\s*${DOMAIN}`, 'giu'),
+  new RegExp(String.raw`${LOCAL}\s*[([{]\s*at\s*[)\]}]\s*${domain(NOT_ON)}`, 'giu'),
   // name at example.com, name at example dot com
-  new RegExp(String.raw`${LOCAL}\s+at\s+${DOMAIN}`, 'giu'),
+  new RegExp(String.raw`${LOCAL}\s+at\s+${domain(NOT_ON_OR_APOSTROPHE)}`, 'giu'),
 ];
 
 // A coordinate: up to three digits, a point and four or more places, with a degree sign and a hemisphere if written.
 const DECIMAL = String.raw`([-+−]?)(\p{Nd}{1,3}\.\p{Nd}{4,})(?:\s?°)?(?:\s?[NSEWnsew](?!\p{L}))?`;
-const COORDINATE_PAIR = new RegExp(String.raw`(?<![\p{L}\p{N}.])${DECIMAL}(?:\s*[,;/]\s*|\s+)${DECIMAL}(?!\p{N})`, 'gu');
+// The second number is read ahead, not taken (round 4): a pair that isn't on Earth leaves its second number to start
+// the next pair ("190.1234, 40.8677 -73.9212"). Groups: the first's sign and number, then the rest, then the second's.
+const COORDINATE_PAIR = new RegExp(String.raw`(?<![\p{L}\p{N}.])${DECIMAL}(?=((?:\s*[,;/]\s*|\s+)${DECIMAL}(?!\p{N})))`, 'gu');
 // 40°52'03.8"N, 40° 52′ 3″ N (NFKC writes ″ as ′′), 40°52'N.
 const DMS = /(?<!\p{N})\p{Nd}{1,3}\s?°\s?\p{Nd}{1,2}(?:\.\p{Nd}+)?\s?['′](?:\s?\p{Nd}{1,2}(?:\.\p{Nd}+)?\s?(?:["″]|′′|'')?)?(?:\s?[NSEWnsew](?![\p{L}]))?/gu;
 
@@ -519,8 +547,10 @@ function isDate(match: string): boolean {
  *   groups whose first has 4 or more digits and doesn't start with 0 (night hours 1830-0630, 2234-5678, a reference
  *   2026-004512), nor a range: two groups joined by a dash, the second 0 to 999 above the first (1001-1096, 993-1104);
  * - three or more groups: the last of 4 or more digits (4111 1111 1111 1111); or 9 or more digits with the first group
- *   starting with 0 (06 12 34 56 78, 079 123 45 67, 0475 12 34 56); or 3-3-3 starting with 6, 7, 8 or 9 (612 345 678).
- *   Never other groups whose last has under 4 digits (101 102 103, 1 250 000, 18 25 35 50 85).
+ *   starting with 0 (06 12 34 56 78, 079 123 45 67, 0475 12 34 56); or 9 digits starting with 5 to 9 in groups of 2 or
+ *   3, however grouped (round 4: Spain's and Poland's 612 34 56 78, 91 123 45 67, 512 345 678). Never other groups
+ *   whose last has under 4 digits (101 102 103, 1 250 000, 18 25 35 50 85, 555.0123.88).
+ * Never a decimal of 5 or more places (1.777778, an aspect ratio), round 4.
  * Over 15 digits ending in a group of 4 or more is taken out too: a card number, or a phone run on from other numbers,
  * is never what an assistant needs.
  */
@@ -532,6 +562,7 @@ function isPhone(match: string): boolean {
   const [first = '', second = ''] = groups;
   const last = groups[groups.length - 1] ?? '';
   if (groups.length === 1) return digits.length >= 10 || (digits.length === 9 && /^[6-9]/.test(digits));
+  if (groups.length === 2 && /^\p{Nd}+\.\p{Nd}{5,}$/u.test(match)) return false;
   if (groups.length === 2) {
     if (/^\p{Nd}+\p{Zs}?[\p{Pd}−]\p{Zs}?\p{Nd}+$/u.test(match)) {
       const rise = Number(second) - Number(first);
@@ -542,17 +573,15 @@ function isPhone(match: string): boolean {
   }
   if (last.length >= 4) return true;
   if (first.startsWith('0') && digits.length >= 9) return true;
-  return groups.length === 3 && groups.every((g) => g.length === 3) && /^[6-9]/.test(digits);
+  return digits.length === 9 && /^[5-9]/.test(digits) && groups.every((g) => g.length >= 2 && g.length <= 3);
 }
+
+/** Film text that runs numbers in groups and is never a phone: a camera's ISO steps ("ISO 800 1600 3200"), round 4. */
+const ISO_BEFORE = /\bISO\p{Zs}*$/iu;
 
 /** The phone numbers in a text, each as its plain digits, by the free-text rule (for the server's last check). */
 export function phonesIn(text: string): string[] {
   return [...normalText(text).matchAll(new RegExp(NUMBER, 'gu'))].filter((m) => isPhone(m[0])).map((m) => digitsOf(m[0]));
-}
-
-/** Every digit-group run in a text (a stored phone field's parts: "555-0123 / 555-0199" is two), as plain digits. */
-export function digitRunsIn(text: string): string[] {
-  return [...normalText(text).matchAll(new RegExp(NUMBER, 'gu'))].map((m) => digitsOf(m[0]));
 }
 
 /** A text's replacements, counting each, so a text with none comes back as it was stored. */
@@ -562,20 +591,48 @@ class Scrub {
   constructor(text: string) {
     this.text = text;
   }
-  replace(pattern: RegExp, keep: (match: string, groups: (string | undefined)[]) => string | null = () => null): this {
+  /** Each match replaced unless `keep` gives it back; `keep` may give other words instead. No pattern here has named groups. */
+  replace(pattern: RegExp, keep: (match: string, groups: (string | undefined)[], before: () => string) => string | null = () => null): this {
     this.text = this.text.replace(pattern, (match: string, ...rest: unknown[]) => {
       const groups = rest.slice(0, -2).map((g) => (typeof g === 'string' ? g : undefined));
-      const kept = keep(match, groups);
+      const offset = rest[rest.length - 2];
+      const whole = rest[rest.length - 1];
+      // The few characters before the match, read only when asked.
+      const before = () => (typeof offset === 'number' && typeof whole === 'string' ? whole.slice(Math.max(0, offset - 16), offset) : '');
+      const kept = keep(match, groups, before);
       if (kept === match) return match;
       this.replaced += 1;
       return kept ?? TAKEN_OUT;
     });
     return this;
   }
+
+  /**
+   * Each match, with the rest its pattern read ahead (its group `tail`), replaced when `take` says so; a match not taken
+   * uses up only itself, so what it read ahead can start the next match.
+   */
+  replaceReadingAhead(pattern: RegExp, tail: number, take: (groups: (string | undefined)[]) => boolean): this {
+    let out = '';
+    let at = 0;
+    pattern.lastIndex = 0;
+    for (let match = pattern.exec(this.text); match !== null; match = pattern.exec(this.text)) {
+      if (!take(match.slice(1))) continue;
+      out += this.text.slice(at, match.index) + TAKEN_OUT;
+      at = match.index + match[0].length + (match[tail] ?? '').length;
+      pattern.lastIndex = at;
+      this.replaced += 1;
+    }
+    this.text = out + this.text.slice(at);
+    return this;
+  }
 }
 
-/** Whether a coordinate pair's two numbers are a latitude (to 90) and a longitude (to 180). */
-const onEarth = (groups: (string | undefined)[]): boolean => Math.abs(normalNumber(groups[1] ?? '')) <= 90 && Math.abs(normalNumber(groups[3] ?? '')) <= 180;
+/** Whether a coordinate pair's two numbers are a latitude (to 90) and a longitude (to 180), either way round (round 4). */
+const onEarth = (groups: (string | undefined)[]): boolean => {
+  const a = Math.abs(normalNumber(groups[1] ?? ''));
+  const b = Math.abs(normalNumber(groups[4] ?? ''));
+  return (a <= 90 && b <= 180) || (a <= 180 && b <= 90);
+};
 
 /** A decimal written in any script's digits, as a number. */
 function normalNumber(text: string): number {
@@ -586,19 +643,20 @@ function normalNumber(text: string): number {
 /** Free text with anything that reads as an email address, a phone number, coordinates or a map link taken out. */
 export function withoutContacts(text: string): string {
   const scrub = new Scrub(normalText(text))
-    .replace(MAP_LINK)
+    .replace(MAP_LINK, mapLinkOut)
     .replace(WHAT3WORDS)
-    .replace(PLUS_CODE, (match) => (/[a-z]/iu.test(match) ? null : match));
+    .replace(PLUS_CODE, (match) => (/[A-Z]/u.test(match) ? null : match));
   for (const email of EMAILS) scrub.replace(email);
   scrub
-    .replace(COORDINATE_PAIR, (match, groups) => (onEarth(groups) ? null : match))
+    .replaceReadingAhead(COORDINATE_PAIR, 3, onEarth)
     .replace(DMS)
-    .replace(ID_DATE_OR_NUMBER, (match, [id, date]) => {
+    .replace(ID_DATE_OR_NUMBER, (match, [id, date], before) => {
       if (id !== undefined) return match;
       if (date !== undefined && isDate(match)) return match;
       // A closing bracket with no opening one is the sentence's, not the number's: "(call +1 555 0166)".
       const own = match.endsWith(')') && !match.includes('(') ? match.slice(0, -1) : match;
-      return isPhone(own) ? TAKEN_OUT + match.slice(own.length) : match;
+      if (!isPhone(own) || ISO_BEFORE.test(before())) return match;
+      return TAKEN_OUT + match.slice(own.length);
     });
   // Nothing taken out: the text exactly as stored (round 3), its format characters and all.
   return scrub.replaced === 0 ? text : scrub.text;
@@ -637,6 +695,9 @@ export function givenProps(type: string, props: Props): Props {
 
 // ---- Suggestions -------------------------------------------------------------------------------------------------
 
+/** Whether a value is a canonical UUID, as every record's id is. */
+export const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
 /**
  * The type a suggestion's data is read by: its target's own type when the target is in the project (a call sheet's
  * suggestion targets its shoot day and carries the sheet's props), else the type it says.
@@ -658,10 +719,13 @@ function suggestionData(type: string, data: JsonValue): JsonValue {
   const out: Record<string, JsonValue> = {};
   for (const [key, value] of Object.entries(data)) {
     if (key === 'props' || key === 'before') out[key] = typeof value === 'object' && value !== null && !Array.isArray(value) ? viewText(givenProps(type, value)) : {};
-    // A type and two ids: only text of at most 100 characters, or null; anything else is left out (round 3).
-    else if (key === 'type' || key === 'parent_id' || key === 'after_id') {
+    // A type, only as text of at most 100 characters, or null (round 3); two ids, only as ids (round 4: a canonical
+    // UUID, or null). Anything else is left out.
+    else if (key === 'type') {
       if (value === null) out[key] = null;
       else if (typeof value === 'string' && value.length <= 100) out[key] = withoutContacts(value);
+    } else if (key === 'parent_id' || key === 'after_id') {
+      if (value === null || (typeof value === 'string' && isUuid(value))) out[key] = value;
     }
   }
   return out;
@@ -754,6 +818,8 @@ export interface ContactGuard {
   readonly phones: readonly string[];
   /** Emails and whole addresses, each as `guardText` writes it. */
   readonly texts: readonly string[];
+  /** The emails among them (round 4: under a name the guard looks for phones and emails only). */
+  readonly emails: readonly string[];
   /** Coordinates, as stored. */
   readonly coordinates: readonly number[];
 }
@@ -772,25 +838,51 @@ function stringsOf(value: JsonValue | undefined, depth = 0): string[] {
   return [];
 }
 
+/**
+ * A stored phone field's digit runs, each as its groups of plain digits: "555-0107 / 555-0199" is two runs, and
+ * "555-0107/555-0199" or "555 0107 555 0199" one run of two numbers (round 4).
+ */
+function digitGroupsIn(text: string): string[][] {
+  return [...normalText(text).matchAll(new RegExp(NUMBER, 'gu'))].map((m) => (m[0].match(/\p{Nd}+/gu) ?? []).map(digitsOf));
+}
+
 export function contactGuard(records: Records): ContactGuard {
   const phones = new Set<string>();
   const texts = new Set<string>();
+  const emails = new Set<string>();
   const coordinates = new Set<number>();
   const tail = (digits: string) => {
     if (digits.length >= 7) phones.add(digits.slice(-7));
   };
-  // A stored phone field: each of its digit runs that is long enough, whatever its shape.
+  // A stored phone field: each of its digit runs that is long enough, whatever its shape. A run of 14 or more digits
+  // holds two numbers or more, written with nothing between them but a slash or a space: each number's last 7 digits
+  // too, its groups taken in order until 7 or more digits are gathered (round 4).
   const phone = (value: JsonValue | undefined) => {
-    for (const text of stringsOf(value)) for (const run of digitRunsIn(text)) tail(run);
+    for (const text of stringsOf(value)) {
+      for (const groups of digitGroupsIn(text)) {
+        const digits = groups.join('');
+        tail(digits);
+        if (digits.length < 14) continue;
+        let gathered = '';
+        for (const group of groups) {
+          gathered += group;
+          if (gathered.length < 7) continue;
+          tail(gathered);
+          gathered = '';
+        }
+      }
+    }
   };
   // Left-out text: the phone numbers typed in it, by the free-text rule.
   const typed = (value: JsonValue | undefined) => {
     for (const text of stringsOf(value)) for (const run of phonesIn(text)) tail(run);
   };
-  const textOf = (value: JsonValue | undefined) => {
+  const textOf = (value: JsonValue | undefined, email = false) => {
     if (typeof value !== 'string') return;
     const written = guardText(value);
-    if (written.length >= 5) texts.add(written);
+    if (written.length < 5) return;
+    texts.add(written);
+    if (email) emails.add(written);
   };
   const coordinate = (value: JsonValue | undefined) => {
     if (typeof value === 'number' && Number.isFinite(value)) coordinates.add(value);
@@ -798,7 +890,7 @@ export function contactGuard(records: Records): ContactGuard {
   const contactPart = (owner: JsonValue | undefined) => {
     if (typeof owner !== 'object' || owner === null || Array.isArray(owner)) return;
     phone(owner.phone);
-    textOf(owner.email);
+    textOf(owner.email, true);
     textOf(owner.address);
     typed(owner);
   };
@@ -809,7 +901,7 @@ export function contactGuard(records: Records): ContactGuard {
       const value = record.props[key];
       if (why === 'contact') {
         if (/phone/.test(key)) phone(value);
-        else if (/email/.test(key)) textOf(value);
+        else if (/email/.test(key)) textOf(value, true);
         else if (/address/.test(key)) textOf(value);
         else typed(value);
       } else if (why === 'place' && /latitude|longitude/.test(key)) coordinate(value);
@@ -822,7 +914,7 @@ export function contactGuard(records: Records): ContactGuard {
       contactPart(record.props.company);
     }
   }
-  return { phones: [...phones], texts: [...texts], coordinates: [...coordinates] };
+  return { phones: [...phones], texts: [...texts], emails: [...emails], coordinates: [...coordinates] };
 }
 
 /** A digit group run in text as the guard reads it: digits joined by spaces, dashes, dots, slashes, brackets or a plus. */
@@ -834,29 +926,39 @@ const TYPED_COORDINATE = /(?<![\p{N}.])[-+−]?(\p{Nd}{1,3})\.(\p{Nd}{4,})(?!\p{
 
 interface GuardPatterns {
   phones: ReadonlySet<string>;
-  texts: readonly RegExp[];
+  /** Stored addresses, as whole-word patterns. */
+  addresses: readonly RegExp[];
+  /** Stored emails, as whole-word patterns. */
+  emails: readonly RegExp[];
   /** Each stored coordinate at 4 places, cut and rounded, in ten-thousandths. */
   coordinates: ReadonlySet<number>;
 }
 
 const patterns = new WeakMap<ContactGuard, GuardPatterns>();
 
-/** A stored value as a pattern: case-folded, any run of spaces for a space. */
+/**
+ * A stored value as a pattern: case-folded, any run of spaces for a space, and only as a whole word (round 4: a stored
+ * "1 Main St" isn't inside "21 Main Street").
+ */
 const asPattern = (value: string) =>
   new RegExp(
-    value
-      .split(' ')
-      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      .join(String.raw`\s+`),
+    String.raw`(?<![\p{L}\p{N}])` +
+      value
+        .split(' ')
+        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join(String.raw`\s+`) +
+      String.raw`(?![\p{L}\p{N}])`,
     'giu',
   );
 
 function patternsOf(guard: ContactGuard): GuardPatterns {
   const known = patterns.get(guard);
   if (known) return known;
+  const emails = new Set(guard.emails);
   const made: GuardPatterns = {
     phones: new Set(guard.phones),
-    texts: guard.texts.map(asPattern),
+    addresses: guard.texts.filter((text) => !emails.has(text)).map(asPattern),
+    emails: [...emails].map(asPattern),
     coordinates: new Set(guard.coordinates.flatMap((n) => [Math.trunc(Math.abs(n) * 10000), Math.round(Math.abs(n) * 10000)])),
   };
   patterns.set(guard, made);
@@ -870,14 +972,25 @@ function holdsPhone(phones: ReadonlySet<string>, run: string): boolean {
   return false;
 }
 
+export interface StoredContactsOptions {
+  /**
+   * A name the view gives (a person's, a location's, a label): only stored phones and emails are looked for in it, never
+   * addresses or coordinates, so a place named as its address begins, or as its street, stays (round 4).
+   */
+  name?: boolean;
+}
+
 /**
  * A typed text with every stored contact value the guard holds replaced with `TAKEN_OUT`: an email or a whole address
- * however it is written (case, spaces, full-width), a coordinate of 4 or more places that is a stored one to 4 places,
- * and a digit run holding a stored phone's last 7 digits (ids and ISO dates blanked first). A text with none comes
- * back exactly as stored.
+ * however it is written (case, spaces, full-width), as a whole word; a coordinate of 4 or more places that is a stored
+ * one to 4 places; and a digit run holding a stored phone's last 7 digits (ids and ISO dates blanked first). A text
+ * with none comes back exactly as stored.
  */
-export function withoutStoredContacts(guard: ContactGuard, text: string): string {
-  const { phones, texts, coordinates } = patternsOf(guard);
+export function withoutStoredContacts(guard: ContactGuard, text: string, options: StoredContactsOptions = {}): string {
+  const all = patternsOf(guard);
+  const phones = all.phones;
+  const texts = options.name === true ? all.emails : [...all.emails, ...all.addresses];
+  const coordinates = options.name === true ? new Set<number>() : all.coordinates;
   if (phones.size === 0 && texts.length === 0 && coordinates.size === 0) return text;
   let replaced = 0;
   const out = () => {
