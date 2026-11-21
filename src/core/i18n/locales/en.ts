@@ -1025,6 +1025,8 @@ export const en = {
   'count.shootDays.one': '{count} shoot day',
   'count.shootDays.other': '{count} shoot days',
   'history.framesScheduled': 'Moved {frames} to shoot day {day}{tag}',
+  // The same, when the day has since been deleted for good: {day} is "a shoot day".
+  'history.framesScheduledGone': 'Moved {frames} to {day}{tag}',
   'history.framesUnscheduled': 'Took {frames} out of their shoot day{tag}',
   // One frame's day, as the scene's line reads (Kevin, Nov 21).
   'history.frameScheduled': 'Put {frame} on shoot day {day}',
@@ -1288,6 +1290,7 @@ export const en = {
   'history.deckNamed': 'deck {name}',
   'history.pageNumbered': 'page {number}',
   'history.sceneScheduled': 'Moved {scene} to shoot day {day}{tag}',
+  'history.sceneScheduledGone': 'Moved {scene} to {day}{tag}',
   'history.shotsRenumbered': 'Renumbered {scene}’s shots{tag}',
   'history.sceneRenumbered': 'Renumbered {from} to {scene} and its shots{tag}',
   'history.numbersLocked': 'Locked {scene}’s shot numbers{tag}',

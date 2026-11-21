@@ -413,6 +413,18 @@ describe('one frame’s shoot day (Kevin, Nov 21)', () => {
     expect(say(takeOff, gone)).toBe('Se sacó 1A de un día de rodaje');
   });
 
+  it('several frames and a whole scene put on a day since deleted for good read “a shoot day”', () => {
+    const both = [op('update', f1, on(f1, 'mon')), op('update', f2, on(f2, 'mon'))];
+    const left = shot('f3', 'sc12', 'c', '1C');
+    const whole = near(sc12, on(f1, 'mon'), on(f2, 'mon'));
+    const part = near(sc12, on(f1, 'mon'), on(f2, 'mon'), left);
+    expect(say(both, whole)).toBe('Moved SC 12 to a shoot day');
+    expect(say(both, part)).toBe('Moved 2 frames to a shoot day');
+    setLocale('es');
+    expect(say(both, whole)).toBe('Se movió ESC 12 a un día de rodaje');
+    expect(say(both, part)).toBe('Se movieron 2 cuadros a un día de rodaje');
+  });
+
   it('several frames and a whole scene keep their lines', () => {
     const both = [op('update', f1, on(f1, 'mon')), op('update', f2, on(f2, 'mon'))];
     const left = shot('f3', 'sc12', 'c', '1C');

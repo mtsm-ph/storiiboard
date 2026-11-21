@@ -70,6 +70,8 @@ describe('History for setups', () => {
     setLocale('es');
     expect(say([op('update', named, { ...named, props: { name: 'Door' } })])).toBe('Se renombró el emplazamiento “Window side” de ESC 04 como “Door”');
     expect(say([op('update', named, unnamed)])).toBe('Sin nombre ahora: el emplazamiento “Window side” de ESC 04');
+    // Restored, as deleted reads.
+    expect(say([op('restore', { ...named, trashedAt: at }, named)])).toBe('Se restauró el emplazamiento “Window side” de ESC 04');
   });
 
   it('says frames were put into a setup or taken out of it', () => {

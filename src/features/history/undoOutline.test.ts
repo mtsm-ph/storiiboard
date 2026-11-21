@@ -9,8 +9,9 @@ import { nodeDriver } from '../../core/storage/nodeDriver';
 import { createProject, openProject, type Project } from '../../core/storage/project';
 import { makeTestFolder, type TestFolder } from '../../core/storage/testFolder';
 import { setLocale } from '../../core/i18n';
+import type { SbdRecord } from '../../core/model/record';
 import { broughtBackNotice, itemOps, loadSteps } from './steps';
-import { describeGroup, frameRows, lineText } from './summary';
+import { describeGroup, frameRows, keptText, lineText } from './summary';
 import { NO_UNDONE, shownRun, undoneFacts } from './undone';
 
 // Undoing from History (item 7, Kevin, Nov 18 and 20): the run of undos, the bring_back step that takes one back, the
@@ -117,7 +118,13 @@ describe('a bring_back step', () => {
     expect(done?.kept.map((k) => [k.record.id, k.prop])).toEqual([['4A', 'lens_mm']]);
     expect(broughtBackNotice(done ?? { written: 0, kept: [] })).toBe('Brought back 1 change. 4A’s lens kept its later edit.');
     setLocale('es');
-    expect(broughtBackNotice(done ?? { written: 0, kept: [] })).toBe('Se recuperó 1 cambio. En 4A, la lente conservó su cambio posterior.');
+    expect(broughtBackNotice(done ?? { written: 0, kept: [] })).toBe('Se recuperó 1 cambio. En 4A se conservó el cambio posterior de lente.');
+  });
+
+  it('in Spanish, a plural field keeps its later edits in the noun form (Kevin, Nov 21)', () => {
+    setLocale('es');
+    const frame: SbdRecord = { id: '4A', type: 'shot', parentId: 'sc4', sortKey: 'V', props: { number: '4A' }, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' };
+    expect(keptText([{ record: frame, prop: 'notes', why: 'later' }])).toBe('En 4A se conservaron los cambios posteriores de notas.');
   });
 
   it('sends a trashed item back to the Trash, as the undone step had it', async () => {
