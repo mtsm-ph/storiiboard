@@ -1811,6 +1811,18 @@ export const es: Messages = {
   'topBar.groupExport': 'Exportar',
   'topBar.settings': 'Configuración…',
   'topBar.watermarkSettingsDots': 'Configuración de marca de agua…',
+  // src/app/shell/UndoRedoButtons.tsx
+  'topBar.undoStep': 'Deshacer: {step}',
+  'topBar.redoStep': 'Rehacer: {step}',
+  'topBar.nothingToUndo': 'Nada que deshacer',
+  'topBar.nothingToRedo': 'Nada que rehacer',
+  'topBar.withKeys': '{name} · {keys}',
+  'topBar.undoKeysMac': '⌘Z',
+  'topBar.undoKeys': 'Ctrl+Z',
+  'topBar.redoKeysMac': '⌘⇧Z',
+  'topBar.keysOr': '{first} o {second}',
+  'topBar.redoKeysY': 'Ctrl+Y',
+  'topBar.redoKeysShiftZ': 'Ctrl+Mayús+Z',
   // src/app/shell/docking/LayoutMenu.tsx
   'layoutMenu.maximizeNamed': 'Maximizar {title}',
   // src/features/storyboard/deleteScene.ts and ScenesView.tsx (polish 5: delete a scene)

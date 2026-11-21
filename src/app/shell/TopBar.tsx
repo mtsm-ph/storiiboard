@@ -8,6 +8,7 @@ import { isMac } from './undoShortcuts';
 import { setProjectState } from '../projects/actions';
 import { useProject } from '../projectStore';
 import { LayoutMenu } from './docking/LayoutMenu';
+import { UndoRedoButtons } from './UndoRedoButtons';
 import { openExportDialog } from '../../features/export/exportStore';
 import type { Workspace } from './workspaces';
 import { t } from '../../core/i18n';
@@ -20,7 +21,8 @@ interface TopBarProps {
 }
 
 // The top bar keeps paper-coloured outlines in dark mode (rule-top): with the sidebar it is the "guiding board".
-// Workspaces moved to the sidebar in D3; the bar keeps the S mark, the project name, History (polish 3) and the menus.
+// Workspaces moved to the sidebar in D3; the bar keeps the S mark, the project name, History (polish 3), Undo and Redo
+// (item 8) and the menus.
 export function TopBar({ projectName, workspace, onOpenHistory }: TopBarProps) {
   const state = useProject((s) => (s.project ? projectStateOf(s.records[s.project.projectId]?.props) : null));
   const open = useProject((s) => s.project !== null);
@@ -53,6 +55,8 @@ export function TopBar({ projectName, workspace, onOpenHistory }: TopBarProps) {
         {t('topBar.history')}
       </button>
       <div className="ml-auto flex h-full">
+        {/* Undo and Redo (item 8): ⌘Z and ⌘⇧Z as buttons, named by the step each would take; with a project only. */}
+        <UndoRedoButtons mac={mac} />
         <LayoutMenu workspace={workspace} />
         {/* The project menu (DESIGN.md, Menus): in groups, what isn't built yet left out. */}
         <Menu

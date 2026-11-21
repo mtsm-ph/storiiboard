@@ -1863,6 +1863,19 @@ function wholeSceneOnDay(updates: readonly LoggedOp[], day: string, around: Read
 }
 
 /**
+ * The picture files an edit's ops name, by hash: what its line asks of `stored` to say "(picture removed)" (1.21). The
+ * one rule, so the files steps.ts looks up are always the ones describeEdit checks: a picture still in the file can
+ * never read as removed because the two drifted apart.
+ */
+export function stepPictures(ops: readonly LoggedOp[]): string[] {
+  return ops.flatMap((op) => {
+    const media = op.after ?? op.before;
+    const sha = media?.type === 'media' ? mediaFields(media.props)?.sha256 : undefined;
+    return sha === undefined ? [] : [sha];
+  });
+}
+
+/**
  * One line for an edit group, from its ops. `stored` holds the pictures still in the file; `around`, records the step
  * names without writing them (a sketch's frame, a scene's location), as they were then. `unsure`: a record of the
  * project then has since been deleted for good (steps.ts), so a place read from `around` says only what it can prove.
@@ -1904,11 +1917,7 @@ export function describeEdit(
   }
   const of = (kind: LoggedOp['kind'], type?: SbdRecord['type']) => ops.filter((op) => op.kind === kind && (!type || record(op)?.type === type));
   const items = (n: number) => tn('history.items', n);
-  const removed = ops.some((op) => {
-    const media = record(op);
-    const sha = media?.type === 'media' ? mediaFields(media.props)?.sha256 : undefined;
-    return sha !== undefined && !stored.has(sha);
-  });
+  const removed = stepPictures(ops).some((sha) => !stored.has(sha));
   const tag = removed ? t('history.pictureRemovedTag') : '';
   // A change of look: the theme, with or without a new logo.
   if (ops.some((op) => op.after?.type === 'project' && op.before && JSON.stringify(op.before.props.theme) !== JSON.stringify(op.after.props.theme))) {
@@ -2256,7 +2265,8 @@ export function describeGroup(
         ? [t('history.restoredToStart')]
         : [t('history.restoredTo'), ...(titles.get(group.restoreTo) ?? [t('history.anEarlierStep')])];
     case 'empty_trash':
-      return [t('history.emptiedTrash', { items: tn('count.items', ops.length) })];
+      // The log's own count of the group's ops (the same rows), so a reader that names it needn't read them all.
+      return [t('history.emptiedTrash', { items: tn('count.items', group.opCount) })];
   }
 }
 

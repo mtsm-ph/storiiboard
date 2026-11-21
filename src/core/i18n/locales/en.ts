@@ -1809,6 +1809,19 @@ export const en = {
   'topBar.groupExport': 'Export',
   'topBar.settings': 'Settings…',
   'topBar.watermarkSettingsDots': 'Watermark Settings…',
+  // src/app/shell/UndoRedoButtons.tsx: {step} is the step's line as History shows it.
+  'topBar.undoStep': 'Undo: {step}',
+  'topBar.redoStep': 'Redo: {step}',
+  'topBar.nothingToUndo': 'Nothing to undo',
+  'topBar.nothingToRedo': 'Nothing to redo',
+  'topBar.withKeys': '{name} · {keys}',
+  'topBar.undoKeysMac': '⌘Z',
+  'topBar.undoKeys': 'Ctrl+Z',
+  'topBar.redoKeysMac': '⌘⇧Z',
+  // Two keys that do the same, each drawn in mono, the word between them not.
+  'topBar.keysOr': '{first} or {second}',
+  'topBar.redoKeysY': 'Ctrl+Y',
+  'topBar.redoKeysShiftZ': 'Ctrl+Shift+Z',
   // src/app/shell/docking/LayoutMenu.tsx
   'layoutMenu.maximizeNamed': 'Maximize {title}',
   // src/features/storyboard/deleteScene.ts and ScenesView.tsx (polish 5: delete a scene)

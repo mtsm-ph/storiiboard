@@ -1,6 +1,6 @@
 import { isRecordType, type Props, type RecordType, type SbdRecord } from '../model/record';
 import { forgetSeenStatement } from '../storage/seen';
-import type { ProjectFile, Row, Statement } from '../storage/driver';
+import type { ProjectFile, Row, SqlValue, Statement } from '../storage/driver';
 import { recordSlateNumbers } from '../storage/slateNumbers';
 
 // Every change to a project is an operation (CLAUDE.md, Edits, undo and autosave). One user action is one op group:
@@ -1160,16 +1160,44 @@ export async function childrenBefore(file: ProjectFile, asks: readonly { parentI
   return (await placesBefore(file, asks)).children;
 }
 
-/** The picture files still stored: a step whose picture isn't among them shows "picture removed" (1.21). */
-export async function storedPictures(file: ProjectFile): Promise<Set<string>> {
-  return new Set((await file.query('SELECT sha256 FROM media_files')).map((row) => String(row.sha256)));
+/**
+ * The picture files still stored: a step whose picture isn't among them shows "picture removed" (1.21). Given `of`,
+ * only those of them (none asked: no query), so a read of a few steps doesn't list every picture in the file.
+ */
+export async function storedPictures(file: ProjectFile, of?: readonly string[]): Promise<Set<string>> {
+  if (of === undefined) return new Set((await file.query('SELECT sha256 FROM media_files')).map((row) => String(row.sha256)));
+  if (of.length === 0) return new Set();
+  const rows = await file.query('SELECT sha256 FROM media_files WHERE sha256 IN (SELECT value FROM json_each(?))', [JSON.stringify([...new Set(of)])]);
+  return new Set(rows.map((row) => String(row.sha256)));
+}
+
+/**
+ * The steps ⌘Z and ⌘⇧Z would take now, by group id (null: nothing to undo or redo): what the top bar's Undo and Redo
+ * buttons name. Read, never written; the same lookup undo and redo themselves start from.
+ */
+export async function undoTops(file: ProjectFile): Promise<{ undoTop: string | null; redoTop: string | null }> {
+  return tops(file);
 }
 
 /** Every op group, oldest first, undos, redos and restores included: what the History panel lists. */
 export async function log(file: ProjectFile): Promise<OpGroup[]> {
+  return groupRows(file, '');
+}
+
+/**
+ * Only these op groups, oldest first, as `log` reads them: the top bar's names follow every edit, so they read the few
+ * steps they name rather than the whole log.
+ */
+export async function logOf(file: ProjectFile, ids: readonly string[]): Promise<OpGroup[]> {
+  if (ids.length === 0) return [];
+  return groupRows(file, 'WHERE g.id IN (SELECT value FROM json_each(?))', [JSON.stringify(ids)]);
+}
+
+async function groupRows(file: ProjectFile, where: string, params: readonly SqlValue[] = []): Promise<OpGroup[]> {
   const rows = await file.query(
     `SELECT g.id, g.seq, g.kind, g.target_group_id, g.restore_to, g.author, g.timestamp,
-      (SELECT count(*) FROM ops o WHERE o.group_id = g.id) AS op_count FROM op_groups g ORDER BY g.seq`,
+      (SELECT count(*) FROM ops o WHERE o.group_id = g.id) AS op_count FROM op_groups g ${where} ORDER BY g.seq`,
+    params,
   );
   return rows.map((row) => ({
     id: String(row.id),
