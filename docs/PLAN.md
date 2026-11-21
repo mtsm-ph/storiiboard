@@ -22,7 +22,7 @@ CLAUDE.md holds the working rules. This file holds scope, phases, gates and stat
 | 4 · Call sheets | **Built** and merged (Nov 10, #120 to #134); the gate is Kevin's |
 | 5 · Canvas flow (moodboards and decks) | **Built** and merged (Nov 13, #135 to #150); follow-ups 5.11 (#152) and 5.12 (#153) open; the gate is Kevin's |
 | 6 · Bird's-eye view | **Built and merged** (Nov 15): 6.0 to 6.11 (#154 to #166) and 6.12 to 6.21 (#167 to #178) in `v2`; the gate is Kevin's |
-| 7 · AI assistant | **Under way** (Kevin said go Nov 21): 7.0 to 7.2 merged (nov21-g); 7.3 and 7.4 built, open |
+| 7 · AI assistant | **Under way** (Kevin said go Nov 21): 7.0 to 7.4 merged (nov21-g, nov21-i); 7.5 and 7.6 built, open |
 | 8 · Cloud links and release | Not started |
 | 9 · Web companion | Not started |
 | 10 · 3D set and Blender | Not started |
@@ -50,10 +50,10 @@ asset, breakdown lists on scenes, two props: decisions 4, 6, 8, 9, 12, 13).
 | 7.0 Suggestions in the model | `suggestion` records: readers, the approve and reject ops, and an apply engine per kind (`trash`, `update`, `create`, `reorder`) limited to a list of record types and fields (decision 4); the review flags (changed since, gone, already trashed); each kind written into SBD_FORMAT.md first. Gear edits move from src/features/gear into core (a handoff note since 3.9) | #261 | Merged Nov 21 on checkpoint/nov21-g (every job green but the Mac installer's launch check, red at accents on GitHub's canvas-less Mac in code this PR doesn't touch: merged past it by Kevin's rule); four rounds, reviewed |
 | 7.1 Change files in | Reading a `.sbdchanges` file as untrusted input (5 MB, the version rules, another project's file refused, the same file twice adds nothing), one op group per import; File → Import changes and a file dropped on the window (through Tauri's drop on the desktop); the `Suggestions/` folder beside the project brought in when it opens (decision 3). Tested with fixture files | #262 | Merged Nov 21 on checkpoint/nov21-g (every job green but the Mac installer's launch check, red at accents on GitHub's canvas-less Mac in code this PR doesn't touch: merged past it by Kevin's rule); four rounds, reviewed twice, once only to break the trust boundary |
 | 7.2 The review screen | #264 | Merged Nov 21 on checkpoint/nov21-g (every job green but the Mac installer's launch check, red at accents on GitHub's canvas-less Mac in code this PR doesn't touch: merged past it by Kevin's rule); three rounds, reviewed |
-| 7.3 Availability and the seventh check | #266 (open), on #264 | Built Nov 21, two rounds, reviewed |
-| 7.4 The Checks tile | #267 (open), on #266 | Built Nov 21; round 2 under way |
-| 7.5 The MCP server: reading | `mcp/`, stdio, the SDK (decision 2), the project opened read-only through `nodeDriver`; the read tools of decision 16, without trashed items unless asked and without contact details unless the project allows it (decision 14); `get_plan` returns a setup's plan; docs/MCP.md with how to connect Claude Desktop and Claude Code; tests drive the server over stdio against a fixture project | | Planned |
-| 7.6 The MCP server: checking and proposing | `run_checks`; the propose tools, each writing a change file into `Suggestions/` (decision 3), attributed to the assistant by the client's own name; Settings → AI assistant lists the tools and holds the contact-details switch | | Planned |
+| 7.3 Availability and the seventh check | #266 | Merged Nov 21 on checkpoint/nov21-i (every job green); two rounds, reviewed |
+| 7.4 The Checks tile | #267 | Merged Nov 21 on checkpoint/nov21-i; three rounds, reviewed |
+| 7.5 The MCP server: reading | #269 (open) | Built Nov 21, four rounds; reviewed three times, one review only to break it |
+| 7.6 The MCP server: checking and proposing | branch feat/7.6-mcp-propose (on #269) | Built Nov 21; two reviews running, one only to break the write |
 | 7.7 The script kept, and the breakdown | The imported script stored as an asset (decision 8) and `read_script`; five breakdown lists on a scene, typed by hand or approved from `suggest_breakdown` (decision 9) | | Planned |
 | 7.8 Coverage | "Suggest coverage" on a scene, by rule, as suggestions (decision 11) | | Planned |
 | 7.9 Image prompts and the AI mark | Copy image prompt from a frame's data plus the project's look line (decision 12); the AI-generated switch on a picture, its tag on the board, in the PDF and the CSV (decision 13) | | Planned |
