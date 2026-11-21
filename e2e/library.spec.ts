@@ -87,7 +87,7 @@ async function dragIcon(page: Page, id: string, to: { x: number; y: number }) {
 async function setUnits(page: Page, label: 'Metres' | 'Feet and inches') {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
 }
 
 /** The Setup workspace on SC 01's Setup 1, its room started. */
@@ -358,7 +358,8 @@ test('the Library in Spanish: its labels, its filter finds “sofá”, and the 
   await expect(libraryIcon(page, 'set-art/wall')).toHaveAccessibleName('Wall: selects the Wall tool');
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'App language' }).selectOption('es');
-  await page.keyboard.press('Escape');
+  // Applied as Settings closes (Kevin, Nov 17).
+  await closeSettings(page, 'apply');
   const biblioteca = page.getByRole('region', { name: 'Íconos', exact: true });
   await expect(biblioteca.locator('[data-library-says]')).toHaveText('Arrastra un ícono a la planta, o pulsa Intro sobre él para colocarlo en el centro de la vista.');
   await expect(biblioteca.locator('[data-library-group="set-art"] h3')).toHaveText('Escenografía y arte');

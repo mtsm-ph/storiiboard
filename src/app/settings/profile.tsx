@@ -1,31 +1,36 @@
-import { useId, useState } from 'react';
+import { useId } from 'react';
 import { t } from '../../core/i18n';
-import { initialsOf, isRole, ROLE_LABELS, ROLES } from '../../core/model/role';
+import { initialsOf, isRole, ROLE_LABELS, ROLES, type Role } from '../../core/model/role';
 import { cleanProfileText, MAX_PROFILE_NAME } from '../../core/storage/settings';
 import { Select, TextField, Toggle } from '../../ui/fields';
+import { useDraft } from './drafts';
 import { setProfile, useProfile } from './profileStore';
 
 // Settings → Profile (polish C): the person's name, initials and usual role, kept on this computer (profileStore.ts).
 // The name, or the initials if they choose, also goes with each edit they make, so History says who (Kevin, Nov 5).
+// Each waits for Apply changes (drafts.ts), as every setting of this computer's in the Settings window.
+
+/** Initials as kept: upper-cased first, then cut, so ß becomes SS and the ring holds three letters at most. */
+const cleanInitials = (text: string): string => cleanProfileText(text.toLocaleUpperCase(), 3);
+const cleanName = (text: string): string => cleanProfileText(text, MAX_PROFILE_NAME);
 
 export function ProfileTab() {
   const profile = useProfile();
   const noteId = useId();
   const historyNoteId = useId();
-  // Typed fields save when left or on Enter, as the inspector's do.
-  const [name, setName] = useState(profile.name);
-  const [initials, setInitials] = useState(profile.initials);
-  const commitName = () => {
-    const next = cleanProfileText(name, MAX_PROFILE_NAME);
-    setName(next);
-    if (next !== profile.name) setProfile({ name: next });
-  };
-  const commitInitials = () => {
-    // Upper-cased first, then cut: ß becomes SS, and the ring holds three letters at most.
-    const next = cleanProfileText(initials.toLocaleUpperCase(), 3);
-    setInitials(next);
-    if (next !== profile.initials) setProfile({ initials: next });
-  };
+  // Typed fields keep what is typed as the draft, cleaned when left or on Enter; Apply writes it cleaned either way.
+  const [name, draftName] = useDraft('profile.name', profile.name, (next: string) => {
+    setProfile({ name: cleanName(next) });
+  });
+  const [initials, draftInitials] = useDraft('profile.initials', profile.initials, (next: string) => {
+    setProfile({ initials: cleanInitials(next) });
+  });
+  const [role, draftRole] = useDraft<Role | null>('profile.role', profile.role, (next) => {
+    setProfile({ role: next });
+  });
+  const [historyInitials, draftHistoryInitials] = useDraft('profile.historyInitials', profile.historyInitials, (next: boolean) => {
+    setProfile({ historyInitials: next });
+  });
   return (
     <div className="flex max-w-[440px] flex-col gap-4 p-4">
       <TextField
@@ -34,11 +39,13 @@ export function ProfileTab() {
         maxLength={MAX_PROFILE_NAME}
         aria-describedby={`${noteId} ${historyNoteId}`}
         onChange={(event) => {
-          setName(event.currentTarget.value);
+          draftName(event.currentTarget.value);
         }}
-        onBlur={commitName}
+        onBlur={() => {
+          draftName(cleanName(name));
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') commitName();
+          if (event.key === 'Enter') draftName(cleanName(name));
         }}
       />
       <TextField
@@ -48,35 +55,31 @@ export function ProfileTab() {
         maxLength={3}
         aria-describedby={historyNoteId}
         onChange={(event) => {
-          setInitials(event.currentTarget.value);
+          draftInitials(event.currentTarget.value);
         }}
-        onBlur={commitInitials}
+        onBlur={() => {
+          draftInitials(cleanInitials(initials));
+        }}
         onKeyDown={(event) => {
-          if (event.key === 'Enter') commitInitials();
+          if (event.key === 'Enter') draftInitials(cleanInitials(initials));
         }}
       />
       <Select
         label={t('profile.role')}
-        value={profile.role ?? ''}
+        value={role ?? ''}
         onChange={(event) => {
           const value = event.currentTarget.value;
-          setProfile({ role: isRole(value) ? value : null });
+          draftRole(isRole(value) ? value : null);
         }}
       >
         <option value="">{t('profile.noRole')}</option>
-        {ROLES.map((role) => (
-          <option key={role} value={role}>
-            {ROLE_LABELS[role]}
+        {ROLES.map((r) => (
+          <option key={r} value={r}>
+            {ROLE_LABELS[r]}
           </option>
         ))}
       </Select>
-      <Toggle
-        label={t('profile.historyInitials')}
-        checked={profile.historyInitials}
-        onChange={(on) => {
-          setProfile({ historyInitials: on });
-        }}
-      />
+      <Toggle label={t('profile.historyInitials')} checked={historyInitials} onChange={draftHistoryInitials} />
       <p id={historyNoteId} className="text-[12px] text-text-muted">
         {t('profile.historyNote')}
       </p>

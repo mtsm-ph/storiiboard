@@ -24,6 +24,7 @@ import { ApplyView } from './PresetsTab';
 import { presetDiff, presetLeftOut, readPreset } from './presetDiff';
 import { applyPreset, applyToComputer, deletePreset, presetSettingsNow, renamePreset, savePreset } from './presets';
 import type { StoreApi } from 'zustand/vanilla';
+import { discardDrafts, hasDrafts, setDraft } from '../settings/drafts';
 
 // Settings presets (6.5.8) in the app: saving one is an op in the open project holding only the listed fields and
 // nothing personal; applying one writes this computer's settings through their setters, after keeping the settings
@@ -488,4 +489,46 @@ describe('a preset from someone else, bounded before the preview (round 3)', () 
       expect(html).toContain(read.tooLarge ? 'This preset is too large to read' : 'Left as they are, unreadable in the preset: Your workspaces.');
     });
   }
+});
+
+describe('a preset applied with changes waiting in Settings (Kevin, Nov 17)', () => {
+  it('stays one action: the preset applies, its Before is kept, and what waited for Apply is discarded, never written', async () => {
+    nightSettings();
+    await savePreset('Night', store);
+    setTheme('light');
+    const night = presetNamed('Night');
+    if (!night) throw new Error('no preset');
+    // A change waiting in Settings → App: Weather units, not yet applied.
+    const writes: string[] = [];
+    setDraft('weatherUnits', 'us', 'region', (next: string) => {
+      writes.push(next);
+    });
+    expect(hasDrafts()).toBe(true);
+    // The Apply window says so before anything is applied.
+    const html = renderToString(createElement(ApplyView, { preset: night, before: 'Before Night', busy: false, draftsWaiting: hasDrafts(), onApply: () => undefined }));
+    expect(html).toContain('Changes waiting in Settings that you haven’t applied are discarded.');
+    expect(await applyPreset(night.id, setTheme, store)).toBe('Before Night');
+    expect(loadSettings().theme).toBe('dark');
+    expect(presetNamed('Before Night')).toBeDefined();
+    expect(hasDrafts()).toBe(false);
+    expect(writes).toEqual([]);
+    expect(loadSettings().weatherUnits).toBe('region');
+  });
+
+  it('keeps the draft when nothing was applied (a preset gone meanwhile)', async () => {
+    setDraft('weatherUnits', 'us', 'region', () => undefined);
+    expect(await applyPreset('nope', setTheme, store)).toBeNull();
+    expect(hasDrafts()).toBe(true);
+    discardDrafts();
+  });
+
+  it('says nothing of drafts in the Apply window while none waits', async () => {
+    nightSettings();
+    await savePreset('Night', store);
+    setTheme('light');
+    const night = presetNamed('Night');
+    if (!night) throw new Error('no preset');
+    const html = renderToString(createElement(ApplyView, { preset: night, before: 'Before Night', busy: false, draftsWaiting: hasDrafts(), onApply: () => undefined }));
+    expect(html).not.toContain('Changes waiting in Settings');
+  });
 });

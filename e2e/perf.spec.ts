@@ -865,7 +865,7 @@ async function furnishedPlan(page: Page, url: string, extra = PLAN_EXTRA): Promi
   await newProject(page, 'Big Plan');
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
 
   // The project's camera body, through the Gear tile.
   await toSection(page, 'Production');

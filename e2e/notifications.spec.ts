@@ -26,7 +26,7 @@ async function signAs(page: Page, name: string) {
   const profile = await openSettings(page, 'Profile');
   await profile.getByLabel('Your name').fill(name);
   await profile.getByLabel('Your name').press('Enter');
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
 }
 
 test('steps by someone else are unread; opened, they’re read; Mark all read; your own never are; kept with the file', async ({ page }) => {

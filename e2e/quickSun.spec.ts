@@ -78,7 +78,7 @@ async function boxOf(locator: Locator) {
 test('quick sun: its own place and date for a setup with none, then the setup’s location and day win; pasted coordinates request nothing; the compass', async ({ page }) => {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
 
   // A scene and its frame, with no location and no shoot day; its setup and room.
   await page.getByRole('region', { name: 'Scenes', exact: true }).getByRole('button', { name: '+ New scene' }).click();

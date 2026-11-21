@@ -778,6 +778,83 @@ describe('the plan box’s foot band (6.10 review)', () => {
   });
 });
 
+describe('Units on paper and the two-line scale bar (Kevin, Nov 18)', () => {
+  /** Each text on a page with its baseline on the page, points, by following save, restore and concat. */
+  function placedTexts(ops: readonly DisplayOp[]): { text: string; x: number; y: number }[] {
+    const stack: Matrix[] = [IDENTITY];
+    const out: { text: string; x: number; y: number }[] = [];
+    for (const op of ops) {
+      const m = stack[stack.length - 1] ?? IDENTITY;
+      if (op.op === 'save') stack.push(m);
+      else if (op.op === 'restore') stack.pop();
+      else if (op.op === 'concat') stack[stack.length - 1] = mul(op.m, m);
+      else if (op.op === 'text') for (const line of op.lines) out.push({ text: line.text, x: m[4], y: m[3] * line.baseline + m[5] });
+    }
+    return out;
+  }
+
+  it('prints in feet when feet are on paper: the scale in inches to the foot, the bar in feet, one bar', async () => {
+    const { sceneId, setupId } = await sized(18, 10);
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options({ unit: 'feet' }));
+    const area = page?.plan;
+    if (!page || !area) throw new Error('no plan');
+    expect(area.scale.label).toMatch(/" = 1'-0"$/);
+    expect(area.bar.label).toMatch(/'$|"$|ft$/);
+    expect(area.bar.label).not.toMatch(/m$/);
+    expect(area.bothBars).toBeUndefined();
+    const texts = textsOf(printed(page).ops);
+    expect(texts).toContain(area.bar.label);
+    expect(texts).toContain('0');
+  });
+
+  it('prints the bar in metres and in feet, metres above, each its own round length, inside the foot band', async () => {
+    const { sceneId, setupId } = await sized(18, 10);
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options({ bothBars: true }));
+    const area = page?.plan;
+    if (!page || !area?.bothBars) throw new Error('no plan with both bars');
+    // The units on paper still set the scale: metres here, so 1:100 as before.
+    expect(area.scale.label).toBe('1:100');
+    const { metres, feet } = area.bothBars;
+    expect(metres.label).toMatch(/^\d+(\.\d+)? m$/);
+    expect(feet.label).not.toMatch(/m$/);
+    // Each no longer than a quarter of the plan's box, as the one bar.
+    for (const bar of [metres, feet]) expect(bar.length * area.pointsPerUnit).toBeLessThanOrEqual(Math.min(area.box.width / 4, 150) + 1e-9);
+    const ops = printed(page).ops;
+    const placed = placedTexts(ops);
+    const metresAt = placed.find((p) => p.text === metres.label);
+    const feetAt = placed.find((p) => p.text === feet.label);
+    if (!metresAt || !feetAt) throw new Error('a bar’s label is missing');
+    const band = footBand(area);
+    expect(metresAt.y).toBeLessThan(feetAt.y);
+    for (const at of [metresAt, feetAt]) {
+      expect(at.y).toBeGreaterThan(band.y);
+      expect(at.y).toBeLessThan(band.y + band.height);
+    }
+    // Two bars of two halves each, half ink and half white.
+    const tall = (op: DisplayOp): number | null => {
+      if (op.op !== 'shape' || op.path.length !== 5) return null;
+      const [first, , third] = op.path;
+      return first && 'm' in first && third && 'l' in third ? third.l[1] - first.m[1] : null;
+    };
+    const bars = ops.filter((op) => Math.abs((tall(op) ?? 0) - 3.5) < 1e-9);
+    expect(bars).toHaveLength(4);
+    // Each bar half ink and half white, the same two fills on both.
+    const fills = bars.map((op) => (op.op === 'shape' ? op.fill : null));
+    expect(fills[0]).not.toBe(fills[1]);
+    expect([fills[2], fills[3]]).toEqual([fills[0], fills[1]]);
+    // The one-bar "0" is not printed: each length is written at its own bar's end.
+    expect(textsOf(ops)).not.toContain('0');
+  });
+
+  it('prints one bar, as before, unless both are asked for', async () => {
+    const { sceneId, setupId } = await sized(18, 10);
+    const [page] = planPages(records(), project.projectId, [{ sceneId, setupId }], options({ bothBars: false }));
+    if (!page?.plan) throw new Error('no plan');
+    expect(page.plan.bothBars).toBeUndefined();
+    expect(textsOf(printed(page).ops)).toEqual(expect.arrayContaining(['0', page.plan.bar.label]));
+  });
+});
+
 describe('the legend’s flow (6.10 review)', () => {
   const row = (kind: LegendRow['kind'], keepWithNext: boolean, text: string): LegendRow => ({ kind, size: LEGEND_STYLE[kind].size, height: LEGEND_STYLE[kind].row, before: LEGEND_STYLE[kind].before, pieces: [{ text, face: 'mono', x: 0 }], keepWithNext });
 

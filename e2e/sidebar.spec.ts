@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
-import { gear, openSettings, settingsWindow } from './settings';
+import { applySettings, closeSettings, gear, openSettings, settingsWindow } from './settings';
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
@@ -168,6 +168,8 @@ test('the Backups tile keeps its settings for every project, across a reload, an
   await days.fill('-3');
   await days.press('Enter');
   await expect(days).toHaveValue('14');
+  // Kept once applied (Kevin, Nov 17).
+  await applySettings(page);
 
   await page.reload();
   await expect((await openSettings(page, 'Backups')).getByLabel('Keep the last')).toHaveValue('20');
@@ -270,7 +272,8 @@ test('the sidebar’s foot holds the web version to come, Hide sidebar, the Sett
   await tab.getByLabel('Your name').fill('Kevin Matos');
   await tab.getByLabel('Your name').press('Enter');
   await tab.getByLabel('Usual role').selectOption('dp');
-  await page.keyboard.press('Escape');
+  // Closing asks, with the profile waiting for Apply (Kevin, Nov 17): applied.
+  await closeSettings(page, 'apply');
   // The avatar shows the initials, the name is its label.
   const filled = page.getByRole('button', { name: 'Profile: Kevin Matos' });
   await expect(filled).toHaveText('KM');

@@ -2,6 +2,7 @@ import type Konva from 'konva';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Circle, Layer, Line, Rect, Shape, Stage, Transformer } from 'react-konva';
 import { t, tn } from '../../core/i18n';
+import type { PlanUnit } from '../../core/model/length';
 import type { CanvasViewChoice } from '../../core/storage/settings';
 import { cx } from '../cx';
 import { CanvasMenu } from './CanvasMenu';
@@ -14,6 +15,7 @@ import { createZoomSettle } from './zoomSettle';
 import { anchorOf, resolveLinks, type RouteEntry } from './resolveLinks';
 import { LinkShape, type ResolvedLink } from './LinkShapes';
 import { Minimap } from './Minimap';
+import { ScaleUnits } from './ScaleUnits';
 import { PASTE_WAIT, pasteEventSeen, pasteStep, waitFoundNoEvent } from './pasteFallback';
 import { remadeFor, shownWith } from './liveShown';
 import { handledSize, MIN_SIZE, normalisedRotation, nudgeFor, placedAt, shrunkBelow, tidy } from './placement';
@@ -228,6 +230,12 @@ export interface CanvasProps {
   tools?: readonly ToolSpec[];
   /** A real scale (6.2a): a grid, rulers and a scale bar, grid snapping, and the scale bar as the zoom label. */
   scale?: CanvasScale;
+  /**
+   * The m | ft switch by the scale bar (Kevin, Nov 18): given with a `scale`, a pair of pressed-or-not buttons follows the
+   * scale bar in the zoom's box and hands the unit picked back. A view of this computer's, as Paper and Dark are: the host
+   * keeps it (Plan units) and applies it at once; the file holds metres whatever it shows. Left out, none shows.
+   */
+  scaleUnits?: { value: PlanUnit; onChange: (unit: PlanUnit) => void };
   /** How far the view zooms (a board's 10% to 800% without). */
   zoomLimits?: ZoomLimits;
   /**
@@ -348,6 +356,7 @@ export function Canvas({
   linkInk,
   tools,
   scale,
+  scaleUnits,
   zoomLimits,
   onPath,
   constrainMove,
@@ -1905,11 +1914,14 @@ export function Canvas({
           {path?.typed !== '' ? `${path?.typed ?? ''}▏` : scale ? scale.format(segmentLength) : String(tidy(segmentLength))}
         </div>
       )}
-      {(canvasView || trackpad || dotGrid) && (
+      {(canvasView || trackpad || dotGrid || (scale && scaleUnits)) && (
         // One row just above the zoom, clear of the left ruler as it is, so the zoom's box stays as wide as it was and
         // nothing more covers the middle of the canvas (the zoom's box is 30 px high, 8 px off the foot, and this row sits
         // 4 px over it).
         <div className={cx('absolute bottom-[42px] flex items-stretch gap-1', !scale && 'left-2')} style={scale ? { left: RULER_SIZE + 8 } : undefined}>
+          {/* m | ft (Kevin, Nov 18) first in this row, right above the scale bar it changes. Never inside the zoom's box:
+              there it widened the box over the plan, and a drag meant for an item landed on it (planLights' zoomed-out flag). */}
+          {scale && scaleUnits && <ScaleUnits value={scaleUnits.value} onChange={scaleUnits.onChange} button={BUTTON} pressed={PRESSED_IN_BOX} />}
           {canvasView && (
             // Paper or Dark (6.5.1): two pressed-or-not buttons, each reachable by Tab, the one in use an ink fill. Its
             // 1.5 px rule and 2 px of surface round the buttons, as the tool strip's (6.5.2 round 2): the pressed one's ink

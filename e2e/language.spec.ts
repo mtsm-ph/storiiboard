@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SETTINGS_KEY } from '../src/core/storage/settings';
-import { openSettings } from './settings';
+import { applySettings, openSettings } from './settings';
 
 // Settings → App (polish 1): the app's language is the person's, saved with their settings, and every word comes
 // from the translation files. English and Latin American Spanish (polish 7).
@@ -18,7 +18,12 @@ test('Settings has an App language, English by default, kept across a restart', 
   const language = (await openSettings(page, 'App')).getByRole('combobox', { name: 'App language' });
   await expect(language).toHaveValue('en');
   await expect(language.getByRole('option')).toHaveText(['English', 'Español (Latinoamérica)']);
-  await language.selectOption('en');
+  // A change waits for Apply changes (Kevin, Nov 17): Español applied, then English again, each saved as applied.
+  await language.selectOption('es');
+  await applySettings(page);
+  expect(await page.evaluate((key) => JSON.parse(window.localStorage.getItem(key) ?? '{}') as unknown, SETTINGS_KEY)).toMatchObject({ language: 'es' });
+  await page.getByRole('dialog', { name: 'Configuración' }).getByRole('combobox', { name: 'Idioma de la app' }).selectOption('en');
+  await applySettings(page);
   expect(await page.evaluate((key) => JSON.parse(window.localStorage.getItem(key) ?? '{}') as unknown, SETTINGS_KEY)).toMatchObject({ language: 'en' });
 
   await page.reload();
@@ -26,10 +31,11 @@ test('Settings has an App language, English by default, kept across a restart', 
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
 });
 
-test('picking Español in Settings switches the open app at once, and English switches it back (polish 7)', async ({ page }) => {
+test('picking Español in Settings switches the open app on Apply, and English switches it back (polish 7)', async ({ page }) => {
   const language = (await openSettings(page, 'App')).getByRole('combobox', { name: 'App language' });
   await language.selectOption('es');
-  // The window itself, its tabs and the app behind it, without a reload.
+  // Applied (Kevin, Nov 17): the window itself, its tabs and the app behind it, without a reload.
+  await applySettings(page);
   const ajustes = page.getByRole('dialog', { name: 'Configuración' });
   await expect(ajustes.getByRole('tab', { name: 'Respaldos' })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', 'es-419');
@@ -45,6 +51,7 @@ test('picking Español in Settings switches the open app at once, and English sw
   await page.getByRole('button', { name: /^Configuración \(/ }).click();
   await ajustes.getByRole('tab', { name: 'App', exact: true }).click();
   await ajustes.getByRole('combobox', { name: 'Idioma de la app' }).selectOption('en');
+  await applySettings(page);
   await expect(page.getByRole('dialog', { name: 'Settings' }).getByRole('tab', { name: 'Backups' })).toBeVisible();
   await page.keyboard.press('Escape');
   await page.reload();

@@ -371,14 +371,14 @@ test.describe('the forecast (4.4)', () => {
     const units = app.getByLabel('Weather units');
     await expect(units).toHaveValue('region');
     await units.selectOption('metric');
-    await closeSettings(page);
+    await closeSettings(page, 'apply');
     await expect(fact('high')).toHaveText('18°C');
     await expect(fact('low')).toHaveText('9°C');
     await expect(fact('wind')).toHaveText('16 km/h');
     await expect(fact('precipitation')).toHaveText('6.5 mm');
     await openSettings(page, 'App');
     await page.getByRole('dialog', { name: 'Settings' }).getByLabel('Weather units').selectOption('region');
-    await closeSettings(page);
+    await closeSettings(page, 'apply');
     await expect(fact('high')).toHaveText('65°F');
   });
 });
@@ -548,7 +548,7 @@ test('Export PDF writes the day’s sheet: its words, the directions link for th
   const app = await openSettings(page, 'App');
   await expect(app.getByLabel('Directions open in')).toHaveValue('google');
   await app.getByLabel('Directions open in').selectOption('apple');
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   const third = page.waitForEvent('download');
   await sheet(page).getByRole('button', { name: 'Export PDF…' }).click();
   const apple = await pdfText(await (await third).path());

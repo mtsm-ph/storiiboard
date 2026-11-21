@@ -98,4 +98,35 @@ describe('the Backups tile', () => {
     );
     expect(placeNote('Dropbox', true)).toBe('This project is in Dropbox; its backups are next to it and sync with it.');
   });
+
+  it('says where backups go by the applied setting, as the folder under it does, and where they’d go after Apply (round 2)', () => {
+    const view = (nextToProject: boolean, appliedNextToProject: boolean, synced: string | null = 'Dropbox') =>
+      renderToString(
+        <BackupsView
+          keep={keep}
+          onKeepChange={noop}
+          project={{ folder: '/Users/robin/Library/Application Support/Backups', backups: [], synced }}
+          nextToProject={nextToProject}
+          appliedNextToProject={appliedNextToProject}
+          onNextToProjectChange={noop}
+          status={null}
+          onBackUpNow={noop}
+          onShowBackups={noop}
+          onOpen={noop}
+        />,
+      ).replaceAll('<!-- -->', '');
+    const local = 'This project is in Dropbox, so its backups stay on this computer instead of uploading every 5 minutes.';
+    const next = 'This project is in Dropbox; its backups are next to it and sync with it.';
+    // The switch turned on, not applied: the line still says where they go now, then where they'd go.
+    const waiting = view(true, false);
+    expect(waiting).toContain(`<p class="text-[12px]">${local}</p>`);
+    expect(waiting).toContain(`After Apply: ${next}`);
+    expect(waiting.indexOf(local)).toBeLessThan(waiting.indexOf('After Apply'));
+    // Nothing waiting: one line, no After Apply.
+    const applied = view(true, true);
+    expect(applied).toContain(next);
+    expect(applied).not.toContain('After Apply');
+    // Not synced: the place is the same either way, so nothing more is said.
+    expect(view(true, false, null)).not.toContain('After Apply');
+  });
 });

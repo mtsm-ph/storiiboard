@@ -112,6 +112,17 @@ export const NEVER_IN_PRESET: Readonly<Record<string, string>> = {
   'storiiboard.board-view': 'The Storyboard tile’s Grid or List view on this computer; not in the preset’s list.',
 };
 
+/**
+ * Settings shown in Settings but never kept themselves, worked out from ones that are, with why: never in a preset either.
+ * Not keys of the settings object, so they're listed here rather than in NEVER_IN_PRESET, and what they're read from is.
+ */
+export const WORKED_OUT_NEVER_IN_PRESET: Readonly<Record<string, { from: readonly (keyof Settings)[]; reason: string }>> = {
+  measurementSystem: {
+    from: ['weatherUnits', 'planUnits'],
+    reason: 'The Measurement system (Kevin, Nov 18) follows each computer’s region, as the two units it is read from do; it is never stored.',
+  },
+};
+
 /** Storage keys the app writes that are not a setting of their own, with why. */
 export const NOT_A_SETTING: Readonly<Record<string, string>> = {
   [SETTINGS_KEY]: 'The settings object itself: its keys are walked one by one.',

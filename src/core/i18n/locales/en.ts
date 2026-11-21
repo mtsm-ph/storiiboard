@@ -3973,4 +3973,33 @@ export const en = {
   'history.aPhoto': 'a photo',
   'history.atPhotoOn': 'shown',
   'history.atPhotoOff': 'not shown',
+  // src/app/settings/SettingsWindow.tsx, settingsClose.ts: settings wait for Apply (Kevin, Nov 17)
+  'settings.applyChanges': 'Apply changes',
+  'settings.discardChanges': 'Discard changes',
+  'settings.keepEditing': 'Keep editing',
+  'settings.closeAsk.title': 'Apply your changes?',
+  'settings.closeAsk.text': 'Some settings you changed aren’t applied yet. Apply them, or discard them and keep your settings as they were.',
+  'presets.applyDiscardsDrafts': 'Changes waiting in Settings that you haven’t applied are discarded.',
+  'settings.notApplied': 'A change wasn’t applied, and still waits: {reason}',
+  // src/app/project/BackupsView.tsx: where backups go once a change waiting is applied
+  'backups.placeAfterApply': 'After Apply: {place}',
+  // src/app/preferences/AppTile.tsx: the Measurement system (Kevin, Nov 18)
+  'app.measurement': 'Measurement system',
+  'app.measurement.region': 'By this computer’s region',
+  'app.measurement.metric': 'Metric (m, °C, km/h, km)',
+  'app.measurement.us': 'US (ft, °F, mph, mi)',
+  'app.measurement.mixed': 'Mixed',
+  'app.measurement.note': 'Sets plan lengths, the weather and distances together. Beneath it, each on its own for a mixed case.',
+  'app.measurement.mixedNote': 'Mixed. Plans: {plan}. Weather and distances: {weather}.',
+  'app.weatherUnitsNote': 'Weather units also give the nearest hospital’s distances.',
+  // src/ui/canvas/ScaleUnits.tsx: m | ft by a plan's scale bar
+  'canvas.units.label': 'Plan units',
+  'canvas.units.hint': 'Metres or feet for every plan on this computer. The file always keeps metres.',
+  'canvas.units.m': 'm',
+  'canvas.units.ft': 'ft',
+  'canvas.units.metres': '(metres)',
+  'canvas.units.feet': '(feet)',
+  // src/features/export/ExportDialog.tsx: Units on paper
+  'export.plan.units': 'Printed units',
+  'export.plan.bothBars': 'Scale bar in metres and feet',
 };

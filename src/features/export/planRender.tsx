@@ -242,18 +242,28 @@ export const footBand = (area: PlanArea): Rect => ({ x: area.box.x, y: area.draw
  */
 function footOps(area: PlanArea, words: PlanPageWords, measure: Measure): DisplayOp[] {
   const band = footBand(area);
-  const length = area.bar.length * area.pointsPerUnit;
   const x0 = band.x + 8;
-  const barY = band.y + 19;
   const ops: DisplayOp[] = [
     line([[band.x, band.y], [band.x + band.width, band.y]], INK, BOX_RULE),
     ...text(x0, band.y + 12, words.scale, 'mono', 7.5),
     ...text(x0 + measure(words.scale, 'mono', 7.5) + 10, band.y + 12, words.actualSize, 'sans', 7),
-    box({ x: x0, y: barY, width: length / 2, height: 3.5 }, INK, INK, KIT_LINE),
-    box({ x: x0 + length / 2, y: barY, width: length / 2, height: 3.5 }, WHITE, INK, KIT_LINE),
-    ...text(x0, barY + 13, '0', 'mono', 7, 'center'),
-    ...text(x0 + length, barY + 13, area.bar.label, 'mono', 7, 'center'),
   ];
+  /** A bar of a round length, half ink and half white, as the kit's scale bars. */
+  const barOps = (barLength: number, barY: number): DisplayOp[] => [
+    box({ x: x0, y: barY, width: barLength / 2, height: 3.5 }, INK, INK, KIT_LINE),
+    box({ x: x0 + barLength / 2, y: barY, width: barLength / 2, height: 3.5 }, WHITE, INK, KIT_LINE),
+  ];
+  if (area.bothBars) {
+    // Both units (Kevin, Nov 18): metres above, feet below, each its length written at its end, in the band's height.
+    for (const [bar, barY] of [[area.bothBars.metres, band.y + 18], [area.bothBars.feet, band.y + 30]] as const) {
+      const length = bar.length * area.pointsPerUnit;
+      ops.push(...barOps(length, barY), ...text(x0 + length + 5, barY + 4.5, bar.label, 'mono', 7));
+    }
+  } else {
+    const length = area.bar.length * area.pointsPerUnit;
+    const barY = band.y + 19;
+    ops.push(...barOps(length, barY), ...text(x0, barY + 13, '0', 'mono', 7, 'center'), ...text(x0 + length, barY + 13, area.bar.label, 'mono', 7, 'center'));
+  }
   if (area.noRoom) ops.push(...text(band.x + band.width - 8, band.y + 12, words.noRoom, 'sans', 8, 'right'));
   return ops;
 }

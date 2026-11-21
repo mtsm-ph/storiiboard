@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { isTauriApp } from '../../../app/fileAccess';
 import { showInfo } from '../../../app/notice';
 import { choosePictures, fromFile, onWindowDrop, type PictureFile } from '../../../app/pictures';
-import { usePlanUnit } from '../../../app/planUnits';
+import { setPlanUnitsChoice, usePlanUnit } from '../../../app/planUnits';
 import { projectStore, useProject } from '../../../app/projectStore';
 import { pluralKey, t, tn } from '../../../core/i18n';
 import { itemLayer, viewBlocking } from '../../../core/model/planBlocking';
@@ -828,6 +828,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const scale = useMemo(() => planScale(unit), [unit]);
+  // Sets Plan units alone, so Settings' Measurement system may then read Mixed; the weather keeps its own units.
+  const scaleUnits = useMemo(() => ({ value: unit, onChange: setPlanUnitsChoice }), [unit]);
   const constrain = useMemo(() => planConstrain(visible, unit), [visible, unit]);
   // The cut live while a camera, a light, a wall or an opening is dragged or turned (6.18 review, decision 5): the canvas
   // asks on every step with the live boxes, and the walls and openings are where the drop will write them.
@@ -1172,6 +1174,8 @@ function PlanCanvas({ view, header, room }: { view: PlanView; header: ReactNode;
           trackpad={{ value: trackpad, onChange: setTrackpadMode }}
           tools={PLAN_CANVAS_TOOLS}
           scale={scale}
+          // m | ft by the scale bar (Kevin, Nov 18): this computer's Plan units, at once, as a view; never the forecast's.
+          scaleUnits={scaleUnits}
           zoomLimits={PLAN_ZOOM}
           // The plan's own least size, a centimetre (6.5 review): a board's 8 units would be 8 cm here, deeper than a flag.
           minSize={toCanvas(MIN_PLAN_SIZE)}

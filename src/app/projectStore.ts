@@ -13,6 +13,7 @@ import { loadSeen, markSeenStatement, NO_SEEN, type Seen } from '../core/storage
 import { slateNumbersAfter, slateNumbersUnknown } from '../core/storage/slateNumbers';
 import { clearStepNotice, showNotice } from './notice';
 import { editAuthor, profileStore } from './settings/profileStore';
+import { dropProjectDraftsOnSwitch } from './settings/drafts';
 
 // The open project as the UI sees it. Every edit goes through src/core/ops, which writes it to disk before the store
 // updates, so the screen never shows a change the file doesn't have.
@@ -477,6 +478,9 @@ export function createProjectStore({ author = () => 'local' }: { author?: () => 
 
 /** The app's one project store. Tests make their own with createProjectStore. */
 export const projectStore = createProjectStore({ author: () => editAuthor(profileStore.getState()) });
+
+// A setting kept per project waiting in Settings (Your role on this project) goes with the project it was for.
+dropProjectDraftsOnSwitch(projectStore);
 
 export function useProject<T>(select: (state: ProjectState) => T): T {
   return useStore(projectStore, select);

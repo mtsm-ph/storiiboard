@@ -77,7 +77,7 @@ async function clickAt(page: Page, x: number, y: number) {
 async function buildPlan(page: Page) {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label: 'Metres' });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
   await toSection(page, 'Setup');
   await setupsTile(page).getByRole('button', { name: 'Add setup to SC 01' }).click();
   await setupsTile(page).locator('[data-setup-select]').first().click();
@@ -394,7 +394,7 @@ test('squeezed to 150 and 130 px every row is whole, its name first and its cont
   });
   const app = await openSettings(page, 'App');
   await app.getByLabel('Language').selectOption('es');
-  await page.keyboard.press('Escape');
+  await closeSettings(page, 'apply');
   await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeHidden();
   const capas = page.getByRole('region', { name: 'Capas', exact: true });
   await expect(capas).toBeVisible();
@@ -406,7 +406,8 @@ test('in Spanish at 1280 × 720 no layer’s name is cut off', async ({ page }) 
   await page.setViewportSize({ width: 1280, height: 720 });
   const app = await openSettings(page, 'App');
   await app.getByLabel('Language').selectOption('es');
-  await page.keyboard.press('Escape');
+  // Applied as Settings closes (Kevin, Nov 17).
+  await closeSettings(page, 'apply');
   await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeHidden();
   const capas = page.getByRole('region', { name: 'Capas', exact: true });
   await expect(capas).toBeVisible();
@@ -654,7 +655,7 @@ test('in Spanish at the default size the keys line is not shown, takes no room a
   await buildPlan(page);
   const app = await openSettings(page, 'App');
   await app.getByLabel('Language').selectOption('es');
-  await page.keyboard.press('Escape');
+  await closeSettings(page, 'apply');
   await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeHidden();
   const capas = page.getByRole('region', { name: 'Capas', exact: true });
   await expect(capas).toBeVisible();
@@ -764,7 +765,7 @@ test('after each resize the lane and the keys line settle within 3 frames and ne
   await check(layersTile(page), 'English');
   const app = await openSettings(page, 'App');
   await app.getByLabel('Language').selectOption('es');
-  await page.keyboard.press('Escape');
+  await closeSettings(page, 'apply');
   await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeHidden();
   const capas = page.getByRole('region', { name: 'Capas', exact: true });
   await expect(capas).toBeVisible();

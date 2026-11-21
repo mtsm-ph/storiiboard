@@ -95,7 +95,7 @@ const field = (page: Page, name: string): Locator => selectionTile(page).getByRo
 async function setUnits(page: Page, label: 'Metres' | 'Feet and inches') {
   const app = await openSettings(page, 'App');
   await app.getByRole('combobox', { name: 'Plan units' }).selectOption({ label });
-  await closeSettings(page);
+  await closeSettings(page, 'apply');
 }
 
 /** The Setup workspace on SC 01's Setup 1, its room started. */
