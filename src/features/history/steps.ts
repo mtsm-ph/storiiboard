@@ -181,6 +181,10 @@ export async function stepRecords(
     const picture = ops.find((op) => (op.after ?? op.before)?.type === 'media');
     const parentId = picture ? (picture.after ?? picture.before)?.parentId : null;
     if (picture && parentId && !ops.some((op) => op.recordId === parentId)) asks.push({ group, id: parentId, seq: picture.seq });
+    // Unavailable dates (7.3) are named by their person, which the step doesn't write.
+    const stretch = ops.find((op) => (op.after ?? op.before)?.type === 'availability');
+    const personId = stretch ? (stretch.after ?? stretch.before)?.parentId : null;
+    if (stretch && personId && !ops.some((op) => op.recordId === personId)) asks.push({ group, id: personId, seq: stretch.seq });
     // A call sheet is named by its day (4.1), which the step doesn't write.
     const sheet = ops.find((op) => (op.after ?? op.before)?.type === 'callsheet');
     const dayId = sheet ? (sheet.after ?? sheet.before)?.parentId : null;
@@ -370,8 +374,20 @@ export async function frameOps(file: ProjectFile, frameId: string): Promise<Logg
  * a scene's frames and notes are items of their own, with histories of their own, so a scene's lists only its writes.
  */
 export async function itemOps(file: ProjectFile, item: SbdRecord): Promise<LoggedOp[]> {
-  return item.type === 'shot' ? frameOps(file, item.id) : opsOfRecords(file, [item.id]);
+  if (item.type === 'shot') return frameOps(file, item.id);
+  if (item.type === 'person') return personOwn(item.id, await opsOfRecords(file, [item.id, ...(await childrenInLog(file, item.id))]));
+  return opsOfRecords(file, [item.id]);
 }
+
+/**
+ * A person's own history takes in their unavailable dates (7.3), as a frame's takes its strokes: marking a stretch
+ * writes only the stretch, never the person. Nothing else under them (an attached PDF has a history of its own).
+ */
+const personOwn = (personId: string, ops: readonly LoggedOp[]): LoggedOp[] =>
+  ops.filter((op) => op.recordId === personId || (op.after ?? op.before)?.type === 'availability');
+
+/** Whose history takes in what the log puts under them: a frame's (its sketch and picture), a person's (their dates). */
+const withChildren = (item: SbdRecord): boolean => item.type === 'shot' || item.type === 'person';
 
 /** An item's writes as last read (itemOps), and how far into the log that read went. */
 export interface ItemLog {
@@ -397,10 +413,10 @@ export async function moreItemLog(file: ProjectFile, item: SbdRecord, known: Ite
   if (known.itemId !== item.id) return readItemLog(file, item);
   const through = await lastOpSeq(file);
   const ids = [...new Set([item.id, ...known.ops.map((op) => op.recordId)])];
-  // Only a frame's history takes in what's under it (itemOps); a scene's frames and notes have their own.
-  const since = await opsSince(file, known.through, ids, item.type === 'shot' ? item.id : null);
+  // Only a frame's and a person's histories take in what's under them (itemOps); a scene's frames and notes have their own.
+  const since = await opsSince(file, known.through, ids, withChildren(item) ? item.id : null);
   const have = new Set(known.ops.map((op) => op.id));
-  const added = since.filter((op) => !have.has(op.id));
+  const added = (item.type === 'person' ? personOwn(item.id, since) : since).filter((op) => !have.has(op.id));
   if (added.length === 0) return { ...known, through: Math.max(known.through, through) };
   return { itemId: item.id, ops: [...known.ops, ...added].sort((a, b) => a.seq - b.seq), through: Math.max(known.through, through) };
 }

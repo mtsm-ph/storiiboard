@@ -121,7 +121,7 @@ export function CallSheetTile() {
         </Button>
         <IssueButton sheet={sheet} options={options} />
       </div>
-      <CallSheetChecks findings={findings} records={records} canAddPeople={canAddPeople} />
+      <CallSheetChecks findings={findings} records={records} canAddPeople={canAddPeople} peopleOdd={sheet.peopleOdd} />
       <IssuedVersions sheet={sheet} dayId={dayId} />
       <DaySection sheet={sheet} projectName={project.name} company={company} logoUrl={logoUrl} />
       <LocationsSection sheet={sheet} />

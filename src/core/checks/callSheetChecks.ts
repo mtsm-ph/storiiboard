@@ -6,10 +6,12 @@ import { exteriorRain, type ExteriorRain, type HeldForecasts } from './exteriorR
 import { goldenHourMidday, type GoldenHourMidday } from './goldenHourMidday';
 import { hmuTooShort, type HmuTooShort } from './hmuTooShort';
 import { locationMissing, type LocationMissing } from './locationMissing';
+import { unavailableOnSheet, type UnavailableOnDay } from './unavailableOnDay';
 
 // The call sheet's checks (4.8) for one day. The same function serves the app and, from Phase 7, the MCP check tool.
+// 7.3 adds the people on the day who marked it unavailable, after the HMU check: both are about who is called.
 
-export type CallSheetFinding = LocationMissing | DepartmentMissing | HmuTooShort | GoldenHourMidday | ExteriorRain;
+export type CallSheetFinding = LocationMissing | DepartmentMissing | HmuTooShort | UnavailableOnDay | GoldenHourMidday | ExteriorRain;
 
 /** A check that could not run for a location, and why: its time zone isn't known, or no forecast is held for it. */
 export interface SkippedCheck {
@@ -74,7 +76,7 @@ function sameHeld(a: HeldForecasts, b: HeldForecasts): boolean {
 }
 
 /**
- * Every call sheet check for one day, in the order of the strip: locations, departments, HMU, light, rain. `forecasts`
+ * Every call sheet check for one day, in the order of the strip: locations, departments, HMU, unavailable dates (7.3), light, rain. `forecasts`
  * are the ones already held, by location id (never fetched here); `zones` are the looked-up time zones callSheet() takes
  * (a location with a place and no zone has no sun, so no light or rain finding, and `skipped` says so). Empty for a day
  * that isn't a live day. The result is shared: don't change it.
@@ -113,6 +115,7 @@ export function callSheetChecks(
         ...locationMissing(ctx),
         ...departmentMissing(ctx),
         ...hmuTooShort(ctx),
+        ...unavailableOnSheet(ctx),
         ...(pending ? [] : [...goldenHourMidday(ctx), ...exteriorRain(ctx, forecasts)]),
       ],
       skipped,

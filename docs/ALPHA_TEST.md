@@ -355,6 +355,18 @@ screen, the Suggestions tile (Layout menu → Open tile), shows them and decides
   lands in the copy. (7.2)
 - [ ] Open the notification of an import with nothing left to review: the log shows only that import's rows, with Show
   every import beside them. Opening an import with Review or in the tile reads its notification too. (7.2)
+- [ ] In Cast and crew, mark a crew member unavailable for a week with a note ("Add dates…", From, To, Note), then a
+  single date: both show under Unavailable, the week as "Nov 24 – Nov 28", the single date alone. (7.3)
+- [ ] Pick the dates with the keyboard only (type them into the date fields, and with the browser's picker): the To
+  starts as the From; a To before the From is refused in words; Escape leaves without adding. (7.3)
+- [ ] Put that person on a shoot day inside the week: the call sheet's Checks strip names them, what they do, the day
+  and the dates; Show goes to them in "Who's on the day". Take them off the day: the finding goes. (7.3)
+- [ ] The Calendar marks the shoot day with ⊘ and a count of the people on it who are away, and a date with no shoot
+  with everyone away; picking a date lists them with their role and the note. In week view too. (7.3)
+- [ ] Remove the stretch, then ⌘Z and ⌘⇧Z: it comes back and goes again; History says "Marked … unavailable …" and
+  "Took off …’s unavailable dates …", never the note. In Spanish too. (7.3)
+- [ ] Send the person to the Trash and restore them: their dates come back with them, and while they're in the Trash
+  nothing marks the Calendar or the call sheet. (7.3)
 
 ## Settings, presets, themes, Dark view and accessibility
 
