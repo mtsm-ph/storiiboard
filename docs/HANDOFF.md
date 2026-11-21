@@ -34,9 +34,17 @@ What only Kevin can do or answer, one line each, with what it unblocks. Nothing 
 - **The Layers tile in Spanish at its default size** (`private/pictures/LAYERS_TILE_NOTE.md`): leave it scrolling,
   give Layers about 60 px more in Setup's default layout, or shorter Spanish words. Unblocks: nothing; #222 merges
   either way.
-- **Words to read:** History lines in Spanish (#240, "Se cambió lente en 3 cuadros de ESC 12" and the rest, in the
-  PR); and #235's line for a destination that stops answering, today "took too long to read" though the clip was
-  being saved. Unblocks: nothing waits; either changes in a small PR.
+- **A hand backup replacing a tick's own copy (#244).** Kevin's rule lets a press replace "a timed or hand backup"
+  under 5 minutes old. Round 2 made a tick that finds nothing changed keep the newest copy (so a run of presses keeps a
+  copy for every 5 minutes), but a press just before each tick still replaces that tick's own copy, so someone who
+  presses then keeps one copy per 10 minutes (6 an hour instead of 12). Keep the rule, or let a press replace only a
+  hand copy made since the last tick? Unblocks: nothing (it merges either way); the rule's last word.
+- **Words to read:** History lines in Spanish (#240: "Se cambió lente en 3 cuadros de ESC 12", "después de" or "a
+  continuación de", one voice for moves, "en" or "de" before a scene; the choices are in the PR's comment), and its new
+  "Moved items, some since deleted for good" / "Se movieron elementos, algunos borrados para siempre después"; a frame
+  moved between days reads "1A: shoot day Mon, Nov 16 → Tue, Nov 17" (the plan's example said "Moved 4A to shoot day
+  Nov 25"; #245 shows History's words as they are); and #235's line for a destination that stops answering, today
+  "took too long to read" though the clip was being saved. Unblocks: nothing waits; each changes in a small PR.
 - **CLAUDE.md's Models line.** From 13:52 EST Nov 20 the main session ran on Opus 5.5 at Kevin's word ("Continue
   with opus"). The line still says the main session runs on Fable 5.2. Change it, or was it for that day only?
   Unblocks: keeping CLAUDE.md true.
@@ -389,7 +397,27 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 20, night; written at 19:40 EST)
+### Next session: start here (Nov 20, night; written at 21:40 EST)
+
+Kevin's afternoon note is in `private/NOV20_AFTERNOON.md` with the session's status under it; the day's report went
+to Kevin at about 18:10 EST. Nothing merged since nov20-f's four; no checkpoint is left until Kevin names one.
+
+**Open, each built, reviewed and pushed (each round's brief in `docs/briefs/` on its branch):**
+
+| PR | What | State |
+|---|---|---|
+| #222 | the scroll lane (6.29) | rounds 6 to 6e after four reviews: the lane only where content overflows without it, never toggled sideways, positions inside and around kept, a reading only once a resize, a shrink or a view switch holds; reorder.spec at 1440 × 900; WebKit's dialog focus and Layers rows fixed. Ready for a checkpoint |
+| #235 | the encoder's leftovers | round 3 green on Linux; ready for a checkpoint |
+| #240 | History lines (6.30) | rounds 2 to 4 after a review and two re-reviews (never a wrong place after Empty Trash; one scan per load); ready |
+| #241 | Undo and Redo buttons (6.31), on #240 | round 3 with #240 merged in (b19d1f6); last re-review: no high or medium; lows on the PR as follow-ups; ready |
+| #244 | Ctrl+S and the hand-backup rule (6.32), on #241 | round 2 after a review (a copy for every 5 minutes; keys typed in the gap kept); round 3 building (`private/briefs/ctrl-s-3.md`: a backup at close never flags the new project nor holds its edits; Backspace and Enter in the gap; Kevin's rule stays, its question on the Only Kevin list) |
+| #245 | a shoot day's own history (6.33), on #244 | built; being reviewed; it takes #244's round 3 by a merge after |
+
+**Then:** Settings (Apply changes and the Measurement system, from Kevin's Nov 17 note and the Nov 18 plan's item 10),
+the tile accent (Kevin's option), item 7 (Kevin's format answer), and `checkpoint/baselines-nov20b` at the stack's end,
+once Kevin names the checkpoints.
+
+### Earlier: start here (Nov 20, night; written at 19:40 EST)
 
 Kevin's afternoon note is in `private/NOV20_AFTERNOON.md` with the session's status under it; the day's report went
 to Kevin at about 18:10 EST. Nothing merged since nov20-f's four (the section below); no checkpoint is left until
