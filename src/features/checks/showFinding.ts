@@ -10,7 +10,7 @@ import { revealLayersOf } from '../birdseye/plan/layersStore';
 import { viewKey } from '../birdseye/plan/planItems';
 import { planStore } from '../birdseye/plan/planStore';
 import { showPlan } from '../birdseye/plan/shownPlan';
-import { findingTarget } from '../callsheets/checkWords';
+import { canAddPeople, findingTarget } from '../callsheets/checkWords';
 import { showSheetDay } from '../callsheets/sheetDay';
 import { openLocation } from '../locations/shownLocation';
 import { showShot } from '../moodboards/liveActions';
@@ -46,8 +46,7 @@ export function showFinding(found: CheckFinding, workspaceId: WorkspaceId, proje
       change(workspaceId, openTile(layoutsOf(layouts, workspaceId).current, 'sheet'));
       // Where the strip's own Show goes, worked out from the sheet as it is now; the day's picker when that isn't there.
       const sheet = callSheet(projectStore.getState().records, projectId, target.dayId);
-      const canAddPeople = sheet ? (sheet.peopleChosen ? sheet.notOnDay.length > 0 : !sheet.peopleOdd) : false;
-      const inSheet = found.finding.kind === 'gear-not-on-day' || found.finding.kind === 'plan-lens-differs' ? null : findingTarget(found.finding, canAddPeople, sheet?.peopleOdd ?? false);
+      const inSheet = found.finding.kind === 'gear-not-on-day' || found.finding.kind === 'plan-lens-differs' ? null : findingTarget(found.finding, canAddPeople(sheet), sheet?.peopleOdd ?? false);
       focusWhenShown((last) => {
         const box = shown('[data-call-sheet]');
         // The tile may still show the day it had for a frame: only once it shows this day is the target the finding's.

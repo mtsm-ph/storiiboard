@@ -3,7 +3,7 @@ import { createProjectStore } from '../../../app/projectStore';
 import { signMinute } from '../../../app/shell/savedSign';
 import { setLocale } from '../../../core/i18n';
 import { scenesOf } from '../../../app/shell/sidebar/scenes';
-import { allChecks, allChecksMade } from '../../../core/checks';
+import { allChecks, allChecksMade, type HeldForecasts } from '../../../core/checks';
 import { projectGear } from '../../../core/model/gear';
 import { shownFields, shownItems, shownItemsMade, startRoomChanges, wallsAlong, sceneRoomId } from '../../../core/model/plan';
 import { blockingReadingsMade, PLAIN_MARK_SIZE, placeMarkChanges, viewBlocking } from '../../../core/model/planBlocking';
@@ -444,39 +444,73 @@ describe('the Checks tile open beside (7.4)', () => {
     expect(allChecksMade() - made).toBe(0);
   });
 
-  it('on a 300-frame project, runs every check once for a frame’s edit and none for a sketch’s stroke, which reads nothing whole but the shared index', () => {
-    // "Harbor Lights": 30 scenes of 10 frames over 10 dated days, 30 people, a stroke on each frame and a frame needing gear.
+  /**
+   * "Harbor Lights": `scenes` scenes of 10 frames over `days` dated days from Nov 10, 2030, 30 people, `strokes` strokes on
+   * each frame's sketch and the first frame of each scene needing gear no day has. Every third scene is an exterior at the
+   * pier, which has a place on the map: the rain check reads the forecast held for it.
+   */
+  const harbor = (days: number, scenes: number, strokes: number): Records => {
     const list: SbdRecord[] = [
       record('p', 'project', null, { title: 'Harbor Lights' }),
-      record('pier', 'location', 'p', { name: 'Harbor Pier', latitude: 40.7128, longitude: -74.006, time_zone: 'America/New_York' }),
+      record('pier', 'location', 'p', { name: 'Harbor Pier', map_name: 'Pier', latitude: 40.7128, longitude: -74.006, time_zone: 'America/New_York' }),
       record('slider', 'gear_item', 'p', { name: 'Slider' }),
     ];
-    for (let d = 0; d < 10; d += 1) list.push(record(`d${String(d)}`, 'shoot_day', 'p', { date: `2030-11-${String(10 + d)}`, call_time: '07:00', wrap_time: '19:00' }));
+    const date = (d: number) => new Date(Date.UTC(2030, 10, 10 + d)).toISOString().slice(0, 10);
+    for (let d = 0; d < days; d += 1) list.push(record(`d${String(d)}`, 'shoot_day', 'p', { date: date(d), call_time: '07:00', wrap_time: '19:00' }));
     for (let i = 0; i < 30; i += 1) list.push(record(`person${String(i)}`, 'person', 'p', { name: `Crew ${String(i)}`, departments: [i % 2 === 0 ? 'camera' : 'sound'] }));
-    for (let s = 0; s < 30; s += 1) {
+    for (let s = 0; s < scenes; s += 1) {
       list.push(record(`s${String(s)}`, 'scene', 'p', { number: String(s + 1), int_ext: s % 3 === 0 ? 'EXT' : 'INT', day_night: s % 5 === 0 ? 'DUSK' : 'DAY', location_id: 'pier' }, String(s).padStart(3, '0')));
       for (let f = 0; f < 10; f += 1) {
         const id = `f${String(s)}_${String(f)}`;
-        list.push(record(id, 'shot', `s${String(s)}`, { number: `${String(s + 1)}${'ABCDEFGHIJ'.charAt(f)}`, status: 'need', shoot_day_id: `d${String(s % 10)}`, gear_ids: f === 0 ? ['slider'] : [], lens_mm: 35 }, String(f)));
-        list.push(record(`${id}_k`, 'stroke', id, { points: [0, 0, 1, 1] }));
+        list.push(record(id, 'shot', `s${String(s)}`, { number: `${String(s + 1)}${'ABCDEFGHIJ'.charAt(f)}`, status: 'need', shoot_day_id: `d${String(s % days)}`, gear_ids: f === 0 ? ['slider'] : [], lens_mm: 35 }, String(f)));
+        for (let k = 0; k < strokes; k += 1) list.push(record(`${id}_k${String(k)}`, 'stroke', id, { points: [0, 0, 1, 1] }));
       }
     }
-    const base: Records = Object.fromEntries(list.map((r) => [r.id, r]));
-    const first = allChecks(base, 'p');
+    return Object.fromEntries(list.map((r) => [r.id, r]));
+  };
+  /** Hourly at the pier over Nov 10 to 12, 2030, dry: later days are past its end, so their rain is a skip. */
+  const pierForecast = (): HeldForecasts => {
+    const entries = Array.from({ length: 72 }, (_, h) => ({ time: new Date(Date.UTC(2030, 10, 10, h)).toISOString().replace('.000', ''), temperature: 8, wind: 3, rain1h: 0, rain6h: null, symbol1h: null, symbol6h: null }));
+    return new Map([['pier', { expires: '2030-11-10T00:00:00Z', lastModified: null, entries }]]);
+  };
+  const editCost = (base: Records, forecasts: HeldForecasts): number => {
+    allChecks(base, 'p', { forecasts });
+    const frame = base.f3_3 as SbdRecord;
+    const lensed: Records = { ...base, f3_3: { ...frame, props: { ...frame.props, lens_mm: 50 } } };
+    const made = allChecksMade();
+    const scans = scansOf(lensed, () => allChecks(lensed, 'p', { forecasts }));
+    expect(allChecksMade() - made).toBe(1);
+    return scans;
+  };
+
+  it('on a 300-frame project, runs every check once for a frame’s edit and none for a sketch’s stroke, which reads nothing whole but the shared index', () => {
+    const base = harbor(10, 30, 1);
+    const forecasts = pierForecast();
+    const first = allChecks(base, 'p', { forecasts });
     expect(first.findings.filter((f) => f.kind === 'gear-not-on-day')).toHaveLength(30);
+    // The forecast held reaches Day 1 to 3 only: the exteriors on the other days say so, from the same sheet.
+    expect(first.skipped.some((s) => s.reason === 'forecast-not-covering')).toBe(true);
     const frame = base.f3_3 as SbdRecord;
     const lensed: Records = { ...base, f3_3: { ...frame, props: { ...frame.props, lens_mm: 50 } } };
     let made = allChecksMade();
-    // A frame's edit is read: every check runs once. The type index is the one pass every reader shares; each of the 10
-    // days' call sheets (callSheetChecks, the strip's own) still reads its record and its people (twice: who is on the
-    // day, and who isn't) by a pass of their own, as the Call sheet tile does for its day. Pinned, so one more shows here.
-    expect(scansOf(lensed, () => allChecks(lensed, 'p'))).toBe(1 + 3 * 10);
+    // A frame's edit is read: every check runs once. The type index is the one pass every reader shares; each day's
+    // call sheet reads its sheet record and its people from the index (7.4 round 2), and the forecast's gaps from the
+    // sheet its checks built. Pinned, so one more pass shows here.
+    expect(scansOf(lensed, () => allChecks(lensed, 'p', { forecasts }))).toBe(1);
     expect(allChecksMade() - made).toBe(1);
     const sketched: Records = { ...lensed, extra: record('extra', 'stroke', 'f3_3', { points: [1, 1, 2, 2] }) };
     made = allChecksMade();
     let kept = first;
-    expect(scansOf(sketched, () => (kept = allChecks(sketched, 'p')))).toBe(1);
+    expect(scansOf(sketched, () => (kept = allChecks(sketched, 'p', { forecasts })))).toBe(1);
     expect(allChecksMade() - made).toBe(0);
-    expect(kept).toBe(allChecks(lensed, 'p'));
+    expect(kept).toBe(allChecks(lensed, 'p', { forecasts }));
+  });
+
+  it('costs the same passes over the records for 60 days as for 10: one edit no longer grows as days × records', () => {
+    expect(editCost(harbor(10, 30, 1), pierForecast())).toBe(1);
+    // About 20,000 records: 180 scenes of 10 frames, ten strokes on each, over 60 days.
+    const big = harbor(60, 180, 10);
+    expect(Object.keys(big).length).toBeGreaterThan(19_000);
+    expect(editCost(big, pierForecast())).toBe(1);
   });
 });

@@ -83,7 +83,7 @@ describe('the Checks tile (7.4)', () => {
   it('is in Production’s default layout, under the call sheet, and in no other workspace’s', () => {
     const holding = (tile: string) => ALL_WORKSPACES.filter((w) => tilesIn(w.defaultLayout()).includes(tile)).map((w) => w.id);
     expect(holding('checks')).toEqual(['production']);
-    expect(TILES.checks?.title).toBe('Checks');
+    expect(TILES.checks?.title).toBe('Project checks');
     // Numbered last, so the tiles before it keep their numbers.
     expect(workspaceById('production').order).toEqual(['days', 'calendar', 'sheet', 'locations', 'gear', 'people', 'checks']);
   });

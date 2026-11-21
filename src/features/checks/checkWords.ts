@@ -1,12 +1,12 @@
 import { list, t, type MessageKey } from '../../core/i18n';
-import type { CheckFinding, CheckKind, CheckSkip } from '../../core/checks';
+import type { CheckFinding, CheckKind, CheckSkip, OldForecast } from '../../core/checks';
 import { gearFields } from '../../core/model/gear';
-import { locationFields } from '../../core/model/location';
+import { computerTimeZone, locationFields } from '../../core/model/location';
 import { cameraTitle } from '../../core/model/planCamera';
 import type { SbdRecord } from '../../core/model/record';
 import { dayDateLabel, dayLabel, projectShootDays } from '../../core/model/shootDay';
 import { shotFields } from '../../core/model/storyboard';
-import type { WeatherUnits } from '../../core/net/weather';
+import { momentIn, type WeatherUnits } from '../../core/net/weather';
 import { iconLabel } from '../birdseye/plan/iconWords';
 import { findingWords } from '../callsheets/checkWords';
 import { planPlace } from '../schedule/DaysTile';
@@ -43,6 +43,8 @@ const gearName = (records: Records, id: string) => {
   return (item && gearFields(item.props).name) || t('gear.unnamed');
 };
 
+const locationName = (records: Records, id: string) => locationFields(records[id]?.props ?? {}).name || t('trash.unnamedLocation');
+
 const frameNumber = (records: Records, id: string) => shotFields(records[id]?.props ?? {}).number || '?';
 
 export function checkSentence(found: CheckFinding, records: Records, projectId: string, units: WeatherUnits): CheckSentence {
@@ -51,9 +53,11 @@ export function checkSentence(found: CheckFinding, records: Records, projectId: 
     case 'gear-not-on-day': {
       const day = dayNameOf(records, projectId, finding.dayId);
       const items = list(finding.gearIds.map((id) => gearName(records, id)));
+      // One item or several: Spanish agrees with them ("que no está", "que no están").
+      const count = finding.gearIds.length;
       const place = finding.setupId === undefined ? null : planPlace(records, finding.setupId);
-      if (finding.shotId === null && place) return { key: 'checks.gearPlan', values: { scene: place.scene, setup: place.setup, items, day }, mono: ['scene'] };
-      return { key: 'checks.gearFrame', values: { frame: finding.shotId === null ? '?' : frameNumber(records, finding.shotId), items, day }, mono: ['frame'] };
+      if (finding.shotId === null && place) return { key: count === 1 ? 'checks.gearPlan' : 'checks.gearPlanMany', values: { scene: place.scene, setup: place.setup, items, day }, mono: ['scene'] };
+      return { key: count === 1 ? 'checks.gearFrame' : 'checks.gearFrameMany', values: { frame: finding.shotId === null ? '?' : frameNumber(records, finding.shotId), items, day }, mono: ['frame'] };
     }
     case 'plan-lens-differs': {
       const place = planPlace(records, finding.setupId);
@@ -83,7 +87,7 @@ export function skipWords(skip: CheckSkip, records: Records, projectId: string):
   const date = typeof dayRecord?.props.date === 'string' ? dayRecord.props.date : '';
   // The date where there is one, as the brief's example says it; a day with none by its number.
   const day = dayDateLabel(date) || dayNameOf(records, projectId, skip.dayId);
-  const location = skip.locationId === null ? '' : locationFields(records[skip.locationId]?.props ?? {}).name || t('trash.unnamedLocation');
+  const location = skip.locationId === null ? '' : locationName(records, skip.locationId);
   switch (skip.reason) {
     case 'no-date':
       return t('checks.skip.noDate', { day });
@@ -93,5 +97,19 @@ export function skipWords(skip: CheckSkip, records: Records, projectId: string):
       return t('checks.skip.noForecast', { location, day });
     case 'forecast-not-covering':
       return t('checks.skip.notCovering', { location, day });
+    case 'forecast-not-hours':
+      return t('checks.skip.notHours', { location, day });
+    case 'no-place':
+      return t(skip.kinds.includes('golden-hour-midday') ? (skip.kinds.includes('exterior-rain') ? 'checks.skip.noPlace' : 'checks.skip.noPlaceLight') : 'checks.skip.noPlaceRain', { location });
   }
+}
+
+/**
+ * A forecast read past its expiry, in words: "Forecast for Harbor Pier fetched Wed, Nov 18 09:14: rain checked from it".
+ * The time is this computer's, where it was fetched, with its date unless it was today.
+ */
+export function oldForecastWords(old: OldForecast, records: Records, now: Date = new Date()): string {
+  const location = locationName(records, old.locationId);
+  const time = old.fetchedAt === null ? '' : momentIn(old.fetchedAt, computerTimeZone(), now);
+  return time === '' ? t('checks.oldForecastUndated', { location }) : t('checks.oldForecast', { location, time });
 }

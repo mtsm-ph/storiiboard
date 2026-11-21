@@ -90,7 +90,7 @@ afterEach(() => {
 
 describe('every check over the project (7.4)', () => {
   it('finds nothing, and skips nothing, on a clean project', () => {
-    expect(allChecks(clean(), 'p', { forecasts: held(forecast(0)) })).toEqual({ findings: [], skipped: [] });
+    expect(allChecks(clean(), 'p', { forecasts: held(forecast(0)) })).toEqual({ findings: [], skipped: [], oldForecasts: [] });
   });
 
   it('finds each of the eight kinds (CLAUDE.md’s seven checks, golden hour and rain apart) on a project built to trip each', () => {
@@ -213,5 +213,64 @@ describe('every check over the project (7.4)', () => {
     expect(next.findings.map((f) => f.kind)).not.toContain('gear-not-on-day');
     // A forecast that changes is read again.
     expect(allChecks(fixed, 'p', { forecasts: held(forecast(0)) }).findings.map((f) => f.kind)).not.toContain('exterior-rain');
+  });
+});
+
+describe('every check over the project, round 2 (7.4)', () => {
+  const outdoors = (): Records => withProps(clean(), 's1', { int_ext: 'EXT', day_night: 'DUSK' });
+
+  it('reads an old forecast that covers the day, and says so with when it was fetched; one still fresh says nothing', () => {
+    const fetchedAt = new Map([['pier', '2030-11-15T14:14:00Z']]);
+    // Expired at midnight on Nov 16 (UTC); read at 08:00 that morning.
+    const now = Date.parse('2030-11-16T08:00:00Z');
+    const result = allChecks(outdoors(), 'p', { forecasts: held(forecast(2)), fetchedAt, now });
+    expect(result.findings.map((f) => f.kind)).toContain('exterior-rain');
+    expect(result.oldForecasts).toEqual([{ id: 'forecast-old:d1:pier', dayId: 'd1', locationId: 'pier', fetchedAt: '2030-11-15T14:14:00Z' }]);
+    expect(result.skipped).toEqual([]);
+    // Before its expiry, or with no `now`, nothing is said.
+    expect(allChecks(outdoors(), 'p', { forecasts: held(forecast(2)), fetchedAt, now: Date.parse('2030-11-15T20:00:00Z') }).oldForecasts).toEqual([]);
+    expect(allChecks(outdoors(), 'p', { forecasts: held(forecast(2)), fetchedAt }).oldForecasts).toEqual([]);
+    // Read again later, the same: one result while what it says is the same.
+    const again = allChecks(outdoors(), 'p', { forecasts: held(forecast(2)), fetchedAt, now: now + 60_000 });
+    expect(again.oldForecasts).toEqual(result.oldForecasts);
+  });
+
+  it('a forecast that covers the date but not the working hours is a skip of its own', () => {
+    // Hourly from 05:00Z to 16:00Z on Nov 16: the call at 10:00 in New York is 15:00Z, the wrap at 14:00 is 19:00Z.
+    const short: Forecast = { expires: '2030-11-16T00:00:00Z', lastModified: null, entries: Array.from({ length: 11 }, (_, i) => entry(hour(5 + i), 0)) };
+    expect(allChecks(outdoors(), 'p', { forecasts: held(short) }).skipped).toEqual([
+      { id: 'exterior-rain:forecast-not-hours:d1:pier', kinds: ['exterior-rain'], reason: 'forecast-not-hours', dayId: 'd1', locationId: 'pier' },
+    ]);
+    // Rain found in the part it covers is a finding, and nothing is skipped.
+    const wet: Forecast = { ...short, entries: short.entries.map((e, i) => (i === 10 ? { ...e, rain1h: 3 } : e)) };
+    const found = allChecks(outdoors(), 'p', { forecasts: held(wet) });
+    expect(found.findings.map((f) => f.kind)).toContain('exterior-rain');
+    expect(found.skipped).toEqual([]);
+  });
+
+  it('a location with no place is “no place”, for the light and the rain, never “no forecast”', () => {
+    const placeless = without(without(without(outdoors(), 'pier', 'latitude'), 'pier', 'longitude'), 'pier', 'map_name');
+    expect(allChecks(placeless, 'p').skipped).toEqual([{ id: 'no-place:d1:pier', kinds: ['golden-hour-midday', 'exterior-rain'], reason: 'no-place', dayId: 'd1', locationId: 'pier' }]);
+    // An interior at midday needs neither: nothing to say.
+    expect(allChecks(without(without(without(clean(), 'pier', 'latitude'), 'pier', 'longitude'), 'pier', 'map_name'), 'p').skipped).toEqual([]);
+  });
+
+  it('runs no check when a camera or a gear light is moved or turned on a plan, and runs them when its gear or lens changes', () => {
+    let records = tripped();
+    records = { ...records, lamp: record('lamp', 'plan_item', 'own', { kind: 'light', icon: 'lighting/fresnel', x: 1, y: 1, width: 0.4, height: 0.4, rotation: 0, gear_id: 'slider' }) };
+    const forecasts = held(forecast(2));
+    const first = allChecks(records, 'p', { forecasts });
+    let made = allChecksMade();
+    const moved = withProps(withProps(records, 'lamp', { x: 3, y: 4, rotation: 45 }), 'cam', { x: 2, rotation: 90 });
+    expect(allChecks(moved, 'p', { forecasts })).toBe(first);
+    expect(allChecksMade() - made).toBe(0);
+    // Its gear, or the camera's typed lens: read.
+    made = allChecksMade();
+    allChecks(withProps(moved, 'lamp', { gear_id: 'fx3' }), 'p', { forecasts });
+    expect(allChecksMade() - made).toBe(1);
+    made = allChecksMade();
+    const relensed = allChecks(withProps(moved, 'cam', { lens_mm: 35 }), 'p', { forecasts });
+    expect(allChecksMade() - made).toBe(1);
+    expect(relensed.findings.map((f) => f.kind)).not.toContain('plan-lens-differs');
   });
 });

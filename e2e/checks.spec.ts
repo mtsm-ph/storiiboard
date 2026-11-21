@@ -69,6 +69,13 @@ test.beforeEach(async ({ page }) => {
 
 test('the Production workspace shows every check over the project; each Show goes to its item, and a fix takes its finding away live, by keyboard', async ({ page }) => {
   await expect(tile(page)).toBeVisible();
+  // Named apart from the call sheet's Checks strip (7.4 round 2); its day groups and boxes are groups, never landmarks.
+  await expect(page.getByRole('region', { name: 'Project checks', exact: true }).locator('[data-checks-tile]')).toBeVisible();
+  await expect(tile(page).getByRole('region')).toHaveCount(0);
+  await expect(tile(page).getByRole('group', { name: 'Day 1 · Thu, Nov 26 (4)', exact: true })).toBeVisible();
+  await expect(tile(page).getByRole('group', { name: 'By check', exact: true })).toBeVisible();
+  // Once the held forecasts and zones are read, the foot no longer says it is reading.
+  await expect(tile(page).locator('[data-checks-reading]')).toHaveCount(0);
   const gearCheck = tile(page).locator('[data-check="gear-not-on-day"]');
   const awayCheck = tile(page).locator('[data-check="unavailable-on-day"]');
   await expect(gearCheck).toHaveText(/1A needs Slider, not on Day 1 · Thu, Nov 26’s list/);
@@ -136,4 +143,48 @@ test('the Production workspace shows every check over the project; each Show goe
   await expect(byKind.locator('[data-kind="gear-not-on-day"]')).toHaveText(/Gear not on the day’s list\s*0/);
   await expect(tile(page).locator('[data-checks-count]')).toHaveText('3 problems');
   await expect(awayCheck).toHaveCount(1);
+});
+
+test('says “Reading…” until the held forecasts and zones are read, then what was skipped, never a line that flashes and goes (round 2)', async ({ page }) => {
+  // 1A at Harbor Pier, an exterior, its place typed: the forecast the call sheet fetches (the memory build's recorded one)
+  // stops before Nov 26, so its rain is said as not checked.
+  await sections(page).getByRole('button', { name: /^Storyboard/ }).click();
+  await board(page).locator('[data-shot-id]').first().click();
+  const inspector = page.getByRole('region', { name: 'Frame inspector', exact: true });
+  await inspector.getByRole('radio', { name: 'EXT', exact: true }).click();
+  await board(page).locator('[data-shot-id]').first().click();
+  await page.keyboard.press('/');
+  await page.keyboard.type('loc');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('Harbor Pier');
+  await page.keyboard.press('Enter');
+  await sections(page).getByRole('button', { name: /^Production/ }).click();
+  const editor = page.getByRole('region', { name: 'Locations', exact: true }).locator('[data-location-editor]');
+  await editor.getByRole('textbox', { name: 'Coordinates', exact: true }).fill('40.7128, -74.006');
+  await editor.getByRole('button', { name: 'Place pin' }).click();
+  await expect(editor.getByText('On the map')).toBeVisible();
+  await expect(tile(page).locator('[data-skip="forecast-not-covering"]')).toHaveCount(1);
+
+  // The tile closed and opened again, watched from its first draw: "Reading…" comes first, and no line shows beside it.
+  await page.getByRole('button', { name: 'Close Project checks' }).click();
+  await expect(tile(page)).toHaveCount(0);
+  await page.evaluate(() => {
+    const seen: { reading: boolean; skips: string[] }[] = [];
+    (window as unknown as { checksSeen: typeof seen }).checksSeen = seen;
+    new MutationObserver(() => {
+      const box = document.querySelector('[data-checks-tile]');
+      if (!box) return;
+      seen.push({ reading: box.querySelector('[data-checks-reading]') !== null, skips: [...box.querySelectorAll('[data-skip]')].map((e) => e.getAttribute('data-skip') ?? '') });
+    }).observe(document.body, { subtree: true, childList: true });
+  });
+  await page.getByRole('button', { name: /^Layout/ }).click();
+  await page.getByRole('group', { name: 'Open tile' }).getByRole('button', { name: 'Project checks', exact: true }).click();
+  await expect(tile(page).locator('[data-skip="forecast-not-covering"]')).toHaveCount(1);
+  await expect(tile(page).locator('[data-checks-reading]')).toHaveCount(0);
+  await expect(tile(page).locator('[data-skip]')).toHaveCount(1);
+  const seen = await page.evaluate(() => (window as unknown as { checksSeen: { reading: boolean; skips: string[] }[] }).checksSeen);
+  expect(seen[0]?.reading).toBe(true);
+  expect(seen.filter((s) => s.reading && s.skips.length > 0)).toEqual([]);
+  // Every line that ever showed is the one that stays.
+  expect([...new Set(seen.flatMap((s) => s.skips))]).toEqual(['forecast-not-covering']);
 });

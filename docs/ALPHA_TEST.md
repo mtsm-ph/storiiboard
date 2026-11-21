@@ -380,6 +380,10 @@ screen, the Suggestions tile (Layout menu → Open tile), shows them and decides
   reopened from the Layout menu, it stays closed after a restart. A Production layout saved before 7.4 gets the tile
   once. (7.4)
 - [ ] With the tile open on a big project, sketch a frame and drag a plan's lights: nothing slows. (7.4)
+- [ ] The tile is named "Project checks" ("Revisiones del proyecto") and a screen reader's landmarks list it once,
+  apart from the call sheet's Checks strip. Opened, its foot says "Reading…" for a moment, then only lines that stay.
+  An exterior at a location with no place on the map says "… has no place"; a forecast past its expiry says when it
+  was fetched; a day whose call or wrap the forecast doesn't reach says so. (7.4 round 2)
 
 ## Settings, presets, themes, Dark view and accessibility
 

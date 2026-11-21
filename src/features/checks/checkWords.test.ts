@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { allChecks, type CheckFinding } from '../../core/checks';
+import { allChecks, type CheckFinding, type CheckSkip } from '../../core/checks';
 import { setLocale } from '../../core/i18n';
 import type { WeatherUnits } from '../../core/net/weather';
 import type { Props, SbdRecord } from '../../core/model/record';
-import { checkSentence, sentenceText, skipWords } from './checkWords';
+import { checkSentence, oldForecastWords, sentenceText, skipWords } from './checkWords';
 
 // The Checks tile's words (7.4) in English and Spanish: the gear and lens checks, which the call sheet strip doesn't
 // show, with their day and place; a call sheet finding as its strip says it; and what was skipped.
@@ -30,7 +30,7 @@ const project = (): Records =>
     record('d', 'shoot_day', 'p', { date: '2026-11-17', call_time: '07:00', people_ids: ['robin'], gear_ids: [] }),
     record('robin', 'person', 'p', { name: 'Robin Vale', departments: ['direction', 'camera'] }),
     record('slider', 'gear_item', 'p', { name: 'Slider' }),
-    record('pier', 'location', 'p', { name: 'Harbor Pier', address: '1 Pier Road', contact_name: 'Sam Ortiz', parking: 'Lot A', latitude: 40.7128, longitude: -74.006, time_zone: 'America/New_York' }),
+    record('pier', 'location', 'p', { name: 'Harbor Pier', address: '1 Pier Road', contact_name: 'Sam Ortiz', parking: 'Lot A', map_name: 'Pier', latitude: 40.7128, longitude: -74.006, time_zone: 'America/New_York' }),
     record('s1', 'scene', 'p', { number: '1', int_ext: 'EXT', day_night: 'DAY', location_id: 'pier' }),
     record('u1', 'setup', 's1', { name: '' }),
     record('own', 'plan', 'u1', { kind: 'setup', name: '' }),
@@ -77,5 +77,35 @@ describe('the Checks tile’s words (7.4)', () => {
     setLocale('en');
     const records = { ...project(), d2: record('d2', 'shoot_day', 'p', {}) };
     expect(words(records).skipped).toContain('Day 2 has no date: unavailable dates, golden hour and rain weren’t checked');
+  });
+});
+
+describe('the Checks tile’s words, round 2 (7.4)', () => {
+  it('agree in Spanish with one item or several', () => {
+    setLocale('es');
+    const base = project();
+    const frame = base.a as SbdRecord;
+    const two: Records = { ...base, dolly: record('dolly', 'gear_item', 'p', { name: 'Dolly' }), a: { ...frame, props: { ...frame.props, gear_ids: ['slider', 'dolly'] } } };
+    const found = allChecks(two, 'p').findings.find((f) => f.kind === 'gear-not-on-day');
+    if (!found) throw new Error('no gear finding');
+    expect(sentenceText(checkSentence(found, two, 'p', units))).toBe('1A necesita Slider y Dolly, que no están en la lista de Día 1 · mar, 17 nov');
+    setLocale('en');
+    expect(sentenceText(checkSentence(found, two, 'p', units))).toBe('1A needs Slider and Dolly, not on Day 1 · Tue, Nov 17’s list');
+  });
+
+  it('say a location with no place, a forecast short of the hours, and an old forecast with when it was fetched', () => {
+    setLocale('en');
+    const skip = (reason: CheckSkip['reason'], kinds: CheckSkip['kinds']): CheckSkip => ({ id: reason, kinds, reason, dayId: 'd', locationId: 'pier' });
+    const records = project();
+    expect(skipWords(skip('no-place', ['golden-hour-midday', 'exterior-rain']), records, 'p')).toBe('Harbor Pier has no place: rain and golden hour weren’t checked');
+    expect(skipWords(skip('no-place', ['exterior-rain']), records, 'p')).toBe('Harbor Pier has no place: rain wasn’t checked');
+    expect(skipWords(skip('forecast-not-hours', ['exterior-rain']), records, 'p')).toBe('The forecast held for Harbor Pier doesn’t cover all of Tue, Nov 17’s hours: rain wasn’t checked');
+    const now = new Date('2026-11-20T12:00:00Z');
+    const old = { id: 'forecast-old:d:pier', dayId: 'd', locationId: 'pier', fetchedAt: '2026-11-18T12:00:00Z' };
+    expect(oldForecastWords(old, records, now)).toMatch(/^Forecast for Harbor Pier fetched .*Nov 18.* \d{2}:\d{2}: rain checked from it$/);
+    expect(oldForecastWords({ ...old, fetchedAt: null }, records, now)).toBe('Forecast for Harbor Pier is past its expiry: rain checked from it');
+    setLocale('es');
+    expect(skipWords(skip('no-place', ['golden-hour-midday', 'exterior-rain']), records, 'p')).toBe('Harbor Pier no tiene lugar en el mapa: no se revisaron la lluvia ni la hora dorada');
+    expect(oldForecastWords({ ...old, fetchedAt: null }, records, now)).toBe('El pronóstico de Harbor Pier ya venció: la lluvia se revisó con él');
   });
 });

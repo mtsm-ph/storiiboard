@@ -7,6 +7,7 @@ import type { Place } from '../net/places';
 import { isTimeZone, sunTimes, type SunDay } from './sunTimes';
 import type { Department } from './department';
 import type { JsonValue, SbdRecord } from './record';
+import { childrenOf } from './recordIndex';
 import { dayPeople, dayPeopleChosen, locationsOfFrames, scenesOfFrames } from './schedule';
 import { dayFrames, isClockTime, isDayDate, projectShootDays, type ShootDay } from './shootDay';
 import { sceneFields, shotFields, type SceneFields } from './storyboard';
@@ -170,11 +171,8 @@ const text = (value: unknown) => (typeof value === 'string' ? value : '');
  * the call sheet and the others ignored. One in the Trash is no call sheet.
  */
 export function dayCallsheet(records: Records, dayId: string): SbdRecord | null {
-  return (
-    Object.values(records)
-      .filter((r) => r.type === 'callsheet' && r.parentId === dayId && r.trashedAt === null)
-      .sort(bySortKey)[0] ?? null
-  );
+  // From the index every reader shares (7.4 round 2): a day's sheet is read for every day on every edit by the checks.
+  return [...childrenOf(records, dayId, 'callsheet')].filter((r) => r.trashedAt === null).sort(bySortKey)[0] ?? null;
 }
 
 /** "Monday, November 16, 2026" in the app's language, or "" for no date. Read at noon UTC, so no time zone moves it a day. */

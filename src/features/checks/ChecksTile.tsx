@@ -12,9 +12,9 @@ import { Button } from '../../ui/Button';
 import { Select } from '../../ui/fields';
 import { Trans } from '../../ui/Trans';
 import { Words } from '../callsheets/CallSheetChecks';
-import { useHeldForecasts } from '../callsheets/useHeldForecasts';
+import { useHeldReading } from '../callsheets/useHeldForecasts';
 import { openShootDay } from '../schedule/shownDay';
-import { CHECK_KIND_LABEL, checkSentence, sentenceText, skipWords, type CheckSentence } from './checkWords';
+import { CHECK_KIND_LABEL, checkSentence, oldForecastWords, sentenceText, skipWords, type CheckSentence } from './checkWords';
 import { showFinding } from './showFinding';
 
 // The Checks tile (7.4, decision 7): every check over the whole project, from the one function the MCP's `run_checks`
@@ -46,7 +46,9 @@ export function ChecksTile() {
   const byCheckId = useId();
   const byDayId = useId();
   const skippedId = useId();
-  // Each location's zone and the forecasts already held, as the call sheet reads them: never fetched from here.
+  const oldId = useId();
+  // Each location's zone and the forecasts already held, as the call sheet reads them: never fetched from here. A
+  // forecast's age is judged at the time they were read.
   // From the type index, not a pass over every record on every edit.
   const points = recordsOfType(records, 'location').flatMap((record) => {
     if (!project || record.parentId !== project.projectId || record.trashedAt !== null) return [];
@@ -54,11 +56,15 @@ export function ChecksTile() {
     return place ? [{ id: record.id, latitude: place.latitude, longitude: place.longitude }] : [];
   });
   const zones = useZonesAt(points);
-  const held = useHeldForecasts(points);
+  const held = useHeldReading(points);
+  // Until the held forecasts and every place's zone have been read once, what can't be checked isn't known yet: the foot
+  // says "Reading…" rather than flash "no forecast" and "no time zone" lines that vanish a moment later (7.4 round 2).
+  const [ready, setReady] = useState(false);
+  if (!ready && held.readAt !== null && points.every((p) => zones.has(p.id))) setReady(true);
   if (!project) return <p className="sb-label p-3 text-text-muted">{t('checks.noProject')}</p>;
   const projectId = project.projectId;
 
-  const { findings, skipped } = allChecks(records, projectId, { forecasts: held, zones });
+  const { findings, skipped, oldForecasts } = allChecks(records, projectId, { forecasts: held.forecasts, fetchedAt: held.fetchedAt, zones, ...(held.readAt === null ? {} : { now: held.readAt }) });
   const days = projectShootDays(records, projectId);
   const dayName = (dayId: string | null) => {
     const day = dayId === null ? undefined : days.find((d) => d.record.id === dayId);
@@ -80,6 +86,10 @@ export function ChecksTile() {
     else groups.push({ key: dayKey(finding.dayId), dayId: finding.dayId, findings: [finding] });
   }
   const skippedShown = skipped.filter((s) => (dayFilter === '' || s.dayId === dayFilter) && (kindFilter === '' || s.kinds.includes(kindFilter)));
+  // An old forecast is said once per location: the line is about the forecast, whichever days read it.
+  const oldShown = (kindFilter === '' || kindFilter === 'exterior-rain' ? oldForecasts : [])
+    .filter((o) => dayFilter === '' || o.dayId === dayFilter)
+    .filter((o, i, all) => all.findIndex((other) => other.locationId === o.locationId) === i);
 
   return (
     <div className="flex min-h-full flex-col" data-checks-tile="">
@@ -120,7 +130,7 @@ export function ChecksTile() {
       </div>
       {findings.length > 0 && (
         <div className="flex flex-wrap gap-6 border-b border-border p-3 text-[12px]">
-          <section aria-labelledby={byCheckId}>
+          <div role="group" aria-labelledby={byCheckId}>
             <h3 id={byCheckId} className="sb-label">
               {t('checks.byCheck')}
             </h3>
@@ -132,8 +142,8 @@ export function ChecksTile() {
                 </li>
               ))}
             </ul>
-          </section>
-          <section aria-labelledby={byDayId}>
+          </div>
+          <div role="group" aria-labelledby={byDayId}>
             <h3 id={byDayId} className="sb-label">
               {t('checks.byDay')}
             </h3>
@@ -145,7 +155,7 @@ export function ChecksTile() {
                 </li>
               ))}
             </ul>
-          </section>
+          </div>
         </div>
       )}
       {findings.length === 0 ? (
@@ -160,7 +170,7 @@ export function ChecksTile() {
             const name = dayName(group.dayId);
             const headingId = `${byDayId}-${group.key}`;
             return (
-              <section key={group.key} aria-labelledby={headingId} data-checks-group={group.key} className="flex flex-col gap-1">
+              <div key={group.key} role="group" aria-labelledby={headingId} data-checks-group={group.key} className="flex flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-2 border-b border-border pb-1">
                   <h3 id={headingId} className="min-w-0 flex-1 text-[13px] font-bold">
                     {name} <span className="font-mono font-normal">({group.findings.length})</span>
@@ -201,24 +211,48 @@ export function ChecksTile() {
                     );
                   })}
                 </ul>
-              </section>
+              </div>
             );
           })}
         </div>
       )}
-      {skippedShown.length > 0 && (
-        <section aria-labelledby={skippedId} data-checks-skipped="" className="mt-auto border-t border-border p-3 text-[12px]">
-          <h3 id={skippedId} className="sb-label">
-            {t('checks.skipped')}
-          </h3>
-          <ul className="mt-1 flex flex-col gap-0.5">
-            {skippedShown.map((skip) => (
-              <li key={skip.id} data-skip={skip.reason}>
-                {skipWords(skip, records, projectId)}
-              </li>
-            ))}
-          </ul>
-        </section>
+      {!ready ? (
+        <p data-checks-reading="" className="mt-auto border-t border-border p-3 text-[12px]">
+          {t('checks.reading')}
+        </p>
+      ) : (
+        (skippedShown.length > 0 || oldShown.length > 0) && (
+          <div className="mt-auto flex flex-col gap-2 border-t border-border p-3 text-[12px]">
+            {skippedShown.length > 0 && (
+              <div role="group" aria-labelledby={skippedId} data-checks-skipped="">
+                <h3 id={skippedId} className="sb-label">
+                  {t('checks.skipped')}
+                </h3>
+                <ul className="mt-1 flex flex-col gap-0.5">
+                  {skippedShown.map((skip) => (
+                    <li key={skip.id} data-skip={skip.reason}>
+                      {skipWords(skip, records, projectId)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {oldShown.length > 0 && (
+              <div role="group" aria-labelledby={oldId} data-checks-old="">
+                <h3 id={oldId} className="sb-label">
+                  {t('checks.oldForecasts')}
+                </h3>
+                <ul className="mt-1 flex flex-col gap-0.5">
+                  {oldShown.map((old) => (
+                    <li key={old.id} data-old-forecast={old.locationId}>
+                      {oldForecastWords(old, records)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )
       )}
     </div>
   );
