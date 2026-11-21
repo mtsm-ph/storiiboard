@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { focusWhenShown } from '../../app/focusWhenShown';
 import { openTile } from '../../app/shell/docking/layout';
 import { layoutsOf, layoutStore } from '../../app/shell/docking/layoutStore';
+import { projectStore } from '../../app/projectStore';
 import type { WorkspaceId } from '../../app/shell/workspaces';
 import { selectionStore } from '../storyboard/selection';
 
@@ -25,8 +26,21 @@ export function openDayHistory(workspaceId: WorkspaceId, dayId: string): void {
   focusWhenShown(() => document.querySelector<HTMLElement>('[data-history-only] [role="switch"]'));
 }
 
-// Picking a frame, a note or a scene makes it the tile's item again.
-selectionStore.subscribe((now, before) => {
-  if (now.shotId === before.shotId && now.noteId === before.noteId && now.sceneId === before.sceneId) return;
+const letGo = () => {
   if (useHistoryDay.getState().dayId !== null) useHistoryDay.setState({ dayId: null, only: false });
+};
+
+// Picking a frame, a note or a scene makes it the tile's item again: the one already selected, picked again, too.
+selectionStore.subscribe((now, before) => {
+  if (now.picks === before.picks && now.shotId === before.shotId && now.noteId === before.noteId && now.sceneId === before.sceneId) return;
+  letGo();
+});
+
+// The day is let go once it's no longer a live day of the open project (trashed, deleted, another project open), so
+// undoing its trash or switching back never turns its filter on again by itself.
+projectStore.subscribe((now) => {
+  const dayId = useHistoryDay.getState().dayId;
+  if (dayId === null) return;
+  const day = now.records[dayId];
+  if (now.project === null || day?.type !== 'shoot_day' || day.trashedAt !== null) letGo();
 });

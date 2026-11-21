@@ -1353,7 +1353,7 @@ export const es: Messages = {
   // src/features/history/DayHistory.tsx: el historial propio de un día de rodaje, abierto desde el día en Días de rodaje o el Calendario.
   'history.only.day': 'Solo el día de rodaje {name}',
   'history.item.day': 'el día de rodaje {name}',
-  'history.dayStepsOf': 'Pasos de {title}, del más reciente al más antiguo',
+  'history.dayStepsOf': 'Pasos en {title}, del más reciente al más antiguo',
   'days.history': 'Historial',
   'days.historyOf': 'Historial de {day}',
   // src/features/history/ItemHistory.tsx

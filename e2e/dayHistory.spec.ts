@@ -61,12 +61,12 @@ test('a day’s history from Shoot days and from the Calendar: a frame scheduled
   await expect(feed.first()).toContainText(MOVED);
   await expect(feed.nth(1)).toContainText(SCHEDULED);
 
-  // The other day's history, from the Calendar's schedule: the move only.
+  // The other day's history, from the Calendar's schedule: the move, and 1A's whole log, its first day's step too.
   await calendar(page).getByRole('button', { name: 'History of Day 2 · Tue, Nov 17' }).click();
   await expect(history(page).getByRole('switch', { name: 'Only shoot day Tue, Nov 17' })).toHaveAttribute('aria-checked', 'true');
   const second = daySteps(page, 'Tue, Nov 17');
   await expect(second.first()).toContainText(MOVED);
-  await expect(second.filter({ hasText: SCHEDULED })).toHaveCount(0);
+  await expect(second.filter({ hasText: SCHEDULED })).toHaveCount(1);
   await expect(second.filter({ hasText: 'Added shoot day' })).toHaveCount(1);
 
   // And the first day's again, from the Calendar: both steps.
@@ -79,6 +79,7 @@ test('a day’s history from Shoot days and from the Calendar: a frame scheduled
   await list.getByRole('button').first().click();
   await editor(page).getByLabel('Call').fill('07:00');
   await editor(page).getByLabel('Call').blur();
-  await expect(daySteps(page, 'Mon, Nov 16')).toHaveCount(5);
+  // The day added, dated and its call, and 1A's whole log: added, scheduled, moved.
+  await expect(daySteps(page, 'Mon, Nov 16')).toHaveCount(6);
   await expect(daySteps(page, 'Mon, Nov 16').nth(2)).toContainText(SCHEDULED);
 });
