@@ -84,6 +84,75 @@ test('a tile that fits takes no lane: its content reaches its right edge as befo
   expect(selection).toEqual({ overflows: false, lanes: [null, null], padding: '0px', gap: 0 });
 });
 
+test('a Shot list scrolled to its right end stays there when a frame is added under the lane (#222 round 6c)', async ({ page }) => {
+  // Reading the board without its lane lays everything inside out 16 px wider, which pulled the table's sideways
+  // position back by 16 px on every change of the board's content; it is put back now, and a change of content alone
+  // is read with the lane on.
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: /^Storyboard/ }).click();
+  const board = page.getByRole('region', { name: 'Storyboard', exact: true });
+  const inspector = page.getByRole('region', { name: 'Frame inspector', exact: true });
+  for (let i = 0; i < 14; i += 1) await board.getByRole('button', { name: '+ Frame in SC 01' }).click();
+  await board.locator('[data-shot-id]').first().click();
+  for (const name of ['Second unit notes', 'Drone operator', 'Visual effects plate', 'Picture vehicle']) {
+    await inspector.getByLabel('New field').fill(name);
+    await inspector.getByRole('button', { name: 'Add field' }).click();
+    const field = inspector.getByRole('textbox', { name, exact: true });
+    await expect(field).toBeFocused();
+    await field.fill('Kept wide on purpose, to scroll');
+    await field.press('Enter');
+  }
+  await board.getByRole('radio', { name: 'Shot list' }).click();
+  const table = board.getByRole('table', { name: 'Shot list' });
+  await expect(table.getByRole('columnheader', { name: 'Picture vehicle' })).toBeVisible();
+  const scroller = table.locator('xpath=..');
+  /** The table's scroller, and the board's: its lane and whether it overflows. */
+  const read = () =>
+    scroller.evaluate((area) => {
+      const tile = area.closest('[data-scroll-root]');
+      return {
+        left: area.scrollLeft,
+        max: area.scrollWidth - area.clientWidth,
+        tileLane: tile?.getAttribute('data-scroll-lane') ?? null,
+        tileOverflows: tile ? tile.scrollHeight > tile.clientHeight : false,
+      };
+    });
+  await expect.poll(async () => (await read()).tileLane).toBe('y');
+  const before = await read();
+  expect(before.tileOverflows).toBe(true);
+  expect(before.max).toBeGreaterThan(0);
+  await scroller.evaluate((area) => {
+    area.scrollLeft = area.scrollWidth - area.clientWidth;
+  });
+  await expect.poll(async () => { const now = await read(); return now.left === now.max; }).toBe(true);
+  const frames = board.locator('[data-shot-id]');
+  // The new frame takes the focus, and focus scrolls its number, in the table's first column, into view: that is the
+  // board's own doing, not the lane's, so here focus moves without scrolling. The frame is added by its button's own
+  // click, so nothing scrolls the button into view first either.
+  await page.evaluate(() => {
+    const focus = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'focus')?.value as (this: HTMLElement, options?: FocusOptions) => void;
+    HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOptions) {
+      focus.call(this, { ...options, preventScroll: true });
+    };
+  });
+  await table.getByRole('button', { name: '+ Frame in SC 01' }).dispatchEvent('click');
+  await expect(frames).toHaveCount(15);
+  const after = await scroller.evaluate(async (area) => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return { left: area.scrollLeft, max: area.scrollWidth - area.clientWidth };
+  });
+  expect(after.max).toBeGreaterThan(0);
+  expect(after.left).toBe(after.max);
+  // The board taller: its box changes, so once the new size holds it is read without the lane, and the table's
+  // position is put back. The table's width doesn't change, so neither does how far it reaches.
+  await page.setViewportSize({ width: 1280, height: 560 });
+  const resized = await scroller.evaluate(async (area) => {
+    for (let i = 0; i < 4; i += 1) await new Promise((resolve) => requestAnimationFrame(resolve));
+    const tile = area.closest('[data-scroll-root]');
+    return { left: area.scrollLeft, max: area.scrollWidth - area.clientWidth, tileLane: tile?.getAttribute('data-scroll-lane') ?? null };
+  });
+  expect(resized).toEqual({ left: after.max, max: after.max, tileLane: 'y' });
+});
+
 test('with classic bars the overflowing tile takes no lane', async ({ page }) => {
   await expect.poll(async () => (await layersLane(page)).lane).toBe('y');
   const narrow = await layersLane(page);

@@ -100,8 +100,9 @@ export interface LaneState {
 
 export interface LaneMeasure {
   overlay: boolean;
-  /** Whether the content overflows sideways, and up and down, without any lane: never the overflow the lane's own room
-   *  causes (#222 round 6b: a lane that made the content wrap kept itself on where the content fitted without it). */
+  /** Whether the content overflows sideways, and up and down: without any lane once the box has settled, so the lane's
+   *  own room never keeps it on past a resize (#222 round 6b: a lane that made the content wrap kept itself on where
+   *  the content fitted without it); with the lane on while the box is changing or only the content changed (6c). */
   overflowX: boolean;
   overflowY: boolean;
   /** The scroller's own box, its outer width and height: "320x480". */
@@ -112,7 +113,8 @@ const OFF: AxisLane = { on: false, heldAt: null, droppedAt: null };
 export const NO_LANE: LaneState = { x: OFF, y: OFF };
 
 /**
- * The overflow is measured without the lane, so the lane's own room never keeps it on. Content can still answer the
+ * Once the scroller's box has settled, the overflow is measured without the lane, so the lane's own room never keeps it
+ * on past a change of size (`watchLane` says when it reads with the lane on). Content can still answer the
  * lane (a tile that shows a line only where it fits): if the content overflows again on the measure right after the
  * lane was taken off, while the scroller's own box is the same, the lane goes back on and stays until that box changes,
  * so it never flickers on and off.
@@ -153,23 +155,43 @@ function contentBoxes(element: Element, boxes: Element[], lists: Element[], dept
   }
 }
 
+/** Whether the content overflows each way, as the scroller is now. */
+function overflowNow(element: HTMLElement): { x: boolean; y: boolean } {
+  return { x: element.scrollWidth > element.clientWidth, y: element.scrollHeight > element.clientHeight };
+}
+
 /**
- * Whether the content overflows each way with no lane. Where a lane is on, it is taken off for the reading and put back
- * in the same task: the page lays out to answer, but never draws in between, and every size is the same again before
- * the resize observers look, so they report nothing. Taking the lane off can shorten the content, which pulls the
- * scroll position back; it is put back as it was.
+ * Whether the content overflows each way with no lane, the lane on as `lane`. It is taken off for the reading and put
+ * back in the same task: the page lays out to answer, but never draws in between, and every size is the same again
+ * before the resize observers look, so they report nothing. Without the lane everything inside is laid out 16 px wider
+ * (or taller), and the browser pulls back every scroll position the wider layout can't reach: the scroller's own, and
+ * any scrolled area inside it (the Shot list's table scrolled to its right end, a text field at its end; #222 round
+ * 6c). Each of those that was away from the start is put back as it was, and only where it moved: `scrolled` holds the
+ * ones seen scrolling, so nothing walks the content.
  */
-function overflowWithoutLane(element: HTMLElement): { x: boolean; y: boolean } {
-  const read = () => ({ x: element.scrollWidth > element.clientWidth, y: element.scrollHeight > element.clientHeight });
-  const lane = element.getAttribute('data-scroll-lane');
-  if (lane === null) return read();
-  const top = element.scrollTop;
-  const left = element.scrollLeft;
+function overflowWithoutLane(element: HTMLElement, lane: string, scrolled: Set<Element>): { x: boolean; y: boolean } {
+  const kept: { target: Element; top: number; left: number }[] = [];
+  for (const target of [element, ...scrolled]) {
+    if (target !== element && !target.isConnected) {
+      scrolled.delete(target);
+      continue;
+    }
+    const top = target.scrollTop;
+    const left = target.scrollLeft;
+    if (top === 0 && left === 0) {
+      // Back at the start: nothing a reading can pull back, so it is let go until it scrolls again.
+      if (target !== element) scrolled.delete(target);
+      continue;
+    }
+    kept.push({ target, top, left });
+  }
   element.removeAttribute('data-scroll-lane');
-  const bare = read();
+  const bare = overflowNow(element);
   element.setAttribute('data-scroll-lane', lane);
-  if (element.scrollTop !== top) element.scrollTop = top;
-  if (element.scrollLeft !== left) element.scrollLeft = left;
+  for (const { target, top, left } of kept) {
+    if (target.scrollTop !== top) target.scrollTop = top;
+    if (target.scrollLeft !== left) target.scrollLeft = left;
+  }
   return bare;
 }
 
@@ -181,11 +203,36 @@ function overflowWithoutLane(element: HTMLElement): { x: boolean; y: boolean } {
  * content there, then drops the focus() a window gives its first field when the dialog is closed and shown again in
  * the same task, as React's Strict Mode does with every effect (#222: the Save preset window's Name field was left
  * unfocused on the Mac, and in Playwright's WebKit on Windows; deferring this one read alone brought the focus back).
+ *
+ * With the lane on, the content is read without it only once the scroller's own box has changed size and held that
+ * size for a frame: the box a resize observer saw after one frame's layout is still the box in the next frame (#222
+ * round 6c). A reading without the lane lays the whole scroller out twice more, so a splitter drag or the Dock's grow
+ * transition, which change the box from one frame to the next, take one at their end, not one a frame; a single change
+ * of size is read in the frame after it, as before. A change of the content alone (a frame
+ * added, a row opened, a person's scroll that loads more) is read with the lane on, as before round 6b: still
+ * overflowing keeps it, fitting drops it. The lane's own room can only hold it on at the box it was taken at, and the
+ * next change of that box lets it go.
  */
 export function watchLane(element: HTMLElement): () => void {
   let state = NO_LANE;
   let frame = 0;
   let watching = false;
+  // The box at the last measure; and, once the box has changed, the last box it was seen at, until a measure finds it
+  // still there (held from one frame's layout to the next frame, or from one measure to the next).
+  let lastBox: string | null = null;
+  let pending: string | null = null;
+  const boxOf = () => {
+    const rect = element.getBoundingClientRect();
+    return `${String(Math.round(rect.width))}x${String(Math.round(rect.height))}`;
+  };
+  // Areas inside seen scrolling, the only ones a reading without the lane puts back. Scroll events don't bubble, but
+  // a listener in the capture phase sees every one on its way down to its target.
+  const scrolled = new Set<Element>();
+  const onScroll = (event: Event) => {
+    const target = event.target as Element | null;
+    if (target !== null && target !== element && 'scrollTop' in target) scrolled.add(target);
+  };
+  element.addEventListener('scroll', onScroll, { capture: true, passive: true });
   const measure = () => {
     frame = 0;
     if (!watching) {
@@ -193,24 +240,49 @@ export function watchLane(element: HTMLElement): () => void {
       watch();
     }
     const style = getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-    const bare = overflowWithoutLane(element);
+    const box = boxOf();
+    const on = element.getAttribute('data-scroll-lane');
+    let over: { x: boolean; y: boolean };
+    if (on === null) {
+      // No lane: what is read is the content without it.
+      over = overflowNow(element);
+      pending = null;
+    } else if (pending !== null && box === pending) {
+      // The new size has held: read once without the lane.
+      over = overflowWithoutLane(element, on, scrolled);
+      pending = null;
+    } else {
+      // Still changing size (a drag, a transition), or only the content changed: read with the lane on.
+      if (pending !== null || (lastBox !== null && box !== lastBox)) pending = box;
+      over = overflowNow(element);
+    }
+    lastBox = box;
     state = nextLane(state, {
       overlay: true,
-      overflowX: SCROLLS.has(style.overflowX) && bare.x,
-      overflowY: SCROLLS.has(style.overflowY) && bare.y,
-      box: `${String(Math.round(rect.width))}x${String(Math.round(rect.height))}`,
+      overflowX: SCROLLS.has(style.overflowX) && over.x,
+      overflowY: SCROLLS.has(style.overflowY) && over.y,
+      box,
     });
     const lane = laneAttribute(state);
     if (lane === null) element.removeAttribute('data-scroll-lane');
     else if (element.getAttribute('data-scroll-lane') !== lane) element.setAttribute('data-scroll-lane', lane);
+    // Still changing size with the lane on: look again next frame, to read without it once the size holds.
+    if (pending !== null && lane !== null) schedule();
   };
   // Measured in the next frame, never inside the observer's own callback: a lane written there would resize what it
   // watches in the same pass, which the browser reports as an error.
   const schedule = () => {
     if (frame === 0) frame = requestAnimationFrame(measure);
   };
-  const resize = new ResizeObserver(schedule);
+  const resize = new ResizeObserver((entries: ResizeObserverEntry[]) => {
+    // The scroller's own box, as this frame's layout left it (read where layout is already done). Watching again after
+    // a change of children reports the box once more, unchanged: that is no resize.
+    if (entries.some((entry) => entry.target === element)) {
+      const seen = boxOf();
+      if (pending !== null || seen !== lastBox) pending = seen;
+    }
+    schedule();
+  });
   const children = new MutationObserver(() => {
     watch();
     schedule();
@@ -231,6 +303,8 @@ export function watchLane(element: HTMLElement): () => void {
     cancelAnimationFrame(frame);
     resize.disconnect();
     children.disconnect();
+    element.removeEventListener('scroll', onScroll, { capture: true });
+    scrolled.clear();
     element.removeAttribute('data-scroll-lane');
   };
 }
