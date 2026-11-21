@@ -51,6 +51,11 @@ import { boardScenes, dayOf, read, sceneByNumber, ToolError, type Read, type Too
 // and 7.1's reader is asserted to pass it. A call sheet's map holds in `before` only the keys named, as the sheet reads
 // them (the review's own `seen`), so its reserve is a function of the keys sent. The review then works out flags alone
 // (ReviewMode `flags`): no edit, so its work never depends on whether a value equals the stored one.
+//
+// Round 6: the reserve file names the project by a fixed stand-in (RESERVE_NAME), so the 5 MB never turns on the
+// name's length; the room check counts the server's own waiting files with their `before` values at the reserve
+// (waitingAtReserve); and a stored title or scene name (1,000 characters) and gear list (2,000 entries, a deleted id
+// kept) are bounded by what a person can store, not by what a suggestion sends.
 
 type Obj = { [key: string]: JsonValue };
 
@@ -255,10 +260,24 @@ function beforeOf(r: Read, type: string, record: SbdRecord | null, fields: Obj):
     if (!rule) continue;
     const stored = record?.props[field];
     // A map that isn't one is refused by its shape before the build; its before is never the stored map whole.
-    const value = rule.stored.kind !== 'by_key' ? (stored ?? null) : isObject(named) ? seen(r.data.records, field, rule, stored, named) : {};
+    const value =
+      rule.stored.kind === 'by_key' ? (isObject(named) ? seen(r.data.records, field, rule, stored, named) : {}) : rule.stored.kind === 'ids' ? storedIds(stored ?? null) : (stored ?? null);
     Object.defineProperty(out, field, { value, enumerable: true, writable: true, configurable: true });
   }
   return out;
+}
+
+/** A stored id in a list as the reserve counts it: letters, digits and dashes, at most a UUID's 36 (one byte each). */
+const STORED_ID = new RegExp(`^[0-9A-Za-z-]{0,${String(ID_CHARS)}}$`);
+
+/**
+ * A stored list of ids as its `before` holds it (round 6): every entry that reads as an id, live or deleted (the app
+ * keeps a deleted item's id for good), in order; an entry that doesn't (a number, an object) is kept out rather than
+ * refusing the call. It names no live record, so changed since, which compares only the live ones, reads the same.
+ * Anything but a list stays as stored, for storedProblems to refuse.
+ */
+function storedIds(value: JsonValue): JsonValue {
+  return Array.isArray(value) ? value.filter((id) => typeof id === 'string' && STORED_ID.test(id)) : value;
 }
 
 const fieldCount = (props: Obj) => {
@@ -418,7 +437,7 @@ export function suggestGearForDay(context: ToolContext, args: GearForDayArgs): P
   const adds = (args.add ?? []).map((g) => gearOf(r, g));
   const removes = (args.remove ?? []).map((g) => gearOf(r, g));
   if (adds.length === 0 && removes.length === 0) throw new ToolError('suggest_gear_for_day: name gear to add or to remove.');
-  const stored = Array.isArray(day.record.props.gear_ids) ? day.record.props.gear_ids : [];
+  const stored = storedIds(Array.isArray(day.record.props.gear_ids) ? day.record.props.gear_ids : []);
   // The list a person would end with: what they can see on it (live items), less those taken off, then those added at
   // the end, as the Gear picker puts them. What they can't see stays where it is (7.0's own edit keeps it). Live is
   // judged on the full records (round 2): an item of a department the view hides is still on the list.
@@ -531,9 +550,6 @@ const fieldsIn = (s: FileSuggestion): [string, JsonValue][] => {
 
 /** A flag refuses a suggestion unless it only waits on another suggestion of the same file (a new scene's frames). */
 const waits = (flag: SuggestionFlag): boolean => flag.kind === 'waiting' || flag.kind === 'waiting_after';
-
-/** A stored id in a list as the reserve counts it: letters, digits and dashes, at most a UUID's 36 (one byte each). */
-const STORED_ID = new RegExp(`^[0-9A-Za-z-]{0,${String(ID_CHARS)}}$`);
 
 /** A time as a call sheet's `before` holds it (the review's `seen`): none, or "HH:MM". */
 const sheetLeaf = (value: unknown): boolean => value === null || (typeof value === 'string' && value.length <= 5);
@@ -649,6 +665,53 @@ function atReserve(suggestions: readonly FileSuggestion[]): FileSuggestion[] {
   });
 }
 
+/**
+ * The project's name as the reserve counts it (round 6): the most 7.1's reader takes (SUGGESTION_BOUNDS.name UTF-16
+ * units), each at its worst. A lone surrogate is kept by cleanText (it is neither a control nor a format character) and
+ * JSON writes it as `\udfff`, 6 bytes for one unit, the most any unit of a name takes; so no real name is larger.
+ */
+export const RESERVE_NAME = '\uDFFF'.repeat(SUGGESTION_BOUNDS.name);
+
+/** The 5 MB refusal (round 6): counted at the reserves, a call of many long fields is refused well before 5 MB of text. */
+export const TOO_LARGE =
+  "Counted with room for what each frame already holds, this is more than one change file carries: suggest fewer at a time (about 80 changes to a frame's action).";
+
+/** How deep a `before` field's value sits in the file as buildChangeFile writes it: file, suggestions, a suggestion, data, before. */
+const BEFORE_DEPTH = 5;
+
+/** A value's UTF-8 size as buildChangeFile writes it at `depth` (two spaces a level), from the line its key starts. */
+const writtenSize = (value: JsonValue, depth: number): number => {
+  const text = JSON.stringify(value, null, 2);
+  return new TextEncoder().encode(text).byteLength + 2 * depth * (text.split('\n').length - 1);
+};
+
+/**
+ * A change file the server wrote, still waiting in the folder, counted as the room check counts it (round 6): its real
+ * size, with each `before` value counted at its reserve in place of what the project held then, at the same indent. So
+ * the count is a function of what was sent then, never of the stored values it holds. A file that can't be read as one
+ * counts at its real size; a value past its reserve (an edited file) is never counted at less than it is.
+ */
+export function waitingAtReserve(bytes: Uint8Array): number {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return bytes.byteLength;
+  }
+  let size = bytes.byteLength;
+  const list = isObject(parsed) && Array.isArray(parsed.suggestions) ? (parsed.suggestions as unknown[]) : [];
+  for (const s of list) {
+    if (!isObject(s) || !isObject(s.data) || !isObject(s.data.before) || !isObject(s.target) || typeof s.target.type !== 'string') continue;
+    const entry = scopeType(scopeRowFor(), s.target.type);
+    for (const [field, value] of Object.entries(s.data.before as Obj)) {
+      const bound = (entry ? scopeField(entry, field) : null)?.stored;
+      if (!bound) continue;
+      size += Math.max(0, writtenSize(reserveFor(bound, value), BEFORE_DEPTH) - writtenSize(value, BEFORE_DEPTH));
+    }
+  }
+  return size;
+}
+
 /** A checked change file, and the size it was counted at: the room check counts the new file at this (round 5). */
 export interface CheckedChangeFile extends BuiltChangeFile {
   reserveBytes: number;
@@ -665,9 +728,10 @@ function reviewed(context: ToolContext, suggestions: readonly FileSuggestion[], 
   const { data } = context;
   const id = crypto.randomUUID();
   const input = { projectId: data.projectId, projectName: data.name, client: context.client ?? 'MCP client', at, id };
-  const reserve = buildChangeFile({ ...input, suggestions: atReserve(suggestions) });
+  // The project's name at its reserve too (round 6), so the 5 MB never turns on its length.
+  const reserve = buildChangeFile({ ...input, projectName: RESERVE_NAME, suggestions: atReserve(suggestions) });
   const counted = { ...reserve, reserveBytes: reserve.bytes.byteLength };
-  if (reserve.bytes.byteLength > MAX_CHANGE_FILE_BYTES) return { built: counted, problems: ['The change file would be larger than 5 MB. Suggest fewer at a time.'] };
+  if (reserve.bytes.byteLength > MAX_CHANGE_FILE_BYTES) return { built: counted, problems: [TOO_LARGE] };
   const atMost = readChangeFile(reserve.bytes, data.projectId);
   if (!atMost.ok) return { built: counted, problems: [refusalWords(atMost.refusal)] };
 

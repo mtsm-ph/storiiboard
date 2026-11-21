@@ -140,16 +140,24 @@ existing file.
   on every value and note (one that reads as a phone number, an email, coordinates or a map link is refused: contact
   details are never suggested), then the row's checks that read no records (round 5: a value's length, its choices,
   its range and shape, in 7.0's own words: "HUGE" for a size, 25:00 for a crew call). Then a stored value already past
-  its own row bound (an action longer than 10,000 characters, a gear list holding something that isn't an id) is
-  refused in fixed words, whatever was sent ("SC 12 · 12B: what the project holds in action is more than a suggestion
-  can carry. Change it in Storiiboard."). Then every size (round 5): the file as it would be with each `before` value at
-  a fixed reserve, the largest its field's row bound lets it be as UTF-8 JSON at its worst (`stored` in the scope row:
-  a text's characters at 6 bytes each, a list of ids at 500 UUIDs, a short value at 20 characters), read by the app's
-  own change-file reader (7.1, src/core/storage/changeFile.ts) within its bounds (5 MB, 256 KB a suggestion, 10,000
-  characters a string, 2,000 suggestions), so whether the call is too large is decided by what was sent and the
-  reserves alone. Only then is the real file built; it can only be smaller, and the server asserts that the same reader
-  passes it. A suggestion naming many long fields is counted at their reserves, so a call of more than about 80 changes
-  to a frame's action is refused as larger than 5 MB: suggest fewer at a time. Then every suggestion is read by the
+  its own stored bound (an action longer than 10,000 characters, a title or a scene name longer than 1,000, a gear list
+  of more than 2,000 entries) is refused in fixed words, whatever was sent ("SC 12 · 12B: what the project holds in
+  action is more than a suggestion can carry. Change it in Storiiboard."). That refusal (`storedProblems`) is a fixed
+  property of the project, the same whatever the call sends, never a comparison with a guess. The stored bounds are what
+  a person can store (round 6): a title or a scene name typed past 200 characters in the Inspector, a gear list that
+  keeps every deleted item's id; what the assistant sends stays bounded at 200 characters and 500 ids. An entry of a
+  stored list that isn't an id (a number, an object) is kept out of `before` rather than refused: it names no live
+  record, so *changed since* reads the same. Then every size (round 5): the file as it would be with each `before`
+  value at a fixed reserve, the largest its field's stored bound lets it be as UTF-8 JSON at its worst (`stored` in the
+  scope row: a text's characters at 6 bytes each, a list of ids at 2,000 UUIDs, a short value at 20 characters), and
+  the project's name at a fixed stand-in (round 6: 100 UTF-16 units at 6 bytes each, the most 7.1's reader takes, so the
+  size never turns on the name's length), read by the app's own change-file reader (7.1, src/core/storage/changeFile.ts)
+  within its bounds (5 MB, 256 KB a suggestion, 10,000 characters a string, 2,000 suggestions), so whether the call is
+  too large is decided by what was sent and the reserves alone. Only then is the real file built; it can only be
+  smaller, and the server asserts that the same reader passes it. A suggestion naming many long fields is counted at
+  their reserves, so a call of more than about 80 changes to a frame's action is refused: "Counted with room for what
+  each frame already holds, this is more than one change file carries: suggest fewer at a time (about 80 changes to a
+  frame's action)." Then every suggestion is read by the
   app's own reader (`reviewSuggestion`, 7.0) under the assistant's scope row, beside the others of its file, against
   the project as it is, for its flags alone (round 5: no edit worked out, so the work never depends on whether a value
   equals the stored one): one with a flag (a value its field doesn't take, a focal length outside the lens picked, a frame that can't
@@ -183,7 +191,8 @@ existing file.
   to a file it wrote), `project_id` and `project_name` from the project as read, `created_by: "mcp"`, and one person,
   `{ "id": "a", "name": <the client's own name>, "role": "assistant" }`: the name the assistant's app gave itself in
   the MCP initialize request (its `title`, else its `name`, such as "Claude Desktop"), as text, cleaned and at most
-  100 characters. Each suggestion's `before` values come from the project as read, only for fields in the scope row
+  100 UTF-16 units, as 7.1's reader counts a name (round 6; the project's name likewise, so a name of emoji is cut,
+  never refused). Each suggestion's `before` values come from the project as read, only for fields in the scope row
   (round 4); a call sheet's calls and times only for the keys named, each as the sheet reads it (round 5: "HH:MM" or
   null, what *changed since* compares, so their reserve is a function of the keys sent). Its name is
   `<YYYY-MM-DD HH-mm-ssZ> <client> <8 hex>.sbdchanges`: the time in UTC (round 2: never this computer's zone, which
@@ -212,9 +221,10 @@ existing file.
   name it wrote, or else by the file's own `id` (each read within the app's 5 MB, at most 50 MB read in all); a file it
   can't read counts as waiting. The app reads the files it hasn't brought in newest first, so a new one comes in even
   when old ones fill what one pass reads. The new file counts at its reserve (round 5), never its real size, which holds
-  the stored `before` values; the files already waiting count at their real size. That is a residual: their sizes hold
-  earlier calls' `before` values, so it would take about 50 MB of waiting files, files a person sees in the folder and
-  in the status line, before the room's answer could turn on one.
+  the stored `before` values; and a waiting file of a name the server wrote is read (within the same 50 MB) and counted
+  with each `before` value at its reserve in place of the stored one, at the same indent (round 6, `waitingAtReserve`),
+  so the room's answer is a function of what earlier calls sent, never of what the project held then. A file of any
+  other name, which the server didn't write, counts at its real size.
 - **A late failure leaves nothing** (round 2): when the marker or the file can't be written after this call made the
   folder, the call takes that folder away again with the marker it wrote (only a folder it made, only once empty), and
   answers in words.
@@ -245,7 +255,11 @@ existing file.
   the other, answered alike; the real file within its reserve and passed by 7.1's reader for every tool; a stored value
   past its bound refused in fixed words whatever was sent; the row's record-free checks run first; the new file counted
   at its reserve in the room check; and the flags-only review giving the full review's flags but `no_change` on every
-  earlier round's case, with no copy of the records whether a value equals the stored one or not.
+  earlier round's case, with no copy of the records whether a value equals the stored one or not. Round 6 adds the
+  project's name at its stand-in (two names, one of 100 emoji, counted alike, the long one cut and read); the server's
+  own waiting files counted alike whatever their `before` values held, and so in the room check; a frame whose stored
+  title is 201 or 999 characters given a short title; a day whose gear list holds 600 entries, 450 of them deleted,
+  taking a gear suggestion; and the words for a call too large for one file.
 
 ## What is never returned, and why
 

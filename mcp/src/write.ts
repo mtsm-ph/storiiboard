@@ -1,7 +1,7 @@
 import { viewText } from '../../src/core/model/assistantView';
 import type { JsonValue } from '../../src/core/model/record';
 import { checkRoom, FolderRefused, removeLeftovers, suggestionsFolder, takeAwayMade, writeChangeFile, type SuggestionsFolder, type WriteHooks } from './changeFolder';
-import { checkedChangeFile, type Proposal } from './propose';
+import { checkedChangeFile, waitingAtReserve, type Proposal } from './propose';
 import { ToolError, type ToolContext } from './tools';
 
 // A propose tool's last step (7.6): the proposal checked and built as a change file (propose.ts), then the server's one
@@ -31,8 +31,9 @@ export function writeProposal(context: ToolContext, proposal: Proposal, hooks: W
     if (!folder.made) {
       removeLeftovers(folder);
       // Only files not yet brought in count, with this one (round 3) at its reserve (round 5): its real size holds the
-      // stored `before` values, so it would make the room's answer depend on them. Earlier files count at their real size.
-      checkRoom(folder, data.broughtIn ?? new Set(), built.reserveBytes);
+      // stored `before` values, so it would make the room's answer depend on them. Earlier files the server wrote count
+      // with their `before` values at the reserve too (round 6); any other file at its real size.
+      checkRoom(folder, data.broughtIn ?? new Set(), built.reserveBytes, waitingAtReserve);
     }
     writeChangeFile(folder, built.name, built.bytes, hooks);
   } catch (error) {

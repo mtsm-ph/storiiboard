@@ -103,9 +103,26 @@ describe('each field’s shape and stored bound (7.6 round 5)', () => {
     for (const entry of Object.values(ASSISTANT_SCOPE.types)) {
       for (const field of Object.values(entry.fields)) {
         if (field.stored.kind === 'text') expect(field.stored.max).toBeLessThanOrEqual(10_000);
-        if (field.stored.kind === 'ids') expect(field.stored.most).toBeLessThanOrEqual(500);
+        // Round 6: a stored list keeps deleted ids for good, so it can hold more than a suggestion sends (500).
+        if (field.stored.kind === 'ids') expect(field.stored.most).toBeLessThanOrEqual(2000);
         expect(field.stored.kind === 'by_key', field.label).toBe(field.byKey === true);
       }
+    }
+  });
+
+  it('bounds a stored title and scene name at 1,000 and a stored list at 2,000, what is sent at 200 and 500 (round 6)', () => {
+    const shot = ASSISTANT_SCOPE.types.shot;
+    const scene = ASSISTANT_SCOPE.types.scene;
+    const day = ASSISTANT_SCOPE.types.shoot_day;
+    for (const field of [shot?.fields.title, scene?.fields.name]) {
+      expect(field?.stored).toEqual({ kind: 'text', max: 1000 });
+      expect(field?.shape('x'.repeat(200))).toBeNull();
+      expect(field?.shape('x'.repeat(201))).toBe('too_long');
+    }
+    for (const field of [shot?.fields.gear_ids, day?.fields.gear_ids]) {
+      expect(field?.stored).toEqual({ kind: 'ids', most: 2000 });
+      expect(field?.shape(Array.from({ length: 500 }, (_, i) => `g${String(i)}`))).toBeNull();
+      expect(field?.shape(Array.from({ length: 501 }, (_, i) => `g${String(i)}`))).toBe('too_many');
     }
   });
 });

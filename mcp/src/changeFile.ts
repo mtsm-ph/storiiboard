@@ -36,8 +36,22 @@ const NO_NAME = 'MCP client';
  * format characters out, a contact detail taken out, at most a person's name's 100 characters.
  */
 export function clientName(info: { name?: unknown; title?: unknown } | undefined): string {
-  const pick = (value: unknown) => (typeof value === 'string' ? cleanText(withoutContacts(value), SUGGESTION_BOUNDS.name) : '');
+  const pick = (value: unknown) => (typeof value === 'string' ? nameText(withoutContacts(value)) : '');
   return pick(info?.title) || pick(info?.name) || NO_NAME;
+}
+
+/**
+ * A name as the file holds it (round 6): cleanText, then at most SUGGESTION_BOUNDS.name UTF-16 units, as 7.1's reader
+ * counts a name's length; cleanText counts characters, so a name of 100 emoji would be 200 units and refused. Never half
+ * a surrogate pair.
+ */
+export function nameText(value: string): string {
+  const max = SUGGESTION_BOUNDS.name;
+  const clean = cleanText(value, max);
+  if (clean.length <= max) return clean;
+  const cut = clean.slice(0, max);
+  const last = cut.charCodeAt(max - 1);
+  return (last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut).trim();
 }
 
 /** The client's name as a file name's part: letters, digits, spaces, dots, dashes and underscores, at most 40. */
@@ -88,7 +102,7 @@ export function buildChangeFile(input: ChangeFileInput): BuiltChangeFile {
     version: CHANGE_FILE_VERSION,
     id,
     project_id: input.projectId,
-    project_name: cleanText(input.projectName, SUGGESTION_BOUNDS.name),
+    project_name: nameText(input.projectName),
     created_at: createdAt,
     created_by: 'mcp',
     people: [{ id: AUTHOR, name: input.client, role: 'assistant' }],

@@ -14,10 +14,22 @@ import { MAX_SUGGESTION_BYTES, readChangeFile, refusalWords } from '../../src/co
 import { nodeDriver } from '../../src/core/storage/nodeDriver';
 import { openProject } from '../../src/core/storage/project';
 import { makeTestFolder } from '../../src/core/storage/testFolder';
-import { buildChangeFile } from '../src/changeFile';
+import { buildChangeFile, nameText } from '../src/changeFile';
 import { FolderRefused, MARKER_FORMAT, MARKER_NAME, MAX_FOLDER_BYTES } from '../src/changeFolder';
 import { readProject, type ProjectData } from '../src/project';
-import { checkedChangeFile, suggestCallSheetNotes, suggestGearForDay, suggestNewShots, suggestReorder, suggestShotChanges, suggestTrash, type Proposal } from '../src/propose';
+import {
+  checkedChangeFile,
+  RESERVE_NAME,
+  suggestCallSheetNotes,
+  suggestGearForDay,
+  suggestNewShots,
+  suggestReorder,
+  suggestShotChanges,
+  suggestTrash,
+  TOO_LARGE,
+  waitingAtReserve,
+  type Proposal,
+} from '../src/propose';
 import { writeProposal } from '../src/write';
 import { CONTACTS, IDS, writeHarborLights } from './fixture';
 
@@ -1047,9 +1059,14 @@ describe('the propose tools, round 5', () => {
     const words = 'Nothing was written. SC 12 · 12B: what the project holds in action is more than a suggestion can carry. Change it in Storiiboard.';
     expect(answerOf(context, suggestShotChanges(context, { changes: [{ frame: '12B', fields: { action: 'Short.' } }] }))).toBe(words);
     expect(answerOf(context, suggestShotChanges(context, { changes: [{ frame: '12B', fields: { action: 'y'.repeat(10_000) } }] }))).toBe(words);
-    // A gear list holding something that isn't an id, likewise.
+    // A gear list holding something that isn't an id: kept out of before (round 6), never refused.
     const gearContext = withRecords(data, changedProps(data, IDS.shotB, { gear_ids: [IDS.body, { not: 'an id' }] }));
-    expect(answerOf(gearContext, suggestShotChanges(gearContext, { changes: [{ frame: '12B', fields: { gear: [IDS.body] } }] }))).toBe(
+    const gearProposal = suggestShotChanges(gearContext, { changes: [{ frame: '12B', fields: { gear: [IDS.body] } }] });
+    expect(gearProposal.suggestions[0]?.data.before).toEqual({ gear_ids: [IDS.body] });
+    expect(answerOf(gearContext, gearProposal)).toBe('written');
+    // A gear list past its stored bound, likewise refused in fixed words.
+    const longGear = withRecords(data, changedProps(data, IDS.shotB, { gear_ids: Array.from({ length: 2001 }, (_, i) => `60000000-0000-4000-8000-${String(i).padStart(12, '0')}`) }));
+    expect(answerOf(longGear, suggestShotChanges(longGear, { changes: [{ frame: '12B', fields: { gear: [IDS.body] } }] }))).toBe(
       'Nothing was written. SC 12 · 12B: what the project holds in gear_ids is more than a suggestion can carry. Change it in Storiiboard.',
     );
     // A field the call doesn't name is no matter.
@@ -1136,5 +1153,122 @@ describe('the propose tools, round 5', () => {
     // The full review copies them to work out the edit only when there is one: the difference the mode takes away.
     expect(copiesFor('CU', 'full')).toBe(0);
     expect(copiesFor('MCU', 'full')).toBeGreaterThan(0);
+  });
+});
+
+// Round 6: the last leftovers. A fixed stand-in for the project's name in the reserve, the server's own waiting files
+// counted at their reserve, and stored bounds as wide as what a person can store.
+
+describe('the propose tools, round 6', () => {
+  it('counts the project’s name at a fixed stand-in, and cuts a name by the UTF-16 units 7.1’s reader counts', async () => {
+    const data = await readProject(original);
+    const named = (name: string): Context => ({ data: { ...data, name }, client: CLIENT });
+    const trash = (context: Context) => suggestTrash(context, { items: [{ frame: '12B' }] });
+    const short = named('H');
+    // 100 characters, 200 UTF-16 units: refused by 7.1's reader before, on every call.
+    const emoji = named('🎬'.repeat(100));
+    const a = checkedChangeFile(short, trash(short));
+    const b = checkedChangeFile(emoji, trash(emoji));
+    expect(b.reserveBytes).toBe(a.reserveBytes);
+    expect(b.bytes.byteLength).toBeGreaterThan(a.bytes.byteLength);
+    expect(readChangeFile(b.bytes, data.projectId).ok).toBe(true);
+    expect((JSON.parse(new TextDecoder().decode(b.bytes)) as { project_name: string }).project_name).toBe('🎬'.repeat(50));
+    // The stand-in survives the builder's cleaning whole, at 6 bytes a unit.
+    expect(nameText(RESERVE_NAME)).toBe(RESERVE_NAME);
+    expect(JSON.stringify(RESERVE_NAME)).toHaveLength(2 + 6 * 100);
+  });
+
+  it('counts a waiting file the server wrote with its before values at their reserve: what was sent then, whatever was stored', async () => {
+    const data = await readProject(original);
+    const gone = (n: number) => Array.from({ length: n }, (_, i) => `60000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    const counts = [
+      { action: 'x', title: 'T', gear: [IDS.body], call: null },
+      { action: 'x'.repeat(5000), title: 'T'.repeat(300), gear: [IDS.body, ...gone(40)], call: '06:30' },
+    ].map(({ action, title, gear, call }) => {
+      const context = withRecords(data, {
+        ...changedProps(data, IDS.shotB, { action, title, gear_ids: gear }),
+        ...changedProps(data, IDS.sheet, { department_calls: call === null ? {} : { sound: call } }),
+      });
+      const shot = checkedChangeFile(context, suggestShotChanges(context, { changes: [{ frame: '12B', fields: { action: 'Closer.', title: 'Short', gear: [IDS.body] } }] }));
+      const sheet = checkedChangeFile(context, suggestCallSheetNotes(context, { day: '1', department_calls: { sound: '07:00' }, person_times: { 'Sam Ortiz': { call: '06:00' } } }));
+      return { real: [shot.bytes.byteLength, sheet.bytes.byteLength], counted: [waitingAtReserve(shot.bytes), waitingAtReserve(sheet.bytes)], reserve: [shot.reserveBytes, sheet.reserveBytes] };
+    });
+    const [few, many] = counts;
+    if (!few || !many) throw new Error('no counts');
+    expect(many.real[0]).toBeGreaterThan(few.real[0] ?? 0);
+    expect(many.real[1]).toBeGreaterThan(few.real[1] ?? 0);
+    expect(many.counted).toEqual(few.counted);
+    // Never more than the file's own reserve, which also holds the name's and the times' stand-ins.
+    few.counted.forEach((counted, i) => {
+      expect(counted).toBeLessThanOrEqual(few.reserve[i] ?? 0);
+    });
+    // A file that isn't one counts at its size.
+    expect(waitingAtReserve(new TextEncoder().encode('not json'))).toBe(8);
+  });
+
+  it('counts the server’s own waiting file at its reserve in the room check, never at its real size', async () => {
+    const { dir, path } = freshProject();
+    const data = await readProject(path);
+    const context = { data, client: CLIENT };
+    const suggestionsDir = join(dir, SUGGESTIONS);
+    mkdirSync(suggestionsDir);
+    writeFileSync(join(suggestionsDir, MARKER_NAME), JSON.stringify({ format: MARKER_FORMAT, project_id: data.projectId, project_name: 'Harbor Lights' }));
+    // An earlier call's file, waiting, whose before holds a long stored action.
+    const stored = withRecords(data, changedProps(data, IDS.shotB, { action: 'x'.repeat(5000) }));
+    const earlier = checkedChangeFile(stored, suggestShotChanges(stored, { changes: [{ frame: '12B', fields: { action: 'Closer.' } }] }));
+    writeFileSync(join(suggestionsDir, earlier.name), earlier.bytes);
+    const counted = waitingAtReserve(earlier.bytes);
+    expect(counted).toBeGreaterThan(earlier.bytes.byteLength);
+    const next = checkedChangeFile(context, suggestTrash(context, { items: [{ frame: '12B' }] }));
+    writeFileSync(join(suggestionsDir, 'large.sbdchanges'), '');
+    // Room for the earlier file at its real size, not at its reserve: refused.
+    truncateSync(join(suggestionsDir, 'large.sbdchanges'), MAX_FOLDER_BYTES - next.reserveBytes - earlier.bytes.byteLength);
+    expect(() => writeProposal(context, suggestTrash(context, { items: [{ frame: '12B' }] }))).toThrow(
+      new FolderRefused(`50 MB of change files are waiting in ${SUGGESTIONS}: bring them in (Bring in, in the status line) or move some out of the folder.`),
+    );
+    // Room for it at its reserve: written.
+    truncateSync(join(suggestionsDir, 'large.sbdchanges'), MAX_FOLDER_BYTES - next.reserveBytes - counted);
+    expect(writeProposal(context, suggestTrash(context, { items: [{ frame: '12B' }] }))).toMatchObject({ written: { suggestions: 1 } });
+  });
+
+  it('gives a short title to a frame whose stored title is 201 or 999 characters; past 1,000 is refused in fixed words', async () => {
+    const data = await readProject(original);
+    for (const length of [201, 999, 1000]) {
+      const context = withRecords(data, changedProps(data, IDS.shotB, { title: 'T'.repeat(length) }));
+      expect(answerOf(context, suggestShotChanges(context, { changes: [{ frame: '12B', fields: { title: 'Closer' } }] })), String(length)).toBe('written');
+    }
+    const over = withRecords(data, changedProps(data, IDS.shotB, { title: 'T'.repeat(1001) }));
+    expect(answerOf(over, suggestShotChanges(over, { changes: [{ frame: '12B', fields: { title: 'Closer' } }] }))).toBe(
+      'Nothing was written. SC 12 · 12B: what the project holds in title is more than a suggestion can carry. Change it in Storiiboard.',
+    );
+    // What the assistant sends stays at 200.
+    const fresh = { data, client: CLIENT };
+    expect(answerOf(fresh, suggestShotChanges(fresh, { changes: [{ frame: '12B', fields: { title: 'T'.repeat(201) } }] }))).toMatch(/^Nothing was written\. SC 12 · 12B: /);
+  });
+
+  it('takes a gear suggestion for a day whose list holds 600 entries, 450 of them deleted, and keeps a non-id entry out of before', async () => {
+    const data = await readProject(original);
+    const shot = data.records[IDS.shotB] as SbdRecord;
+    const stands = Array.from({ length: 150 }, (_, i) => `50000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    const deleted = Array.from({ length: 450 }, (_, i) => `60000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    const gear: Record<string, SbdRecord> = Object.fromEntries(
+      stands.map((id, i): [string, SbdRecord] => [id, { ...shot, id, type: 'gear_item', parentId: data.projectId, sortKey: `g${String(i).padStart(3, '0')}`, props: { name: `Stand ${String(i)}`, department: 'grip-electric' } }]),
+    );
+    const list = [...stands, ...deleted];
+    expect(list).toHaveLength(600);
+    const context = withRecords(data, { ...gear, ...changedProps(data, IDS.day1, { gear_ids: [...list, 7] }) });
+    const proposal = suggestGearForDay(context, { day: '2026-11-18', add: ['Boom kit Sennheiser'] });
+    expect(proposal.suggestions[0]?.data.before).toEqual({ gear_ids: list });
+    expect(answerOf(context, proposal)).toBe('written');
+  });
+
+  it('refuses a call too large for one change file in words that say how many fit', async () => {
+    const data = await readProject(original);
+    const context = { data, client: CLIENT };
+    const changes = Array.from({ length: 100 }, () => ({ frame: '12B', fields: { action: 'Closer.' } }));
+    expect(answerOf(context, suggestShotChanges(context, { changes }))).toBe(`Nothing was written. ${TOO_LARGE}`);
+    expect(TOO_LARGE).toBe(
+      "Counted with room for what each frame already holds, this is more than one change file carries: suggest fewer at a time (about 80 changes to a frame's action).",
+    );
   });
 });

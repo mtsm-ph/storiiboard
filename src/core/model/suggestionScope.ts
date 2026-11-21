@@ -68,6 +68,8 @@ export interface FieldContext {
  * at most `max` characters, or null; a short value (null, true or false, a number, text of at most SHORT_VALUE
  * characters: a choice, a time); a list of at most `most` ids (each at most ID_CHARS letters, digits and dashes: a
  * UUID); or a map a call sheet edits key by key, whose `before` holds only the keys named, as the sheet reads them.
+ * Round 6: what a person can store, which can be more than what a suggestion sends (a title typed past 200 characters
+ * in the Inspector, a gear list that keeps every deleted item's id).
  */
 export type StoredBound = { kind: 'text'; max: number } | { kind: 'short' } | { kind: 'ids'; most: number } | { kind: 'by_key' };
 
@@ -121,10 +123,14 @@ export interface ScopeRow {
 /** Longest text a field takes: a title or a name, and an action, a dialogue, a note or a call sheet's notes. */
 export const SHORT_TEXT = 200;
 export const LONG_TEXT = 10_000;
+/** Longest title or scene name a `before` holds as stored (7.6 round 6): the Inspector takes more than SHORT_TEXT. */
+export const STORED_TEXT = 1000;
 /** Longest id a check reads: a UUID is 36. */
 const MAX_ID = 100;
 /** Longest list of ids, and most people one call sheet times. */
 const MAX_IDS = 500;
+/** Most entries a stored list of ids holds (7.6 round 6): the app keeps a deleted item's id on a list for good. */
+const STORED_IDS = 2000;
 
 const isObject = (value: JsonValue | undefined): value is { [key: string]: JsonValue } => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -137,10 +143,13 @@ const liveOf = (records: Records, id: string, type: RecordType): boolean => {
 
 const isNull = (value: JsonValue): boolean => value === null;
 
-/** Text up to `max`; with `emptyOff`, '' and null take it off (a title), else null is refused (an action is '' when empty). */
-function text(label: MessageKey, max: number, emptyOff = false): ScopeField {
+/**
+ * Text up to `max`; with `emptyOff`, '' and null take it off (a title), else null is refused (an action is '' when empty).
+ * As stored, up to `storedMax` (round 6), which can be more than a suggestion sends.
+ */
+function text(label: MessageKey, max: number, emptyOff = false, storedMax = max): ScopeField {
   const shape = (value: JsonValue): ValueProblem | null => (value === null ? (emptyOff ? null : 'empty') : typeof value !== 'string' ? 'type' : value.length > max ? 'too_long' : null);
-  return { label, check: shape, shape, stored: { kind: 'text', max }, takesOff: (value) => value === null || (emptyOff && value === '') };
+  return { label, check: shape, shape, stored: { kind: 'text', max: storedMax }, takesOff: (value) => value === null || (emptyOff && value === '') };
 }
 
 /** One of `choices`; with `nullable`, null takes it off. */
@@ -185,7 +194,7 @@ function idsOf(label: MessageKey, type: RecordType, prop: string, emptyOff: bool
       return value.every((id) => typeof id === 'string' && liveOf(records, id, type)) ? null : 'not_found';
     },
     shape,
-    stored: { kind: 'ids', most: MAX_IDS },
+    stored: { kind: 'ids', most: STORED_IDS },
     takesOff: (value) => value === null || (emptyOff && Array.isArray(value) && value.length === 0),
     listOf: type,
   };
@@ -319,7 +328,7 @@ export const ASSISTANT_SCOPE: ScopeRow = {
       kinds: ['trash', 'update', 'create', 'reorder'],
       parents: ['scene'],
       fields: {
-        title: text('history.field.title', SHORT_TEXT, true),
+        title: text('history.field.title', SHORT_TEXT, true, STORED_TEXT),
         size: choice('history.field.size', SHOT_SIZES, false),
         lens_mm: lensMm,
         t_stop: choice('history.field.tStop', T_STOPS, true),
@@ -340,7 +349,7 @@ export const ASSISTANT_SCOPE: ScopeRow = {
       kinds: ['trash', 'update', 'create'],
       parents: ['project'],
       fields: {
-        name: text('history.field.name', SHORT_TEXT),
+        name: text('history.field.name', SHORT_TEXT, false, STORED_TEXT),
         int_ext: choice('history.field.intExt', INT_EXT, false),
         // The Inspector's Time can be set back to none; INT/EXT can't.
         day_night: choice('history.field.dayNight', DAY_NIGHT, true),

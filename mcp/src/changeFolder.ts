@@ -327,8 +327,18 @@ export function removeLeftovers(folder: string | CheckedFolder, now = Date.now()
 /** A name the server wrote (changeFileName): its last 8 hex are the first 8 of the file's id. */
 const SERVER_NAME = /^\d{4}-\d\d-\d\d \d\d-\d\d-\d\dZ [\p{L}\p{N} ._-]{1,40} ([0-9a-f]{8})\.sbdchanges$/u;
 
-/** A change file's own `id`, read whole only within the app's own bound for one file; null when it can't be read. */
-function fileId(path: string, size: number): string | null {
+/** A change file's own `id`, from its bytes; null when it has none. */
+function fileId(bytes: Buffer): string | null {
+  try {
+    const parsed: unknown = JSON.parse(bytes.toString('utf8'));
+    return typeof parsed === 'object' && parsed !== null && 'id' in parsed && typeof parsed.id === 'string' ? parsed.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A change file's bytes, read whole only within the app's own bound for one file; null when it can't be read. */
+function fileBytes(path: string, size: number): Buffer | null {
   if (size > MAX_CHANGE_FILE_BYTES) return null;
   let fd: number;
   try {
@@ -346,8 +356,7 @@ function fileId(path: string, size: number): string | null {
       read += n;
       if (read > MAX_CHANGE_FILE_BYTES) return null;
     }
-    const parsed: unknown = JSON.parse(buffer.subarray(0, read).toString('utf8'));
-    return typeof parsed === 'object' && parsed !== null && 'id' in parsed && typeof parsed.id === 'string' ? parsed.id : null;
+    return buffer.subarray(0, read);
   } catch {
     return null;
   } finally {
@@ -366,8 +375,12 @@ export interface RoomFolder extends CheckedFolder {
  * is known as brought in by the 8 hex of a name the server wrote, or else by its own `id` (read within the app's bound
  * for one file, and at most the folder's byte budget read in all), against the ids the project's log names
  * (`broughtIn`). A file that can't be read counts as waiting.
+ *
+ * Round 6: a waiting file of a name the server wrote is read too (within the same budget) and counted by `atReserve`
+ * (propose.ts' waitingAtReserve: each `before` value at its reserve), so its count holds what was sent then, never the
+ * stored values; any other file, or one past the budget, counts at its real size.
  */
-export function checkRoom(folder: RoomFolder, broughtIn: ReadonlySet<string>, adding: number): void {
+export function checkRoom(folder: RoomFolder, broughtIn: ReadonlySet<string>, adding: number, atReserve: (bytes: Uint8Array) => number = (b) => b.byteLength): void {
   const prefixes = new Set([...broughtIn].map((id) => id.slice(0, 8).toLowerCase()));
   let files = 1;
   let bytes = adding;
@@ -381,13 +394,17 @@ export function checkRoom(folder: RoomFolder, broughtIn: ReadonlySet<string>, ad
       if (!stat.isFile()) continue;
       const hex = SERVER_NAME.exec(name)?.[1];
       if (hex !== undefined && prefixes.has(hex)) continue;
-      if (hex === undefined && readBytes + stat.size <= MAX_FOLDER_BYTES) {
+      let counted = stat.size;
+      if (readBytes + stat.size <= MAX_FOLDER_BYTES) {
         readBytes += stat.size;
-        const id = fileId(path, stat.size);
-        if (id !== null && broughtIn.has(id)) continue;
+        const content = fileBytes(path, stat.size);
+        if (hex === undefined) {
+          const id = content === null ? null : fileId(content);
+          if (id !== null && broughtIn.has(id)) continue;
+        } else if (content !== null) counted = Math.max(stat.size, atReserve(content));
       }
       files += 1;
-      bytes += stat.size;
+      bytes += counted;
     } catch {
       // Gone meanwhile: not counted.
     }
