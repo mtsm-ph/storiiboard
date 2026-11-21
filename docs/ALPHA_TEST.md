@@ -355,6 +355,21 @@ screen, the Suggestions tile (Layout menu → Open tile), shows them and decides
   lands in the copy. (7.2)
 - [ ] Open the notification of an import with nothing left to review: the log shows only that import's rows, with Show
   every import beside them. Opening an import with Review or in the tile reads its notification too. (7.2)
+- [ ] [Mac] [Windows] The probe (docs/MCP.md, "The probe"): pack it as a bundle, install it in Claude Desktop and ask
+  it to run `node_check`. Note the `node` and `electron` it gives, and whether `sqlite` says "opened read-only". It
+  says whether Phase 8's bundle can use Claude Desktop's own Node. Do it on both computers. (7.5)
+- [ ] Build the server (`npm ci --prefix mcp`, `npm run build --prefix mcp`) and connect Claude Desktop to a real
+  project as docs/MCP.md says: Claude lists the ten Storiiboard tools; ask for a summary of the project, the plan of a
+  setup (its cameras' field of view, the sun, the windows' hours), the schedule and a day's call sheet. The numbers
+  match the app's. (7.5)
+- [ ] The same with Claude Code (`claude mcp add`, docs/MCP.md). (7.5)
+- [ ] Ask the assistant for a crew member's phone number, a location's address and its coordinates: it says it can't
+  see them; nothing it shows holds one. Ask for the Trash: nothing until it asks with include_trashed. (7.5)
+- [ ] With the project open in the app, edit a frame, then ask the assistant again: it sees the edit. Beside the
+  project, no new file appears (no lock, journal or backup from the server), and the app never says the file changed
+  on disk. (7.5)
+- [ ] Point the server at a project an older Storiiboard saved and never opened since: the assistant is told to open
+  it in the app first, and the file is unchanged. (7.5)
 
 ## Settings, presets, themes, Dark view and accessibility
 

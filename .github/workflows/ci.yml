@@ -42,6 +42,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - run: npm ci
+      # The MCP server's own two packages (7.5): its tests drive it with the SDK's client.
+      - run: npm ci --prefix mcp
       # The ffmpeg and ffprobe sidecars (Phase 2.1): Tauri's build needs them present, and the Rust tests run them.
       # Built once per change of scripts/ffmpeg/build.sh, then cached.
       - uses: ./.github/actions/ffmpeg
@@ -105,6 +107,9 @@ jobs:
       # Its exit code doesn't decide either; a failed audit writes an error the script refuses.
       - name: npm audit
         run: npm audit --json > test-results/advisories/npm-audit.json || true
+      # The MCP server's lock file (7.5), read the same way with its own lock.
+      - name: npm audit of the MCP server
+        run: npm audit --prefix mcp --json > test-results/advisories/npm-audit-mcp.json || true
       # Normal dependencies only, proc macros left out: build scripts' crates and proc macros run only as the app is
       # compiled, so neither is in what ships.
       - name: The app's crates on Windows and on the Mac
@@ -115,6 +120,7 @@ jobs:
       - name: Classify every finding
         run: >-
           node scripts/advisories.ts --osv test-results/advisories/osv.json --npm test-results/advisories/npm-audit.json
+          --npm-mcp test-results/advisories/npm-audit-mcp.json
           --tree-windows test-results/advisories/tree-windows.txt --tree-mac test-results/advisories/tree-mac.txt
       - name: Keep what the job read
         if: ${{ !cancelled() && hashFiles('test-results/advisories/*') != '' }}

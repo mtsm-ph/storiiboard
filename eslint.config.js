@@ -57,6 +57,8 @@ export default defineConfig(
   {
     ignores: [
       'dist',
+      // The MCP server's build (npm run build --prefix mcp).
+      'mcp/dist',
       'src-tauri/target',
       'src-tauri/gen',
       'prototype',

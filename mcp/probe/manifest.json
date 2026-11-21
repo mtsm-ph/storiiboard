@@ -1,0 +1,14 @@
+{
+  "manifest_version": "0.2",
+  "name": "storiiboard-probe",
+  "display_name": "Storiiboard probe",
+  "version": "0.1.0",
+  "description": "Says which Node runs it and whether node:sqlite opens a file read-only (Storiiboard, Phase 7).",
+  "author": { "name": "Storiiboard" },
+  "server": {
+    "type": "node",
+    "entry_point": "probe.mjs",
+    "mcp_config": { "command": "node", "args": ["${__dirname}/probe.mjs"] }
+  },
+  "tools": [{ "name": "node_check", "description": "This server's Node version and whether node:sqlite opens a file read-only." }]
+}

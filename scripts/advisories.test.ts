@@ -12,6 +12,8 @@ import {
   npmAuditAdvisories,
   osvAdvisories,
   parseIgnores,
+  prefixedAdvisories,
+  prefixedLock,
   rangeCovers,
   summaryLine,
   unusedIgnores,
@@ -200,6 +202,27 @@ describe('the Advisories job', () => {
     expect(byName(findings, 'zustand')).toMatchObject({ verdict: 'ships', red: true });
     // Found by name and version in the lock file, a nested install included.
     expect(byName(findings, 'minimatch')).toMatchObject({ verdict: 'dev-only', red: false });
+  });
+
+  it('reads npm audit of the MCP server’s folder with its own lock file: what the server installs ships', () => {
+    const mcpLock = lockPackages({
+      name: 'storiiboard-mcp',
+      lockfileVersion: 3,
+      packages: { '': { name: 'storiiboard-mcp' }, 'node_modules/express': { version: '5.2.1' }, 'node_modules/zustand': { version: '4.0.0' } },
+    });
+    const mcpNpm = {
+      auditReportVersion: 2,
+      vulnerabilities: { express: npmEntry('express', ['node_modules/express'], 'GHSA-xxxx-yyyy-zzzz', 'A made-up flaw in a server') },
+    };
+    const ctx = context({ lock: { ...lock, ...prefixedLock(mcpLock, 'mcp/') } });
+    const advisories = prefixedAdvisories(npmAuditAdvisories(mcpNpm as never, mcpLock), 'mcp/');
+    const [finding] = classify(mergeAdvisories(advisories), ctx);
+    expect(finding).toMatchObject({ name: 'express', version: '5.2.1', verdict: 'ships', red: true, nodes: ['mcp/node_modules/express'] });
+    expect(findingLine(finding as Finding)).toContain('in mcp/ (the MCP server)');
+    // The server's paths never meet the app's: its zustand 4.0.0 is its own, beside the app's 5.0.15.
+    expect(ctx.lock['mcp/node_modules/zustand']?.version).toBe('4.0.0');
+    expect(ctx.lock['node_modules/zustand']?.version).toBe('5.0.15');
+    expect(prefixedLock(mcpLock, 'mcp/')).not.toHaveProperty('mcp/');
   });
 
   it('applies an ignore only before its date, by an alias too', () => {
