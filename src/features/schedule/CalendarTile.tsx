@@ -2,7 +2,10 @@ import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 're
 import { useProject } from '../../app/projectStore';
 import { useFirstDay } from '../../app/weekStart';
 import { formatDate, t, tn } from '../../core/i18n';
+import { stretchLabel } from '../../core/model/availability';
+import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
+import { ROLE_LABELS } from '../../core/model/role';
 import type { SbdRecord } from '../../core/model/record';
 import { dayCrew, dayLocations, dayScenes } from '../../core/model/schedule';
 import { dayDateLabel, dayFrames, dayLabel, dayTotals, projectShootDays, setupMinutes, type ShootDay } from '../../core/model/shootDay';
@@ -14,12 +17,14 @@ import { SegmentedControl } from '../../ui/SegmentedControl';
 import { addDays, addMonths, monthGrid, monthOf, todayDate, weekOf } from './calendarDates';
 import { useWorkspaceId } from '../../app/shell/workspaceContext';
 import { openDayHistory } from '../history/historyDay';
+import { awayShown, type AwayPerson } from './calendarAway';
 
 // The Calendar tile (3.8), in the Production workspace's default layout: the shoot days by month or by week, and the
 // shoot schedule under it. Picking a date narrows the schedule to that date; Show all days widens it again. Each day in
 // the schedule says its scenes, the locations it's at and whether each is booked, and how many of the crew have
-// confirmed (set in the Shoot days tile). Read from the records, never stored. Availability comes with the web
-// companion (Phase 9). The grid is one Tab stop: the arrows move a day or a week, Enter or a click picks.
+// confirmed (set in the Shoot days tile). Read from the records, never stored. Unavailable dates (7.3, typed in Cast
+// and crew) mark a date with how many are away (on a shoot date, of the people on it), by a sign and words, never by
+// colour, and a picked date lists who. The grid is one Tab stop: the arrows move a day or a week, Enter or a click picks.
 
 type Records = Readonly<Record<string, SbdRecord>>;
 type View = 'month' | 'week';
@@ -119,6 +124,7 @@ function Calendar({ projectId }: { projectId: string }) {
     setFocus(view === 'month' ? addMonths(focus, by) : addDays(focus, by * 7));
   };
   const shown = picked ? days.filter((d) => d.fields.date === picked) : days;
+  const awayPicked = picked ? awayShown(records, projectId, picked, byDate.get(picked) ?? []) : [];
   const minutes = setupMinutes(records[projectId]?.props);
 
   return (
@@ -160,6 +166,7 @@ function Calendar({ projectId }: { projectId: string }) {
           <div key={week[0]} role="row" className="grid grid-cols-7">
             {week.map((date) => {
               const shoots = byDate.get(date) ?? [];
+              const away = awayShown(records, projectId, date, shoots).length;
               const outside = view === 'month' && monthOf(date) !== monthOf(focus);
               const isPicked = date === picked;
               // Named by what it shows, so the name holds the visible text (WCAG 2.5.3): the date's number, then (for
@@ -199,13 +206,21 @@ function Calendar({ projectId }: { projectId: string }) {
                     >
                       {Number(date.slice(8))}
                     </span>
-                    <span className="sr-only">{`${said.join(sep)}${shoots.length > 0 ? sep : ''}`}</span>
+                    <span className="sr-only">{`${said.join(sep)}${shoots.length > 0 || away > 0 ? sep : ''}`}</span>
                     {shoots.map((d, i) => (
                       <span key={d.record.id} className="max-w-full truncate border border-current px-1 font-mono text-[10px]">
                         {i > 0 && <span className="sr-only">{sep}</span>}
                         {chipText(d, view)}
                       </span>
                     ))}
+                    {/* A sign and a count, and words for a screen reader: never colour alone (DESIGN.md). */}
+                    {away > 0 && (
+                      <span data-away={away} className="max-w-full truncate font-mono text-[10px]">
+                        {shoots.length > 0 && <span className="sr-only">{sep}</span>}
+                        <span aria-hidden="true">⊘ {away}</span>
+                        <span className="sr-only">{tn('calendar.away', away)}</span>
+                      </span>
+                    )}
                   </button>
                 </span>
               );
@@ -239,7 +254,42 @@ function Calendar({ projectId }: { projectId: string }) {
             ))}
           </ul>
         )}
+        {picked && awayPicked.length > 0 && <AwayList date={picked} people={awayPicked} />}
       </section>
+    </div>
+  );
+}
+
+/** Who is away on the picked date (7.3): name, what they do, and each stretch's dates and note. */
+function AwayList({ date, people }: { date: string; people: readonly AwayPerson[] }) {
+  const headingId = useId();
+  return (
+    <div data-away-list="" className="flex flex-col gap-1 pt-2">
+      <h4 id={headingId} className="sb-label border-b-[1.5px] border-text pb-1">
+        {t('calendar.awayOn', { date: dayDateLabel(date) })}
+      </h4>
+      <ul aria-labelledby={headingId}>
+        {people.map(({ record, fields, stretches }) => {
+          const [department] = fields.departments;
+          const part = fields.role ? ROLE_LABELS[fields.role] : department ? DEPARTMENT_LABELS[department] : null;
+          return (
+            <li key={record.id} data-away-person={record.id} className="flex flex-col gap-0.5 border-b border-border py-1.5 text-[13px]">
+              <p className="flex flex-wrap items-baseline gap-x-2">
+                <span data-user-text="" className="font-bold">
+                  {fields.name || t('people.unnamed')}
+                </span>
+                {part !== null && <span className="sb-label">{part}</span>}
+              </p>
+              {stretches.map((stretch) => (
+                <p key={stretch.record.id} className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-mono text-[12px]">{stretchLabel(stretch.from, stretch.to)}</span>
+                  {stretch.note !== '' && <span data-user-text="">{stretch.note}</span>}
+                </p>
+              ))}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

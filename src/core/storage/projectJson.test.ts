@@ -540,6 +540,44 @@ describe('project data as JSON (2.9)', () => {
     }
   });
 
+  it('carries unavailable dates out and back under their person, a removed one and one it can’t read too (7.3)', async () => {
+    const file = project.file;
+    const week = { from: '2026-11-24', to: '2026-11-28', state: 'unavailable', note: 'Family wedding' };
+    const gone = { from: '2026-12-01', to: '2026-12-01', state: 'unavailable', note: '' };
+    const odd = { from: 'soon', to: 'later', state: 'tentative' };
+    await apply(
+      file,
+      [
+        { kind: 'create', record: { id: 'av1', type: 'availability', parentId: 'pe1', sortKey: 'a', props: week } },
+        { kind: 'create', record: { id: 'av2', type: 'availability', parentId: 'pe1', sortKey: 'b', props: gone } },
+        { kind: 'create', record: { id: 'av3', type: 'availability', parentId: 'pe1', sortKey: 'c', props: odd } },
+      ],
+      { author: 'Kevin', now: at },
+    );
+    await apply(file, [{ kind: 'trash', id: 'av2' }], { author: 'Kevin', now: at });
+    const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(file, at())));
+    const copy = folder.path('Bey County (availability).sbd');
+    await importProjectJson(nodeDriver, copy, data, at());
+    const imported = await openProject(copy, { driver: nodeDriver, backups: false });
+    try {
+      const after = await everything(imported.file);
+      expect(withoutOwnIds(after).records).toEqual(withoutOwnIds(await everything(file)).records);
+      const row = (id: string) => after.records?.find((r) => r.id === id);
+      expect(row('av1')).toMatchObject({ type: 'availability', parent_id: 'pe1' });
+      expect(JSON.parse(String(row('av1')?.props))).toEqual(week);
+      expect(JSON.parse(String(row('av3')?.props))).toEqual(odd);
+      expect(row('av2')?.trashed_at).not.toBeNull();
+    } finally {
+      await imported.close();
+    }
+    // As Project data, the live stretches go with their person and the removed one stays out, as the Trash does.
+    const text = new TextDecoder().decode(await projectJsonBytes(file, at(), undefined, undefined, 'project_data'));
+    const records = readProjectJson(text).tables.records;
+    const ids = (records?.rows ?? []).map((r) => r[records?.columns.indexOf('id') ?? -1]);
+    expect(ids).toEqual(expect.arrayContaining(['pe1', 'av1', 'av3']));
+    expect(ids).not.toContain('av2');
+  });
+
   it('imports a project exported at an older schema, then upgrades it as on open', async () => {
     const data = readProjectJson(new TextDecoder().decode(await projectJsonBytes(project.file, at())));
     // Schema 7 had no video tables: the same project without them, said to be at 7.

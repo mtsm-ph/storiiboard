@@ -1306,6 +1306,38 @@ for people on the day (`people_ids`). Never logged, never named in History.
 reads as none; their characters keep the id, so a restore gives them back. After Empty Trash the id names nothing and
 reads as no one, as a scene's `location_id` does. No table change.
 
+## Unavailable dates (7.3)
+
+Approved by Kevin Nov 21 as a format addition (docs/PHASE7_DECISIONS.md 6): the dates a person can't work, typed on the
+desktop in Cast and crew, whole dates only (no hours). An `availability` record (a type every version has listed since
+schema 1) under its `person`, one record per stretch, so a week away is one record. Props:
+
+- `from` and `to`: `YYYY-MM-DD`, real calendar dates (February 30 isn't one), `to` on or after `from`, at most 366 days
+  after it. One date alone is a stretch whose `from` and `to` are the same.
+- `state`: `unavailable`, the only value written now. Any other value is kept as it is and read as unknown: the stretch
+  is shown nowhere and checked against nothing.
+- `note`: text, `''` for none (trimmed when typed). It can be private ("surgery"): it is shown in Cast and crew and in
+  the Calendar's list for a picked date, never in History.
+
+A record whose dates can't be read (missing, not text, not real dates, out of order, more than 366 days apart) is kept
+as it is and ignored, never rewritten. Additive: no table change and no schema number; an older version keeps the
+records as they are and shows nothing of them.
+
+- Adding a stretch is a `create` op, one op group; removing one is a `trash` op, one op group, so undo brings it back.
+  Availability is not one of the Trash's kinds: a removed stretch is never listed there, and Empty Trash leaves it, as
+  it leaves an erased sketch stroke, so its History stays; it goes for good only with its person.
+- A person in the Trash takes nothing with them: their stretches stay under them, untouched, and come back with a
+  restore. Every reader skips a trashed person's stretches meanwhile. Empty Trash deletes the person and, being under
+  them, their stretches.
+- Read by the Calendar (a date's mark and its list: on a shoot date, the people on that day; on any other date, anyone
+  away) and by the seventh check, "Cast called on a day they marked unavailable" (src/core/checks/unavailableOnDay.ts):
+  someone on a live shoot day (`people_ids`, everyone live while the day has no list) whose stretch takes in the day's
+  date, cast and crew alike. A day with no date, a person in the Trash or a stretch that can't be read finds nothing.
+- Where they go: Project data and Full archive (JSON) carry every `availability` record as every record is carried; as
+  Project data, a removed stretch and the stretches of a person in the Trash are left out with the Trash (they are
+  under a trashed record). No other export (call sheet PDF, shot list CSV, storyboard PDF, plans, decks) writes them,
+  and no change-file suggestion may touch them (they aren't on the list in "What a suggestion may touch").
+
 ## Trash
 
 The Trash holds deleted items until they're restored or the Trash is emptied. It's separate from an archived project
@@ -2114,7 +2146,8 @@ them: a later change file or review copy keyed by project id (Phases 7 and 9) mu
 Export → Project data (JSON), the default of the two (3.14, Kevin Nov 9), leaves out the Trash and History, since they
 can hold deleted material and everyone's names. It writes every table, with these rows left out:
 - `records`: every record in the Trash and everything under it (what Empty Trash deletes, and the kinds it doesn't,
-  such as an erased sketch stroke with who erased it); `shot_seen` rows of those frames;
+  such as an erased sketch stroke with who erased it; a removed unavailable stretch, and a trashed person's stretches,
+  7.3); `shot_seen` rows of those frames;
 - `media_files` and `thumbnails`: pictures no record left names (by the SHA-256 in its props). A `suggestion` record
   never counts (7.1 round 2): its text came from a change file anyone can write, so a hash in it can't keep a removed
   picture in the export;
@@ -2251,7 +2284,8 @@ merge a database, so two guards sit around every open project:
 | 16 | 6.27 | Scout photos' props, and the 6.6 build-mode milestones' after them (a location's photo's `taken_at`, `taken_offset`, `gps_latitude` and `gps_longitude`; a location's `light_photo_id`; a sun path's `at_photo`; see Schema v16). No table change, nothing rewritten |
 
 Project props (`state`, `theme`, `watermark`) and suggestion records need no table change, so they have no schema
-number.
+number. Nor do unavailable dates (7.3): `availability` records under a `person`, with `from`, `to`, `state` and `note`
+(see Unavailable dates).
 Boards (5.0) are the `board` and `board_item` record types and their props (see Boards); they need no table change either.
 5.1a adds item kinds and props to `board_item` (shapes with `fill` and `stroke`, `text` and `sticky` items): additive, no table
 change and no schema number; an older version keeps an item of a kind it doesn't know and doesn't show it.

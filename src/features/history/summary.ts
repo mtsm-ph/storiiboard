@@ -7,6 +7,7 @@ import { GEAR_SOURCE_LABEL, gearIdsOf } from '../../core/model/gear';
 import { focalLabel, GEAR_KIND_LABEL, gearKind, lensFields } from '../../core/model/cameraGear';
 import { modeLabel } from '../../core/model/sensorModes';
 import { attachmentFields } from '../../core/model/attachment';
+import { stretchLabel, stretchOf } from '../../core/model/availability';
 import { countryName } from '../../core/model/countries';
 import { LOCATION_STATUS_LABEL } from '../../core/model/location';
 import { PROJECT_STAGE_LABEL } from '../../core/model/projectDetails';
@@ -1386,6 +1387,8 @@ function nameOf(record: SbdRecord | null, around: ReadonlyMap<string, SbdRecord>
       if (fields?.kind === 'field_card' && fields.field !== '') return t('history.fieldCardNamed', { field: DECK_FIELD_LABEL[fields.field] });
       return t(kind ? A_BOARD_ITEM[kind] : 'history.aRectangle');
     }
+    case 'availability':
+      return t('history.someUnavailableDates');
     case 'project':
       return t('history.theProject');
     case 'settings_preset':
@@ -1502,6 +1505,23 @@ function presetLine(ops: readonly LoggedOp[]): Line | null {
     return line('history.presetRenamed', {}, { before: was, after: name });
   }
   return line('history.presetReplaced', {}, { name });
+}
+
+/**
+ * A step on someone's unavailable dates (7.3): a stretch marked, taken off or put back, named by the person as the
+ * step left them (`around`) and the dates. Never its note, which can be private. Null for any other step.
+ */
+function availabilityLine(ops: readonly LoggedOp[], around: ReadonlyMap<string, SbdRecord>): Line | null {
+  const [op] = ops;
+  if (!op || ops.length !== 1) return null;
+  const record = op.after ?? op.before;
+  if (record?.type !== 'availability') return null;
+  const key = op.kind === 'create' ? 'history.markedUnavailable' : op.kind === 'trash' ? 'history.tookOffUnavailable' : op.kind === 'restore' ? 'history.putBackUnavailable' : null;
+  const stretch = stretchOf({ ...record, trashedAt: null });
+  const name = record.parentId ? personNameIn(around, record.parentId) : t('history.aPerson');
+  // Anything else (a change this version doesn't make, dates it can't read, from another version or a hand edit).
+  if (key === null || !stretch) return line('history.changedUnavailable', {}, { name });
+  return line(key, {}, { name, dates: stretchLabel(stretch.from, stretch.to) });
 }
 
 const recordOf = (op: LoggedOp): SbdRecord | null => op.after ?? op.before;
@@ -1953,6 +1973,9 @@ export function describeEdit(
   // A settings preset's step (6.5.8).
   const preset = presetLine(ops);
   if (preset) return preset;
+  // Someone's unavailable dates (7.3).
+  const away = availabilityLine(ops, around);
+  if (away) return away;
   // A room's underlays and measures (6.9), each step its own line.
   const underlaid = underlayMeasureLine(ops, around, unit);
   if (underlaid) return underlaid;

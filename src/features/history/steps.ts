@@ -181,6 +181,10 @@ export async function stepRecords(
     const picture = ops.find((op) => (op.after ?? op.before)?.type === 'media');
     const parentId = picture ? (picture.after ?? picture.before)?.parentId : null;
     if (picture && parentId && !ops.some((op) => op.recordId === parentId)) asks.push({ group, id: parentId, seq: picture.seq });
+    // Unavailable dates (7.3) are named by their person, which the step doesn't write.
+    const stretch = ops.find((op) => (op.after ?? op.before)?.type === 'availability');
+    const personId = stretch ? (stretch.after ?? stretch.before)?.parentId : null;
+    if (stretch && personId && !ops.some((op) => op.recordId === personId)) asks.push({ group, id: personId, seq: stretch.seq });
     // A call sheet is named by its day (4.1), which the step doesn't write.
     const sheet = ops.find((op) => (op.after ?? op.before)?.type === 'callsheet');
     const dayId = sheet ? (sheet.after ?? sheet.before)?.parentId : null;

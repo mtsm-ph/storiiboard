@@ -2,7 +2,10 @@ import { list, t, type MessageKey } from '../../core/i18n';
 import type { CallSheetFinding } from '../../core/checks';
 import { DEPARTMENT_LABELS } from '../../core/model/department';
 import { locationFields } from '../../core/model/location';
+import { stretchLabel } from '../../core/model/availability';
 import { personFields } from '../../core/model/person';
+import { ROLE_LABELS } from '../../core/model/role';
+import { dayDateLabel } from '../../core/model/shootDay';
 import type { SbdRecord } from '../../core/model/record';
 import { DAY_NIGHT_LABEL, sceneFields, sceneLabel } from '../../core/model/storyboard';
 import type { SunRange } from '../../core/model/sunTimes';
@@ -33,6 +36,12 @@ const rangeText = (range: SunRange): string => {
 
 const locationName = (records: Records, id: string) => locationFields(records[id]?.props ?? {}).name || t('trash.unnamedLocation');
 const personName = (records: Records, id: string) => personFields(records[id]?.props ?? {}).name || t('people.unnamed');
+/** What they do, for a finding about who is called: their role, else their first department; null for neither. */
+const personPartName = (records: Records, id: string): string | null => {
+  const fields = personFields(records[id]?.props ?? {});
+  const [department] = fields.departments;
+  return fields.role ? ROLE_LABELS[fields.role] : department ? DEPARTMENT_LABELS[department] : null;
+};
 const sceneName = (records: Records, id: string) => sceneLabel(sceneFields(records[id]?.props ?? {}).number);
 
 export function findingWords(finding: CallSheetFinding, records: Records, units: WeatherUnits): string {
@@ -46,6 +55,11 @@ export function findingWords(finding: CallSheetFinding, records: Records, units:
       if (finding.problem === 'after-on-set') return t('callSheet.check.hmuAfterOnSet', { name, ready: finding.hmuReady, onSet: finding.onSet });
       if (finding.gap < 0) return t('callSheet.check.hmuBefore', { name, ready: finding.hmuReady, call: finding.call });
       return t('callSheet.check.hmuShort', { name, ready: finding.hmuReady, call: finding.call, gap: finding.gap, minimum: finding.minimum });
+    }
+    case 'unavailable-on-day': {
+      const params = { name: personName(records, finding.personId), day: dayDateLabel(finding.date), dates: list(finding.stretches.map((s) => stretchLabel(s.from, s.to))) };
+      const part = personPartName(records, finding.personId);
+      return part === null ? t('callSheet.check.unavailable', params) : t('callSheet.check.unavailableAs', { ...params, part });
     }
     case 'golden-hour-midday': {
       const params = { scene: sceneName(records, finding.sceneId), when: DAY_NIGHT_LABEL[finding.dayNight], location: locationName(records, finding.locationId), times: list(finding.golden.map(rangeText)) };
@@ -68,6 +82,9 @@ export function findingTarget(finding: CallSheetFinding, canAddPeople: boolean):
       return canAddPeople ? '[data-add-person], [data-choose-people]' : null;
     case 'hmu-too-short':
       return `[data-sheet-cast="${CSS.escape(finding.personId)}"] [data-time="hmu_ready"]`;
+    case 'unavailable-on-day':
+      // Fixed by taking them off the day, in "Who's on the day"; while nobody has chosen, by choosing who is.
+      return `[data-take-off="${CSS.escape(finding.personId)}"], [data-choose-people]`;
     case 'golden-hour-midday':
     case 'exterior-rain':
       return `[data-sheet-scene="${CSS.escape(finding.sceneId)}"]`;
