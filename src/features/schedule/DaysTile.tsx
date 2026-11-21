@@ -31,7 +31,7 @@ import { DayChecksButton } from '../callsheets/DayChecksButton';
 import { openPlanExport } from '../export/exportStore';
 import { showDay, useShownDay } from './shownDay';
 import { GearPicker } from '../gear/GearPicker';
-import { gearListChange } from '../gear/gearEdits';
+import { gearListChange } from '../../core/ops/gearEdits';
 import { ROLE_LABELS } from '../../core/model/role';
 import { useWorkspaceId } from '../../app/shell/workspaceContext';
 import { openDayHistory } from '../history/historyDay';

@@ -4037,4 +4037,25 @@ export const es: Messages = {
   // src/features/export/ExportDialog.tsx
   'export.plan.units': 'Unidades impresas',
   'export.plan.bothBars': 'Barra de escala en metros y pies',
+  // src/core/model/suggestionScope.ts
+  'suggestionScope.assistant': 'Lo que el asistente puede sugerir',
+  'suggestionScope.type.shot': 'Cuadros',
+  'suggestionScope.type.scene': 'Escenas',
+  'suggestionScope.type.note': 'Notas',
+  'suggestionScope.type.shootDay': 'Días de rodaje',
+  'suggestionScope.type.callsheet': 'Hojas de llamado',
+  'suggestionScope.kind.trash': 'enviar a la Papelera',
+  'suggestionScope.kind.update': 'cambiar',
+  'suggestionScope.kind.create': 'agregar',
+  'suggestionScope.kind.reorder': 'reordenar',
+  'suggestionScope.line': '{type}: {kinds}. Campos: {fields}.',
+  // src/features/history/summary.ts
+  'history.suggestion.applied': 'Se aplicó una sugerencia: ',
+  'history.suggestion.rejected': 'Se rechazó una sugerencia: ',
+  'history.suggestion.trash': 'enviar {label} a la Papelera',
+  'history.suggestion.update': 'cambiar {label}',
+  'history.suggestion.create': 'agregar {label}',
+  'history.suggestion.reorder': 'mover {label}',
+  'history.suggestion.unknown': 'un cambio que esta versión no puede leer',
+  'history.suggestion.anItem': 'un elemento',
 };

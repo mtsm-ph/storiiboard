@@ -13,7 +13,7 @@ import { approveSceneDepartment } from './sceneApprovalEdit';
 import { SceneApprovalTable } from './SceneApprovalTable';
 import { FrameGear } from '../gear/FrameGear';
 import { PlanLensLine } from '../birdseye/plan/PlanLensLine';
-import { gearListChange } from '../gear/gearEdits';
+import { gearListChange } from '../../core/ops/gearEdits';
 import { RestOfCrew } from '../department/RestOfCrew';
 import { usePerspective } from '../department/perspective';
 import { openDepartment } from '../department/openDepartment';
