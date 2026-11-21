@@ -3,3 +3,7 @@
 * text=auto eol=lf
 # Test videos are bytes, never text, whatever git guesses.
 *.ivf binary
+# Two stacks of PRs each add rows to the plan's tables, and the rows never depend on each other: a merge keeps both
+# sides' lines rather than stopping at a conflict (Kevin, Nov 20). A merge that comes out with a wrong or doubled row
+# means this line goes again.
+docs/PLAN.md merge=union

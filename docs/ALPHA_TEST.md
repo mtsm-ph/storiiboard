@@ -105,6 +105,9 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
   Encode" graph rises while it is made. (2.3a)
 - [ ] [Mac] A long take on an external drive; unplug the drive halfway through its copy: the Inspector says it failed,
   with Try again, and the copies' folder holds nothing of it. (2.3a)
+- [ ] [Mac] [Windows] A clip on a network share; cut the network halfway through its copy: after about a minute and a
+  half the Inspector says the video stopped being read partway, with the drive's advice, and never that the encoder
+  stopped responding (those words are for an encoder that hangs while the file still reads). (6.27m)
 - [ ] A Sony FX6/FX9 or Canon MXF with separate mono tracks: both channels in the copy, the empty inputs left out, never
   clipped; a clip with every input empty says it has no sound. (2.3b, 2.3c)
 - [ ] [Mac] [Windows] The Player with real footage: plays, scrubs and steps without stalling; comma and period land on
@@ -140,8 +143,17 @@ mid Windows laptop, a managed PC): those are set apart at the end, so the main p
   was read; make one the location's light reference. (6.27)
 - [ ] [Mac] Add an iPhone HEIC photo: it imports, and the status line says its date and place can't be read yet and a
   JPEG copy works. (6.27)
-- [ ] [Windows] Add your own iPhone HEIC photos: note what happens (the webview may not decode them; the old notice
-  shows). (6.27)
+- [ ] [Windows] Add your own iPhone HEIC photos, to a frame, a board and a location: each imports, upright, as any
+  picture does (Rust decodes what the webview can't); the status line still says a HEIC's date and place can't be
+  read yet. (6.27, 6.27n)
+- [ ] [Kevin] [Mac] [Windows] The same iPhone HEIC added on Windows and on the Mac: side by side they look the same,
+  bright reds and greens above all (Windows keeps the photo's own colour: nothing is clipped to sRGB). (6.27n)
+- [ ] [Windows] Thirty photos added at once: the status line counts them ("Reading 3 of 30…"), the app stays usable,
+  and Task Manager shows no more than two ffmpeg at a time. (6.27n)
+- [ ] [Windows] An HDR HEIF from a camera (Sony HLG, Canon PQ): refused with a line that says it's an HDR photo and
+  to export a JPEG. (6.27n)
+- [ ] [Kevin] [Mac] The same HDR HEIF on the Mac: note how it looks; nothing has ever checked what WebKit does with
+  one. (6.27n)
 - [ ] [Kevin] A location photo from an iPhone: its colour matches the Photos app. (3.3b, 6.27)
 - [ ] [Mac] [Windows] Add a scout photo taken with location on, then Export → Project data (JSON): the stored
   picture and its thumbnail carry no date, time or place, only the picture and its colour profile. (6.27b)

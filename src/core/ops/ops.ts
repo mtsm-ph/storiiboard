@@ -965,13 +965,17 @@ export function opsOfRecord(file: ProjectFile, recordId: string): Promise<Logged
   return opsOfRecords(file, [recordId]);
 }
 
-/** Every write to some records, oldest first: a frame's history with its sketch and picture. */
-export async function opsOfRecords(file: ProjectFile, recordIds: readonly string[]): Promise<LoggedOp[]> {
+/**
+ * Every write to some records, oldest first: a frame's history with its sketch and picture. With `before`, only the
+ * writes before that seq: History asks what records were like at its steps, never what came after the newest of them.
+ */
+export async function opsOfRecords(file: ProjectFile, recordIds: readonly string[], before?: number): Promise<LoggedOp[]> {
   if (recordIds.length === 0) return [];
+  const ids = JSON.stringify(recordIds);
   const rows = await file.query(
     `SELECT ${LOGGED_COLUMNS} FROM ops o
-      JOIN op_groups g ON g.id = o.group_id WHERE o.record_id IN (SELECT value FROM json_each(?)) ORDER BY o.seq`,
-    [JSON.stringify(recordIds)],
+      JOIN op_groups g ON g.id = o.group_id WHERE o.record_id IN (SELECT value FROM json_each(?))${before === undefined ? '' : ' AND o.seq < ?'} ORDER BY o.seq`,
+    before === undefined ? [ids] : [ids, before],
   );
   return rows.map(loggedOp);
 }
@@ -1026,6 +1030,134 @@ export async function recordsBefore(file: ProjectFile, asks: readonly { id: stri
     [JSON.stringify(asks)],
   );
   return rows.map((row) => fromSnapshot(row.after));
+}
+
+/**
+ * A record Empty Trash deleted for good, as the log still shows it. Its writes keep their place and kind but not what
+ * they wrote (1.21), so where it was is gone with it: only when it lived is known. `first` and `last` are its first and
+ * last ops' seqs; `made` says whether its first op made it (a create in an edit or a redo, not an undo of a delete).
+ */
+export interface GoneRecord {
+  id: string;
+  first: number;
+  last: number;
+  made: boolean;
+}
+
+/**
+ * The records under each asked parent as their last write before `seq` left them, by ask: where a step put a frame
+ * ("after 3C"), named by the neighbours it had then. Read, never written. The ones there now (records_by_parent) and
+ * the ones a later write took out of it, so a frame moved away since still counts.
+ *
+ * History asks this after every edit, once per move on its page, so the log after the oldest ask is read once for all
+ * of them (by seq, each op's parent read once), not once per ask: that was the moves on the page times the ops after
+ * them. A bound that doesn't grow with the log would need an index on the ops' parent, a schema change.
+ *
+ * `gone`: the records deleted for good that the log shows from the oldest ask on (their writes emptied, Empty Trash's
+ * purge among them), read in the same pass, so History can tell a place it no longer fully knows (GoneRecord).
+ */
+export async function placesBefore(
+  file: ProjectFile,
+  asks: readonly { parentId: string; seq: number }[],
+): Promise<{ children: SbdRecord[][]; gone: GoneRecord[] }> {
+  if (asks.length === 0) return { children: [], gone: [] };
+  const from = asks.reduce((min, ask) => Math.min(min, ask.seq), Number.MAX_SAFE_INTEGER);
+  const parents = JSON.stringify([...new Set(asks.map((ask) => ask.parentId))]);
+  const [now, later] = await Promise.all([
+    file.query('SELECT id, parent_id FROM records WHERE parent_id IN (SELECT value FROM json_each(?))', [parents]),
+    // Per record and parent, its newest write from `from` on that had it under an asked parent; and the records whose
+    // writes were emptied, with no parent (a NULL `parent`).
+    file.query(
+      `SELECT record_id, parent, max(seq) AS last FROM (
+          SELECT o.record_id, o.seq, json_extract(o.before, '$.parent_id') AS parent, o.before IS NULL AND o.after IS NULL AS emptied
+            FROM ops o WHERE o.seq >= ?
+        ) WHERE emptied OR parent IN (SELECT value FROM json_each(?)) GROUP BY record_id, parent`,
+      [from, parents],
+    ),
+  ]);
+  const underNow = new Map<string, string[]>();
+  for (const row of now) {
+    const parent = String(row.parent_id);
+    underNow.set(parent, [...(underNow.get(parent) ?? []), String(row.id)]);
+  }
+  const leftLater = new Map<string, { id: string; last: number }[]>();
+  const goneIds: string[] = [];
+  for (const row of later) {
+    if (row.parent === null || row.parent === undefined) {
+      goneIds.push(String(row.record_id));
+      continue;
+    }
+    const parent = String(row.parent);
+    leftLater.set(parent, [...(leftLater.get(parent) ?? []), { id: String(row.record_id), last: Number(row.last) }]);
+  }
+  // Each ask's records, then each one's last write before the ask's seq, through ops_by_record.
+  const pairs: { i: number; id: string; seq: number }[] = [];
+  asks.forEach((ask, i) => {
+    const ids = new Set(underNow.get(ask.parentId) ?? []);
+    for (const moved of leftLater.get(ask.parentId) ?? []) if (moved.last >= ask.seq) ids.add(moved.id);
+    for (const id of ids) pairs.push({ i, id, seq: ask.seq });
+  });
+  const [rows, goneRows] = await Promise.all([
+    pairs.length === 0
+      ? Promise.resolve([])
+      : file.query(
+          `SELECT j.key AS k, (SELECT o.after FROM ops o WHERE o.record_id = json_extract(j.value, '$.id')
+              AND o.seq < json_extract(j.value, '$.seq') ORDER BY o.seq DESC LIMIT 1) AS after
+            FROM json_each(?) j ORDER BY j.key`,
+          [JSON.stringify(pairs)],
+        ),
+    goneIds.length === 0
+      ? Promise.resolve([])
+      : file.query(
+          `SELECT m.id, m.first, m.last, o.kind, g.kind AS group_kind FROM (
+              SELECT o.record_id AS id, min(o.seq) AS first, max(o.seq) AS last FROM ops o
+                WHERE o.record_id IN (SELECT value FROM json_each(?)) GROUP BY o.record_id
+            ) m JOIN ops o ON o.seq = m.first JOIN op_groups g ON g.id = o.group_id`,
+          [JSON.stringify(goneIds)],
+        ),
+  ]);
+  const children: SbdRecord[][] = asks.map(() => []);
+  for (const row of rows) {
+    const pair = pairs[Number(row.k)];
+    const record = fromSnapshot(row.after);
+    const ask = pair ? asks[pair.i] : undefined;
+    if (pair && record && ask && record.parentId === ask.parentId) children[pair.i]?.push(record);
+  }
+  const gone = goneRows.map((row): GoneRecord => ({
+    id: String(row.id),
+    first: Number(row.first),
+    last: Number(row.last),
+    made: row.kind === 'create' && (row.group_kind === 'edit' || row.group_kind === 'redo'),
+  }));
+  return { children, gone };
+}
+
+/**
+ * The project record as it was at each `seq`: the `before` of its first write from `seq` on, else the row as it is now.
+ * The project is never deleted, and its first write may come long after the file was made (ensureProjectRecord writes
+ * its row straight into the file), so its state then is what the next write found, not the last write before.
+ */
+export async function projectAt(file: ProjectFile, seqs: readonly number[]): Promise<(SbdRecord | null)[]> {
+  if (seqs.length === 0) return [];
+  const [row] = await file.query(`SELECT ${RECORD_COLUMNS} FROM records WHERE type = 'project' AND parent_id IS NULL LIMIT 1`);
+  if (!row) return seqs.map(() => null);
+  const now = fromRow(row);
+  const rows = await file.query(
+    `SELECT j.key AS i, w.seq AS seq, w.before FROM json_each(?) j
+      LEFT JOIN ops w ON w.seq = (SELECT o.seq FROM ops o WHERE o.record_id = ? AND o.seq >= j.value ORDER BY o.seq LIMIT 1)
+      ORDER BY j.key`,
+    [JSON.stringify(seqs), now.id],
+  );
+  // A first write that made it (no before) means it wasn't there yet: not known then.
+  return rows.map((r) => (r.seq === null || r.seq === undefined ? now : fromSnapshot(r.before)));
+}
+
+/**
+ * The records under each asked parent as they were just before `seq`: placesBefore without the records gone since, for a
+ * caller asking about one place at a time (placesBefore.test.ts: the same records either way).
+ */
+export async function childrenBefore(file: ProjectFile, asks: readonly { parentId: string; seq: number }[]): Promise<SbdRecord[][]> {
+  return (await placesBefore(file, asks)).children;
 }
 
 /** The picture files still stored: a step whose picture isn't among them shows "picture removed" (1.21). */

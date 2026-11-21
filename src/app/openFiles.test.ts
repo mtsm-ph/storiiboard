@@ -5,6 +5,7 @@ import { nodeDriver, nodeDriverFor } from '../core/storage/nodeDriver';
 import { createProject } from '../core/storage/project';
 import { arriveFromSync, makeTestFolder, type TestFolder } from '../core/storage/testFolder';
 import { createProjectFile, OpenFileError, openProjectFile, reopenProjectFile, type LockedChoice } from './openFiles';
+import { isOpeningProject } from './openingProject';
 import { createProjectStore } from './projectStore';
 
 let folder: TestFolder;
@@ -161,5 +162,75 @@ describe('a sync replacing the file while it is open', () => {
     const records = Object.values(store.getState().records);
     expect(records.map((r) => r.props.title)).toEqual(['Bey County (their cut)']);
     expect(records.map((r) => r.props.notes)).toEqual(['']);
+  });
+});
+
+describe('a project shown as opening', () => {
+  it('is opening as the project arrives, and not after it opens or fails', async () => {
+    const pilot = await onDisk('Pilot.sbd');
+    // The sidebar grows as the project arrives in the store: its sections must still be disabled at that moment.
+    const arriving: boolean[] = [];
+    const unsubscribe = store.subscribe((state, before) => {
+      if (state.project !== before.project) arriving.push(isOpeningProject());
+    });
+    try {
+      await openProjectFile(pilot, { store, driver: nodeDriver });
+    } finally {
+      unsubscribe();
+    }
+    expect(arriving).toEqual([true]);
+    expect(isOpeningProject()).toBe(false);
+
+    const notes = folder.path('Notes.sbd');
+    writeFileSync(notes, 'not a database at all');
+    await expect(openProjectFile(notes, { store, driver: nodeDriver })).rejects.toThrow(OpenFileError);
+    expect(isOpeningProject()).toBe(false);
+
+    await createProjectFile(folder.path('Open Water.sbd'), { store, driver: nodeDriver });
+    expect(isOpeningProject()).toBe(false);
+  });
+
+  it('is not opening any more after Cancel at "open on another computer"', async () => {
+    const path = folder.path('Bey County.sbd');
+    const elsewhere = await createProject(path, { driver: nodeDriverFor({ id: 'studio', name: 'Studio iMac' }), backups: false });
+    const during: boolean[] = [];
+    const ask = () => {
+      during.push(isOpeningProject());
+      return Promise.resolve<LockedChoice>('cancel');
+    };
+    expect(await openProjectFile(path, { store, driver: nodeDriverFor({ id: 'laptop', name: 'Laptop' }), askWhenLocked: ask })).toBe(false);
+    expect(during).toEqual([true]);
+    expect(isOpeningProject()).toBe(false);
+    await elsewhere.close();
+  });
+
+  /** Whether a project was shown as opening at each moment one arrived in the store while `run` ran. */
+  async function arrivals(run: () => Promise<unknown>): Promise<boolean[]> {
+    const arriving: boolean[] = [];
+    const unsubscribe = store.subscribe((state, before) => {
+      if (state.project !== null && state.project !== before.project) arriving.push(isOpeningProject());
+    });
+    try {
+      await run();
+    } finally {
+      unsubscribe();
+    }
+    return arriving;
+  }
+
+  it('is opening as a new project arrives, and not after it is made', async () => {
+    const path = folder.path('Open Water.sbd');
+    expect(await arrivals(() => createProjectFile(path, { store, driver: nodeDriver }))).toEqual([true]);
+    expect(openPath()).toBe(path);
+    expect(isOpeningProject()).toBe(false);
+  });
+
+  it('is opening as the reopened project arrives after a sync, and not after it is open', async () => {
+    const path = await onDisk('Bey County.sbd');
+    await openProjectFile(path, { store, driver: nodeDriver });
+    const first = store.getState().project;
+    expect(await arrivals(() => reopenProjectFile(path, { store, driver: nodeDriver }))).toEqual([true]);
+    expect(store.getState().project).not.toBe(first);
+    expect(isOpeningProject()).toBe(false);
   });
 });
