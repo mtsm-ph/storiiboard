@@ -361,7 +361,23 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 21, morning; written at 05:45 EST)
+### Next session: start here (Nov 21, midday; written at 08:30 EST)
+
+**Merged on `checkpoint/nov21-e`** (run 44899830311, green on attempt 2): #258 a day's history narrowed (6.38), #259
+the frame-to-day lines and Kevin's Spanish words (6.39), #260 the switchBackup flake's two causes (6.40). `v2` equals
+nov21-e's tree. Attempt 1 was red in three jobs, all GitHub's machines: every Linux test ran about 1.54 times slower
+than on nov21-d, so `planUnderlay.spec.ts:132` passed 60 s twice; the Mac and Windows Rust tests failed on the video
+stall timers in code nothing touched. Rerun: Linux 683, Mac WebKit 680, nothing failed or flaky.
+
+**Phase 7, stacked:** #261 7.0 suggestions in the model (four rounds, reviewed; branch `feat/7.0-suggestions`), #262 7.1
+change files in (on #261; two reviews running, one whose only job is to break the trust boundary). Briefs in
+`private/briefs/7.0-*.md`, `7.1-*.md`. Next: 7.1's round 2, then 7.2 the review screen; a checkpoint after 7.2.
+
+**Follow-ups:** sbd.rs and nodeDriver take the fingerprint of whatever file is at the path after a write, without
+comparing its id (compact does compare): a sync renaming a file over the project inside one write would leave edits in
+the orphaned file (#260's review, low; for the file-locks work).
+
+### Earlier: start here (Nov 21, morning; written at 05:45 EST)
 
 **Kevin's Nov 21 note** (`private/NOV21_NOTE.md`): checkpoints `nov21-e` to `nov21-j`, `baselines-nov21b` and `-c`,
 `launch-4` to `launch-6` are the session's to run. New rule (in CLAUDE.md): a PR that changes only the launch check may
