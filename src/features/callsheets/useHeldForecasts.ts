@@ -11,21 +11,50 @@ export interface HeldPoint {
   longitude: number;
 }
 
-/** The forecasts held for some places right now (this session's and the project's cache), by point id; never asks the network. */
-export async function readHeldForecasts(points: readonly HeldPoint[]): Promise<HeldForecasts> {
+/** The forecasts held, by point id, and when each was fetched (ISO), for the Checks tile's word on an old one (7.4). */
+export interface HeldReading {
+  forecasts: HeldForecasts;
+  fetchedAt: ReadonlyMap<string, string>;
+}
+
+async function readHeld(points: readonly HeldPoint[]): Promise<HeldReading> {
   const rows = await Promise.all(
     points.map(async (p) => {
       const loaded = await findForecast(p.latitude, p.longitude, false).catch(() => null);
-      return loaded ? ([p.id, loaded.forecast] as const) : null;
+      return loaded ? { id: p.id, forecast: loaded.forecast, fetchedAt: loaded.fetchedAt } : null;
     }),
   );
-  return new Map(rows.flatMap((row) => (row ? [row] : [])));
+  const found = rows.flatMap((row) => (row ? [row] : []));
+  return { forecasts: new Map(found.map((row) => [row.id, row.forecast])), fetchedAt: new Map(found.map((row) => [row.id, row.fetchedAt])) };
 }
 
-/** By point id. Points are compared by value, so a redraw with the same places reads nothing again. */
-export function useHeldForecasts(points: readonly HeldPoint[]): HeldForecasts {
-  const wanted = JSON.stringify(points);
-  const [held, setHeld] = useState<HeldForecasts>(new Map());
+/** The forecasts held for some places right now (this session's and the project's cache), by point id; never asks the network. */
+export async function readHeldForecasts(points: readonly HeldPoint[]): Promise<HeldForecasts> {
+  return (await readHeld(points)).forecasts;
+}
+
+const NOTHING: HeldReading = { forecasts: new Map(), fetchedAt: new Map() };
+
+/** The points a reading is for, compared by value: what `useHeldReading`'s `key` is matched against. */
+export const heldPointsKey = (points: readonly HeldPoint[]): string => JSON.stringify(points);
+
+export interface HeldRead extends HeldReading {
+  readAt: number | null;
+  key: string | null;
+}
+
+const NOT_READ: HeldRead = { ...NOTHING, readAt: null, key: null };
+
+/**
+ * The held forecasts with their fetch times, when they were last read (ms; null until they have been read once since
+ * the mount) and the points they were read for (`key`, as `heldPointsKey` gives it; null until read). Until `key` is the
+ * current points' key a caller can't tell "none held" from "not read yet", or from another project's places (7.4 round
+ * 3); a forecast's age is judged at `readAt`. Points are compared by value, so a redraw with the same places reads
+ * nothing again.
+ */
+export function useHeldReading(points: readonly HeldPoint[]): HeldRead {
+  const wanted = heldPointsKey(points);
+  const [held, setHeld] = useState<HeldRead>(NOT_READ);
   const [tick, setTick] = useState(0);
   useEffect(
     () =>
@@ -36,12 +65,18 @@ export function useHeldForecasts(points: readonly HeldPoint[]): HeldForecasts {
   );
   useEffect(() => {
     let current = true;
-    void readHeldForecasts(JSON.parse(wanted) as HeldPoint[]).then((next) => {
-      if (current) setHeld(next);
+    void readHeld(JSON.parse(wanted) as HeldPoint[]).then((next) => {
+      if (!current) return;
+      setHeld({ ...next, readAt: Date.now(), key: wanted });
     });
     return () => {
       current = false;
     };
   }, [wanted, tick]);
   return held;
+}
+
+/** By point id. Points are compared by value, so a redraw with the same places reads nothing again. */
+export function useHeldForecasts(points: readonly HeldPoint[]): HeldForecasts {
+  return useHeldReading(points).forecasts;
 }

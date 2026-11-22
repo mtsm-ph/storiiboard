@@ -467,28 +467,35 @@ const put = (records: Record<string, SbdRecord>, id: string, record: SbdRecord):
  * isn't there (7.0 round 4): nothing a step writes is lost without a word.
  */
 export function foldEdits(records: Records, steps: readonly Step[]): Change[] {
-  const now: Record<string, SbdRecord> = { ...records };
+  // Each step reads a records object of its own (7.4 round 2): readers keep what they read per records object
+  // (recordIndex), so one changed in place after a step read it would hand the next step a stale index. The changes a
+  // step makes go into a fresh copy, which no reader has seen until the next step is given it.
+  let now: Records = records;
   const order: string[] = [];
   const made = new Map<string, Extract<Change, { kind: 'create' }>>();
   for (const step of steps) {
-    for (const change of step(now)) {
+    const changes = step(now);
+    if (changes.length === 0) continue;
+    const next: Record<string, SbdRecord> = { ...now };
+    now = next;
+    for (const change of changes) {
       if (change.kind === 'create') {
         const id = change.record.id;
         // Every edit names the record it makes; one that doesn't would be folded away unseen (7.0 round 4).
         if (id === undefined) throw new Error('foldEdits can’t fold a create with no id.');
         made.set(id, change);
         const { type, parentId, sortKey, props = {} } = change.record;
-        put(now, id, { id, type, parentId, sortKey, props, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' });
+        put(next, id, { id, type, parentId, sortKey, props, trashedAt: null, trashedBy: null, createdAt: '', updatedAt: '' });
         if (!order.includes(id)) order.push(id);
       } else if (change.kind === 'update') {
         // A stamp is the step's own time, which the folded op would drop; an update to a record that isn't there would
         // be dropped too. Neither is an edit a step makes, so either throws rather than lose a write (7.0 round 4).
         if (change.stamp !== undefined) throw new Error(`foldEdits can’t fold a stamped update to ${change.id}.`);
-        const record = recordOf(now, change.id);
+        const record = recordOf(next, change.id);
         if (!record) throw new Error(`foldEdits can’t fold an update to ${change.id}: no such record.`);
         const gone = new Set(change.unset);
         const props = Object.fromEntries(Object.entries({ ...record.props, ...change.set }).filter(([key]) => !gone.has(key)));
-        put(now, change.id, { ...record, props });
+        put(next, change.id, { ...record, props });
         if (!order.includes(change.id)) order.push(change.id);
       } else {
         throw new Error(`foldEdits can't fold a ${change.kind} change.`);

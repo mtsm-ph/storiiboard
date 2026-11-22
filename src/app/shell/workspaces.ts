@@ -46,6 +46,7 @@ const BUILT_IN_TILES = [
   'suggestions',
   'colorScript',
   'department',
+  'checks',
 ] as const;
 type BuiltInTile = (typeof BUILT_IN_TILES)[number];
 
@@ -150,14 +151,16 @@ export const WORKSPACES: readonly [Workspace & { id: SectionId }, ...(Workspace 
       return t('workspace.production');
     },
     phase: null,
-    order: ['days', 'calendar', 'sheet', 'locations', 'gear', 'people'],
+    // Checks last, so the tiles before it keep their numbers.
+    order: ['days', 'calendar', 'sheet', 'locations', 'gear', 'people', 'checks'],
+    // The Checks tile (7.4) under the call sheet: the whole project's problems beside the one day's sheet.
     defaultLayout: () =>
       layout(
         split(
           'row',
           [
             split('column', [stack(['days']), stack(['calendar'])], [404, 404]),
-            stack(['sheet']),
+            split('column', [stack(['sheet']), stack(['checks'])], [588, 220]),
             split('column', [stack(['locations']), stack(['gear']), stack(['people'])], [270, 269, 269]),
           ],
           [400, 680, 336],

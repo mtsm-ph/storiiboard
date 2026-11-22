@@ -185,9 +185,9 @@ describe('gear on a setup’s plan, not on the day’s list (6.5)', () => {
     };
     const one = scans(withSetups(1));
     const four = scans(withSetups(4));
-    // Every reader reads the index (6.22: setupPlanOf too), so a further setup costs no scan at all: a day's check reads
-    // fresh records whole twice, however many setups it has.
-    expect(one).toBe(2);
+    // Every reader reads the index (6.22: setupPlanOf too; 7.4 round 3: the plans' items too), so a further setup costs
+    // no scan at all: a day's check reads fresh records whole once, the type index, however many setups it has.
+    expect(one).toBe(1);
     expect(four - one).toBe(0);
   });
 
