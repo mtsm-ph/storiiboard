@@ -74,7 +74,9 @@ const tripped = (): Records => {
   records = withProps(records, 's1', { int_ext: 'EXT', day_night: 'DUSK' });
   records = {
     ...records,
-    yard: record('yard', 'location', 'p', { name: 'Boat Yard', contact_name: 'Sam Ortiz' }),
+    // Its zone typed: "Boat Yard" sorts first, so the sheet's call and wrap are read in its zone, which without one is
+    // this computer's (4.3), and the pier's light and rain would then depend on where the test runs.
+    yard: record('yard', 'location', 'p', { name: 'Boat Yard', contact_name: 'Sam Ortiz', time_zone: 'America/New_York' }),
     s2: record('s2', 'scene', 'p', { number: '2', int_ext: 'INT', day_night: 'DAY', location_id: 'yard' }),
     b: record('b', 'shot', 's2', { number: '2A', status: 'need', shoot_day_id: 'd1' }),
   };
