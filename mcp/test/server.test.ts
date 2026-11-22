@@ -383,8 +383,11 @@ describe('the MCP server over stdio', () => {
           expect(answer.text).not.toContain('East');
           expect(answer.text).not.toContain('West');
         }
-        // The label it gave is a name it takes, as is a path.
-        for (const label of ['Harbor Lights (1)', 'harbor lights (2)']) expect((await call(c, 'project_summary', { project: label })).isError, label).toBe(false);
+        // The label it gave is a name it takes, as is a path; in another case only where the system's names ignore case
+        // (Windows and the Mac), as the server's own `same` reads them (found on CI's Linux, Nov 21).
+        expect((await call(c, 'project_summary', { project: 'Harbor Lights (1)' })).isError).toBe(false);
+        const caseless = process.platform === 'win32' || process.platform === 'darwin';
+        expect((await call(c, 'project_summary', { project: 'harbor lights (2)' })).isError).toBe(!caseless);
         expect((await call(c, 'project_summary', { project: two })).isError).toBe(false);
       } finally {
         await c.close();
