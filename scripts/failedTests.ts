@@ -1,8 +1,8 @@
-// Every test that failed in a run, flaky ones included, by name (3.19, Kevin Nov 9): read from Vitest's JSON report
-// (test-results/unit.json) and Playwright's (test-results/e2e.json), so a report to Kevin names each one rather than
+// Every test that failed in a run, flaky ones included, by name (3.19, Kevin Nov 9): read from Vitest's JSON reports
+// (test-results/unit.json; the MCP server's test-results/mcp-unit.json, 7.5) and Playwright's (test-results/e2e.json), so a report to Kevin names each one rather than
 // a count. A test Playwright passed only on its retry is flaky, and listed: a flake is a failure that hid.
 //
-//   npm run failed-tests                        both reports from the last local run
+//   npm run failed-tests                        every report from the last local run
 //   node scripts/failedTests.ts path/to/e2e.json one report (a CI artifact, say)
 //
 // Prints when each run started and a line saying so when none failed. Exits 1 when no report is found or one can't be
@@ -29,7 +29,7 @@ const text = (value: Json | undefined): string => (typeof value === 'string' ? v
 /** A path from the repo's root, with forward slashes, whatever machine wrote it. */
 function fromRoot(path: string): string {
   const slashed = path.replace(/\\/g, '/');
-  const at = slashed.search(/(^|\/)(src|e2e|scripts)\//);
+  const at = slashed.search(/(^|\/)(src|e2e|scripts|mcp)\//);
   return at < 0 ? slashed : slashed.slice(slashed[at] === '/' ? at + 1 : at);
 }
 
@@ -93,8 +93,16 @@ export function startedAt(report: JsonObject): string {
 /** Whichever report it is. */
 export const failuresIn = (report: JsonObject): FailedTest[] => ('testResults' in report ? vitestFailures(report) : playwrightFailures(report));
 
+/** The reports read when none is named: the app's unit tests, the MCP server's (7.5 round 3) and the end-to-end run. */
+export const DEFAULT_REPORTS = ['test-results/unit.json', 'test-results/mcp-unit.json', 'test-results/e2e.json'] as const;
+
+/** The reports to read: those named, else each default one that is there. */
+export function reportsToRead(args: readonly string[], exists: (path: string) => boolean = existsSync): string[] {
+  return args.length > 0 ? [...args] : DEFAULT_REPORTS.filter((path) => exists(path));
+}
+
 function main(args: readonly string[]): number {
-  const reports = args.length > 0 ? args : ['test-results/unit.json', 'test-results/e2e.json'].filter((path) => existsSync(path));
+  const reports = reportsToRead(args);
   if (reports.length === 0) {
     console.error('No test report found: run npm test or npm run e2e first.');
     return 1;

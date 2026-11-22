@@ -1,0 +1,9 @@
+{
+  // The MCP server's own TypeScript project (7.5 round 2): the root's options, its own files, and src/core only as far
+  // as its imports reach. The app's tsconfig leaves mcp/ out, so the app never needs mcp/node_modules.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "../node_modules/.cache/tsc/mcp.tsbuildinfo"
+  },
+  "include": ["src", "test", "vite.config.ts", "vitest.config.ts"]
+}
