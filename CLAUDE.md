@@ -394,7 +394,8 @@
   starts as this computer's region says, in every language, or as Settings → App sets it (3.17). Picking a day
   narrows the list; each day shows its scenes, its location's status and how many crew have confirmed.
 - Calendar, Notifications and Trash are tiles any workspace can open. Calendar is in the Production workspace's default
-  layout; Notifications and Trash are in none.
+  layout; Notifications and Trash are in none. Project checks (7.4, src/features/checks) runs every check over the whole
+  project from one function (`allChecks`, src/core/checks), in Production's default layout; Suggestions (7.2) is in none.
 - Navigation (D3): left sidebar with the project switcher, then Storyboard (its scenes inline, "SC 04  Scene Name",
   and "+ Add Scene"), Assets, Team, Setup (the bird's-eye view), Production (schedule, calendar, call sheets,
   locations, gear, cast and crew), Moodboard. Each section is a workspace. Below the sections, Departments: the
@@ -490,6 +491,13 @@
   - HMU time too short before a cast member's call.
   - Storyboard lens differs from the camera lens in the bird's-eye plan.
 - Never send project data anywhere except the client that called the server.
+- Built (7.5, 7.6; Nov 21): `mcp/`, a Node program (22.16 or later) with its own package.json, the only place the MCP SDK
+  and zod live; the app's build, tests and lint never need it. It opens the project read-only (no lock, no journal, a
+  WAL file refused) and writes only one new change file per propose call into `<Project> Suggestions/`. What the
+  assistant is given goes through one table (src/core/model/assistantView.ts: every prop of every record type, given
+  or left out; stored contact fields and coordinates never), a free-text scrub, and a last guard on typed text. No
+  answer, refusal, count, listing or timing may depend on comparing what the assistant sent with a value it can't see.
+  docs/MCP.md has the tools and what each returns or writes; Settings → AI assistant lists them from one list.
 - Optional in-app chat uses the user's own key (Anthropic, OpenAI, Gemini, OpenRouter) from the OS keychain.
 
 ## Security and privacy

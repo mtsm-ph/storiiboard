@@ -21,6 +21,17 @@ the small ones, then Phase 7 from 7.0. Still his:
   installer job only (the one given `--accents-by-page-ok`), a run where both reads fail at the canvas is "can't be
   checked on this machine", said in the log and not red; Windows and a real Mac stay strict. Until he answers, PRs that
   touch nothing the step runs merge past it (nov21-g did). Unblocks: green Mac installer jobs.
+- **A full checkpoint by name** (Nov 21's `nov21-e` to `-j` are used). Unblocks: #271 (7.6, rounds 5 and 6 untested by
+  a checkpoint).
+- **The assistant reading contact details**: decision 14's switch needs a project prop he hasn't approved (recommended:
+  `assistant_contact_details: true` on the project, absent = off). Unblocks: the switch in Settings → AI assistant.
+- **His rule on departments' files**: storing a department's "the assistant may not read" needs a format addition
+  (recommended: a prop on the `department` record, absent = may read, and a person's switch beside Full view), and which
+  material counts (recommended: files and folders only). The server has the hook, empty until he answers.
+- **The probe** (`mcp/probe/`) in Claude Desktop on his Mac and on Windows. Unblocks: the Phase 8 bundle.
+- **A call sheet's times follow this computer's zone when its first location has none** (4.3's choice; found by #272).
+  Keep, or follow the first location that has a zone?
+- **An empty folder `mcp/.away`** a builder left (untracked); his to delete.
 - Standing, for him alone: any format or schema change he hasn't answered, a dependency he hasn't approved, any change to
   the tool list, anything on main, anything that deletes, a screenshot change no item explains, a red job the session
   can't explain.
@@ -368,7 +379,26 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 21, evening; written at 16:30 EST)
+### Next session: start here (Nov 21, night; written at 19:40 EST)
+
+**Merged after nov21-i:** #269 7.5 the MCP server's read tools, on `checkpoint/nov21-j` (every job green first time:
+Linux 704, Mac WebKit 701) and its own checks, past one red in v2's own `allChecks.test.ts` fixture it doesn't touch;
+#272 that fixture's fix (it followed the computer's time zone and failed in UTC), merged on its own checks: one line of
+a unit test, and no checkpoint runs unit tests. All Nov 21 checkpoints are used.
+
+**Open:** #271 7.6 checking and proposing (branch `feat/7.6-mcp-propose`, v2 merged in). Six rounds: the reviews that
+tried to break it found contact oracles three times, then none; the rule now holds everywhere: nothing the assistant is
+told, nor any timing, depends on comparing what it sent with a value it can't see (no stored-value matching of what it
+sends; its own suggestions listed without values; sizes decided from what was sent with fixed reserves). Its Settings
+pictures (20, the AI assistant tab) are committed. It waits for Kevin's next full checkpoint.
+
+**Next:** 7.7 the script kept and the breakdown (decisions 8 and 9, approved), then 7.8 to 7.11. Briefs in
+`private/briefs/`. The checkpoints run no unit tests (only the PR checks do): read a PR's own checks before merging.
+
+**Fixed tonight in the plan:** a script of the session's had overwritten Phase 7 rows' scope text with PR numbers
+(7.2 to 7.6); restored from the morning's plan.
+
+### Earlier: start here (Nov 21, evening; written at 16:30 EST)
 
 **Merged on `checkpoint/nov21-i`** (run 44945317175, every job green first time: Linux 698, Mac WebKit 695, nothing
 failed or flaky): #266 7.3 unavailable dates and the seventh check, #267 7.4 the Checks tile. `v2` equals nov21-i's tree.
