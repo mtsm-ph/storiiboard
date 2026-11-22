@@ -362,6 +362,7 @@ screen, the Suggestions tile (Layout menu → Open tile), shows them and decides
 - [ ] Build the server (`npm ci`, then `npm ci --prefix mcp`, `npm run build --prefix mcp`) and connect Claude Desktop
   to a real project as docs/MCP.md says, with the full path to `node` (`which node` / `where node`, 22.16 or later):
   Claude lists the Storiiboard tools (seventeen from 7.6); ask for a summary of the project, the plan of a
+  Claude lists the ten Storiiboard tools; ask for a summary of the project, the plan of a
   setup (its cameras' field of view, the sun, the windows' hours), the schedule and a day's call sheet. The numbers
   match the app's. (7.5)
 - [ ] The same with Claude Code (`claude mcp add`, docs/MCP.md). (7.5)
