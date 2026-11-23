@@ -379,7 +379,20 @@ Lows deferred (noted, not planned yet):
   (a 33-point cube is about 1 MB); a "remove unused LUTs" belongs with Clean up old pictures if they ever add up.
 - Only 3D `.cube` files. A 1D LUT, or a 1D shaper before the 3D one, is refused with words saying why.
 
-### Next session: start here (Nov 21, night; written at 19:40 EST)
+### Next session: start here (Nov 23: Kevin continues from his phone)
+
+**Everything committed is on GitHub**; `v2` is current to #273 plus this note. Open: only #271 (7.6, branch
+`feat/7.6-mcp-propose`), which waits for a full checkpoint Kevin names. After the Nov 21 night its own Checks (Linux) was
+red on one test, `mcp/test/writeAndChecks.test.ts` "gives allChecks' own findings for a project tripping each kind…": the
+zone-less Boat Yard fixture again (#272's cause, in 7.6's own copy; UTC only). Fixed on the branch on Nov 23; read #271's
+checks before merging, since checkpoints run no unit tests. 7.6's round 6 has had no review after it.
+
+**A cloud session doesn't have `private/`** (git-ignored, on Kevin's PC only): the briefs, Kevin's notes, the Nov 21
+report, Phase 7's Nov 16 answers (the changes to decisions 1, 3, 4, 5 and 16) and questions 18 to 22, the departments
+plan. Build nothing that rests on them from memory: ask Kevin to paste the part needed, or work through Remote Control to
+the PC. The rest of "Nov 21, night" below still stands.
+
+### Earlier: start here (Nov 21, night; written at 19:40 EST)
 
 **Merged after nov21-i:** #269 7.5 the MCP server's read tools, on `checkpoint/nov21-j` (every job green first time:
 Linux 704, Mac WebKit 701) and its own checks, past one red in v2's own `allChecks.test.ts` fixture it doesn't touch;
