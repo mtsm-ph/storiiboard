@@ -63,11 +63,33 @@ export interface FieldContext {
   day?: SbdRecord | null;
 }
 
+/**
+ * The largest value a field holds as stored, for a writer that counts a `before` it may not show (7.6 round 5): text of
+ * at most `max` characters, or null; a short value (null, true or false, a number, text of at most SHORT_VALUE
+ * characters: a choice, a time); a list of at most `most` ids (each at most ID_CHARS letters, digits and dashes: a
+ * UUID); or a map a call sheet edits key by key, whose `before` holds only the keys named, as the sheet reads them.
+ * Round 6: what a person can store, which can be more than what a suggestion sends (a title typed past 200 characters
+ * in the Inspector, a gear list that keeps every deleted item's id).
+ */
+export type StoredBound = { kind: 'text'; max: number } | { kind: 'short' } | { kind: 'ids'; most: number } | { kind: 'by_key' };
+
+/** Longest text a short stored value is (a choice, a time, a number this version writes). */
+export const SHORT_VALUE = 20;
+/** Longest id a stored list of ids holds, in letters, digits and dashes: a UUID. */
+export const ID_CHARS = 36;
+
 export interface ScopeField {
   /** Its name in the words (History's names for fields). */
   label: MessageKey;
   /** Null when the value can be written; else why not. */
   check: (value: JsonValue, context: FieldContext) => ValueProblem | null;
+  /**
+   * The part of `check` that reads nothing but the value (7.6 round 5: its lengths, choices, ranges and shape), so a
+   * writer can run it before it reads the project. Whatever it refuses, `check` refuses too, in any project.
+   */
+  shape: (value: JsonValue) => ValueProblem | null;
+  /** The largest value the field holds as stored (7.6 round 5). */
+  stored: StoredBound;
   /** Whether this (checked) value takes the prop off rather than being written: null, and what the field's edit reads as empty. */
   takesOff: (value: JsonValue) => boolean;
   /**
@@ -101,10 +123,14 @@ export interface ScopeRow {
 /** Longest text a field takes: a title or a name, and an action, a dialogue, a note or a call sheet's notes. */
 export const SHORT_TEXT = 200;
 export const LONG_TEXT = 10_000;
+/** Longest title or scene name a `before` holds as stored (7.6 round 6): the Inspector takes more than SHORT_TEXT. */
+export const STORED_TEXT = 1000;
 /** Longest id a check reads: a UUID is 36. */
 const MAX_ID = 100;
 /** Longest list of ids, and most people one call sheet times. */
 const MAX_IDS = 500;
+/** Most entries a stored list of ids holds (7.6 round 6): the app keeps a deleted item's id on a list for good. */
+const STORED_IDS = 2000;
 
 const isObject = (value: JsonValue | undefined): value is { [key: string]: JsonValue } => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -117,29 +143,30 @@ const liveOf = (records: Records, id: string, type: RecordType): boolean => {
 
 const isNull = (value: JsonValue): boolean => value === null;
 
-/** Text up to `max`; with `emptyOff`, '' and null take it off (a title), else null is refused (an action is '' when empty). */
-function text(label: MessageKey, max: number, emptyOff = false): ScopeField {
-  return {
-    label,
-    check: (value) => (value === null ? (emptyOff ? null : 'empty') : typeof value !== 'string' ? 'type' : value.length > max ? 'too_long' : null),
-    takesOff: (value) => value === null || (emptyOff && value === ''),
-  };
+/**
+ * Text up to `max`; with `emptyOff`, '' and null take it off (a title), else null is refused (an action is '' when empty).
+ * As stored, up to `storedMax` (round 6), which can be more than a suggestion sends.
+ */
+function text(label: MessageKey, max: number, emptyOff = false, storedMax = max): ScopeField {
+  const shape = (value: JsonValue): ValueProblem | null => (value === null ? (emptyOff ? null : 'empty') : typeof value !== 'string' ? 'type' : value.length > max ? 'too_long' : null);
+  return { label, check: shape, shape, stored: { kind: 'text', max: storedMax }, takesOff: (value) => value === null || (emptyOff && value === '') };
 }
 
 /** One of `choices`; with `nullable`, null takes it off. */
 function choice(label: MessageKey, choices: readonly (string | number)[], nullable: boolean): ScopeField {
-  return {
-    label,
-    check: (value) => (value === null ? (nullable ? null : 'empty') : typeof value !== 'string' && typeof value !== 'number' ? 'type' : choices.includes(value) ? null : 'choice'),
-    takesOff: isNull,
-  };
+  const shape = (value: JsonValue): ValueProblem | null =>
+    value === null ? (nullable ? null : 'empty') : typeof value !== 'string' && typeof value !== 'number' ? 'type' : choices.includes(value) ? null : 'choice';
+  return { label, check: shape, shape, stored: { kind: 'short' }, takesOff: isNull };
 }
 
 /** A live record's id; with `nullable`, null takes it off. */
 function idOf(label: MessageKey, type: RecordType, nullable: boolean): ScopeField {
+  const shape = (value: JsonValue): ValueProblem | null => (value === null ? (nullable ? null : 'empty') : typeof value !== 'string' ? 'type' : value.length > MAX_ID ? 'not_found' : null);
   return {
     label,
-    check: (value, { records }) => (value === null ? (nullable ? null : 'empty') : typeof value !== 'string' ? 'type' : liveOf(records, value, type) ? null : 'not_found'),
+    check: (value, { records }) => shape(value) ?? (typeof value === 'string' && !liveOf(records, value, type) ? 'not_found' : null),
+    shape,
+    stored: { kind: 'text', max: MAX_ID },
     takesOff: isNull,
   };
 }
@@ -149,18 +176,25 @@ function idOf(label: MessageKey, type: RecordType, nullable: boolean): ScopeFiel
  * version's) is never written over, as the edits that keep these lists refuse it. With `emptyOff`, [] takes it off.
  */
 function idsOf(label: MessageKey, type: RecordType, prop: string, emptyOff: boolean): ScopeField {
+  const shape = (value: JsonValue): ValueProblem | null => {
+    if (value === null) return emptyOff ? null : 'empty';
+    if (!Array.isArray(value)) return 'type';
+    if (value.length > MAX_IDS) return 'too_many';
+    if (value.some((id) => typeof id !== 'string')) return 'type';
+    if (new Set(value).size !== value.length) return 'repeated';
+    return null;
+  };
   return {
     label,
     check: (value, { records, record }) => {
       const stored = record?.props[prop];
       if (stored !== undefined && !Array.isArray(stored)) return 'unreadable';
-      if (value === null) return emptyOff ? null : 'empty';
-      if (!Array.isArray(value)) return 'type';
-      if (value.length > MAX_IDS) return 'too_many';
-      if (value.some((id) => typeof id !== 'string')) return 'type';
-      if (new Set(value).size !== value.length) return 'repeated';
+      const problem = shape(value);
+      if (problem || !Array.isArray(value)) return problem;
       return value.every((id) => typeof id === 'string' && liveOf(records, id, type)) ? null : 'not_found';
     },
+    shape,
+    stored: { kind: 'ids', most: STORED_IDS },
     takesOff: (value) => value === null || (emptyOff && Array.isArray(value) && value.length === 0),
     listOf: type,
   };
@@ -168,12 +202,13 @@ function idsOf(label: MessageKey, type: RecordType, prop: string, emptyOff: bool
 
 /** A whole number from `min` to `max`, or null to take it off. */
 function wholeNumber(label: MessageKey, min: number, max: number): ScopeField {
-  return {
-    label,
-    check: (value) => (value === null ? null : typeof value !== 'number' ? 'type' : Number.isInteger(value) && value >= min && value <= max ? null : 'range'),
-    takesOff: isNull,
-  };
+  const shape = (value: JsonValue): ValueProblem | null => (value === null ? null : typeof value !== 'number' ? 'type' : Number.isInteger(value) && value >= min && value <= max ? null : 'range');
+  return { label, check: shape, shape, stored: { kind: 'short' }, takesOff: isNull };
 }
+
+/** A focal length's own bounds, whatever lens is picked: a number above 0 to 2000 mm. */
+const lensShape = (value: JsonValue): ValueProblem | null =>
+  value === null ? null : typeof value !== 'number' ? 'type' : !Number.isFinite(value) || value <= 0 || value > 2000 ? 'range' : null;
 
 /** A frame's focal length, as the Inspector takes one: above 0 to 2000 mm, inside a picked lens's range; null takes it off, unless a lens is picked. */
 const lensMm: ScopeField = {
@@ -181,10 +216,12 @@ const lensMm: ScopeField = {
   check: (value, { records, record }) => {
     const range = record ? (frameLens(records, record)?.fields.range ?? null) : null;
     if (value === null) return range ? 'lens_range' : null;
-    if (typeof value !== 'number') return 'type';
-    if (!Number.isFinite(value) || value <= 0 || value > 2000) return 'range';
+    const problem = lensShape(value);
+    if (problem || typeof value !== 'number') return problem;
     return range && (value < range.min || value > range.max) ? 'lens_range' : null;
   },
+  shape: lensShape,
+  stored: { kind: 'short' },
   takesOff: isNull,
 };
 
@@ -202,20 +239,22 @@ const clockOrOff = (time: JsonValue | undefined): boolean => time === null || ti
  * `{ department id: "HH:MM" }`, where '' or null takes that department's call off. Departments not named stay as they are,
  * one this version can't read included, so the field itself is never taken off whole.
  */
+const departmentCallsShape = (value: JsonValue): ValueProblem | null => {
+  if (!isObject(value)) return 'type';
+  const entries = Object.entries(value);
+  if (entries.length > 50) return 'too_many';
+  for (const [department, time] of entries) {
+    if (!isDepartment(department)) return 'not_found';
+    if (!clockOrOff(time)) return 'type';
+  }
+  return null;
+};
+
 const departmentCalls: ScopeField = {
   label: 'history.field.departmentCalls',
-  check: (value, { record }) => {
-    const stored = storedMap(record, 'department_calls');
-    if (stored) return stored;
-    if (!isObject(value)) return 'type';
-    const entries = Object.entries(value);
-    if (entries.length > 50) return 'too_many';
-    for (const [department, time] of entries) {
-      if (!isDepartment(department)) return 'not_found';
-      if (!clockOrOff(time)) return 'type';
-    }
-    return null;
-  },
+  check: (value, { record }) => storedMap(record, 'department_calls') ?? departmentCallsShape(value),
+  shape: departmentCallsShape,
+  stored: { kind: 'by_key' },
   takesOff: () => false,
   byKey: true,
 };
@@ -252,17 +291,26 @@ const personTimes: ScopeField = {
     }
     return null;
   },
+  shape: (value) => {
+    if (!isObject(value)) return 'type';
+    const entries = Object.entries(value);
+    if (entries.length > MAX_IDS) return 'too_many';
+    for (const [, times] of entries) {
+      if (times === null) continue;
+      if (!isObject(times) || Object.keys(times).length === 0) return 'type';
+      for (const [key, time] of Object.entries(times)) if (!isPersonTimeKey(key) || !clockOrOff(time)) return 'type';
+    }
+    return null;
+  },
+  stored: { kind: 'by_key' },
   takesOff: () => false,
   byKey: true,
 };
 
 /** A day's crew call or wrap (3.7), as the Days tile edits one (dayChange): `HH:MM`, or '' and null to take it off. */
 function dayTime(label: MessageKey): ScopeField {
-  return {
-    label,
-    check: (value) => (clockOrOff(value) ? null : 'type'),
-    takesOff: (value) => value === null || value === '',
-  };
+  const shape = (value: JsonValue): ValueProblem | null => (clockOrOff(value) ? null : 'type');
+  return { label, check: shape, shape, stored: { kind: 'short' }, takesOff: (value) => value === null || value === '' };
 }
 
 /**
@@ -280,7 +328,7 @@ export const ASSISTANT_SCOPE: ScopeRow = {
       kinds: ['trash', 'update', 'create', 'reorder'],
       parents: ['scene'],
       fields: {
-        title: text('history.field.title', SHORT_TEXT, true),
+        title: text('history.field.title', SHORT_TEXT, true, STORED_TEXT),
         size: choice('history.field.size', SHOT_SIZES, false),
         lens_mm: lensMm,
         t_stop: choice('history.field.tStop', T_STOPS, true),
@@ -301,7 +349,7 @@ export const ASSISTANT_SCOPE: ScopeRow = {
       kinds: ['trash', 'update', 'create'],
       parents: ['project'],
       fields: {
-        name: text('history.field.name', SHORT_TEXT),
+        name: text('history.field.name', SHORT_TEXT, false, STORED_TEXT),
         int_ext: choice('history.field.intExt', INT_EXT, false),
         // The Inspector's Time can be set back to none; INT/EXT can't.
         day_night: choice('history.field.dayNight', DAY_NIGHT, true),

@@ -702,7 +702,7 @@ export const isUuid = (value: string): boolean => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9
  * The type a suggestion's data is read by: its target's own type when the target is in the project (a call sheet's
  * suggestion targets its shoot day and carries the sheet's props), else the type it says.
  */
-function suggestionType(records: Records, record: SbdRecord): string {
+export function suggestionType(records: Records, record: SbdRecord): string {
   const claimed = typeof record.props.target_type === 'string' ? record.props.target_type : '';
   const targetId = record.props.target_id;
   const target = typeof targetId === 'string' ? records[targetId] : undefined;
@@ -732,7 +732,7 @@ function suggestionData(type: string, data: JsonValue): JsonValue {
 }
 
 /** A field name a record of this type has, given or left out: only those are named back. */
-function knownProp(type: string, name: string): boolean {
+export function knownProp(type: string, name: string): boolean {
   const rule = isRecordType(type) ? ASSISTANT_PROPS[type] : undefined;
   return rule !== undefined && (Object.hasOwn(rule.given, name) || Object.hasOwn(rule.leftOut, name));
 }
