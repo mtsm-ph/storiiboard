@@ -112,7 +112,8 @@ function tripped(): Record<string, SbdRecord> {
   const list = [
     record('p', 'project', null, { title: 'Harbor Lights' }),
     record('pier', 'location', 'p', pier),
-    record('yard', 'location', 'p', { name: 'Boat Yard', contact_name: 'Sam Ortiz', contact_email: 'yard@example.com' }),
+    // Its zone is typed: without one the day's hours follow this computer's zone (4.3), as allChecks.test.ts says (#272).
+    record('yard', 'location', 'p', { name: 'Boat Yard', contact_name: 'Sam Ortiz', contact_email: 'yard@example.com', time_zone: 'America/New_York' }),
     record('d1', 'shoot_day', 'p', { date: '2030-11-16', call_time: '10:00', wrap_time: '14:00', people_ids: ['dir', 'robin', 'sam', 'hana', 'lee'], gear_ids: ['fx3'] }),
     record('fx3', 'gear_item', 'p', { name: 'FX3 package' }),
     record('slider', 'gear_item', 'p', { name: 'Slider' }),
